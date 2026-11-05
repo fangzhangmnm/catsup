@@ -12,6 +12,7 @@ import type { Guides } from "../scene/guides.ts";
 import { BUILTIN_BACK_GUID, type Guid } from "./guid.ts";
 import { BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { newDocument } from "./document.ts";
+import type { DefinitionEntry } from "./entry-kinds.ts";
 
 const guidesFromDoc = (g: GuidesDoc): Guides => ({
   lines: g.lines.map((l) => ({ id: l.id, p: { ...l.p }, dir: { ...l.dir } })),
@@ -28,56 +29,49 @@ const copyShelf = (s: ShelfDoc): ShelfDoc => ({ folders: s.folders.map((f) => ({
 /** 非 brep 定义在文件里的占位 brep（文件布局不动：definitions[i].brep 永远在）。 */
 const EMPTY_BREP = () => new Kernel().toBrep();
 
-/**
- * 这些文件形状的定义里，从 roots 往下走真要新建的（场景里有同 GUID 的 = 用场景那条，**它下面的不再看**：不比内容；不然目标的旧版用不上的子组件会被建出来当孤儿）。计划书 §15.1-B。
- */
-export function definitionsToMake(scene: Scene, defs: readonly DefinitionDoc[], roots: Iterable<Guid>): DefinitionDoc[] {
-  const docs = new Map(defs.map((d) => [d.guid, d])), exists = new Set([...scene.defs.values()].map((d) => d.guid)), make: DefinitionDoc[] = [], seen = new Set<Guid>();
-  const walk = (g: Guid): void => { if (seen.has(g) || exists.has(g)) return; seen.add(g); const d = docs.get(g); if (!d) return; make.push(d); for (const i of d.instances) walk(i.definition); };
-  for (const g of roots) walk(g);
-  return make;
-}
 /** materializeDefinitions 的两处差别：整份文件 vs 从别的文件搬几条。 */
 export interface MaterializeOpts {
   /** 这一条已经在场景里、但身体要装（sceneFromDocument 的根：构造器先造了空的）。 */
   readonly fillExisting?: Guid;
-  /** 文件里实例上的层代号 → 这个场景的层 id（缺 = 原样：装整份文件时层表就是这张）；undefined = 这一份不归层。 */
-  readonly layerOf?: (code: number) => number | undefined;
+  /** 实例上的层代号就是这个场景的层 id（打开文件 / 做成唯一：同一张层表）。缺 = 经条目自己的对照表按 GUID 认（层已经先进表了，format/scene-store.ts applyPlan）；认不出 = 这一份不归层。 */
+  readonly sameLayerTable?: boolean;
 }
 /**
- * 把文件形状的定义装进场景（打开文件和跨文件粘贴同一份代码，计划书 §15.1-A）：已经有同 GUID 的跳过（用场景那条，不比内容，§15.1-B）；其余带原 GUID 新建，它内部的组 / 子实例也保留 GUID（是这一条的内部结构）。
- * materialOf = 材质 GUID → 下标（槽表换算；内置背面由调用方的函数负责时返回 −2，这里先认常量）。返回：这张场景里全部定义的 GUID → 句柄。
+ * 把文件形状的定义装进场景（打开文件、跨文件粘贴、做成唯一同一份代码，计划书 §15.1-A）：已经有同 GUID 的跳过；其余带原 GUID 新建，它内部的组 / 子实例也保留 GUID（是这一条的内部结构）。
+ * 要装谁由身份层决定（identity/graph.ts plan）。materialOf = 材质 GUID → 下标（槽表换算；内置背面这里先认常量）。返回：这张场景里全部定义的 GUID → 句柄。
  */
-export function materializeDefinitions(scene: Scene, defs: readonly DefinitionDoc[], materialOf: (g: Guid) => number, opts: MaterializeOpts = {}): Map<Guid, DefId> {
+export function materializeDefinitions(scene: Scene, entries: readonly DefinitionEntry[], materialOf: (g: Guid) => number, opts: MaterializeOpts = {}): Map<Guid, DefId> {
   const idOf = new Map<Guid, DefId>();
   for (const d of scene.defs.values()) idOf.set(d.guid, d.id);
-  const fill: DefinitionDoc[] = [];
-  for (const d of defs) {
-    if (d.guid === opts.fillExisting) { fill.push(d); continue; }
+  const fill: DefinitionEntry[] = [];
+  for (const e of entries) {
+    const d = e.def;
+    if (d.guid === opts.fillExisting) { fill.push(e); continue; }
     if (idOf.has(d.guid)) continue;
     idOf.set(d.guid, scene.mintDef(d.name, Kernel.fromBrep(d.brep), d.guid).id);
-    fill.push(d);
+    fill.push(e);
   }
   const slotsOf = (d: DefinitionDoc): number[] => d.materialSlots.map((g) => (g === BUILTIN_BACK_GUID ? BUILTIN_BACK_SLOT : g !== null ? materialOf(g) : -1));
+  const layerOf = (e: DefinitionEntry, code: number): number | undefined => { if (opts.sameLayerTable) return code; const g = e.layerGuid(code); return g === undefined ? undefined : scene.layers.find((l) => l.guid === g)?.id; };
   /** 两种身体共用：实例按文件顺序摆（Map 插入顺序 = 同级顺序，计划书 §2.3）。 */
-  const placeInstances = (defId: DefId, d: DefinitionDoc, parentOf: (g: Guid | null) => GroupId | null): void => {
-    for (const inst of d.instances) {
+  const placeInstances = (defId: DefId, e: DefinitionEntry, parentOf: (g: Guid | null) => GroupId | null): void => {
+    for (const inst of e.def.instances) {
       const target = idOf.get(inst.definition);
       if (target === undefined) continue;
       const ii = scene.mintInstance(defId, parentOf(inst.parent), target, inst.xform, inst.guid);
       if (inst.name !== undefined) ii.name = inst.name;
       if (inst.locked) ii.locked = true;
-      if (inst.layer !== undefined) { const l = opts.layerOf ? opts.layerOf(inst.layer) : inst.layer; if (l !== undefined) ii.layer = l; }
+      if (inst.layer !== undefined) { const l = layerOf(e, inst.layer); if (l !== undefined) ii.layer = l; }
       if (inst.hidden) ii.hidden = true;
     }
   };
-  for (const d of fill) {
-    const def = scene.def(idOf.get(d.guid)!);
+  for (const e of fill) {
+    const d = e.def, def = scene.def(idOf.get(d.guid)!);
     // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
     if (d.kind === "mesh" && d.mesh) {
       def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: slotsOf(d) };
       if (d.mesh.mirror) scene.meshMirrors.set(def.id, { mode: d.mesh.mirror.mode, axis: d.mesh.mirror.axis });
-      placeInstances(def.id, d, () => null);   // 网格体没有组
+      placeInstances(def.id, e, () => null);   // 网格体没有组
       continue;
     }
     const body = scene.brep(def.id);   // 文件平铺的 brep / groups / materialSlots / guides = brep 身体（门 1：文件布局不动）
@@ -93,14 +87,15 @@ export function materializeDefinitions(scene: Scene, defs: readonly DefinitionDo
     }
     const parentOf = (g: Guid | null): GroupId | null => (g !== null ? (groupOf.get(g) ?? null) : null);
     for (const g of d.groups) body.groups.get(groupOf.get(g.guid)!)!.parent = parentOf(g.parent);
-    placeInstances(def.id, d, parentOf);
+    placeInstances(def.id, e, parentOf);
   }
   // 循环引用防线：任何 definition 不得（直接或间接）引用自己（已有的定义没被改过，只查新装的）
-  for (const d of fill) { const def = scene.def(idOf.get(d.guid)!); for (const inst of def.instances.values()) if (scene.references(inst.def, def.id)) throw new Error(`readCatsup: definition "${def.name}" references itself through instances`); }
+  for (const { def: d } of fill) { const def = scene.def(idOf.get(d.guid)!); for (const inst of def.instances.values()) if (scene.references(inst.def, def.id)) throw new Error(`readCatsup: definition "${def.name}" references itself through instances`); }
   return idOf;
 }
 
-/** 文档 → 场景。 */
+const noLayerTable = (): undefined => undefined;   // 打开文件：层代号就是这张表的 id，用不着对照
+/** 文档 → 场景（打开 = 往空店里落地；整张表原样装，没有要决定的事，不走 plan）。 */
 export function sceneFromDocument(doc: CatsupDocument): Scene {
   const scene = new Scene(Kernel.fromBrep(doc.root.brep), doc.root.guid);
   scene.axes = copyFrame(doc.axes);
@@ -112,7 +107,7 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
   scene.nextLayer = Math.max(1, ...scene.layers.map((l) => l.id + 1));
   scene.shelf = doc.shelf ? copyShelf(doc.shelf) : emptyShelf();
   scene.shelfFrozen = doc.readNotes?.shelfTooNew ?? null;
-  materializeDefinitions(scene, doc.definitions, (g) => matIndex.get(g) ?? -1, { fillExisting: doc.root.guid });
+  materializeDefinitions(scene, doc.definitions.map((def) => ({ def, layerGuid: noLayerTable })), (g) => matIndex.get(g) ?? -1, { fillExisting: doc.root.guid, sameLayerTable: true });
   return scene;
 }
 

@@ -4,11 +4,16 @@
 //   「我们没有一个中心化的按引用计数的东西吗？学blender」）。现在：谁用谁、活没活只有这里回答；删组件定义只有一条用户点了才跑的指令（ops.ts purgeDefs）。
 // · 活着 = 从活着的根够得着（user「反正就是要么被引用要么被素材库引用。和blender的逻辑一样」）：根 = 模型根 + 素材架收着的组件（身份地基 ID-3）。
 //   被孤儿用着的也算孤儿（孤儿 A 里摆着 B、B 没别人用 → 两个一起是孤儿；Blender 的「递归清理」同款）。
+// · 身份层（ID-4，2026-11-04 Claude Opus 5.5）：走图和数用量归 src/identity/ + format/scene-store.ts，这里只是资源页要的那个形状。
 // · 材质（身份地基 ID-2，2026-11-04 Claude Opus 5.5）：活着的组件里几张面用它 + 只躺在孤儿组件里几张面 + 素材架收没收。能清理 = 三样都没有（清掉只被孤儿用的，孤儿的颜色就没了：清点 P8）；
 //   要清它们先清孤儿。真正的删在 ops.ts purgeMaterials（同一步重排所有槽表）。
 import type { BodyKind } from "./body-kind.ts";
 import type { Guid } from "../format/guid.ts";
 import type { DefId, InstId, Scene } from "./scene.ts";
+import { closure } from "../identity/graph.ts";
+import type { Ref } from "../identity/kinds.ts";
+import { DEFINITION, defRef, materialRef } from "../format/entry-kinds.ts";
+import { sceneStore, type SceneStore } from "../format/scene-store.ts";
 
 export interface DefCensus {
   readonly def: DefId;
@@ -41,27 +46,19 @@ export interface MaterialUse { faces: number; orphanFaces: number; shelved: bool
 export interface ShelfRow { readonly type: "folder" | "definition" | "material" | "other"; readonly guid: Guid; readonly name: string; readonly depth: number; readonly def?: DefId; readonly material?: number }
 export interface Census { readonly defs: readonly DefCensus[]; readonly materials: readonly MaterialCensus[]; readonly shelf: readonly ShelfRow[] }
 
-/** 素材架收着的组件。 */
-export function shelvedDefs(s: Scene): DefId[] {
-  const refs = new Set(s.shelf.items.filter((it) => it.kind === "definition").map((it) => it.ref));
-  return refs.size ? [...s.defs.values()].filter((d) => refs.has(d.guid)).map((d) => d.id) : [];
-}
+/** 这几条引用里的定义 → 句柄。 */
+const defIds = (store: SceneStore, refs: readonly Ref[]): Set<DefId> => { const out = new Set<DefId>(); for (const r of refs) if (r.kind === DEFINITION) { const id = store.defIdOf(r.guid); if (id !== undefined) out.add(id); } return out; };
 /** 活着的组件定义（含模型根）：从根和素材架沿「谁摆着谁」走得到的。 */
-export function liveDefs(s: Scene): Set<DefId> { return reachableDefs(s, [s.root, ...shelvedDefs(s)]); }
+export function liveDefs(s: Scene): Set<DefId> { const store = sceneStore(s); return defIds(store, closure(store, store.roots())); }
 /** 从这几个定义沿实例引用够得着的全部定义（自己算）。 */
-export function reachableDefs(s: Scene, roots: readonly DefId[]): Set<DefId> {
-  const live = new Set<DefId>(), stack: DefId[] = [...roots];
-  while (stack.length) { const d = stack.pop()!; if (live.has(d) || !s.defs.has(d)) continue; live.add(d); for (const i of s.def(d).instances.values()) stack.push(i.def); }
-  return live;
-}
+export function reachableDefs(s: Scene, roots: readonly DefId[]): Set<DefId> { const store = sceneStore(s); return defIds(store, closure(store, roots.filter((id) => s.defs.has(id)).map((id) => defRef(s.def(id).guid)))); }
 
 /** 一次清点（模型根不列：它不是谁摆出来的，也不会是孤儿）。 */
 export function census(s: Scene): Census {
-  const live = liveDefs(s), onShelf = new Set(shelvedDefs(s)), users = new Map<DefId, { in: DefId; instance: InstId }[]>();
+  const store = sceneStore(s), live = liveDefs(s), users = new Map<DefId, { in: DefId; instance: InstId }[]>();
   for (const d of s.defs.values()) for (const i of d.instances.values()) { const u = users.get(i.def) ?? []; u.push({ in: d.id, instance: i.id }); users.set(i.def, u); }
-  const defs = [...s.defs.values()].filter((d) => d.id !== s.root).map((d): DefCensus => ({ def: d.id, name: d.name, kind: s.kindOf(d.id), users: users.get(d.id) ?? [], placed: (users.get(d.id) ?? []).filter((u) => live.has(u.in)).length, live: live.has(d.id), shelved: onShelf.has(d.id) }));
-  const use = materialUse(s);
-  const materials = s.materials.map((m, index): MaterialCensus => ({ index, guid: m.guid, name: m.name, textured: !!m.texture, ...use[index] }));
+  const defs = [...s.defs.values()].filter((d) => d.id !== s.root).map((d): DefCensus => { const u = store.usage(defRef(d.guid)); return { def: d.id, name: d.name, kind: s.kindOf(d.id), users: users.get(d.id) ?? [], placed: u.placed, live: live.has(d.id), shelved: u.shelved }; });
+  const materials = s.materials.map((m, index): MaterialCensus => { const u = store.usage(materialRef(m.guid)); return { index, guid: m.guid, name: m.name, textured: !!m.texture, faces: u.faces, orphanFaces: u.orphanFaces, shelved: u.shelved }; });
   return { defs, materials, shelf: shelfRows(s) };
 }
 
@@ -89,17 +86,10 @@ export function shelfRows(s: Scene): ShelfRow[] {
   return out;
 }
 
-/** 每个材质（按文档材质表下标）被谁用：活着的组件 / 孤儿组件 / 素材架。 */
+/** 每个材质（按文档材质表下标）被谁用：活着的组件 / 孤儿组件 / 素材架。能不能清理按**面**算，不按槽表算（槽表占位不算有人用；引用图上它还算被引用，闭包照带）。 */
 export function materialUse(s: Scene): MaterialUse[] {
-  const out: MaterialUse[] = s.materials.map((m) => ({ faces: 0, orphanFaces: 0, shelved: s.shelf.items.some((it) => it.kind === "material" && it.ref === m.guid) }));
-  const live = liveDefs(s);
-  for (const d of s.defs.values()) {
-    const b = d.body, isLive = live.has(d.id);
-    const hit = (slot: number | undefined): void => { if (slot === undefined || slot < 0) return; const u = out[b.materialSlots[slot]]; if (u) { if (isLive) u.faces++; else u.orphanFaces++; } };
-    if (b.kind === "mesh") { for (const f of b.kernel.faces()) hit(b.kernel.faceMat[f]); continue; }
-    for (const k of [b.kernel, ...[...b.groups.values()].map((g) => g.kernel)]) for (const f of k.faces()) { hit(k.faceMaterialOf(f.id, 0)); hit(k.faceMaterialOf(f.id, 1)); }
-  }
-  return out;
+  const store = sceneStore(s);
+  return s.materials.map((m) => { const u = store.usage(materialRef(m.guid)); return { faces: u.faces, orphanFaces: u.orphanFaces, shelved: u.shelved }; });
 }
 /** 能清理的材质（没有任何面用、架子也没收）：清理指令吃这张单子。 */
 export const unusedMaterials = (c: Census): number[] => c.materials.filter((m) => !m.faces && !m.orphanFaces && !m.shelved).map((m) => m.index);

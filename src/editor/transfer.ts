@@ -21,12 +21,14 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import { cloneGuides, emptyGuides, transformGuides, type Guides } from "../scene/guides.ts";
 import { castBody } from "../scene/kinds.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
-import { reachableDefs } from "../scene/resources.ts";
 import { extractSnapshot, remapSnapshotMaterial, transformSnapshot, type DefId, type EditContext, type GroupId, type InstId, type Instance, type Material, type Scene } from "../scene/scene.ts";
 import { applyPt, compose, transformFrame, type Frame, type Xform } from "../scene/xform.ts";
 import type { CatsupDocument, DefinitionDoc, LayerDoc } from "../format/document.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
-import { definitionToDoc, definitionsToMake } from "../format/scene-doc.ts";
+import { DEFINITION, LAYER, MATERIAL, defRef, layerGuidOfTable, layerRef, materialRef, type DefinitionEntry } from "../format/entry-kinds.ts";
+import { applyPlan, docStore, sceneStore } from "../format/scene-store.ts";
+import { KEEP, bundleOf, frontier, plan, planWouldCycle, type Bundle } from "../identity/graph.ts";
+import type { Ref } from "../identity/kinds.ts";
 import { isHex4 } from "./object-tree.ts";
 import type { Op } from "./ops.ts";
 
@@ -53,6 +55,7 @@ export interface TransferPayload {
   /** 实例用到的定义（递归）+ 层。有实例才有。 */
   readonly closure?: TransferClosure;
 }
+const docsOfKind = <T>(b: Bundle, kind: string): T[] => b.docs.filter((e) => e.kind === kind).map((e) => e.doc as T);
 export interface TransferCounts { faces: number; edges: number; groups: number; instances: number }
 
 export const transferCounts = (p: TransferPayload): TransferCounts => ({
@@ -75,25 +78,25 @@ export function transferSay(p: TransferPayload): string {
 /** 从活动池抠一份（世界坐标）：选中的面 / 边 + 选中的组（子树）+ 选中的实例。什么都没选中 = null。 */
 export function extract(s: Scene, ctx: EditContext, sel: { faces: Iterable<number>; edges: Iterable<number> }, pools: readonly ({ kind: "group"; group: GroupId } | { kind: "instance"; instance: InstId })[]): TransferPayload | null {
   const at = s.poolOfContext(ctx), X = s.xformOfContext(ctx), d = s.def(at.def), kind = s.kindOf(at.def);
-  const layerRows: LayerDoc[] = [];
-  /** 层代号 → GUID，顺手记进闭包（整条）。 */
-  const layerGuid = (code: number | undefined): Guid | undefined => { const l = code === undefined ? undefined : s.layers.find((x) => x.id === code); if (l && !layerRows.includes(l)) layerRows.push(l); return l?.guid; };
+  const layerRoots: Ref[] = [];
   const instOf = (i: Instance, parent: number | null): TransferInstance => {
-    const layer = layerGuid(i.layer);
+    const layer = i.layer === undefined ? undefined : s.layers.find((x) => x.id === i.layer)?.guid;
+    if (layer !== undefined) layerRoots.push(layerRef(layer));
     return { parent, def: s.def(i.def).guid, xform: compose(X, i.xform), ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(layer !== undefined ? { layer } : {}), ...(i.hidden ? { hidden: true } : {}) };
   };
   const table: Material[] = [];
+  const tableCode = (m: Material): number => { let c = table.indexOf(m); if (c < 0) { c = table.length; table.push(m); } return c; };
   /** 文档材质下标 → 载荷对照表的编号。 */
-  const codeOf = (matIndex: number): number => { const m = matIndex === BUILTIN_BACK_SLOT ? BUILTIN_BACK : s.materials[matIndex]; if (!m) return -1; let c = table.indexOf(m); if (c < 0) { c = table.length; table.push(m); } return c; };
+  const codeOf = (matIndex: number): number => { const m = matIndex === BUILTIN_BACK_SLOT ? BUILTIN_BACK : s.materials[matIndex]; return m ? tableCode(m) : -1; };
   const tableOut = (): { materials?: readonly Material[] } => (table.length ? { materials: table } : {});
   const instances: TransferInstance[] = [], rootDefs = new Set<DefId>();
   const putInst = (i: Instance, parent: number | null): void => { if (!s.defs.has(i.def)) return; instances.push(instOf(i, parent)); rootDefs.add(i.def); };
   /** 闭包：摆放用到的定义往下走到底（文件形状）；它们的材质进对照表、层进 layerRows。 */
   const closureOut = (): { closure?: TransferClosure } => {
     if (!rootDefs.size) return {};
-    const ids = [...reachableDefs(s, [...rootDefs])].filter((id) => id !== s.root);
-    for (const id of ids) { const def = s.def(id); for (const m of def.body.materialSlots) if (m >= 0) codeOf(m); for (const i of def.instances.values()) layerGuid(i.layer); }
-    return { closure: { definitions: ids.map((id) => definitionToDoc(s, id)), layers: layerRows.map((l) => ({ ...l })) } };
+    const b = bundleOf(sceneStore(s), [...[...rootDefs].map((id) => defRef(s.def(id).guid)), ...layerRoots]);
+    for (const m of docsOfKind<Material>(b, MATERIAL)) tableCode(m);
+    return { closure: { definitions: docsOfKind<DefinitionEntry>(b, DEFINITION).map((e) => e.def), layers: docsOfKind<LayerDoc>(b, LAYER).map((l) => ({ ...l })) } };
   };
   for (const p of pools) if (p.kind === "instance") { const i = d.instances.get(p.instance); if (i) putInst(i, null); }
   if (kind === "mesh") {
@@ -179,21 +182,43 @@ export function localize(p: TransferPayload, Xi: Xform): TransferPayload {
   };
 }
 
+/**
+ * 载荷在身份层眼里的样子（设计书 §1「包」）：闭包 + 对照表成文件形状，从「要摆的、面上用的」往下走（素材导入没有摆放 = closure.roots）。
+ * 老复现包：实例的 def / layer 是数字句柄、没有对照表，不进包（landPayload 原样认）。
+ */
+export function payloadBundle(p: Pick<TransferPayload, "brep" | "groups" | "mesh" | "instances" | "materials" | "closure">): Bundle {
+  const layers = p.closure?.layers ?? [], layerGuid = layerGuidOfTable(layers), placed = p.instances ?? [], guids = (xs: readonly (Guid | undefined)[]): Guid[] => xs.filter((g): g is Guid => typeof g === "string");
+  const codes = new Set<number>(), collect = (c: number): number => { codes.add(c); return c; };
+  for (const snap of [...(p.brep ? [p.brep] : []), ...(p.groups ?? []).map((g) => g.snap)]) remapSnapshotMaterial(snap, collect);
+  for (const f of p.mesh?.faces ?? []) if (f.mat >= 0) collect(f.mat);
+  const faceMaterials = guids([...codes].map((c) => p.materials?.[c]?.guid));
+  return {
+    docs: [...(p.closure?.definitions ?? []).map((def) => ({ kind: DEFINITION, doc: { def, layerGuid } satisfies DefinitionEntry })), ...(p.materials ?? []).map((m) => ({ kind: MATERIAL, doc: m as unknown })), ...layers.map((l) => ({ kind: LAYER, doc: l as unknown }))],
+    roots: [...(p.closure?.roots ?? guids(placed.map((i) => i.def))).map(defRef), ...guids(placed.map((i) => i.layer)).map(layerRef), ...faceMaterials.map(materialRef)],
+  };
+}
+/** 落地之后怎么认载荷里的东西（ops.ts 的 paste 用）。 */
+export interface LandedPayload { defOf(i: TransferInstance): number | undefined; layerOf(i: TransferInstance): number | undefined; materialOf(code: number): number }
+/** 粘贴的第一步：frontier → plan → applyPlan（同 GUID 用目标那条，没有的带原 GUID 新建；用不上的不加）。 */
+export function landPayload(s: Scene, p: Parameters<typeof payloadBundle>[0]): LandedPayload {
+  const bundle = payloadBundle(p), land = applyPlan(s, bundle, plan(sceneStore(s), bundle, KEEP)), table = p.materials;
+  return {
+    defOf(i) { const raw = i.def as unknown; return typeof raw === "number" ? (s.defs.has(raw) ? raw : undefined) : land.idOf(defRef(i.def)); },
+    layerOf(i) { const raw = i.layer as unknown; return typeof raw === "number" ? raw : i.layer === undefined ? undefined : land.idOf(layerRef(i.layer)); },
+    materialOf(code) { if (code < 0) return -1; if (!table) return code; const m = table[code]; return m ? (land.idOf(materialRef(m.guid)) ?? -1) : -1; },   // 没表 = 老复现包，编号就是文档材质下标
+  };
+}
 /** 进指令之前：闭包只留这一贴真要新建的定义（指令流永不驱逐，同一个文件里贴一百次不许攒一百份闭包；提示行的「用了已有的」照用没剪的那份载荷）。重放时场景状态相同，结果相同。 */
 export function trimClosure(s: Scene, p: TransferPayload): TransferPayload {
   if (!p.closure) return p;
-  return { ...p, closure: { ...p.closure, definitions: definitionsToMake(s, p.closure.definitions, p.closure.roots ?? (p.instances ?? []).map((i) => i.def)) } };
+  const make = new Set(frontier(sceneStore(s), payloadBundle(p)).create.filter((r) => r.kind === DEFINITION).map((r) => r.guid));
+  return { ...p, closure: { ...p.closure, definitions: p.closure.definitions.filter((d) => make.has(d.guid)) } };
 }
 
 /** 从别的文件抠闭包（素材导入：只读那份文件、挑几个组件）：没有摆放，只有 picks 往下走到底的定义 + 材质 + 层。文档的根不算（它不是素材）。 */
 export function payloadFromDocument(doc: CatsupDocument, picks: readonly Guid[]): TransferPayload {
-  const byGuid = new Map(doc.definitions.map((d) => [d.guid, d])), seen = new Set<Guid>(), definitions: DefinitionDoc[] = [], roots: Guid[] = [];
-  const walk = (g: Guid): void => { if (seen.has(g) || g === doc.root.guid) return; seen.add(g); const d = byGuid.get(g); if (!d) return; definitions.push(d); for (const i of d.instances) walk(i.definition); };
-  for (const g of picks) if (byGuid.has(g) && g !== doc.root.guid) { roots.push(g); walk(g); }
-  const matGuids = new Set(definitions.flatMap((d) => d.materialSlots.filter((g): g is Guid => g !== null)));
-  const layerCodes = new Set(definitions.flatMap((d) => d.instances.map((i) => i.layer).filter((c): c is number => c !== undefined)));
-  const materials: Material[] = doc.materials.filter((m) => matGuids.has(m.guid)).map((m) => ({ guid: m.guid, name: m.name, color: m.color, ...(m.texture ? { texture: m.texture } : {}) }));
-  return { from: "brep", ...(materials.length ? { materials } : {}), closure: { definitions, layers: (doc.layers ?? []).filter((l) => layerCodes.has(l.id)), roots } };
+  const store = docStore(doc), roots = picks.filter((g) => g !== doc.root.guid && store.has(defRef(g))), b = bundleOf(store, roots.map(defRef)), materials = docsOfKind<Material>(b, MATERIAL);
+  return { from: "brep", ...(materials.length ? { materials } : {}), closure: { definitions: docsOfKind<DefinitionEntry>(b, DEFINITION).map((e) => e.def).filter((d) => d.guid !== doc.root.guid), layers: docsOfKind<LayerDoc>(b, LAYER), roots } };
 }
 /** 那份文件里能上架的组件（素材架上的东西要有名字，user 10-30：没起名的不列、数出来说一声）。摆了几份 = 那份文件里的总数。 */
 export function importCandidates(doc: CatsupDocument): { rows: { guid: Guid; name: string; kind: BodyKind; placed: number }[]; unnamed: number } {
@@ -212,15 +237,8 @@ export function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Gui
 
 /** 贴进 into 这个定义会不会造环（查的是合并之后的样子：同 GUID 用目标那条，不在的看闭包）。 */
 export function pasteWouldCycle(s: Scene, p: TransferPayload, into: DefId): boolean {
-  const byGuid = new Map((p.closure?.definitions ?? []).map((d) => [d.guid, d])), intoGuid = s.def(into).guid, seen = new Set<Guid>();
-  const walk = (g: Guid): boolean => {
-    if (g === intoGuid) return true;
-    if (seen.has(g)) return false;
-    seen.add(g);
-    const have = s.defByGuid(g);
-    return have ? s.references(have.id, into) : (byGuid.get(g)?.instances ?? []).some((i) => walk(i.definition));
-  };
-  return (p.instances ?? []).some((i) => walk(i.def));
+  const store = sceneStore(s), bundle = payloadBundle(p);
+  return planWouldCycle(store, bundle, plan(store, bundle, KEEP), defRef(s.def(into).guid));
 }
 /** 贴之前这个文件里有哪些条目（pasteReport 比对用）。 */
 export interface PasteBefore { readonly defs: ReadonlySet<Guid>; readonly materials: ReadonlySet<Guid>; readonly layers: ReadonlySet<Guid> }

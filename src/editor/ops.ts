@@ -8,7 +8,7 @@
 // 解析失败（目标已不在）→ 抛 OpTargetError：单机 = 这批不落地（History 回滚）；联机 = 上层政策，这里不裁。
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
 import { mintGuid, type Guid } from "../format/guid.ts";
-import { definitionsToMake, materializeDefinitions } from "../format/scene-doc.ts";
+import { uniqueCopy } from "../format/scene-store.ts";
 import type { ShelfItem } from "../format/document.ts";
 import type { CurveSpec } from "../kernel/kernel.ts";
 import { markEdges } from "../mesh/edge-smooth.ts";
@@ -28,9 +28,9 @@ import { INSERT_TOL } from "../kernel/subdivide.ts";
 import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
 import { liveDefs, materialUse } from "../scene/resources.ts";
-import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
+import { BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { type PoolRef, type MeshBody, type BrepBody, type Body as SceneBody, type Definition, type Instance, type Material, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
-import type { MeshFragment, TransferClosure, TransferGroup, TransferInstance } from "./transfer.ts";
+import { landPayload, type LandedPayload, type MeshFragment, type TransferClosure, type TransferGroup, type TransferInstance } from "./transfer.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideCircle, addGuideLine, addGuidePoint, addGuideSphere, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
 import { type ImportedScene, buildImport } from "../scene/import-build.ts";
@@ -774,14 +774,14 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "paste": {
       const ref = op.at, kind = s.kindOf(ref.def);   // 两种身体都接：别走 poolOf（它只认硬表面池）
       if (!s.hasPool(ref)) throw new OpTargetError(`paste: pool ${ref.def}/${ref.group ?? "root"}`);
-      const merged = mergeClosure(s, op.instances ?? [], op.closure, op.materials);
+      const merged = landPayload(s, op);
       for (const i of op.instances ?? []) {
         const d = merged.defOf(i);
         if (d === undefined) throw new OpTargetError(`paste: definition ${i.def} no longer exists`);
         if (s.references(d, ref.def)) throw new OpTargetError("paste: would create a cycle (pasting an object into itself)");
       }
       let events: FaceEvent[] = [];
-      const docMat = pastedMaterial(s, op.materials);
+      const docMat = merged.materialOf;
       if (kind === "mesh") {
         if (op.brep || op.groups?.length) throw new OpTargetError("paste: brep geometry into a mesh body needs a cast");
         if (op.instances?.some((i) => i.parent !== null)) throw new OpTargetError("paste: mesh body has no groups to parent instances under");
@@ -823,7 +823,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "makeUnique": {
       const inst = s.def(op.def).instances.get(op.instance);
       if (!inst) throw new OpTargetError(`instance ${op.instance}`);
-      inst.def = cloneDefinition(s, inst.def).id;
+      inst.def = uniqueCopy(s, inst.def);
       return { scene: s, events: [] };
     }
     case "meshKnife": { knife(meshOf(s, op.def).kernel, op.face, op.path); return { scene: s, events: [] }; }
@@ -981,27 +981,6 @@ function explodeInstance(s: Scene, at: PoolRef, inst: Instance, cast: boolean): 
 export function bodyEmpty(b: SceneBody): boolean {
   return b.kind === "mesh" ? b.kernel.faceCount() === 0 && b.kernel.edges().length === 0 : b.kernel.faces().length === 0 && b.kernel.edges().length === 0 && b.groups.size === 0;
 }
-/** 定义深拷（做成唯一）：身体（内核 / 组 / 参考几何 / 坐标架 / 槽表）+ 子实例（指向同样的子定义）。 */
-function cloneDefinition(s: Scene, def: number): { id: number } {
-  const src = s.def(def), name = `${src.name}·唯一`;
-  if (src.body.kind === "mesh") {
-    const d = s.mintDef(name, new Kernel());
-    d.body = { kind: "mesh", kernel: src.body.kernel.clone(), materialSlots: [...src.body.materialSlots] };
-    for (const i of src.instances.values()) { const ni = s.mintInstance(d.id, null, i.def, i.xform); if (i.name !== undefined) ni.name = i.name; if (i.locked) ni.locked = true; if (i.layer !== undefined) ni.layer = i.layer; if (i.hidden) ni.hidden = true; }
-    return d;
-  }
-  const b = src.body, d = s.mintDef(name, b.kernel.clone()), nb = s.brep(d.id);
-  nb.materialSlots = [...b.materialSlots]; nb.guides = cloneGuides(b.guides); if (b.drawFrame) nb.drawFrame = { ...b.drawFrame };
-  const gmap = new Map<number, number>();
-  for (const g of [...b.groups.values()].sort((x, y) => x.id - y.id)) {   // 先建全部、再连父子（子的编号可以比父小；一遍建完 = 子组静默丢掉父组，2026-11-04 ID-3 查到）
-    const ng = s.mintGroup(d.id, null, g.kernel.clone(), { ...g.axes });
-    ng.guides = cloneGuides(g.guides); if (g.name !== undefined) ng.name = g.name;
-    gmap.set(g.id, ng.id);
-  }
-  for (const g of b.groups.values()) if (g.parent !== null) s.group({ def: d.id, group: gmap.get(g.id)! }).parent = gmap.get(g.parent) ?? null;
-  for (const i of src.instances.values()) { const ni = s.mintInstance(d.id, i.parent === null ? null : (gmap.get(i.parent) ?? null), i.def, i.xform); if (i.name !== undefined) ni.name = i.name; if (i.locked) ni.locked = true; if (i.layer !== undefined) ni.layer = i.layer; if (i.hidden) ni.hidden = true; }
-  return d;
-}
 /** 同级排序：把 id 排到实例顺序的第 index 位（Map 的插入顺序 = 同级先后，文件里按这个写，计划书 §2.3）。缺 index = 不动。 */
 function placeAmongSiblings(d: Definition, id: number, index: number | undefined): void {
   if (index === undefined) return;
@@ -1010,52 +989,8 @@ function placeAmongSiblings(d: Definition, id: number, index: number | undefined
   d.instances.clear();
   for (const i of rest) d.instances.set(i.id, i);
 }
-/** 粘贴载荷面上的编号 → 文档材质下标：按 GUID 对回去，文档里没有（撤销过头 / 清理掉了）= 带着原身份加回来；表外的 = 默认。没表 = 老复现包，编号就是文档材质下标。 */
-function pastedMaterial(s: Scene, table: readonly Material[] | undefined): (code: number) => number {
-  return (code) => {
-    if (code < 0) return -1;
-    if (!table) return code;
-    const m = table[code];
-    if (!m) return -1;
-    if (m.guid === BUILTIN_BACK.guid) return BUILTIN_BACK_SLOT;   // 内置不进材质表（计划书 §9.2-A）
-    const i = s.materials.findIndex((x) => x.guid === m.guid);
-    return i >= 0 ? i : s.addMaterial(m);
-  };
-}
-/** 合并之后怎么认载荷里的摆放。 */
-interface MergedClosure { defOf(i: TransferInstance): number | undefined; layerOf(i: TransferInstance): number | undefined }
-/**
- * 粘贴的第一步：把闭包合并进文件（计划书 §15.1-B）。定义从「要摆的」（或 closure.roots）往下走（definitionsToMake）：同 GUID 用目标那条，没有的带原 GUID 新建。
- * 材质 / 层跟着新建的定义走：GUID 在 = 用目标那条，不在 = 带原 GUID 加进来，用不上的不加。内置默认背面永不进材质表。
- * 老复现包：实例的 def / layer 是数字句柄，原样用。
- */
-function mergeClosure(s: Scene, placed: readonly TransferInstance[], closure: TransferClosure | undefined, table: readonly Material[] | undefined): MergedClosure {
-  const layerRows = new Map((closure?.layers ?? []).map((l) => [l.guid, l]));
-  /** 层 GUID → 目标层 id（不在 = 带原 GUID / 名 / 可见 / 色加一层；默认层是常量 GUID，自然合回）。 */
-  const layerByGuid = (g: Guid): number | undefined => {
-    const have = s.layers.find((l) => l.guid === g);
-    if (have) return have.id;
-    const row = layerRows.get(g);
-    if (!row) return undefined;
-    const id = s.nextLayer++;
-    s.layers.push({ ...row, id });
-    return id;
-  };
-  if (closure) {
-    const make = definitionsToMake(s, closure.definitions, closure.roots ?? placed.map((i) => i.def));
-    const tableByGuid = new Map((table ?? []).map((m) => [m.guid, m]));
-    const materialOf = (g: Guid): number => { const i = s.materialByGuid(g); if (i >= 0) return i; const m = tableByGuid.get(g); return m ? s.addMaterial(m) : -1; };
-    const codeRow = new Map(closure.layers.map((l) => [l.id, l.guid]));
-    materializeDefinitions(s, make, materialOf, { layerOf: (code) => { const g = codeRow.get(code); return g === undefined ? undefined : layerByGuid(g); } });
-  }
-  const idOf = new Map([...s.defs.values()].map((d) => [d.guid, d.id]));
-  return {
-    defOf(i) { const raw = i.def as unknown; return typeof raw === "number" ? (s.defs.has(raw) ? raw : undefined) : idOf.get(i.def); },
-    layerOf(i) { const raw = i.layer as unknown; return typeof raw === "number" ? raw : i.layer === undefined ? undefined : layerByGuid(i.layer); },
-  };
-}
 /** 粘贴一份实例：名字 / 锁 / 层 / 藏跟着走；这是一份新的摆放，GUID 现铸（拷一次贴两次不能同身份）。 */
-function mintPasted(s: Scene, def: number, parent: number | null, i: TransferInstance, merged: MergedClosure): void {
+function mintPasted(s: Scene, def: number, parent: number | null, i: TransferInstance, merged: LandedPayload): void {
   const ni = s.mintInstance(def, parent, merged.defOf(i)!, i.xform);
   if (i.name !== undefined) ni.name = i.name;
   if (i.locked) ni.locked = true;
