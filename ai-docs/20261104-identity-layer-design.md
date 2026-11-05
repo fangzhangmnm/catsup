@@ -286,7 +286,7 @@ planPaste / pasteBlocked / landPayload / trimClosure / pasteConflict / conflictR
 
 **小尾巴（不拦合并，记功能账）**
 1. **一贴比三次内容**：`pasteConflict`（问之前）→ `preparePaste`（计划）→ `applyOpInner`（指令里再算）各算一次前沿，4002 面 71 ms × 3。点一下的事，先不管；真慢了把 `pasteConflict` 算好的前沿递给 `planPaste`。
-2. **站在要更新的组件里**：弹窗照常弹、默认「更新」，点了才被 `pasteBlocked` 拒「先退出来再贴」= 默认选项走进死胡同。该在弹窗里把「更新」灰掉并写原因（事实在手：`plan.update` ∩ 上下文链）。
+2. **站在要更新的组件里**：弹窗照常弹、默认「更新」，点了才被 `pasteBlocked` 拒「先退出来再贴」= 默认选项走进死胡同。该在弹窗里把「更新」灰掉并写原因（事实在手：`plan.update` ∩ 上下文链）。**规则（11-05 定，user「小尾巴让opus做」）**：问之前对三种处理各查一次能不能贴，走不通的选项灰掉、原因写在下面，默认 = 更新 → 留这里的 → 断开里第一个走得通的；三个都走不通不弹窗、提示行说原因；点了之后 `pasteBlocked` 照旧再查（瑞士奶酪）。细则 = 功能账 `20261103-forward-ledger.md` §1「ID-4 审出的小尾巴」①。
 3. **`identity/graph.ts census()` 生产代码还没人用**（资源页走 `closure` + `store.usage`）：它是「引用和孤儿」面板的接口，留着，面板做的时候接。
 4. **跨打开、内容一样、不问的那条路**：提示行说「组件「X」本文件已有，用的是本文件这版」——是事实，但其实比过是一样的；`keepPlan` 不比内容所以说不出。噪音不是误导，先留。
 
