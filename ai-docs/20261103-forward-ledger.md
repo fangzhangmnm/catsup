@@ -114,6 +114,7 @@ v0.18.27（2026-11-04）：文件夹图库、图库必须有家、搬家、放�
 ## 7. 接着怎么走（2026-11-04 改，取代切 Fable 那版交接点）
 
 - **工作方式（user 11-04）**：只开一个会话长跑；主会话平时 Opus（交流、派工、施工都在这），到「格式层落地」「跨文件合并规矩」两道门 user 切 Fable 看 diff；子代理先报价、user 明确同意才发；协调台 / 工单会话不再用。
+- **11-05 夜（Claude Opus 5.5）v0.18.39 推 dev**：收 store 2.2.7（释放库的两个缺口，库里修了；app 侧 flush 留作第二层）+ 审查三条小尾巴（锁着量尺子不再谎报「参考线 · 偏移」）。下一件 = 修复工具（合并重合反向面、两条烤路合一），做完 bump minor 进材质纪元。
 - **接着做（11-05 深夜，Claude Opus 5.5）**：~~三张小单~~ 都做了（v0.18.38 在 dev）。下一步 = bump minor 进材质纪元（贴图独立成条目）；bump 之前按家规问一次要不要把现在的版本推 prod。素材架抽屉排贴图之后；OBJ 往返排材质之后；渲染随手；**修复工具那批归现在的 0.18**（user 11-05「2 这个纪元」）——所以 bump minor 之前先把它做完。库的两个释放缺口 user 11-05「1 修」= 库 2.2.7（家族根施工单 `ai-docs/20261105-work-order-dispose-false-alarm-toasts.md`），CatsUp 收包 = v0.18.39。edited by Claude Fable 5.1 20261105
 - **接着做（11-05 改）**：~~ID-4 审 → 合 main → 推 dev~~ 都做了（v0.18.35 在 dev）→ ~~Opus 做 ID-4 小尾巴 ① + ②~~ 做了（v0.18.36，导入素材那条顺手补 v0.18.37）→ bump minor 进材质纪元：贴图独立成条目（一份声明 + 文件里一节）。**正式版：user 11-05「我觉得可以合main但我用一段时间在prod比较好」= 先在 dev 上用一段时间，prod 留在 v0.18.26，user 说了再推**（bump minor 前那一问已经问过、答案是先不推）。edited by Claude Fable 5.1 2026-11-05
 - **设计背景**（要改设计时才读）：`talks/20261103-keymap-blender.md`、`talks/20261030-material-epoch-attributes.md`、`20261030-inventory-design.md` §9、`talks/20261030-identity-lifetime.md`。
