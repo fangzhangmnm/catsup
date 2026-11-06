@@ -15,8 +15,9 @@ import { cleanup } from "./cleanup/index.ts";
 import { resegment } from "./resegment/index.ts";
 import { soften } from "./soften.ts";
 import { flipSides, orientOutward, orientUnify } from "./orient/index.ts";
+import { mergeReversed } from "./merge-reversed/index.ts";
 
-const commands: readonly Command[] = [straighten, snap, cleanup, weld, planar, harden, soften, fillHoles, resegment, hierarchy, flipSides, orientUnify, orientOutward];
+const commands: readonly Command[] = [straighten, snap, cleanup, weld, planar, harden, soften, fillHoles, resegment, hierarchy, flipSides, orientUnify, orientOutward, mergeReversed as Command];
 
 /** 修复面板 = 一条复合动作的参数窗：勾几步、按这个顺序跑完 = 一步撤销。on = 默认勾不勾（AI 定的默认：只动小毛病的勾；吸格点 / 清理 / 补洞 / 改段数 / 恢复层级不勾——会挪点、会擦线、改结构、段数是你挑的）。 */
 export const REPAIR_STEPS: readonly { readonly command: CommandId; readonly on: boolean; label(env: CommandEnv): string }[] = [
@@ -48,6 +49,7 @@ const actions: readonly Action[] = [
   { id: "brep.orientOutward", commands: { brep: "brep.orientOutward" }, icon: "flip-horizontal", label: () => "自动朝外…" },
   { id: "brep.orientUnify", commands: { brep: "brep.orientUnify" }, icon: "flip-horizontal", label: (n) => `统一朝向（${n} 张面）` },
   { id: "brep.flipSides", commands: { brep: "brep.flipSides" }, icon: "flip-horizontal", label: (n) => `翻面（${n} 张面）` },
+  { id: "mesh.mergeReversed", commands: { mesh: "mesh.mergeReversed" }, icon: "flip-horizontal", label: (n) => `合并重合反向面（${n} 对，每对只留一面）` },   // 网格体的修复（user 11-04「修复可以合并」）；「只留一面」要写在字上：材质纪元之前没有双面字段（计划书 §2.9）
 ];
 
 /** 选区浮条 / 右键菜单上的修复入口（按现在的范围数出来 > 0 的才露；顺序 = 这里的 order）。 */

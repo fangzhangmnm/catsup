@@ -51,6 +51,7 @@ flowchart LR
 | 换父亲（层级窗拖一行，0.18 I3；身份地基 ID-2 起不走 paste） | `object-tree.ts moveRowOp` → 一条 `moveInstance`（保 GUID，世界位置换算成目标组件本地）→ 窗口用 `editor.oneStep` 把「退到根 → 提交 → 走进新父亲 → 选中」并成一步 | 不结算（骨架类） | 判落点 = 通用 `src/app/ui/tree-drag.ts dropAt`（只吃行深度）；碰的东西 = 这一份实例 + 两个组件的实例表 |
 | `importScene` | ③ 装载（op 带提交前装好的膜） | ③ | 上方向 / 文件单位（马后炮重做） |
 | 插件指令 `planar`（老名 `makePlanar`）/ 修复指令 | 规划纯函数（`src/editor/repairs/planar/plan.ts` 等）→ `moveVertices` | ① | 作用域：有选区 = 选区，没选 = 整个物体；含子物体（DT85）。拍平（v0.14.63 DT104）：候选 = 弯折小于阈值的边，硬 / 软 / 折线都算；按候选连成片，**整片每张面和目标平面夹角 ≤ 阈值才拍**，不然当曲面（圆柱侧面）→ 退回只按硬边分片、同样过这关，过不了不拍、报片数 |
+| 修复指令 `mesh.mergeReversed`（合并重合反向面，v0.18.40） | 规划纯函数 `src/editor/repairs/merge-reversed/plan.ts`（按「这圈点」分桶找成对的 → 定方向 → 每对删一张）→ `meshDelete` | 网格体直接改，不走结算机 | 作用域 = 整个网格体（修复窗对「这一层」说话）；规划 O(面的环长之和)，只在开物件菜单 / 修复板时数；不加 op，撤销、镜像护栏（topo，先问）都是现成的；导入 / 导出 / 转换永远不走这里（user 11-04）。 |
 | 插件指令 `gridSnap`（吸到格点 DT4 / 拉正 DT101 合租；老名 `snapToGrid`） | 规划纯函数 `src/editor/repairs/grid-snap/plan.ts planGridSnap`（拉正 = 格子坐标里逐根轴：和轴几乎垂直的边两端点这根轴的坐标拉成一样，连成伙取同一个值，范围外的点当锚；圆 / 弧只沿法向那根轴拉平） → 拷贝上试 `moveVertices` → 会破的面先 `addEdges` 三角化对角线 → 真 `moveVertices` | ① | `creaseLayers` = 软边（缺省）/ 硬边；格子 = 物体自己的坐标架（缺省）/ 世界格点；圆 / 弧整条平移（缺省）/ 逐点；还破 = 整步拒绝 |
 | 插件指令 `hierarchy`（恢复层级，DT99；老名 `restoreHierarchy`） | 规划纯函数 `src/editor/repairs/hierarchy/plan.ts`（`piecesOf` 连通块 → `classifyShapes` 形状比对：重心对重心 + 两个「离重心距离最少撞车」的点定旋转 + 整件逐点 / 边 / 面 / 层验）→ 场景层搬家（`extractSnapshot` → `mintGroup` / `mintDef` + `mintInstance`）→ 源池 `eraseFaces` / `eraseEdges` | ②（删源块；块是连通分量，碰不到别人） | `dedupe`（形状一样的合成组件，缺省开）、`mirror`（镜像对上的也算一样 = 负变换实例，v0.14.65 缺省开）；坦克全合并 201 块约 0.7 s；含子物体 = 修复逐池跑、**深的池先跑**；菜单只用便宜数法（块数 + 素组数，400 盒 6 ms），真跑 400 盒 141 ms |
 | `setDrawFrame`（坐标架）/ `addGuide` / `paintFaces` / `setHidden` / 层表 | 场景字段 / 面层 | 不结算 | `addGuide` 四种：参考线 / 参考点（卷尺 / 量角器）、参考圆 / 参考球（圆规，DT50）；都住池的参考几何层（`scene/guides.ts`），内核零感知，只进「推断 / 吸附」和 ⑦ 渲染 |
@@ -165,6 +166,10 @@ flowchart LR
 - **v0.18.7（I12，Opus 5.5 2026-10-30）软边的外轮廓**：粗线那条路（线宽 > 1 / Tron）收集边时软边、折线也进线批（`pool-mesh.ts buildEdgeRec(…, contour)`），旗 = 面数 + `CONTOUR_ONLY`（10）；着色器（`profile-line-shader.ts`，CPU 镜像 `profile-edges.ts lineKind`）里旗 ≥ 10 = 只有夹在两张面之间、又正好转成外轮廓才画，否则零宽。画池里粗线的材质（普通 / 淡出 / X 光隐线 / Tron 两种）都用这份着色器，隐线的加粗量 = 0。**代价**：粗线批多出每条软边一条实例（每条 76 字节；光滑的导入模型软边多 = 线批跟着涨，随整个模型涨）。**v0.18.8** 1 像素那条路也进：材质 = `contour-line-material.ts`（片元 three basic 原样、顶点自己写），线批每顶点多 另一头 / 两面方向 / 旗 10 个数（随整个模型涨）。**v0.18.10** 深度：面 polygonOffset factor 1 → 2（`DEPTH.faceSlope`）；1 像素线顶点里沿视线往镜头挪（贴着的面往镜头翘的坡度 × 1 像素，保底 2 像素、封顶距离 2%；`onBeforeRender` 填当前目标的像素高）；像素描边那遍判「前后错开」时让开两侧各一格坡度 × 3 的台阶（每像素多 1 次深度读）。都是每顶点 / 每像素常数，不随模型涨。
 
 ## ⑧ 修复指令（`Editor.repair(kind, scope)`）
+
+> **v0.18.40（2026-11-06，Claude Opus 5.5）**：修复窗第一次有网格体的指令（`mesh.mergeReversed`）。网格体这边不走 `repairScope` / 修复面板：指令走注册表 `runAction`（mesh 族），修复机器在网格体上只在有得修时露（`machine-window.ts` `when`）。
+
+> **烤（⑨）两条路不合（2026-11-06 量过）**：硬表面 `bakeDefinition`、网格体 `bakeMesh` 各走各的；改走网格那条路慢 2.4–17 倍、烤的部分大 0.85–5 倍，数字见功能账 §5½，脚本 `test/probes/bench-bake-paths.mts`。
 
 > **v0.15.9（2026-10-27 夜，Claude Fable 5.1）**：修复指令改从**指令注册表**取（`src/editor/commands/registry.ts`：`commandById` / `actionById` / `placementsAt`；修复一族的清单 = `repairs/index.ts`，含面板步骤表 `REPAIR_STEPS`）。流程的每一步没变（规划 → 估时 → 提交 → 马后炮），只是「哪条指令」从 `REPAIRS` 数组查改成注册表查，id 从 `weld` 变 `brep.weld`（插件 op 的名字不变，老复现包照开）。浮条上的修复入口 = 放置表 `contextBar` 面上的动作。
 

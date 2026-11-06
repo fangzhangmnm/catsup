@@ -27,8 +27,8 @@ export interface Machine {
 
 /** 机器表：一行一台。 */
 export const MACHINES: readonly Machine[] = [
-  // 修复 = 硬表面体的几何工具面包（九条修复 + 修复面板…；只在硬表面体里露）
-  { id: "repairWindow", label: "修复", icon: "wrench", when: (e) => e.activeKind() === "brep", head: (_e, hud) => hud.edits().filter((it) => it.id === "repairPanel" && !it.hidden), none: () => "没有要修的" },
+  // 修复 = 几何工具面包：硬表面体一直露（九条修复 + 修复面板…）；网格体真有能修的才露（2026-11-06「合并重合反向面」；user 11-04「真有这种面才露出来」；开菜单时数一次，O(面数)）
+  { id: "repairWindow", label: "修复", icon: "wrench", when: (e) => e.activeKind() === "brep" || e.withMenuTarget("self", () => e.commandMenu("repairWindow")).length > 0, head: (_e, hud) => hud.edits().filter((it) => it.id === "repairPanel" && !it.hidden), none: () => "没有要修的" },
 ];
 
 /** 板要的东西（main.ts 给）：位置记在这台设备；参数区（右下角那一块，vcb.ts）在板开着、正在用这台机器的马前炮时住进板里；手机竖屏抽屉和物品栏抢同一个位置。 */
@@ -88,7 +88,7 @@ export function openMachineWindow(editor: Editor, hud: HudModel, m: Machine, anc
   });
   deps.params.setHome(paramsSlot, ownsSession);
   liveBoard = { m, refresh };
-  if (m.id === "repairWindow" && editor.repairWorth() && !editor.repairPanelOpen()) editor.withMenuTarget("self", () => editor.beginRepairPanel());   // 开板 = 进修复面板（子工作流）
+  if (m.id === "repairWindow" && editor.activeKind() === "brep" && editor.repairWorth() && !editor.repairPanelOpen()) editor.withMenuTarget("self", () => editor.beginRepairPanel());   // 开板 = 进修复面板（子工作流）
   refresh();
   deps.after();
 }

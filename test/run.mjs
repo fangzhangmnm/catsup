@@ -18,6 +18,7 @@ import "./desk.test.ts";   // CATSUP_desk 桌面态：☰ 停在哪页跟文件�
 import "./snap-default.test.ts";   // 新文件默认开吸附（user 2026-10-25「新文件一定要默认开吸附」）
 import "./snap-center.test.ts";   // DT15 圆心 + 选中组件轴原点透视吸附（2026-10-25 Opus）
 import "./copy-preview.test.ts";   // DT14 移动复制预演：副本槽（2026-10-25 Opus）
+import "./merge-reversed.test.ts";   // 修复：合并重合反向面（2026-11-06 Opus）
 import "./mirror.test.ts";   // DT23 镜像指令（2026-10-25 Opus）
 import "./plane-gizmo.test.ts";   // 镜像面把手大小只看屏幕像素（2026-10-28 Opus）
 import "./select-loop.test.ts";   // Alt 点边 = 环 / 洞（2026-10-28 Opus）
