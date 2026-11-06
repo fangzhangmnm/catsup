@@ -39,6 +39,8 @@ export interface ToolSample { cursor3: Pt3 | null; snap: Snap3 | null; extra: Re
 export type BodyPlacePhase = "hover" | "press" | "drag" | "drop";
 export interface ToolCtx {
   readonly config: CatsUpToolConfig;
+  /** 演示锁锁着吗。只读工具（卷尺 / 量角器）自己问：照量，但不留参考线、提示如实说（commitOp 被拒之后再写「参考线 · 偏移」= 没留却说留了）。 */
+  modelLocked(): boolean;
   /** 活动池的 checkpoint 内核（本地坐标）。 */
   kernel(): Kernel;
   /** 活动池是网格体时它的内核（本地坐标；不是网格体 → 抛）。自由建模工作台的工具用。 */

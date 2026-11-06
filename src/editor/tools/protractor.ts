@@ -57,11 +57,15 @@ export class ProtractorTool implements ToolHandler {
       return;
     }
     const dir = rotateDir(this.center!, this.axis(), this.ref!, this.angle);
-    const at = ctx.activePool(), n0 = ctx.opCount();
-    const mInv = invert(ctx.ctxXform());
-    ctx.commitOp({ op: "addGuide", at, line: { p: ctx.toLocal(this.center!), dir: normalize3(applyDir(mInv, dir)) } });
-    ctx.recordLast({ kind: "protractor", ops: ctx.opCount() - n0, at, center: this.center!, axis: this.axis(), ref: this.ref!, angle: this.angle });
-    ctx.hint(`角度参考线 ${fmtDeg(this.angle)}`);
+    if (ctx.modelLocked()) {   // 演示锁：量角器照量，不留线（只读工具全部能用，user 11-05）
+      ctx.hint(`角度 ${fmtDeg(this.angle)} · 锁着，不留参考线`);
+    } else {
+      const at = ctx.activePool(), n0 = ctx.opCount();
+      const mInv = invert(ctx.ctxXform());
+      ctx.commitOp({ op: "addGuide", at, line: { p: ctx.toLocal(this.center!), dir: normalize3(applyDir(mInv, dir)) } });
+      ctx.recordLast({ kind: "protractor", ops: ctx.opCount() - n0, at, center: this.center!, axis: this.axis(), ref: this.ref!, angle: this.angle });
+      ctx.hint(`角度参考线 ${fmtDeg(this.angle)}`);
+    }
     this.cancel();
     ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
   }

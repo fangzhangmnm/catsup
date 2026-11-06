@@ -81,7 +81,9 @@ export class TapeTool implements ToolHandler {
     }
     const b = this.b ?? this.start!.p;
     const res = tapeResult(this.start!, b);
-    if (res.make === "through") {   // 过两点的参考线：没有距离参数，不登记给数值小窗
+    if (ctx.modelLocked()) {   // 演示锁：卷尺照量，不留线（只读工具全部能用，user 11-05）
+      ctx.hint(res.make === "through" || !(res.d > 0) ? "锁着，不留参考线" : `距离 ${fmtLen(res.d)} · 锁着，不留参考线`);
+    } else if (res.make === "through") {   // 过两点的参考线：没有距离参数，不登记给数值小窗
       const mInv = invert(ctx.ctxXform());
       ctx.commitOp({ op: "addGuide", at: ctx.activePool(), line: { p: ctx.toLocal(res.p), dir: normalize3(applyDir(mInv, res.dir)) } });
       ctx.hint("参考线 · 过两点");

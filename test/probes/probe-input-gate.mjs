@@ -195,6 +195,7 @@ await page.evaluate(async () => { const e = globalThis.__catsup.editor; e.setToo
   await page.mouse.move(...mid(0.6, 0.5)); await wait(60);
   await page.mouse.click(...mid(0.6, 0.5)); await wait(80);
   ok("F.tapeLeavesNoGuide", (await st()).rev === r0 && !(await st()).gesture);
+  ok("F.tapeSaysNoGuide", await page.evaluate(() => /不留参考线/.test(document.getElementById("hint").textContent)));   // 没留就不许说「参考线 · 偏移」
   await page.evaluate(() => globalThis.__catsup.editor.setTool("select")); await wait(30);
 
   // 只读 ③：走路真能进（验证工作台 → 步行 → 点地放人 → FPS），WASD 进得去

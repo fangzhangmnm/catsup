@@ -52,6 +52,8 @@ WeebPaint / MoonSinger 是**同一段**代码（`src/editor-session/editor-sessi
 
 **守卫**：`test/probes/probe-no-home-dispose.mjs`（修前的包红）：两组对照都没有定时器那条警告（开着图库那组另一条路不判，见上）、落到文件模式、下次开机确实没有库。`probe-c2` 全绿（80 项）：顺手把它两处过时的地方跟上（搬家面板挡住新建、文件模式没有库可列）。
 
+库 2.2.7 在 dispose 里修了两条（排着的本地写先落盘再关；在飞的目录帧自退、只进黑匣子）；app 侧的 flush 留作第二层。探针 `probe-no-home-dispose` 改成两组都不许有 warning / error（v0.18.39，Claude Opus 5.5）。
+
 ## 3. 设计稿写错、这里更正的
 
 Fable 设计稿（commit 6d48d0c）的这几句不对，那份已经发出去过：

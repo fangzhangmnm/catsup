@@ -26,10 +26,11 @@ for (const [name, touchGallery] of [["openedGallery", true], ["didNothing", fals
   await p2.waitForTimeout(1800);
   const r = await p2.evaluate(() => ({ log: globalThis.__catsup.debugLog.toText(), notices: document.getElementById("noticeStack")?.textContent ?? "", home: globalThis.__catsup.session.home.kind }));
   ok(`${name}.settled`, /no account, no models → no library/.test(r.log));
-  // 定时器那条路（库报 warning，黑匣子里是 W）两组都不许有。开着图库那组另有一条很窄的库内竞态：目录帧读到一半撞上释放（库报 error，E；只读、压力下 18 次 2 次）= 周账 F-199，等库的决定，这里不判
-  ok(`${name}.noTimerWarningInLog`, !/ W idb cache closed/.test(r.log));
-  if (!touchGallery) { ok(`${name}.noWarningInLog`, !/disposed/.test(r.log)); ok(`${name}.noWarningOnScreen`, !/disposed|idb cache/.test(r.notices)); }
-  ok(`${name}.fileMode`, r.home === "transient");
+  // 两组都不许有（库 2.2.7 起：定时器那条路 dispose 先落盘再关；目录帧读到一半撞上释放只进黑匣子 log 级，黑匣子里不是 W / E）。
+  ok(`${name}.noWarningInLog`, !/ [WE] [^\n]*(disposed|idb cache)/.test(r.log));
+  ok(`${name}.noWarningOnScreen`, !/disposed|idb cache/.test(r.notices));
+  // 开过图库那组不判这条：探针绕过界面直接 galleryHost.open()（第一步 ensureStore），赶上拆库窗口（_store 已空）会再建一个库、home 留在 gallery。真界面「没有家」走选家（openGalleryFromUi），到不了这一步（2026-11-05 Claude Opus 5.5 核过调用方；v0.18.38 上同样 9 次中 1 次）。
+  if (!touchGallery) ok(`${name}.fileMode`, r.home === "transient");
   await p2.close();
   const p3 = await openPage(ctx); await p3.waitForTimeout(600);
   const log3 = await p3.evaluate(() => globalThis.__catsup.debugLog.toText());

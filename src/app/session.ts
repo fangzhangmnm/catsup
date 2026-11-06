@@ -424,7 +424,7 @@ export class Session {
     if (on) this.desk.locked = true; else delete this.desk.locked;
     this.d.editor.holdChanged();
     this.d.onHomeChanged();
-    this.d.setStatus(on ? "锁上了：看、转、进去玩都行，改不了；☰「解锁」放开" : "解锁了");
+    this.d.setStatus(on ? "锁上了：看、选、量、进去走都行，改不了；☰「解锁」放开" : "解锁了");
     if (this.home.kind !== "transient" && !(this.home.kind === "gallery" && this.lazy)) await this.save({ implicit: true });
   }
   private encode(): Uint8Array {
@@ -838,9 +838,10 @@ export class Session {
     if (home.kind === "transient") return opts.implicit ? false : this.settleToFile();
     if (home.kind === "gallery" && this.lazy) { if (!opts.implicit) this.d.setStatus(this.forkBaseRev !== null ? "这份还没改过，不用存（改了才会存成分叉）" : "空白场景，还没有需要保存的内容"); return false; }   // WeebPaint blankNothingToSave
     if (home.kind === "gallery" && this.encrypted && !this.d.crypto.getPassword(home.path)) { if (!opts.implicit) this.d.setStatus("这份是加密的、现在锁着：先解锁再保存（改动还在内存里）", true); return false; }   // 锁着绝不写（库也不会写明文；这里先说人话）
-    this.saving = true; this.d.onHomeChanged();
+    this.saving = true;
     const run: Promise<boolean> = this.writeHome(home, opts).finally(() => { if (this.inflight === run) this.inflight = null; });
     this.inflight = run;
+    this.d.onHomeChanged();   // 旗和 inflight 都就位了才通知：回调里再按存，等得到这一次（中间夹回调 = 看见 saving 却等了个空 Promise，紧接着又绕回来）
     return run;
   }
   /** save 的后半段：saving 已经竖起来了，落家、发回执，最后放下 saving。 */

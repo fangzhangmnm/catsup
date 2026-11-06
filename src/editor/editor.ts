@@ -3899,7 +3899,7 @@ export class Editor {
       scene: () => this.scene,
       context: () => this.ctx,
       revision: () => this._revision,
-      modeId: () => this.mode.id,
+      modeId: () => this.mode.id, modelLocked: () => this.locked,
       get config() { return self.config; },   // getter：toolCtx 字段先于 config 字段初始化，直接取值会是 undefined（v0.13.11 vcb / scene 探针抓到）
       kernel: () => this.kernel,
       mesh: () => this.scene.mesh(this.activePool().def).kernel,

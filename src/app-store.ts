@@ -241,8 +241,8 @@ export async function disposeStore(): Promise<void> {
   const s = _store; if (!s) return;
   const appState = _appState.get(s);
   _store = null; _folder = null; wireVerifierStore(null); _verifierReady = Promise.resolve();
-  // 先把 app-state 落本机：库的 dispose 不清 collection 那个 400 ms 的本地写定时器（init 就会排一个）→ 到点撞上已关的 IDB → 琥珀色英文警告盖在通知栈上（probe-c2「恢复」钮点不到的真因，2026-11-05 Claude Opus 5.5 栈帧核实；
-  //   开机拆空库 settleNoHome 离 init 只差几十毫秒，每次都中）。flushLocal 是库给的卸载兜底面，会清掉那个定时器；init 还没完也等它完。库本身该不该在 dispose 里做这一步 = 周账 F-199。
+  // 先把 app-state 落本机（第二层）：库 2.2.7 起 dispose 自己也做（排着的本地写先落盘再关，家族周账 F-199）；这里留着 = 两层奶酪，init 还没完也等它完。
+  //   起因：2.2.5 的 dispose 不清那个 400 ms 定时器，开机拆空库（settleNoHome）离 init 只差几十毫秒，到点撞上已关的 IDB → 琥珀色英文警告盖在通知栈上（probe-c2「恢复」钮点不到的真因）。
   if (appState) await appState.then(flushCollection, () => {});
   await s.dispose();
 }
