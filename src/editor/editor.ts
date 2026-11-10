@@ -1079,8 +1079,8 @@ export class Editor {
   // ---------- 镜像（编辑方式那一层；纪元账本 FM23 / FM39 / FM134 / FM136；纯几何 = mesh/mirror.ts）----------
   // 设置按网格体定义记（不进撤销、还没存进文件）。镜像编辑 = 挪点补上对面（提交前改写 op、预演同一道）；强行对称 = 这一步做完同一步里补一条
   // meshSymmetrize（动了哪边哪边为准）；镜像编辑开着时改拓扑 = 护栏：直说、给「关掉镜像，照做 / 取消」（user「护栏？直接说要么关了自己决定要不要对齐」）。
-  /** 网格体的「对称」属性表 = 场景的那张（Scene.meshMirrors：随文件走、克隆共享 = 不进撤销）。 */
-  private get mirrors(): Map<number, MirrorSetting> { return this.scene.meshMirrors; }
+  /** 网格体的「对称」属性表 = 场景的那张（Scene.meshMirrors：随文件走；2026-11-09 起进撤销、每份场景拷贝各一张）。**只读**：写只经 op `setMeshMirror`（类型拦着，2026-11-10 Claude Fable 5.2）。 */
+  private get mirrors(): ReadonlyMap<number, MirrorSetting> { return this.scene.meshMirrors; }
   private mirrorLastSide = new Map<number, -1 | 1>();
   /** 这一步里镜像想说的话（对面找不到的点 / 这一步没对称）：接在这一下的提示后面。 */
   private mirrorNote = "";

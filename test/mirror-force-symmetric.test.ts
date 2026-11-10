@@ -1,6 +1,6 @@
 // 强行对称的定理（计划书 `ai-docs/20261109-audit-fixes-plan.md` §3；created 2026-11-09 by Claude Opus 5.5）。
 // 第 0 层（v0.18.41）钉「绝不删空」；第 4 / 5 层（v0.18.45）钉 isSymmetric 的真值表、对称化带裸线 / 孤点 / 隐藏、随机步每步对称。原来写的是：强行对称自己绝不把模型删空（「看不出动的是哪边、默认 + 那半」碰上「+ 那半是空的」= 11-09 真 app 里 6 张面 → 0）。
-// 对称检查是独立写的（不调 isSymmetric：它本身就是要审的对象）：按坐标配对点，再照定理的条文比面。后面几层的断言接着往这个文件里加。
+// 对称检查是独立写的（不调 isSymmetric：它本身就是要审的对象）：纯按位置比点 / 面 / 边（不认编号），照定理的条文。后面几层的断言接着往这个文件里加。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { F_HIDDEN, F_SOFT, FF_HIDDEN } from "../src/mesh/mesh-kernel.ts";
@@ -16,29 +16,30 @@ const key = (p: Pt3): string => [p.x, p.y, p.z].map((c) => Math.round(c / TOL)).
 
 /**
  * 独立的对称检查（定理条文，计划书 §3）：返回对不上的地方（空 = 对称）。
- * 点：每个点的镜像位置上有一个点。面：躺在镜像面上的面 = 它自己；别的面的镜像（点序倒过来）是一张面、材质槽相同。边：镜像是一条边、标记相同（「隐藏」不算：那是看法）。
+ * 点：每个位置上有几个点，镜像位置上就有几个。面：躺在镜像面上的面 = 它自己；别的面的镜像（点序倒过来）是一张面、材质槽相同。边：镜像是一条边、标记相同（「隐藏」不算：那是看法）。
+ * **纯按位置比，不认点的编号**（2026-11-10 Claude Fable 5.2 改）：原来是「位置 → 一个点」再按编号比环，两个点叠在同一个位置时会认错人、报假的不对称
+ * （随机步真跑出来过：挤出的新边正好穿过中缝上一个已有的点，沿镜像面切开时在那个位置又多一个点）。按位置比也更独立：不和 isSymmetric 共用「点怎么配对」这一步。
  */
 function asymmetries(m: MeshKernel, a: MirrorAxis): string[] {
-  const at = new Map<string, number>(), out: string[] = [];
-  for (const v of m.verts()) at.set(key(m.pt(v)), v);
-  const twin = (v: number): number => at.get(key(reflect(m.pt(v), a))) ?? -1;
-  for (const v of m.verts()) if (twin(v) < 0) out.push(`点 ${v} 对面没有点`);
+  const out: string[] = [], here = (v: number): string => key(m.pt(v)), there = (v: number): string => key(reflect(m.pt(v), a));
+  const bump = (c: Map<string, number>, k: string): void => { c.set(k, (c.get(k) ?? 0) + 1); };
+  const points = new Map<string, number>();
+  for (const v of m.verts()) bump(points, here(v));
+  for (const v of m.verts()) if ((points.get(there(v)) ?? 0) !== points.get(here(v))) out.push(`点 ${v} 对面的点数对不上`);
   if (out.length) return out;
-  const ringKey = (r: readonly number[]): string => { const i = r.indexOf(Math.min(...r)); return [...r.slice(i), ...r.slice(0, i)].join(","); };
+  /** 一圈位置转到字典序最小的那个起点（同一个环不管从哪个点起写，结果一样）。 */
+  const ring = (ks: readonly string[]): string => { let best: string | null = null; for (let i = 0; i < ks.length; i++) { const t = [...ks.slice(i), ...ks.slice(0, i)].join("|"); if (best === null || t < best) best = t; } return best ?? ""; };
+  const faceKey = (f: number, mirrored: boolean): string => { const r = m.faceVerts(f); return `${ring(mirrored ? r.map(there).reverse() : r.map(here))}#${m.faceMat[f]}`; };
   const faces = new Map<string, number>();
-  for (const f of m.faces()) faces.set(ringKey(m.faceVerts(f)), f);
+  for (const f of m.faces()) bump(faces, faceKey(f, false));
   for (const f of m.faces()) {
-    const r = m.faceVerts(f);
-    if (r.every((v) => Math.abs(coord(m.pt(v), a)) <= TOL)) continue;   // 躺在镜像面上 = 对应它自己
-    const g = faces.get(ringKey(r.map(twin).reverse()));
-    if (g === undefined) out.push(`面 ${f} 的镜像不在`);
-    else if (m.faceMat[g] !== m.faceMat[f]) out.push(`面 ${f} 和镜像 ${g} 材质槽不同`);
+    if (m.faceVerts(f).every((v) => Math.abs(coord(m.pt(v), a)) <= TOL)) continue;   // 躺在镜像面上 = 对应它自己
+    if ((faces.get(faceKey(f, true)) ?? 0) !== faces.get(faceKey(f, false))) out.push(`面 ${f} 的镜像不在（或材质槽不同）`);
   }
-  for (const e of m.edges()) {
-    const t = m.edgeOf(twin(m.edgeA[e]), twin(m.edgeB[e]));
-    if (t < 0) out.push(`边 ${e} 的镜像不在`);
-    else if ((m.edgeFlags[t] & ~F_HIDDEN) !== (m.edgeFlags[e] & ~F_HIDDEN)) out.push(`边 ${e} 和镜像 ${t} 标记不同`);
-  }
+  const edgeKey = (e: number, mirrored: boolean): string => `${[m.edgeA[e], m.edgeB[e]].map(mirrored ? there : here).sort().join("|")}#${m.edgeFlags[e] & ~F_HIDDEN}`;
+  const edges = new Map<string, number>();
+  for (const e of m.edges()) bump(edges, edgeKey(e, false));
+  for (const e of m.edges()) if ((edges.get(edgeKey(e, true)) ?? 0) !== edges.get(edgeKey(e, false))) out.push(`边 ${e} 的镜像不在（或标记不同）`);
   return out;
 }
 const box = (x0: number, x1: number): MeshKernel => { const m = new MeshKernel(); addBox(m, P(x0, 0, 0), P(x1, 1, 1)); return m; };
@@ -162,6 +163,28 @@ describe("强行对称第 5 层：对称化带上裸线 / 孤点 / 隐藏；选�
     eq(fs.want, -1); eq(fs.guessed, false);
     const g = forceSide(b2, m2, 0, { verts: [], edges: [], faces: [] }, -1);
     eq(g.want, -1); eq(g.guessed, true);
+  });
+  it("把 + 那半的一张面朝镜像面挤出、穿过去（推拉一条指令就能做到）→ 以点名的 + 那半为准：挤出的那段在中缝切开、和对面焊成一座桥（一个连通块）；挪点照旧先按挪的距离", () => {
+    // 2026-11-10 Claude Fable 5.2 审 v0.18.45：那一版先看「新长的点落在哪边」= 以 − 为准，挤出的那段和盒子脱开、盒子上那张面被镜回来（三块）。
+    // 计划书原文「点名的排第一」对挤出是对的，对挪点不对（软选择跨中缝会带偏坐标和）→ 顺序 = 挪了的旧点（按距离）→ 点名的 → 新长的 / 删掉的 → 上一次的边。
+    const two = (): MeshKernel => { const m = new MeshKernel(); addBox(m, P(0.2, 0, 0), P(1, 1, 1)); addBox(m, P(-1, 0, 0), P(-0.2, 1, 1)); return m; };
+    const blocks = (m: MeshKernel): number => {
+      const par = new Map<number, number>(m.verts().map((v) => [v, v])), find = (a: number): number => { while (par.get(a) !== a) a = par.get(a)!; return a; };
+      for (const e of m.edges()) par.set(find(m.edgeA[e]), find(m.edgeB[e]));
+      return new Set(m.verts().map(find)).size;
+    };
+    const before = two(), m = before.clone(), f = m.faces().find((x) => m.faceVerts(x).every((v) => Math.abs(m.pt(v).x - 0.2) < 1e-9))!;
+    eq(asymmetries(before, 0).join("；"), ""); eq(blocks(before), 2);
+    extrudeAndOffset(m, { faces: [f] }, P(-0.5, 0, 0));   // 新点落在 x = −0.3：过了镜像面
+    const fs = forceSide(before, m, 0, { verts: [], edges: [], faces: [f] }, undefined);
+    eq(fs.want, 1, "点名的面在 + 那半"); eq(fs.side, 1); eq(fs.guessed, false);
+    symmetrize(m, 0, fs.side!);
+    eq(asymmetries(m, 0).join("；"), ""); eq(blocks(m), 1, "两个盒子被挤出的那段连成一块");
+    eq(m.edges().filter((e) => m.eFaces(e).length === 1).length, 0, "没有破口");
+    // 挪点：软选择跨中缝——左边三个点各挪一点点、右边一个点挪很多 → 按挪的距离 = 右边（点名的坐标和偏左，不能让它排第一）
+    const h = halved(), hb = h.clone(), L = h.verts().filter((v) => h.pt(v).x < -0.5).slice(0, 3), R = h.verts().find((v) => h.pt(v).x > 0.5)!;
+    moveVerts(h, [...L.map((v) => ({ v, to: { ...h.pt(v), z: h.pt(v).z + 0.01 } })), { v: R, to: { ...h.pt(R), z: h.pt(R).z + 0.5 } }]);
+    eq(forceSide(hb, h, 0, { verts: [...L, R], edges: [], faces: [] }, undefined).want, 1);
   });
   it("随机：强行对称开着，从中缝切开的盒子起随机做 60 步（挪点 / 挤出 / 内插 / 删面 / 翻面 / 换材质 / 打标记 / 加裸线 / 加孤点）；每步之后独立检查说对称、面数不掉到一半以下", () => {
     let seed = 1;

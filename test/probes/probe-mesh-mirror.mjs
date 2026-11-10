@@ -250,6 +250,19 @@ const res = await page.evaluate(async () => {
     out.thirteen.unchanged = same(W(v), vw) && same(W(w), ww);
     e.setMirror(null);
   }
+  // ⑮（2026-11-10 Claude Fable 5.2 审 v0.18.45）：强行对称下把 + 那半朝着镜像面的那张面推过头（推拉 = 一条带位移的 meshExtrude）→ 以点名的 + 那半为准：
+  //   推出去的那段在中缝切开、和对面焊成一座桥 = 一个连通块（v0.18.46：新点落在 − 那半 → 以 − 为准，推出去的那段和盒子脱开、盒子上那张面被镜回来 = 三块）
+  {
+    const { def, k } = await freshMesh(1.5);   // 本地 0.5..2.5：整个在 + 那半、离镜像面 0.5
+    e.deselectAll(); e.setMirror("force", 0); await sleep(30);
+    const blocks = () => { const par = new Map(k().verts().map((q) => [q, q])), find = (a) => { while (par.get(a) !== a) a = par.get(a); return a; }; for (const x of k().edges()) par.set(find(k().edgeA[x]), find(k().edgeB[x])); return new Set(k().verts().map(find)).size; };
+    const inner = k().faces().find((f) => k().faceVerts(f).every((q) => Math.abs(k().pt(q).x - 0.5) < 1e-9));
+    out.fifteen = { faces0: k().faceCount(), blocks0: blocks() };
+    e.commitOp({ op: "meshExtrude", def, faces: [inner], offset: { x: -0.8, y: 0, z: 0 } }); await sleep(30);
+    out.fifteen.after = { faces: k().faceCount(), blocks: blocks(), sym: sym(k()), open: k().edges().filter((x) => k().eFaces(x).length === 1).length, hint: hint() };
+    e.undo(); await sleep(20); out.fifteen.undone = { faces: k().faceCount(), blocks: blocks() };
+    e.setMirror(null);
+  }
   return out;
 });
 await b.close();
@@ -275,6 +288,7 @@ const ok = res.one.row && /组件「块」/.test(res.one.who) && /网格体/.tes
   && res.fourteen.flip.last === "meshFlip" && res.fourteen.flip.lr === "5/5"
   && res.fourteen.paste.copied && res.fourteen.paste.afterPaste === "6/6" && res.fourteen.paste.afterMove === "6/6" && res.fourteen.paste.sym
   && res.thirteen.moving && !res.thirteen.twinSnapped && res.thirteen.otherSnapped && res.thirteen.unchanged
+  && res.fifteen.faces0 === 12 && res.fifteen.blocks0 === 2 && res.fifteen.after.blocks === 1 && res.fifteen.after.sym && res.fifteen.after.open === 0 && res.fifteen.undone.faces === 12 && res.fifteen.undone.blocks === 2
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-mirror OK" : "probe-mesh-mirror FAIL");

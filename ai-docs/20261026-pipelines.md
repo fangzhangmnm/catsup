@@ -486,7 +486,7 @@ flowchart LR
 
 ## 追记 2026-11-09（v0.18.41，Claude Opus 5.5）：强行对称选边多一道「空的那半不当准」（计划书 `20261109-audit-fixes-plan.md` §3 第 0 层）
 
-- **三处选边同一道收尾**：打开强行对称（`symmetrizeNow`：选区那边 → 上一次的边 → +）、每步之后（`mirrorForceAfter`）和预演（`previewApply`）都先算「想要哪半」，再过 `mesh/mirror.ts pickSide`：想要的那半没有面 → 换另一半；两半都没有 → 这一步不对称化（提示行说）。每步之后和预演共用 `Editor.forceSide`（以前两处各抄一份表达式）。
+- **三处选边同一道收尾**：打开强行对称（`symmetrizeNow`：选区那边 → 上一次的边 → +）、每步之后（`mirrorForceAfter`）和预演（`previewApply`）都先算「想要哪半」，再过 `mesh/mirror.ts pickSide`：想要的那半没有面 → 换另一半；两半都没有 → 这一步不对称化（提示行说）。每步之后和预演共用 `editor/mirror-force.ts forceSideFor` → `mesh/mirror.ts forceSide`（以前两处各抄一份表达式）。「想要哪半」的顺序（v0.18.47，2026-11-10 Claude Fable 5.2）= 人这一步在哪半干活：挪了的旧点（按距离，`sideOfMoved`）→ 指令点名的在哪边 → 新长的 / 删掉的在哪边（`sideOfChange`）→ 上一次的边 → +。
 - **挡的是**：「看不出动的是哪边、默认 +」碰上「+ 那半是空的」= 删掉另一半、镜过来 0 张 = 整个模型删光（11-09 真 app：模型整个在 −X 那半时打开强行对称 6 → 0；换原点后挪中缝上的点 6 → 1）。换了边的那一步提示行说「+X 那半是空的，按 −X 那半为准」。
 - 碰多少东西：`pickSide` 扫一遍面找第一张碰到那半的，最坏 O(网格体)，和已有的 `isSymmetric` 同量级；不对称时才走到这里。
 - 「这一半有没有东西」和对称化「带过去什么」必须是同一件事：现在对称化只镜面，所以只看面；以后对称化也镜裸线 / 孤点（第 5 层），`sideHasFaces` 同一处跟着加。
@@ -497,5 +497,5 @@ flowchart LR
 - **提交前**（`commitIn` → `mirror-force.ts forceSnapshot`）：每个开着强行对称的网格体记内核 `rev`；指令冲着的那个（`op.def` / 落点池 `at` / 合并的目标）拷一份。碰多少东西：O(强行对称网格体数) + 一份 O(那个网格体) 的拷贝（以前只有名字以 mesh 开头的指令才拷，现在冲着它的指令都拷）。
 - **换原点 / 应用缩放**先过 `originNeedsAsk`：整份场景拷一份试做（O(场景)，只在这两种指令 + 强行对称开着时），不对称就不提交、问一句。
 - **改写**（`prepareOp` → `mirrorRewrite`，提交 / 预演共用）：强行对称下删除 / 翻面、两种模式下的标记，指令里补上对面那份（O(网格体) 配对 + 面按点集查表）。
-- **提交后**（`forceAfter`）：`rev` 变了、`isSymmetric` 说不对称的，`forceSide` 选边 → 拷贝上试 `symmetrize` → 同一步补一条 `meshSymmetrize`。`isSymmetric` 现在多查朝向 / 材质 / 边标记（O(网格体)，同量级）。
+- **提交后**（`forceAfter`）：`rev` 变了、`isSymmetric` 说不对称的，`forceSide` 选边（顺序见上「三处选边同一道收尾」；v0.18.47 起点名的排在新长的前面：把面推过镜像面 = 在中缝切开、和对面焊上，不再和盒子脱开）→ 拷贝上试 `symmetrize` → 同一步补一条 `meshSymmetrize`。`isSymmetric` 现在多查朝向 / 材质 / 边标记（O(网格体)，同量级）。
 - 预演：活动池是开着强行对称的网格体就同样走 `forcesOn` / `forceSideFor` / `meshSymmetrize`（和提交同一段）。

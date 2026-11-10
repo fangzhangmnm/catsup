@@ -667,7 +667,7 @@ export declare class Editor {
     /** 对外的提交口（探针 / 脚本 / 测试；`api` 放置的指令也走它）：一次调用 = 一步。编辑器内部不许调它（守卫测试 test/step-pass-guard.test.ts）——内部一个动作里的几条 op 要同一张通行证进 commitIn，不然拆成好几步撤销。 */
     commitOp(op: Op): FaceEvent[];
     /** 外面的一个用户动作要好几下（层级窗拖拽 = 退到根 → commitOp → 走到新父亲 → 选中它）：包在这里 = 一步撤销（step 可嵌套、外层说了算）；撤销回到动作前的那一层和选区。 */ oneStep<T>(fn: () => T, label?: StepLabel): T;
-    /** 网格体的「对称」属性表 = 场景的那张（Scene.meshMirrors：随文件走、克隆共享 = 不进撤销）。 */
+    /** 网格体的「对称」属性表 = 场景的那张（Scene.meshMirrors：随文件走；2026-11-09 起进撤销、每份场景拷贝各一张）。**只读**：写只经 op `setMeshMirror`（类型拦着，2026-11-10 Claude Fable 5.2）。 */
     private get mirrors();
     private mirrorLastSide;
     /** 这一步里镜像想说的话（对面找不到的点 / 这一步没对称）：接在这一下的提示后面。 */

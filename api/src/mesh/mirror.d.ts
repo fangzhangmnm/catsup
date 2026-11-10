@@ -47,6 +47,12 @@ export declare function mirrorMoves(m: MeshKernel, moves: readonly {
 }[], axis: MirrorAxis, mode?: MirrorMode, tol?: number): MirrorMovesResult;
 /** 这一步动了哪一边（新长出来的点、删掉的点各按 1，挪过的点按挪的距离投票；挪到中缝上的点按它来的那一边算）：+1 / -1；看不出来 = 0。删掉的点 2026-11-09 补上（计划书第 5 层：以前不算删的 = 删一边看不出动的是哪边）。 */
 export declare function sideOfChange(before: MeshKernel, after: MeshKernel, axis: MirrorAxis, tol?: number): -1 | 0 | 1;
+/**
+ * 挪过的旧点在哪一边（只看这一步之前就在的点，按挪的距离投票；挪到中缝上的按它来的那一边算）：没有旧点挪过 = 0。
+ * 强行对称选边的第一顺位（forceSide；2026-11-10 Claude Fable 5.2 审 v0.18.45 时从 sideOfChange 里分出来）：新长的 / 删掉的点不在这里算——
+ * 把面朝镜像面挤出、穿过去时，新点落在对面，但人干活的是点名的那一半。
+ */
+export declare function sideOfMoved(before: MeshKernel, after: MeshKernel, axis: MirrorAxis, tol?: number): -1 | 0 | 1;
 /** 一组点 / 边 / 面（边、面按它们的点算）的坐标和在镜像面哪一边：正好在面上 / 一个都没有 = null（打开强行对称时按选区那边为准）。 */
 export declare function sideOfElements(m: MeshKernel, verts: Iterable<number>, edges: Iterable<number>, faces: Iterable<number>, axis: MirrorAxis, tol?: number): -1 | 1 | null;
 /**
@@ -64,7 +70,12 @@ export interface ForceSide {
     readonly guessed: boolean;
 }
 /**
- * 强行对称这一步以哪半为准（提交 / 预演共用；计划书 §3 第 5 层）：动了哪边（挪的距离 + 新长出来的 + 删掉的）→ 指令点名的点 / 边 / 面在之前的哪边 → 上一次的边 → +；最后过 pickSide。
+ * 强行对称这一步以哪半为准（提交 / 预演共用；计划书 §3 第 5 层）= 「人这一步在哪半干活」：
+ *   ① 挪了的旧点在哪边（按挪的距离；sideOfMoved）→ ② 指令点名的点 / 边 / 面在之前的哪边 → ③ 新长出来的 / 删掉的在哪边（sideOfChange）→ ④ 上一次的边 → +；最后过 pickSide。
+ * 为什么是这个顺序（2026-11-10 Claude Fable 5.2 审 v0.18.45 定的边界规则，两头的反例都有测试 test/mirror-force-symmetric.test.ts）：
+ *   · 点名的不能排第一：挪点时点名的就是被挪的点，软选择跨中缝会把坐标和带偏（左边一堆点各挪一点点、右边一个点挪很多 → 坐标和偏左）——所以挪了的按距离先看（Opus 11-09）。
+ *   · 新长的不能排在点名的前面：把 + 那半的面朝镜像面挤出、穿过去（推拉一条指令），新点落在 − 那半；以 − 为准 = 挤出的那段和盒子脱开、盒子上那张面被镜回来。
+ *     以点名的 + 为准 = 挤出的那段在中缝切开、和对面焊上（同 Blender 镜像修改器的 clipping）。之前是对称的，所以选「人干活的那半」另一半什么都不丢。
  * named 的 id 在 before 的 id 空间里（mirror-ops.ts namedElements 从指令里取）。
  */
 export declare function forceSide(before: MeshKernel, after: MeshKernel, axis: MirrorAxis, named: {
