@@ -26,7 +26,7 @@ const setup = await page.evaluate(() => {
   e.cancel();
   e.zoomExtents(); e.cam.halfH *= 2.5;
   globalThis.__catsup.hud.pick("line");
-  return { made, defs: e.sceneRef.defs.size, sel: e.hasSelection(), scr: [e.cam.angularPx(P(5, 5, 0.5), e.vp()), e.cam.angularPx(P(4, 4, 0), e.vp())] };
+  return { made, defs: e.sceneRef.defs.size, sel: e.hasAnySelection(), scr: [e.cam.angularPx(P(5, 5, 0.5), e.vp()), e.cam.angularPx(P(4, 4, 0), e.vp())] };
 });
 const center = await hoverKind({ x: 5, y: 5, z: 0.5 });
 const originBefore = await hoverKind({ x: 4, y: 4, z: 0 });

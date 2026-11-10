@@ -60,7 +60,7 @@ const res = await page.evaluate(async () => {
   fire("pointerdown", side.x, side.y, { pt: "pen", id: 11, button: 0, buttons: 1 });
   await sleep(650);
   out.longPressMenu = !!menu();
-  out.longPressSelected = e.hasSelection();
+  out.longPressSelected = e.hasAnySelection();
   fire("pointerup", side.x, side.y, { pt: "pen", id: 11, button: 0, buttons: 0 });
   await sleep(30);
   out.menuStillOpenAfterLift = !!menu();

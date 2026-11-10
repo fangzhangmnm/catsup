@@ -186,3 +186,17 @@
 - **验收**：新测试 `test/mirror-force-symmetric.test.ts`（独立的对称检查已写好，后几层接着用）7 条：两案复现、三根轴、两半都空、80 个随机盒子（不会删光、那半原有的面一张不少、结果对称）。探针 `probe-mesh-mirror` 加 ⑪⑫ = 两条复现原样走真 app：**旧代码上 ⑪ 6 → 0、⑫ 6 → 1 且没提示（探针红），新代码 12 和 10、都对称、提示说了（绿）**。
 - **照跑**：`npm test` 1730 过 0 红；探针 mesh-mirror / mirror / mirror-xform / mirror-locked / mesh-subdivide / selecting / undo-session / soft-select 绿；`probe-undo-fuzz` 6 个种子 × 40 步绿。
 - **没做**：第 1 层（换原点先问）没做，所以 ⑫ 那条路现在的结果是「模型被补成以 −X 为准的对称」（10 张面）而不是「问一句」——不删光了，但还是改了模型，有提示、能撤销。
+
+### v0.18.42 工单 1：选中的参考线搬出选区类型（2026-11-09，Claude Opus 5.5）
+
+- **改了**：新模块 `src/editor/guide-selection.ts`（`GuideSelection`：merge / clear / prune / snapshot / restore，复用 `tools.ts mergeSel`）；`tools.ts` 选区类型删掉 `guides`、`guidesOf` / `NO_GUIDES` 删掉；`editor.ts` 持一份 `selectedGuides`，清在 `clearSel` / `selRestore` / 装场景三处，剪在 `pruneSelection`（按活动池 `scene.guidesOf` 剪 = 橡皮、「清空参考几何」、撤销、换池都兜住），撤销记录 `SelSnap.guides` 原样留着、改成走模块。`ToolCtx.replaceSelection(..., { guides })` / `selectGuide` 签名没变，工具模块里碰参考线选中的零改动。
+- **`hasSelection` 拆掉了**，每个调用点二选一（共 55 处，含探针）：
+  - **`hasAnySelection`**（任何选中，含参考几何）：编辑器删除的门口、全选的返回值；选择工具点空处「之前有没有选着」；菜单「删除」「反选」「取消选择」；左柱换脸；笔 / 手指右下角选区条；X 键「有就删」；Esc（先取消选择再退层）；1-bit 画风的闪烁重画；空处右键出「选区菜单」还是「新建菜单」；键表 Delete / Backspace、步行原地编辑里的 Esc。
+  - **`hasActableSelection`**（点 / 边 / 面 / 组 / 组件）：建组、建组件、网格体删除前的镜像护栏、放大镜的「选区」档、网格体手柄、立场「对选区做」；工具里 移动 ×3 / 旋转 / 缩放 / 变换手柄 ×4 / 网格体手柄提示 / 扩缩选区条；菜单「镜像…」「剪切」「拷贝」；自由建模右下角工具条；坐标架「移到选择中心」；临时变换中心；扩缩选区条的收起；键表 Ctrl+X / C / J、Shift+D；键名芯片。
+  - 键表的上下文 `KeyContext.hasSelection` 拆成 `anySelection` / `actableSelection` 两个字段（计划书写「键表的上下文 = 任何」，我按每条键分：剪切 / 拷贝 / 合并 / 复制并挪跟菜单一样看「能动的」，删除 / Esc 看「任何」——只选着参考线时 Ctrl+C 不再响一下「先选中要拷的东西」，和菜单不露拷贝对得上）。左柱换脸的 `RailCtx.hasSelection` 改名 `anySelection`（现在没有脸读它）。
+  - `hasHideableSelection` 去掉参考几何（藏的指令本来就不认它：以前只选参考线按 H = 藏 0 个、不说话）。
+- **选区写口**：只有 2 处新写口（`selectedGuides.clear` 进 `clearSel` / 装场景、`restore` 进 `selRestore`），没到第 7 处。守卫 `test/step-pass-guard.test.ts` 那条「会话的写只在写口里」把 `selectedGuides.clear / restore` 也管上了。
+- **体重**：`editor.ts` 加了 7 行，`describeEvent`（内核事件 → 中文，只有预演提示用）原样搬去 `src/editor/describe-event.ts` 抵掉；4144 → 4138 行，`LINE_PIN` 4147 → 4139（含末尾空行）。
+- **验收**：新守卫 `test/guide-selection.test.ts` 4 条（选区类型里没有 guides、src/ 里只有两个文件碰这份集合、`hasSelection` 不许回来、集合本身）；`test/registry-seams.test.ts` 那条改成结构断言。`npm test` 1734 过 0 红。探针 `probe-guide-select` 加 ⑤–⑧ 全绿：清空 / 擦掉之后 `hasAnySelection()` 为假、再按 Delete 撤销栈步数不变；只选着参考线时移动工具按在面上 = 拿起那个面；右键空处 = 「删除 / 反选 / 取消选择」，没有建组 / 建组件 / 镜像… / 剪切 / 拷贝 / 隐藏。`probe-undo-fuzz` 动作表加三种（加参考点 / 选择工具真点一下参考点 / 擦掉一个）、会话指纹算上选中的参考几何：6 × 40 和 12 × 60 都绿（参考几何三种跑了 45 次）。探针 erase-guides / undo-session / input-gate / center-snap / rail-face / transform / transform2 / typed-amount / mesh-workbench / selecting / soft-select / mesh-transform / mesh-mirror / rail / lasso / submenu / mesh-pull / board / scene 绿。
+- **和这张工单无关、照实记的红**（v0.18.41 原样代码上一样红）：`probe-root-cast` 期望转网格体后 12 张面、实际 24 张——v0.18.31 起两侧都出（提示行自己说了「12 张面两侧都出，转过去是叠着的两张」），探针的期望过时，功能没坏；`probe-snap-base` 新旧代码各跑 3 次都是时红时绿（每次红的断言不一样），像是时序 / 本机钟的毛病，没查。`probe-context` = 工单 5。
+- **没做**：探针 ⑤–⑧ 没在旧代码上跑红过一次（探针改读编辑器的 `selectedGuides`，旧代码没有这个名字）；这几条的「旧代码是坏的」证据是审查报告 §1.1 和 §9 那次真 app 复现。

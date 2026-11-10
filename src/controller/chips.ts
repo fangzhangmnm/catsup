@@ -68,7 +68,7 @@ export function chipLabel(t: string): string {
 export function chipsOf(c: KeyContext, stance: Stance | undefined, L: ChipLive = IDLE_LIVE): Chip[] {
   const out: Chip[] = [];
   const locked = L.axisLock !== null || L.planeLock !== null;
-  const onSel = c.hasSelection && !!stance && stance.center !== "none";   // 这把工具对选区做事、而且有选区：下一下按下去就用得上锁 / 修饰键
+  const onSel = c.actableSelection && !!stance && stance.center !== "none";   // 这把工具对选区做事、而且有选区：下一下按下去就用得上锁 / 修饰键
   if (c.lockStyle && !c.walking && (c.gesture || locked || onSel)) {
     const chords = c.mode === "freeform" ? ["x", "y", "z"] : ["arrowright", "arrowleft", "arrowup"];
     const items: ChipKey[] = chords.flatMap((ch) => { const l = live(c, ch); return l ? [{ keys: chordLabel(ch), label: l, press: ch, on: L.planeLock === null && L.axisLock === LOCK_AXIS[ch] }] : []; });

@@ -120,7 +120,7 @@ export class MeshHandles {
     if (this.family === "transform") return null;
     if (onSelection && HANDLES_ON_TAP[deviceOf(ev.pointerType)]) { ctx.config.set("handles", "show", true); return this.say(); }
     ctx.config.set("handles", "show", false);
-    return ctx.hasSelection() ? "选中了；再点一下选中的东西 = 出手柄（快速点两下 = 双击，那是另一回事）" : null;
+    return ctx.hasActableSelection() ? "选中了；再点一下选中的东西 = 出手柄（快速点两下 = 双击，那是另一回事）" : null;
   }
   private say(): string {
     const tail = "；再点一下 = 换朝向，点空处收起";

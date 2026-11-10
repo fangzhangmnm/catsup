@@ -5,7 +5,7 @@ import { CHIP_SLOTS, IDLE_LIVE, chipLabel, chipsOf, stanceShown, type ChipLive }
 import { stanceOf } from "../src/controller/stance.ts";
 import type { KeyContext } from "../src/controller/keymap.ts";
 
-const base: KeyContext = { mode: "geometry", tool: "select", gesture: false, hasSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, typingWants: () => false };
+const base: KeyContext = { mode: "geometry", tool: "select", gesture: false, anySelection: false, actableSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, typingWants: () => false };
 const at = (o: Partial<KeyContext>, L: Partial<Omit<ChipLive, "held" | "latched">> & { held?: Partial<ChipLive["held"]>; latched?: Partial<ChipLive["latched"]> } = {}) => { const c = { ...base, ...o }; return chipsOf(c, stanceOf(c.mode, c.tool), { ...IDLE_LIVE, ...L, held: { ...IDLE_LIVE.held, ...(L.held ?? {}) }, latched: { ...IDLE_LIVE.latched, ...(L.latched ?? {}) } }); };
 const FF_MOVE = { mode: "freeform" as const, tool: "move" as const, lockStyle: "axis" as const };
 
@@ -15,12 +15,12 @@ describe("键名芯片（chips.ts）", () => {
     for (const o of [{ gesture: true }, { ...FF_MOVE, gesture: true }, { mode: "geometry" as const, tool: "move" as const, lockStyle: "axis" as const, gesture: true }]) { const s = at(o).map((c) => CHIP_SLOTS.indexOf(c.slot)); eq(JSON.stringify(s), JSON.stringify([...s].sort((a, b) => a - b))); }
   });
   it("闲着（没手势、没锁、什么都没按）= 一枚都不出（user「没有context的时候不显示」）；画线这类不对选区做事的工具有选区也不出", () => {
-    eq(at({}).length, 0); eq(at(FF_MOVE).length, 0); eq(at({ mode: "geometry", tool: "line", lockStyle: "axis", hasSelection: true }).length, 0);
+    eq(at({}).length, 0); eq(at(FF_MOVE).length, 0); eq(at({ mode: "geometry", tool: "line", lockStyle: "axis", anySelection: true, actableSelection: true }).length, 0);
   });
   it("对选区做事的工具（移动 / 旋转 / 缩放…）有选区 = 有事可做：锁轴出（iPad 上先点锁再拖）；有键盘时修饰键照旧不出（按住才出）", () => {
-    const c = at({ ...FF_MOVE, hasSelection: true });
+    const c = at({ ...FF_MOVE, anySelection: true, actableSelection: true });
     eq(c.map((x) => x.slot).join(","), "lock");
-    eq(at({ mode: "geometry", tool: "move", lockStyle: "axis", hasSelection: true }).map((x) => x.slot).join(","), "lock");
+    eq(at({ mode: "geometry", tool: "move", lockStyle: "axis", anySelection: true, actableSelection: true }).map((x) => x.slot).join(","), "lock");
   });
   it("自由建模移动、手势中：锁轴 = X / Y / Z（能点）、Shift = 吸附（立场表那一格、只显示）、Esc 取消", () => {
     const c = at({ ...FF_MOVE, gesture: true });
@@ -55,13 +55,13 @@ describe("键名芯片（chips.ts）", () => {
     const sh = g.find((x) => x.slot === "shift")!.items[0];
     eq(sh.latch, "shift"); eq(sh.press, null); assert(!sh.on);
     assert(g.some((x) => x.slot === "lock") && g.some((x) => x.slot === "cancel"), "等下一点时锁轴 / 取消照旧能点");
-    assert(at({ ...FF_MOVE, hasSelection: true }, { keys: false }).some((x) => x.slot === "shift"), "有选区 = 先点开关再拖");
+    assert(at({ ...FF_MOVE, anySelection: true, actableSelection: true }, { keys: false }).some((x) => x.slot === "shift"), "有选区 = 先点开关再拖");
     eq(at(FF_MOVE, { keys: false }).length, 0);
     const l = at(FF_MOVE, { keys: false, latched: { shift: true } });
     assert(l.find((x) => x.slot === "shift")!.items[0].on, "锁住 = 亮，没选区也出（不许有看不见的状态）");
-    const cp = at({ mode: "geometry", tool: "move", lockStyle: "axis", hasSelection: true }, { keys: false }).find((x) => x.slot === "ctrl")!.items[0];
+    const cp = at({ mode: "geometry", tool: "move", lockStyle: "axis", anySelection: true, actableSelection: true }, { keys: false }).find((x) => x.slot === "ctrl")!.items[0];
     eq(cp.latch, "ctrl"); eq(cp.label, "复制");
-    assert(!at({ mode: "geometry", tool: "move", lockStyle: "axis", hasSelection: true }, { keys: true }).some((x) => x.items.some((i) => i.latch)), "有键盘 = 按住，不是开关");
+    assert(!at({ mode: "geometry", tool: "move", lockStyle: "axis", anySelection: true, actableSelection: true }, { keys: true }).some((x) => x.items.some((i) => i.latch)), "有键盘 = 按住，不是开关");
   });
   it("立场表的附注不出芯片；「（= X）」并进意思是 X 的那一枚（键名 Ctrl/Alt）", () => {
     for (const m of ["geometry", "freeform", "verify"] as const) for (const t of ["select", "move", "rotate", "scale", "pp", "offset", "shrink", "knife", "erase", "transform", "create"] as const) {

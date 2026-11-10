@@ -21,7 +21,7 @@ export function openContextMenuAt(editor: Editor, hud: HudModel, x: number, y: n
   if (hasHit && !editor.hitInSelection(hit)) editor.selectExpand(hit, 0);
   // 空处 + 没选区 = 空处的菜单；空处 + 有选区 = 选区的菜单（Blender：右键哪都是对选区说话；同 UX30 操作工具「空白 = 看选区」的读法，账本 UX32 待 user 认）
   const mk = editor.selectionMakeup();
-  const items = (): HudItem[] => (!hasHit && !editor.hasSelection() ? menuItems(hud, "empty") : mk.instances > 0 && !mk.geometry && mk.groups === 0 ? objectMenuItems(hud) : menuItems(hud, "selection", { groups: mk.groups > 0 }));
+  const items = (): HudItem[] => (!hasHit && !editor.hasAnySelection() ? menuItems(hud, "empty") : mk.instances > 0 && !mk.geometry && mk.groups === 0 ? objectMenuItems(hud) : menuItems(hud, "selection", { groups: mk.groups > 0 }));
   if (!items().length) return;
   let anchor = document.getElementById("ctxAnchor") as HTMLElement | null;
   if (!anchor) { anchor = document.createElement("div"); anchor.id = "ctxAnchor"; document.body.appendChild(anchor); }

@@ -151,7 +151,6 @@ export interface EditorHost {
     working?(label: string | null): Promise<void> | void;
 }
 export { type GridSettings, type GridPlane, type UnitSystem, GRID_PLANES, UNIT_SYSTEMS, DEFAULT_SNAP, gridLadder, snapLevels, snapLabel, isUnitSystem } from "./grid-settings.ts";
-export declare function describeEvent(ev: FaceEvent): string;
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
 /** 圆的多边形段数（SU 默认 24）。 */
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
@@ -361,6 +360,8 @@ export declare class Editor {
     private samples;
     private selection;
     private selectedPools;
+    /** 选中的参考几何：不在选区类型里（user 10-24「不混入内核实体的选区类型」；editor/guide-selection.ts）。 */
+    private readonly selectedGuides;
     private hoverEdge;
     private hoverFace;
     private live;
@@ -514,7 +515,9 @@ export declare class Editor {
     get revision(): number;
     canUndo(): boolean;
     canRedo(): boolean;
-    hasSelection(): boolean;
+    /** 有任何选中（含参考几何）= 删除 / 取消选择 / 反选 / Esc 问这个；有工具能动的选中（点 / 边 / 面 / 组 / 组件）= 移动 / 旋转 / 缩放 / 建组 / 拷贝 / 镜像问这个。 */
+    hasAnySelection(): boolean;
+    hasActableSelection(): boolean;
     hasGeometrySelection(): boolean;
     /** 选了面。 */
     hasFaceSelection(): boolean;

@@ -33,7 +33,7 @@ export class MoveTool implements ToolHandler {
   /** 从给定锚点开始一次移动（变换工具的中心点 / 拖已选中的东西代驾用，2026-10-26 user「变换的中间应该有一个可以拖动的点…按move的逻辑snap」）：
    *  目标 = 当前选区，锚点就是这一点（不再拾取）；之后 track / live / finish 和移动工具自己一模一样。选区为空 → false。 */
   startAt(ctx: ToolCtx, anchor: Pt3, copy: boolean): boolean {
-    if (!ctx.hasSelection()) return false;
+    if (!ctx.hasActableSelection()) return false;
     const sel = ctx.selection();
     this.vids = moveTargetsSelection(ctx.kernel(), sel);
     this.pools = ctx.movablePoolPicks();
@@ -52,7 +52,7 @@ export class MoveTool implements ToolHandler {
     const hit = ctx.pick(ev.x, ev.y);
     const c = ctx.classify(view, hit);
     this.copy = !!ev.copy !== ctx.config.get("move", "copy");   // DT14：底部条「复制」开关（锁住式）XOR 按着 Ctrl / Alt（开着复制时按住 = 这一下不复制；user 10-30「可以换回来」）
-    if (ctx.hasSelection()) {
+    if (ctx.hasActableSelection()) {
       const sel = ctx.selection();
       this.vids = moveTargetsSelection(ctx.kernel(), sel);
       this.pools = ctx.movablePoolPicks();
@@ -71,7 +71,7 @@ export class MoveTool implements ToolHandler {
       : ctx.snap(view, ev.x, ev.y, { plane, alignSources: ctx.alignSources(), hand: ctx.hand(view) }).p;
     ctx.setAnchor(anchor);
     ctx.setCursor(anchor);
-    ctx.hint((this.copy ? "复制：" : "") + (this.pools.length ? "移动 group / 组件：拖拽或点两下放置" : ctx.hasSelection() ? "移动选区：参考点已拾取，拖拽或点两下放置" : "移动中…拖拽或点两下放置（所见即所得；按住 Ctrl/Alt = 复制）"));
+    ctx.hint((this.copy ? "复制：" : "") + (this.pools.length ? "移动 group / 组件：拖拽或点两下放置" : ctx.hasActableSelection() ? "移动选区：参考点已拾取，拖拽或点两下放置" : "移动中…拖拽或点两下放置（所见即所得；按住 Ctrl/Alt = 复制）"));
   }
 
   track(ctx: ToolCtx, s: { x: number; y: number }, travel?: number): void {

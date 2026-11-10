@@ -11,8 +11,8 @@ const UNDOABLE = new Set(["delete"]);   // 换脸只许放一步能撤销的动�
 
 describe("左柱换脸（rail-face.ts）", () => {
   it("自由建模的删除不再换脸（v0.16.31 撤：user「delete变成按钮可能不大好。吃书吧。变成右下的一个按钮？」→ 删除 = 右下工具条的按钮）", () => {
-    eq(railFace("erase", { mode: "freeform", hasSelection: true, gesture: false }), null);
-    eq(railFace("erase", { mode: "freeform", hasSelection: false, gesture: false }), null);
+    eq(railFace("erase", { mode: "freeform", anySelection: true, gesture: false }), null);
+    eq(railFace("erase", { mode: "freeform", anySelection: false, gesture: false }), null);
   });
   it("每张脸：工具在那个工作台里、动作 id 是键表里有的动作（和真按键同一条）、动作能撤销、图标 / 字 / 提示都写了", () => {
     const actions = new Set(ALL_LAYERS.flatMap((L) => L.bindings.map((b) => b.action)));

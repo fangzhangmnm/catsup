@@ -23,7 +23,7 @@ describe("撤销一步的通行证（静态守卫）", () => {
     const bare = hits(/this\.commitIn\(/).filter((n) => !/this\.commitIn\((pass|p|this\.toolPass\(\))[,)]/.test(lines[n - 1]));
     eq(bare.length, 0, `commitIn 没带通行证：${bare.join(", ")}`);
   });
-  it("会话的写（selection / selectedPools 整体赋值、ctx 赋值）只在写口和装场景路径里（设计稿 §2 I4）", () => {
+  it("会话的写（selection / selectedPools 整体赋值、selectedGuides 清 / 还原、ctx 赋值）只在写口和装场景路径里（设计稿 §2 I4）", () => {
     const hdr = /^  (?:private |public |protected )?(?:async |get )?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\(/;
     const writers = new Set(["clearSel", "setCtx", "selRestore", "sessionRestore", "bump", "pruneSelection", "loadScene"]);   // 写口 + 装场景路径（不是用户的写）
     const bad: string[] = [];
@@ -31,7 +31,7 @@ describe("撤销一步的通行证（静态守卫）", () => {
     lines.forEach((l: string, i: number) => {
       const m = hdr.exec(l);
       if (m && !/^\s*(if|for|while|switch|return|else|catch)\b/.test(l)) meth = m[1];
-      if (!/this\.(selection|selectedPools|ctx) = /.test(l) && !/this\.selectedPools\.clear\(\)/.test(l)) return;
+      if (!/this\.(selection|selectedPools|ctx) = /.test(l) && !/this\.selectedPools\.clear\(\)/.test(l) && !/this\.selectedGuides\.(clear|restore)\(/.test(l)) return;   // 选中的参考几何（2026-11-09 搬出选区类型）同样只在写口里整体清 / 还原
       if (writers.has(meth) || l.includes("写口已标过")) return;   // 「写口已标过」= 同一步里前面已经调过 clearSel / setCtx（上下文定了再造选区）
       bad.push(`${i + 1} (${meth}): ${l.trim().slice(0, 80)}`);
     });

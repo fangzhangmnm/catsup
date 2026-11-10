@@ -14,8 +14,8 @@ import type { Tool } from "../editor/tool-ids.ts";
 
 export interface RailCtx {
   readonly mode: ModeId;
-  /** 有选区（点 / 边 / 面 / 子物体）。 */
-  readonly hasSelection: boolean;
+  /** 有任何选中（点 / 边 / 面 / 子物体 / 参考几何）。 */
+  readonly anySelection: boolean;
   /** 手势进行中（按下没松 / 等下一点 / 键盘起手）。现在没有脸看它（见上面的规矩），留着给以后真需要的脸。 */
   readonly gesture: boolean;
 }

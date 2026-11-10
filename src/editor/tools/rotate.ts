@@ -41,7 +41,7 @@ export class RotateTool implements ToolHandler {
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.stage === 0) {
-      if (!ctx.hasSelection()) { ctx.hint("先选中要旋转的东西（选择工具），再用量角器"); return; }
+      if (!ctx.hasActableSelection()) { ctx.hint("先选中要旋转的东西（选择工具），再用量角器"); return; }
       // 圆心：落在膜上 → 转轴 = 膜法向；否则 → 画线平面（地面 / 面向的轴平面）
       const r = rectFirstPlane(ctx.live(), ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.snapPx(), ctx.alignSources());
       this.center = r.snap.p; this.plane0 = r.plane; this.plane = ctx.lockedPlane(r.snap.p) ?? r.plane; this.axis = this.plane.plane.n;

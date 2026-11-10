@@ -19,7 +19,7 @@ const def = await page.evaluate(async () => {
   return inst.def;
 });
 const hover = async () => { await page.mouse.move(520, 380); await page.mouse.move(530, 390); await page.waitForTimeout(40); };
-const state = () => page.evaluate((d) => { const e = globalThis.__catsup.editor, m = e.scene.mesh(d).kernel, ps = m.verts().map((v) => m.pt(v)), v0 = m.pt(m.verts()[0]); const r = (k) => [Math.min(...ps.map((p) => p[k])), Math.max(...ps.map((p) => p[k]))].map((x) => +x.toFixed(6)); return { v0: [v0.x, v0.y, v0.z].map((x) => +x.toFixed(6)), sel: e.hasSelection(), x: r("x"), y: r("y"), z: r("z"), steps: e.history.steps(), gesture: e.isGestureActive(), hint: globalThis.__catsup.hud.status(), typed: e.typedText() }; }, def);
+const state = () => page.evaluate((d) => { const e = globalThis.__catsup.editor, m = e.scene.mesh(d).kernel, ps = m.verts().map((v) => m.pt(v)), v0 = m.pt(m.verts()[0]); const r = (k) => [Math.min(...ps.map((p) => p[k])), Math.max(...ps.map((p) => p[k]))].map((x) => +x.toFixed(6)); return { v0: [v0.x, v0.y, v0.z].map((x) => +x.toFixed(6)), sel: e.hasAnySelection(), x: r("x"), y: r("y"), z: r("z"), steps: e.history.steps(), gesture: e.isGestureActive(), hint: globalThis.__catsup.hud.status(), typed: e.typedText() }; }, def);
 const selAll = () => page.evaluate(() => { globalThis.__catsup.editor.selectAll(); });
 const keys = async (...ks) => { for (const k of ks) { await page.keyboard.press(k); await page.waitForTimeout(40); } };
 const undo = () => page.evaluate(() => globalThis.__catsup.editor.undo());

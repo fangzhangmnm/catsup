@@ -24,7 +24,7 @@ const r = {};
 // ①
 await page.evaluate((d) => { const e = globalThis.__catsup.editor, m = e.scene.mesh(d).kernel, f = m.faces()[0], c = m.faceVerts(f).map((v) => m.pt(v)).reduce((a, p) => ({ x: a.x + p.x / 4, y: a.y + p.y / 4, z: a.z + p.z / 4 }), { x: 0, y: 0, z: 0 }); const X = e.scene.xformOfContext(e.ctx), w = { x: X[0] * c.x + X[1] * c.y + X[2] * c.z + X[3], y: X[4] * c.x + X[5] * c.y + X[6] * c.z + X[7], z: X[8] * c.x + X[9] * c.y + X[10] * c.z + X[11] }, s = e.cam.angularPx(w, e.vp()); e.selectExpand(e.pickAt(s.x, s.y), 0); globalThis.__catsup.hud.pick("select"); }, def);
 await page.waitForTimeout(80);
-r.one = { sel: await page.evaluate(() => globalThis.__catsup.editor.hasSelection()), trash: await page.evaluate(() => !!document.querySelector("#toolbar button.rail-face")), strip: await stripHas() };
+r.one = { sel: await page.evaluate(() => globalThis.__catsup.editor.hasAnySelection()), trash: await page.evaluate(() => !!document.querySelector("#toolbar button.rail-face")), strip: await stripHas() };
 // ②
 const f0 = await faces(), st = await page.evaluate(() => globalThis.__catsup.editor.history.steps());
 await page.evaluate(() => [...document.querySelectorAll("#toolStrip button")].find((x) => (x.textContent.trim() || x.getAttribute("aria-label")) === "删除")?.click()); await page.waitForTimeout(100);

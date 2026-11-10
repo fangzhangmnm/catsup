@@ -58,7 +58,7 @@ export class ScaleTool implements ToolHandler {
   }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
-    if (!ctx.hasSelection()) { ctx.hint("先选中要缩放的东西（选择工具），再拖包围盒上的柄"); return; }
+    if (!ctx.hasActableSelection()) { ctx.hint("先选中要缩放的东西（选择工具），再拖包围盒上的柄"); return; }
     // 柄透视画、透视拾（埋在几何里也点得中；user 2026-10-25「缩放的gizmos如果卡几何里面应该能点中」）
     const hs = this.handles(ctx), ray0 = ctx.frame().ray(ev.x, ev.y, ctx.vp());
     const best = pickHandle(hs.map((h) => ({ d: ctx.frame().distTo(ev.x, ev.y, h.p, ctx.vp()), z: dot3(sub3(h.p, ray0.origin), ray0.dir) })), ctx.eps().hit);

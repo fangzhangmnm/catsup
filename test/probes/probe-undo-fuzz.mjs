@@ -20,7 +20,7 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
   }).join("\n");
   const guidsOf = (sc) => JSON.stringify([sc.shelf.items.map((it) => [it.guid, it.ref]), [...sc.defs.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => [id, d.guid, [...d.instances.values()].map((i) => i.guid), d.body.kind === "brep" ? [...d.body.groups.values()].map((g) => g.guid) : []]), sc.materials.map((m) => m.guid), sc.layers.map((l) => l.guid)]);
   const unusedMats = (sc) => { const used = new Set(); for (const d of sc.defs.values()) { const b = d.body; if (b.kind === "mesh") { for (const f of b.kernel.faces()) { const m = b.materialSlots[b.kernel.faceMat[f]]; if (m !== undefined) used.add(m); } continue; } for (const k of [b.kernel, ...[...b.groups.values()].map((g) => g.kernel)]) for (const f of k.faces()) for (const side of [0, 1]) { const sl = k.faceMaterialOf(f.id, side); if (sl !== undefined && b.materialSlots[sl] !== undefined) used.add(b.materialSlots[sl]); } } return sc.materials.map((_, i) => i).filter((i) => !used.has(i)); };
-  const selKey = () => `${e.contextCrumbs().length - 1}|f${[...e.selection.faces].sort().join(",")}|e${[...e.selection.edges].sort().join(",")}|v${[...e.selection.verts].sort().join(",")}|p${[...e.selectedPools.values()].map((p) => JSON.stringify(p)).sort().join(",")}`;
+  const selKey = () => `${e.contextCrumbs().length - 1}|f${[...e.selection.faces].sort().join(",")}|e${[...e.selection.edges].sort().join(",")}|v${[...e.selection.verts].sort().join(",")}|p${[...e.selectedPools.values()].map((p) => JSON.stringify(p)).sort().join(",")}|g${[...e.selectedGuides.view].sort().join(",")}`;   // 选中的参考几何住编辑器（v0.18.42），会话里一样要回得去
   const selValid = () => { const v = e.activeView; return [...e.selection.faces].every((f) => v.face(f)) && [...e.selection.edges].every((x) => v.graph.hasEdge(x)) && [...e.selection.verts].every((x) => v.graph.hasVertex(x)); };
   const mulberry = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
   const box = (x0, y0, z0, x1, y1, z1) => { const B = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], z0), P(d[0], d[1], z0)]); segs.push([P(a[0], a[1], z1), P(d[0], d[1], z1)]); segs.push([P(a[0], a[1], z0), P(a[0], a[1], z1)]); } e.commitOp({ op: "addEdges", at: e.activePool(), segs }); };
@@ -45,7 +45,7 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
     // 双数种子从网格体里开始（不然进网格体要连着 盒 → 组件 → 转网格体 → 进入 四步，镜像那条路几乎跑不到）
     if (seed % 2 === 0) { box(0, 0, 0, 2, 1, 1); e.selectAll(); e.makeComponent(`m${seed}`); e.runAction("object.toMesh"); const mi0 = [...S().def(S().root).instances.values()].at(-1); e.selectedPools.clear(); e.selectedPools.set(`i${mi0.id}`, { kind: "instance", instance: mi0.id }); e.enterSelected(); trail.push("[mesh]"); }
     for (let k = 0; k < ACTIONS && out.failures.length < 6; k++) {
-      const r = rnd(), hasSel = e.hasSelection(), hasPool = e.selectedPools.size > 0, depth = e.contextCrumbs().length - 1;
+      const r = rnd(), hasSel = e.hasAnySelection(), hasPool = e.selectedPools.size > 0, depth = e.contextCrumbs().length - 1;
       const stepsBefore = e.history.steps(), posBefore = e.history.position(), fpBefore = fp(S());
       let name;
       try {
@@ -108,6 +108,11 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
           if (mk.vertexCount()) add(6, "moveVert", () => { const vs = mk.verts(), v = vs[Math.floor(rnd() * vs.length)], p = mk.pt(v); e.commitOp({ op: "meshMove", def: meshDef, moves: [{ v, to: { x: p.x + (rnd() * 2 - 1) * 1.5, y: p.y + rnd() - 0.5, z: p.z + rnd() - 0.5 } }] }); });
           if (e.selection.kind === "mesh" && e.selection.faces.size) add(4, "extrude", () => e.commitOp({ op: "meshExtrude", def: meshDef, faces: [...e.selection.faces], offset: P(0.3, 0, 0) }));
         } else if (!hasSel && depth === 0) add(2, "repair", () => e.runAction(["brep.straighten", "brep.weld", "brep.planar", "brep.harden"][Math.floor(rnd() * 4)]));
+        // 选中的参考几何（v0.18.42 搬出选区类型，计划书 20261109-audit-fixes-plan 工单 1）：加参考点 / 用选择工具真点一下参考点 / 擦掉一个（eraseGuides = 橡皮提交的那条）
+        if (!inMesh) add(3, "guideAdd", () => e.commitOp({ op: "addGuide", at: e.activePool(), point: P(Math.round(rnd() * 12), Math.round(rnd() * 12), Math.round(rnd() * 2)) }));
+        const gpts = inMesh ? [] : e.worldGeom().guides().points;
+        if (gpts.length) add(4, "guideSelect", () => { const g = gpts[Math.floor(rnd() * gpts.length)], q = e.cam.angularPx(g.p, e.vp()), t0 = e.tool; e.setTool("select"); fire("pointermove", q.x, q.y, 0); fire("pointerdown", q.x, q.y, 1); fire("pointerup", q.x, q.y, 0); e.setTool(t0); });
+        if (gpts.length) add(3, "guideErase", () => e.eraseGuides([gpts[Math.floor(rnd() * gpts.length)].id]));
         if (e.history.position() > posStart) add(10, "undo", () => e.undo());   // 不撤到种子开头之前（撤过头再提交会截掉前面种子的重做尾巴，「撤回种子开头」就对不上了）
         add(5, "redo", () => e.redo());
         const total = picks.reduce((acc, [w]) => acc + w, 0); let x = rnd() * total, chosen = picks[picks.length - 1];

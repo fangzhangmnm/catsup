@@ -54,14 +54,14 @@ export declare function marqueeOf(a: Pt, b: Pt): Marquee;
  */
 /**
  * 选区带种类标签（Fable 账单 A2，2026-10-27 Claude Fable 5.1）：id 住在活动池那种内核的 id 空间里——brep 的点 / 边 / 膜 id 和 mesh 的点 / 边 / 面 id 不是一回事，
- * 一个选区只能是其中一种（联合，不混）。参考几何只有 brep 池有（A31），所以 guides 只在 BrepSelection 上；mesh 的选区没有这一项。
+ * 一个选区只能是其中一种（联合，不混）。选区里只有内核的点 / 边 / 面：选中的参考几何不在这里，住编辑器的 `editor/guide-selection.ts`
+ * （user 10-24「不混入内核实体的选区类型，避免影响其他消费方」；2026-11-09 Claude Opus 5.5 搬出去，守卫 test/guide-selection.test.ts）。
  * 不变量：selection.kind === 活动池的身体种类（Editor.blankSelection 按活动池造；进出上下文时重造）。
  */
 export interface BrepSelection {
     readonly kind: "brep";
     edges: Set<EdgeId>;
     faces: Set<FaceId>;
-    guides: Set<number>;
     verts: Set<VertexId>;
 }
 export interface MeshSelection {
@@ -74,8 +74,6 @@ export type Selection = BrepSelection | MeshSelection;
 export declare function emptySelection(kind: "mesh"): MeshSelection;
 export declare function emptySelection(kind?: "brep"): BrepSelection;
 export declare function emptySelection(kind: Selection["kind"]): Selection;
-/** 选区里的参考几何（mesh 选区 = 空集）。 */
-export declare const guidesOf: (s: Selection) => ReadonlySet<number>;
 /**
  * 选择怎么合进已有选区（2026-10-26，对齐 Blender；user「ipad同意，但是我想和blender对齐？」）：替换 / 加选 / 减选 / 切换。
  * 键鼠：单击 = 替换、Shift 点 = 切换、Ctrl 点 = 减选；框选 Shift = 加、Ctrl = 减。iPad：选择工具右下角选项定（修饰键按着时修饰键说了算）。

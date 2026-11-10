@@ -62,7 +62,7 @@ const res = await page.evaluate(async () => {
   key("z", { ctrl: true }); await sleep(30);
   // ⑥ 点空处清选区；点面选上；框选
   await tap(px(P(4, 4, 0)));
-  out.emptyTapSel = e.hasSelection();
+  out.emptyTapSel = e.hasAnySelection();
   await tap(px(P(0.5, 0.5, 1)));
   out.faceTapSel = nsel();
   e.cancel();

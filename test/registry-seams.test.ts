@@ -8,7 +8,7 @@ import { History } from "../src/editor/history.ts";
 import { checkRegistry, actionById, routesOf, commandById, placementsAt } from "../src/editor/commands/registry.ts";
 import type { CommandEnv, MeshUnit, ObjectUnit, PoolUnit } from "../src/editor/commands/command.ts";
 import { brepMove, meshMove, objectMove } from "../src/editor/move/index.ts";
-import { emptySelection, guidesOf } from "../src/editor/tools.ts";
+import { emptySelection } from "../src/editor/tools.ts";
 import { sceneBox } from "./format-scenes.ts";
 import { IDENTITY, applyPt } from "../src/scene/xform.ts";
 import { KINDS } from "../src/scene/kinds.ts";
@@ -58,7 +58,7 @@ describe("注册表接缝：三种单位 + 路由型动作「挪」", () => {
     let threw = "";
     try { applyOp(s, { op: "meshMove", def: s.root, moves: [] }); } catch (e) { threw = (e as Error).name; }
     eq(threw, "OpTargetError");
-    eq(guidesOf(sel).size, 0, "mesh 选区没有参考几何");
+    assert(!("guides" in sel), "选区里没有参考几何（选中的参考几何住编辑器的 guide-selection.ts，2026-11-09）");
   });
   it("object.move：这一份实例的矩阵左乘平移；两份同定义各挪各的（不去重）", () => {
     const { s, def, insts } = scene();

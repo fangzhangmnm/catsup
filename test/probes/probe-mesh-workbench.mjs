@@ -31,7 +31,7 @@ const res = await page.evaluate(async () => {
   out.enter = { depth: depth(), mode: e.modeId, kind: e.activeKind(), selKind: e.selection.kind, modes: e.modes().map((m) => m.id), tool: e.tool, hint: hint() };
   // ② 选择工具点顶面中心 → 选中一张面；状态行数面；Ctrl+A 全选 = 6 面 12 边
   e.setTool("select"); await click(P(0.5, 0.5, 1));
-  out.pickTop = { faces: e.selection.faces.size, readout: e.readoutText(), hasSel: e.hasSelection(), hud: hud.edits().filter((x) => !x.hidden).map((x) => x.id) };
+  out.pickTop = { faces: e.selection.faces.size, readout: e.readoutText(), hasSel: e.hasAnySelection(), hud: hud.edits().filter((x) => !x.hidden).map((x) => x.id) };
   key("z"); await sleep(30); const undoClick = { faces: e.selection.faces.size, pos: e.history.position() };   // 鼠标点选也是一步（v0.15.15 的 bug：点选发生在指针那一步里没记）
   key("y"); await sleep(30); out.clickUndo = { ...undoClick, redoFaces: e.selection.faces.size };
   key("a"); await sleep(20);

@@ -142,7 +142,7 @@ export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number, opts: { gr
   if (bar && n === 1 && mode === "replace" && !ev.shiftKey && ctx.hitInSelection(hit)) { ctx.selGrowBar({ x: ev.x, y: ev.y }); return; }
   ctx.selGrowBar(null);
   ctx.selectExpand(hit, n >= 3 ? 2 : n === 2 ? 1 : 0, mode);
-  if (bar && n === 2 && ctx.hasSelection()) ctx.selGrowBar({ x: ev.x, y: ev.y });
+  if (bar && n === 2 && ctx.hasActableSelection()) ctx.selGrowBar({ x: ev.x, y: ev.y });
 }
 
 export interface ScreenBox { minX: number; minY: number; maxX: number; maxY: number }
@@ -159,7 +159,7 @@ export function boxSelect(ctx: ToolCtx, box: ScreenArea, mode: SelMode): void {
   if (K) { if (!K.verts) verts.length = 0; if (!K.edges) edges.length = 0; if (!K.faces) faces.length = 0; }
   const vp = ctx.vp(), guides = view.guides().points.filter((q) => { const s2 = ctx.frame().project?.(q.p, vp); return !!s2 && inArea(s2); }).map((q) => q.id);
   // 框里什么都没有 = 清空选区，不管这一下是加 / 减 / 多选（user 10-30「矩形选区选空的时候语义应该是清除选区。zbrush的肌肉记忆」）；选区进撤销，撤一步回来
-  const empty = !verts.length && !edges.length && !faces.length && !pools.size && !guides.length, had = ctx.hasSelection();
+  const empty = !verts.length && !edges.length && !faces.length && !pools.size && !guides.length, had = ctx.hasAnySelection();
   ctx.replaceSelection({ verts, edges, faces, pools: [...pools.values()], guides }, empty ? "replace" : mode);
   if (empty && had) ctx.hint("框里什么都没有：清空了选区（撤销能回来）");
   ctx.afterSelect();

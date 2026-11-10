@@ -19,7 +19,10 @@ export interface KeyContext {
   readonly tool: Tool;
   /** 手势进行中（按下没松 / 点了一下在等第二下 / 键盘起手的模态中）。 */
   readonly gesture: boolean;
-  readonly hasSelection: boolean;
+  /** 有任何选中（含参考几何）：删除 / Esc 看这个。 */
+  readonly anySelection: boolean;
+  /** 有工具能动的选中（点 / 边 / 面 / 组 / 组件）：剪切 / 拷贝 / 合并 / 复制并挪看这个（只选着参考线时这几个键不响）。 */
+  readonly actableSelection: boolean;
   /** 步行阶段：off / place（放置中）/ walk（FPS）/ edit（原地编辑）。 */
   readonly walk: "off" | "place" | "walk" | "edit";
   /** locomotion 在步行模式（FPS 或原地编辑）。 */
@@ -67,12 +70,12 @@ export const GLOBAL: Layer = {
     B("shift+tab", "grid.toggle", "格点吸附开 / 关"),
     B("\\", "ui.hideWindows", "藏起 / 叫回所有窗（手指 = 四指轻点）"),   // user 10-30「一键藏起所有窗，像 Procreate 四指轻点全屏。 现在就可以做」
     B("ctrl+a", "select.all", "全选"), B("ctrl+i", "select.invert", "反选"), B("alt+a", "select.none", "全不选"),
-    B("ctrl+x", "edit.cut", "剪切", (c) => c.hasSelection), B("ctrl+c", "edit.copy", "拷贝", (c) => c.hasSelection), B("ctrl+v", "edit.paste", "粘贴（原位）"),
+    B("ctrl+x", "edit.cut", "剪切", (c) => c.actableSelection), B("ctrl+c", "edit.copy", "拷贝", (c) => c.actableSelection), B("ctrl+v", "edit.paste", "粘贴（原位）"),
     B("ctrl+s", "doc.save", "保存"), B("ctrl+o", "doc.open", "打开本地文件…"),   // 以前直接写在 main.ts 的文档级 keydown 里、不在键表（帮助页不列、冲突守卫看不见；user 10-30「ctrl o ctrl s 修」）
     B("alt+h", "show.all", "全部显示"), B("alt+z", "view.xray", "X 光"),
-    B("ctrl+g", "group.make", "建组"), B("ctrl+j", "objects.join", "把选中的合并进光标下那个（Blender Ctrl+J）", (c) => c.hasSelection), B("ctrl+shift+g", "group.explode", "炸开"),
+    B("ctrl+g", "group.make", "建组"), B("ctrl+j", "objects.join", "把选中的合并进光标下那个（Blender Ctrl+J）", (c) => c.actableSelection), B("ctrl+shift+g", "group.explode", "炸开"),
     B("ctrl+z", "undo", "撤销"), B("ctrl+shift+z", "redo", "重做"), B("ctrl+y", "redo", "重做"),
-    B("delete", "delete", "删除", (c) => c.hasSelection), B("backspace", "delete", "删除", (c) => c.hasSelection),
+    B("delete", "delete", "删除", (c) => c.anySelection), B("backspace", "delete", "删除", (c) => c.anySelection),
     B("escape", "escape", "取消 / 退一层"),
     // 方向键锁（A9，SketchUp 同款）：→ X / ← Y / ↑ Z / ↓ 解；Shift+方向键 = 面锁
     B("arrowright", "lock.key:x", "锁 X", notWalking), B("arrowleft", "lock.key:y", "锁 Y", notWalking), B("arrowup", "lock.key:z", "锁 Z", notWalking), B("arrowdown", "lock.key:none", "解锁", notWalking),
@@ -86,7 +89,7 @@ export const FREEFORM: Layer = {
   bindings: [
     B("g", "modal:move", "移动（键盘起手）"), B("r", "modal:rotate", "旋转（键盘起手）"), B("s", "modal:scale", "缩放（键盘起手）"), B("e", "modal:pp", "挤出（键盘起手）"), B("i", "modal:offset", "插入（键盘起手）"),
     B("a", "select.all", "全选"), B("j", "mesh.connect", "连线"),
-    B("shift+a", "tool.key:shift+a:create", "拉出"), B("shift+d", "mesh.duplicateMove", "复制并接着挪（Blender Shift+D）", (c) => !c.gesture && c.hasSelection),
+    B("shift+a", "tool.key:shift+a:create", "拉出"), B("shift+d", "mesh.duplicateMove", "复制并接着挪（Blender Shift+D）", (c) => !c.gesture && c.actableSelection),
     B("o", "soft.toggle", "软选择 开 / 关"), B("[", "soft.smaller", "软半径 小一点"), B("]", "soft.bigger", "软半径 大一点"),   // Blender O；[ ] = WeebPaint 调笔刷粗细同款（user 10-28 夜「weebpaint的slider」）   // Blender 的「添加」= 这里的新建工具（user 10-28 晚「Shift+A 同意」）
     B("x", "delete.ifAny", "删除"),   // 选择工具里 X = 删除（操作工具层在上面把 X 接走 = 轴，UX17）
     B("y", "lock.arm:y", "先锁 Y", (c) => !c.gesture), B("z", "lock.arm:z", "先锁 Z", (c) => !c.gesture),
@@ -133,7 +136,7 @@ export const PICK: Layer = { id: "freeform:pick", bindings: [
 export const MIRROR: Layer = { id: "mirror-session", bindings: [B("enter", "mirror.apply", "应用镜像")] };
 /** 数值小窗：它说要就给它（数字开头 / 缓冲非空时的单位字母 / 回车 / 退格）。 */
 /** 步行三阶段。 */
-export const WALK_EDIT: Layer = { id: "walk:edit", bindings: [B("tab", "walk.resume", "继续走（从按 Tab 那一帧接着走）", (c) => !c.gesture), B("escape", "walk.exit", "离开步行", (c) => !c.gesture && !c.hasSelection)] };   // Tab 来回切（user 10-29「fps的暂停的时候tab应该能切回去」）
+export const WALK_EDIT: Layer = { id: "walk:edit", bindings: [B("tab", "walk.resume", "继续走（从按 Tab 那一帧接着走）", (c) => !c.gesture), B("escape", "walk.exit", "离开步行", (c) => !c.gesture && !c.anySelection)] };   // Tab 来回切（user 10-29「fps的暂停的时候tab应该能切回去」）
 export const WALK_PLACE: Layer = { id: "walk:place", bindings: [B("escape", "walk.cancelPlace", "取消放置")] };
 export const WALK_FPS: Layer = { id: "walk:fps", exclusive: true, bindings: [B("tab", "walk.editInPlace", "原地编辑"), B("escape", "walk.exit", "离开步行")] };
 
@@ -245,7 +248,7 @@ export interface ToolKey { readonly chord: Chord; readonly how: "pick" | "cycle"
  */
 export function toolKeysOf(mode: ModeId, tool: Tool, inMode: (t: Tool) => boolean = () => true): ToolKey[] {
   const from: Tool = tool === "select" ? "line" : "select";
-  const c: KeyContext = { mode, tool: from, gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null, typingWants: () => false };
+  const c: KeyContext = { mode, tool: from, gesture: false, anySelection: true, actableSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null, typingWants: () => false };
   const chords: Chord[] = [];
   for (const L of ALL_LAYERS) for (const b of L.bindings) if (b.chord !== "*" && !chords.includes(b.chord)) chords.push(b.chord);
   const out: ToolKey[] = [];
@@ -283,12 +286,12 @@ export function meaningOf(action: string): string {
 }
 /** 拿来比的几个地方（会来回切的：两个建模工作台 × 拿着选择 / 移动，加验证、表面）。 */
 export const MUSCLE_CONTEXTS: Readonly<Record<string, Omit<KeyContext, "typingWants">>> = {
-  "硬表面·选择": { mode: "geometry", tool: "select", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
-  "硬表面·移动": { mode: "geometry", tool: "move", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: "axis" },
-  "自由建模·选择": { mode: "freeform", tool: "select", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
-  "自由建模·移动": { mode: "freeform", tool: "move", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: "axis" },
-  "验证·选择": { mode: "verify", tool: "select", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
-  "表面·选择": { mode: "surface", tool: "select", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
+  "硬表面·选择": { mode: "geometry", tool: "select", gesture: false, anySelection: true, actableSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
+  "硬表面·移动": { mode: "geometry", tool: "move", gesture: false, anySelection: true, actableSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: "axis" },
+  "自由建模·选择": { mode: "freeform", tool: "select", gesture: false, anySelection: true, actableSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
+  "自由建模·移动": { mode: "freeform", tool: "move", gesture: false, anySelection: true, actableSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: "axis" },
+  "验证·选择": { mode: "verify", tool: "select", gesture: false, anySelection: true, actableSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
+  "表面·选择": { mode: "surface", tool: "select", gesture: false, anySelection: true, actableSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
 };
 /** 现在的冲突：和弦 → 意思 → 在哪几个地方（没绑的不算；只有一种意思的不列）。 */
 export function muscleConflicts(): Map<Chord, Map<string, string[]>> {

@@ -295,17 +295,17 @@ const hud: HudModel = {
     return [
     { id: "undo", label: "撤销", icon: "arrow-undo", disabled: !editor.canUndo() },
     { id: "redo", label: "重做", icon: "arrow-redo", disabled: !editor.canRedo() },
-    { id: "delete", layer: "geometry", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasSelection() },   // 网格体的点 / 边 / 面也能删了（v0.15.22）
+    { id: "delete", layer: "geometry", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasAnySelection() },   // 网格体的点 / 边 / 面也能删了（v0.15.22）
     { id: "group", layer: "geometry", label: "建组", icon: "collection", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },   // 选了组 / 组件也能建（装进去，2026-10-26 嵌套）
     { id: "component", layer: "geometry", label: "建组件", icon: "object", hidden: !editor.canMakeComponent() },   // 网格体里 = 选中的面做成嵌在这一层的组件（v0.16.37）
     // 物件层动词（炸开 / 合并 / 做成唯一 / 锁 / 解锁 / 藏 / 应用缩放）= 注册表物件族（editor/objects/verbs.ts）放在 objectMenu 面上的动作：一份实现、按单位种类路由、每个工作台自动都有（只能退订）
     ...editor.commandMenu("objectMenu").map((m): HudItem => ({ id: `action:${m.id}`, layer: "child", label: m.label, icon: m.icon })),
     { id: "explodeGroups", layer: "child", label: "炸开组", icon: "explode-folder", hidden: !editor.hasGroupSelection() },   // 组 = 硬表面的分区，不是物件：手写
-    { id: "mirror", layer: "geometry", label: "镜像…", icon: "flip-horizontal", hidden: brepOnly || !editor.hasSelection() || editor.mirrorActive() },   // DT23（user 2026-10-25「你选中，右键mirror之后……」）
+    { id: "mirror", layer: "geometry", label: "镜像…", icon: "flip-horizontal", hidden: brepOnly || !editor.hasActableSelection() || editor.mirrorActive() },   // DT23（user 2026-10-25「你选中，右键mirror之后……」）
     { id: "weld", layer: "geometry", label: "焊接", icon: "arc", hidden: !editor.canWeldSelection() },   // B19：边链 → 一条曲线（图标 = stopgap，图标库 TODO 已登记 weld）
     { id: "explodeCurve", layer: "geometry", label: "炸开曲线", icon: "explode-folder", hidden: !editor.hasCurveSelection() },
-    { id: "cut", layer: "geometry", label: "剪切", icon: "cut", hidden: !editor.hasSelection() },   // 剪贴板（设计稿 20261028-object-layer-and-clipboard-design §3）：几何 + 组 + 物件都走它；层级移动 = 剪切 → 走到那层 → 粘贴
-    { id: "copy", layer: "geometry", label: "拷贝", icon: "copy", hidden: !editor.hasSelection() },
+    { id: "cut", layer: "geometry", label: "剪切", icon: "cut", hidden: !editor.hasActableSelection() },   // 剪贴板（设计稿 20261028-object-layer-and-clipboard-design §3）：几何 + 组 + 物件都走它；层级移动 = 剪切 → 走到那层 → 粘贴
+    { id: "copy", layer: "geometry", label: "拷贝", icon: "copy", hidden: !editor.hasActableSelection() },
     { id: "paste", layer: "empty", label: "粘贴（原位）", icon: "paste", hidden: !editor.canPaste() },
     { id: "selectAll", layer: "empty", label: "全选", icon: "select" },   // 清空模型 = 这里全选再删（user 10-30「清空模型归右键，而且可能就是全选删除，我们这里不需要清空画布快捷键」）
     { id: "enter", layer: "child", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
@@ -325,8 +325,8 @@ const hud: HudModel = {
     { id: "harden", layer: "geometry", label: "硬化选区", icon: "sharpen", hidden: brepOnly || !editor.hasGeometrySelection() },
     { id: "connected", layer: "geometry", label: "选择连通体", icon: "select", hidden: !editor.hasGeometrySelection() && !editor.hasPointSelection() },
     { id: "loop", layer: "geometry", label: "选成环 / 洞", icon: "select", hidden: !editor.hasMeshEdgeSelection() },   // 触屏没有 Alt：选中的边扩成环 / 洞（桌面 = Alt 点边；user 10-28「alt 点边可以选择洞还是环」）
-    { id: "invert", layer: "geometry", label: "反选", icon: "selection-invert", hidden: !editor.hasSelection() },   // Blender Ctrl+I（user 10-26「我们现在选择有shift之类的多选，反选吗」）
-    { id: "deselect", layer: "geometry", label: "取消选择", icon: "x", hidden: !editor.hasSelection() },
+    { id: "invert", layer: "geometry", label: "反选", icon: "selection-invert", hidden: !editor.hasAnySelection() },   // Blender Ctrl+I（user 10-26「我们现在选择有shift之类的多选，反选吗」）
+    { id: "deselect", layer: "geometry", label: "取消选择", icon: "x", hidden: !editor.hasAnySelection() },
     // 右键新建（FM120）：刚右键过就露（落点 = 右键那一点，吸点 / 面 / 原点 / 地面）；网格体里 = 长进这个网格体，别处 = 新的网格体组件。图标暂用 object（图标库没有基本体的图标）
     ...(Object.keys(PRIMITIVES) as PrimitiveKind[]).map((k): HudItem => { const n = PRIMITIVES[k].label; return { id: `new:${k}`, layer: "empty", label: `新建${n}`, icon: "object", hidden: !editor.contextNewAllowed(), submenu: { label: "新建", item: n } }; }),   // 右键菜单里收进「新建 ›」子菜单（user 10-27「新建能不能收到一个子菜单里面」）   // user 2026-10-24「有东西选择的时候应该永远有取消选择的上下文胶囊」
   ]; },
@@ -419,7 +419,7 @@ const mkToolBtn = (t: Tool, flyout?: () => Tool[]): HTMLButtonElement => {
   const sp = specOf(t);
   const b = document.createElement("button");
   // 按上下文换脸（controller/rail-face.ts；user 10-28 晚「有选区的时候删除的tool能变成小垃圾桶然后点了直接删吗」）：换了脸 = 图标 / 字 / 提示都换，点了跑键表同一条动作
-  const face = railFace(t, { mode: editor.modeId, hasSelection: editor.hasSelection(), gesture: editor.isGestureActive() });
+  const face = railFace(t, { mode: editor.modeId, anySelection: editor.hasAnySelection(), gesture: editor.isGestureActive() });
   if (face) {
     b.type = "button"; b.className = "tool rail-face"; b.dataset.face = face.action; b.title = face.tip;
     b.innerHTML = `${iconHtml(face.icon)}<span class="tool-label"></span>`;
@@ -826,7 +826,7 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
   actions: (tool) => (editor.locked ? [] : [...toolActions(tool), ...deleteAction()]),   // 第四层（输入闸）：工具动作（清参考几何 / 重置轴 / 删除）都改模型，锁着不露
   // 笔 / 手指：右下只留「删除」+「更多…」（= 右键同一份菜单）；别的可选操作都在菜单里（user 10-28 夜截图「可选操作应该放到右键菜单里而不是全堆在马后炮，好好整理一下」）
   selection: () => {
-    if (editor.locked || selectionRoute(lastPointerType) !== "bar" || !editor.hasSelection() || editor.isGestureActive()) return [];   // 锁着：和右键菜单一样不出
+    if (editor.locked || selectionRoute(lastPointerType) !== "bar" || !editor.hasAnySelection() || editor.isGestureActive()) return [];   // 锁着：和右键菜单一样不出
     const all = barItems(editor, hud).filter((it) => !it.hidden), del = all.filter((it) => it.id === "delete");
     return [...del, ...(all.length > del.length ? [{ id: "selMore", label: "更多…", icon: "more" } as HudItem] : [])];
   },
@@ -835,15 +835,15 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
 });
 /** 自由建模有选区时右下的「删除」（user 10-28 夜「delete变成按钮可能不大好。吃书吧。变成右下的一个按钮？」：左柱垃圾桶撤回）；笔 / 手指的选区条里本来就有删除，不重复。 */
 function deleteAction(): { id: string; label: string; icon?: string; title?: string; onClick(): void }[] {
-  if (editor.modeId !== "freeform" || !editor.hasSelection() || editor.isGestureActive() || selectionRoute(lastPointerType) === "bar") return [];
+  if (editor.modeId !== "freeform" || !editor.hasActableSelection() || editor.isGestureActive() || selectionRoute(lastPointerType) === "bar") return [];
   return [{ id: "deleteSel", label: "删除", icon: "trash-can", title: "删除选中的（Delete / X，一步撤销）", onClick: () => { editor.deleteSelection(); syncUi(); } }];
 }
 function toolActions(tool: string): { id: string; label: string; title?: string; disabled?: boolean; active?: boolean; onClick(): void }[] {
-    if (tool === "axes") return [{ id: "axesReset", label: "重置坐标架", title: "最外层 = 回到世界；组里 = 回到外面那层的；组件里 = 回到组件原点", onClick: () => { menuPick("axesReset"); } }, ...(editor.hasSelection() ? [{ id: "axesToSel", label: "移到选择中心", title: "坐标架原点移到选区的中心（之后右下角可换算法）", onClick: () => { editor.axesToSelectionCenter(); syncUi(); } }] : []), ...(editor.inComponentRoot() ? [{ id: "axesToOrigin", label: "设为组件原点", title: "把组件原点对到现在的坐标架（组件里：几何反挪、每份实例补，世界里不动；最外层：整个模型挪过去，视角跟着平移、屏幕上不动；一步撤销）", onClick: () => { editor.setComponentOriginToFrame(); syncUi(); } }] : [])];   // DT86 user「比起被记住的开关我建议是一个可以随手按一下的按钮」   // user 2026-10-25「轴的context菜单里面没有移动到选择。这个blender里面我天天用」
+    if (tool === "axes") return [{ id: "axesReset", label: "重置坐标架", title: "最外层 = 回到世界；组里 = 回到外面那层的；组件里 = 回到组件原点", onClick: () => { menuPick("axesReset"); } }, ...(editor.hasActableSelection() ? [{ id: "axesToSel", label: "移到选择中心", title: "坐标架原点移到选区的中心（之后右下角可换算法）", onClick: () => { editor.axesToSelectionCenter(); syncUi(); } }] : []), ...(editor.inComponentRoot() ? [{ id: "axesToOrigin", label: "设为组件原点", title: "把组件原点对到现在的坐标架（组件里：几何反挪、每份实例补，世界里不动；最外层：整个模型挪过去，视角跟着平移、屏幕上不动；一步撤销）", onClick: () => { editor.setComponentOriginToFrame(); syncUi(); } }] : [])];   // DT86 user「比起被记住的开关我建议是一个可以随手按一下的按钮」   // user 2026-10-25「轴的context菜单里面没有移动到选择。这个blender里面我天天用」
     if (tool === "tape" || tool === "protractor" || tool === "compass") return [{ id: "guidesClear", label: "删除所有参考几何", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
     if (tool === "transform") {   // 临时变换中心（user 2026-10-26「变换的时候右下角有一个pick pivot选项，然后你可以pick, 用对齐引擎，以及可能的grid」）
       const H = editor.toolHandler("transform") as { picking?: boolean; hasTempPivot?: boolean; startPickPivot?(): void; clearPivot?(): void } | undefined;
-      if (!H?.startPickPivot || !editor.hasSelection()) return [];   // 只有硬表面的变换工具会拾临时变换中心（自由建模的变换没有这一项）
+      if (!H?.startPickPivot || !editor.hasActableSelection()) return [];   // 只有硬表面的变换工具会拾临时变换中心（自由建模的变换没有这一项）
       return [
         { id: "pickPivot", label: H.picking ? "点一下定变换中心…" : H.hasTempPivot ? "重选变换中心" : "选变换中心", active: !!H.picking, title: "拾一个临时变换中心（吸附照常、网格开着也吸格点）；转 / 缩都绕它，换选区就作废", onClick: () => { H.startPickPivot?.(); syncUi(); editor.draw(); } },
         ...(H.hasTempPivot ? [{ id: "clearPivot", label: "清除临时变换中心", onClick: () => { H.clearPivot?.(); syncUi(); editor.draw(); } }] : []),
@@ -1449,7 +1449,7 @@ const keyEvt = (ev: KeyboardEvent): KeyEvt => ({ key: ev.key, code: ev.code, shi
 function shownTool(): Tool { return locomotion.isFps() ? "walk" : editor.tool; }   // 函数声明（提升）：左下芯片挂载得比这行早
 function keyContext(): KeyContext {
   return {
-    mode: editor.modeId, tool: shownTool(), gesture: editor.isGestureActive(), hasSelection: editor.hasSelection(),
+    mode: editor.modeId, tool: shownTool(), gesture: editor.isGestureActive(), anySelection: editor.hasAnySelection(), actableSelection: editor.hasActableSelection(),
     walk: locomotion.walkPhase(), walking: locomotion.isWalking(), mirrorSession: editor.mirrorActive(), lockStyle: editor.lockStyle(),
     typingWants: (e) => editor.typing.wants(e.key, e),   // 打字（手势中打数 / 数值小窗）：主人 typed-input.ts 定去向
     typing: editor.typing.text() !== "",   // 小窗里有字 = 正在打（自由建模的 1 / 2 / 3 让给它）
@@ -1495,7 +1495,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "select.all": editor.selectAll(); syncUi(); return;
     case "select.invert": editor.invertSelection(); return;
     case "select.none": editor.deselectAll(); return;
-    case "delete.ifAny": if (editor.hasSelection()) editor.deleteSelection(); syncUi(); return;
+    case "delete.ifAny": if (editor.hasAnySelection()) editor.deleteSelection(); syncUi(); return;
     case "delete": editor.deleteSelection(); return;
     case "edit.cut": editor.cutSelection(); syncUi(); return;
     case "edit.copy": editor.copySelection(); syncUi(); return;
@@ -1526,7 +1526,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
       // 自由建模的手势中（拖着 / 键盘起手 / 打数）→ 只取消这次操作、选区留着（Blender：G / S 里 Esc 只退回去；2026-10-28 晚「S Z 0」接线时改，硬表面照旧）
       if (editor.modeId === "freeform" && editor.isGestureActive() && !editor.mirrorActive()) { editor.abortGesture(); syncUi(); return; }
       // 手势中 / 有选区 → 取消；否则在 group / 组件里 → 退出一层（SU：Esc 关组）
-      if (!editor.isGestureActive() && !editor.hasSelection() && editor.contextDepth() > 0) editor.exitContext(); else editor.cancel();
+      if (!editor.isGestureActive() && !editor.hasAnySelection() && editor.contextDepth() > 0) editor.exitContext(); else editor.cancel();
       return;
   }
 }
@@ -2411,7 +2411,7 @@ editor.renderer3.onTextureReady = () => editor.draw();
 // 标记闪（1-bit 线稿：选中靠闪，T140）：画风写了闪、而且有选区时，每半拍补画一帧；没选区 / 不闪的画风 = 不跑（不耗电）。拍子按钟点算（引擎和画风表各自读同一个钟）
 setInterval(() => {
   const bl = (PRESETS[editor.renderer3.getPreset()] as Preset).material.blink;
-  if (bl && editor.hasSelection() && !document.hidden) editor.draw();
+  if (bl && editor.hasAnySelection() && !document.hidden) editor.draw();
 }, 175);   // 贴图异步解好 → 重画一帧（以前没人接：贴图要等下一次交互才出现；2026-10-29 Claude Fable 5.1）
 { const a = ACCENTS.find((x) => x.id === PREF.get("accent")); if (a) editor.renderer3.setAccent(a.accent); }   // 选中色（按设备记）
 editor.setTool("select");   // 开机 = 鼠标（选择）工具（user 10-29「brep模式进去默认是鼠标而不是线。本轮改」；以前这里硬写画线、盖掉了编辑器自己的默认）

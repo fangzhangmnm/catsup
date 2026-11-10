@@ -90,7 +90,7 @@ export class TransformTool implements ToolHandler {
     return this.tempPivot ?? ctx.pivotOf(this.pivotMode(ctx));
   }
   private gizmo(ctx: ToolCtx): XformGizmo | null {
-    if (!ctx.hasSelection()) return null;
+    if (!ctx.hasActableSelection()) return null;
     const o = this.pivotNow(ctx);
     if (!o) return null;
     const F = ctx.orientFrame();   // 只选一个组 / 组件 = 它自己的轴（沿它缩放不会斜切），否则上下文的轴（2026-10-26）
@@ -122,7 +122,7 @@ export class TransformTool implements ToolHandler {
   hover(ctx: ToolCtx, s: { x: number; y: number }): void {
     if (this.picking) { ctx.hoverSnap(s); ctx.hint("点一下定临时变换中心（吸附照常，网格开着也吸格点；再按「选变换中心」= 不选了）"); return; }
     if (this.mode) return;
-    this.hot = ctx.hasSelection() ? TransformTool.hotOf(this.pickAt(ctx, s.x, s.y)) : null;
+    this.hot = ctx.hasActableSelection() ? TransformTool.hotOf(this.pickAt(ctx, s.x, s.y)) : null;
   }
 
   // ---------- 手势 ----------
@@ -135,7 +135,7 @@ export class TransformTool implements ToolHandler {
       return;
     }
     this.copy = !!ev.copy !== ctx.config.get("transform", "copy");   // 开关 XOR 按着 Ctrl / Alt（同移动）
-    const p = ctx.hasSelection() ? this.pickAt(ctx, ev.x, ev.y) : null;
+    const p = ctx.hasActableSelection() ? this.pickAt(ctx, ev.x, ev.y) : null;
     const g = this.gizmo(ctx);
     if (p && g) {
       this.hot = TransformTool.hotOf(p);
@@ -160,7 +160,7 @@ export class TransformTool implements ToolHandler {
     }
     // 没点在把手上：按在已选中的东西上 = 移动（同移动工具，锚点 = 按下的那点）；别处 = 选择（点 / 框）
     const view = ctx.live(), hit = ctx.pick(ev.x, ev.y), c = ctx.classify(view, hit);
-    if (ctx.hasSelection() && this.inSelection(ctx, c)) {
+    if (ctx.hasActableSelection() && this.inSelection(ctx, c)) {
       const anchor = hit.vertex !== undefined ? view.graph.pt(hit.vertex) : ctx.snap(view, ev.x, ev.y, { plane: drawPlaneAt(view, ctx.frame(), ctx.vp(), ev.x, ev.y), alignSources: ctx.alignSources(), hand: ctx.hand(view) }).p;
       const g0 = this.gizmo(ctx);
       if (this.mover.startAt(ctx, anchor, this.copy)) { this.mode = "center"; this.centerG = g0; this.fromHit = ev; return; }

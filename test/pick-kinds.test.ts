@@ -4,7 +4,7 @@ import { pickAfter, pickSay, type PickSet } from "../src/controller/pick-kinds.t
 import { resolveKey, type KeyContext, type KeyEvt } from "../src/controller/keymap.ts";
 
 const ALL: PickSet = { verts: true, edges: true, faces: true };
-const base: KeyContext = { mode: "freeform", tool: "select", gesture: false, hasSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, typingWants: () => false };
+const base: KeyContext = { mode: "freeform", tool: "select", gesture: false, anySelection: false, actableSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, typingWants: () => false };
 const D = (n: string, shift = false): KeyEvt => ({ key: shift ? "!" : n, code: `Digit${n}`, shift, ctrl: false, alt: false });
 const same = (a: unknown, b: unknown, msg?: string): void => eq(JSON.stringify(a), JSON.stringify(b), msg);
 const act = (c: KeyContext, e: KeyEvt): string => { const r = resolveKey(c, e); return r === null ? "∅" : r === "swallow" ? "swallow" : r.action; };

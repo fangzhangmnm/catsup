@@ -2,7 +2,7 @@
 
 > created 20261109 by Claude Fable 5.2
 
-**状态：拍了。搬出选区类型，单独一份。施工 = 计划书 `ai-docs/20261109-audit-fixes-plan.md` 工单 1（还没落地）。**
+**状态：拍了，v0.18.42 落地（2026-11-09 深夜 Claude Opus 5.5）。搬出选区类型，单独一份 = `src/editor/guide-selection.ts`。施工记录 = 计划书 `ai-docs/20261109-audit-fixes-plan.md` §8。**
 
 ## user 原话
 

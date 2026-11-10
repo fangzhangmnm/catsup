@@ -255,7 +255,10 @@ export interface ToolCtx {
     enterPool(p: PoolPick): void;
     exitContext(): boolean;
     contextDepth(): number;
-    hasSelection(): boolean;
+    /** 有任何选中（含参考几何；点空处要不要清掉就问这个）。 */
+    hasAnySelection(): boolean;
+    /** 有工具能动的选中（点 / 边 / 面 / 组 / 组件）：移动 / 旋转 / 缩放 / 手柄「对选区做」问这个。 */
+    hasActableSelection(): boolean;
     /** 取点悬停（无手势）：画面平面 + 吸附 + 充能 + 光标提示——line / rect / 卷尺 / 轴 / 量角器都用这一套。 */
     hoverSnap(s: {
         x: number;

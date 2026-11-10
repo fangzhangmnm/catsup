@@ -13,7 +13,10 @@ export interface KeyContext {
     readonly tool: Tool;
     /** 手势进行中（按下没松 / 点了一下在等第二下 / 键盘起手的模态中）。 */
     readonly gesture: boolean;
-    readonly hasSelection: boolean;
+    /** 有任何选中（含参考几何）：删除 / Esc 看这个。 */
+    readonly anySelection: boolean;
+    /** 有工具能动的选中（点 / 边 / 面 / 组 / 组件）：剪切 / 拷贝 / 合并 / 复制并挪看这个（只选着参考线时这几个键不响）。 */
+    readonly actableSelection: boolean;
     /** 步行阶段：off / place（放置中）/ walk（FPS）/ edit（原地编辑）。 */
     readonly walk: "off" | "place" | "walk" | "edit";
     /** locomotion 在步行模式（FPS 或原地编辑）。 */

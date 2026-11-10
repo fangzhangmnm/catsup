@@ -36,6 +36,6 @@ export function mountSelGrowBar(canvas: HTMLElement, editor: Editor, after: () =
     el.style.left = `${Math.max(8, Math.min(window.innerWidth - 200, r.left + at.x - 90))}px`;
     el.style.top = `${Math.max(8, Math.min(window.innerHeight - 50, r.top + at.y + 24))}px`;
   };
-  const sync = (): void => { if (!el.hidden && (editor.tool !== "select" || editor.modeId !== "freeform" || !editor.hasSelection())) show(null); };
+  const sync = (): void => { if (!el.hidden && (editor.tool !== "select" || editor.modeId !== "freeform" || !editor.hasActableSelection())) show(null); };
   return { show, sync };
 }

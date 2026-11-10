@@ -183,7 +183,7 @@ await page.evaluate(async () => { const e = globalThis.__catsup.editor; e.setToo
   // 只读 ①：选择工具真能选（选中 = 看读数，不改模型）
   await page.evaluate(() => { const e = globalThis.__catsup.editor; e.deselectAll(); e.zoomExtents(); e.draw(); }); await wait(50);
   await page.mouse.click(...mid()); await wait(80);
-  ok("F.selectWorks", await page.evaluate(() => globalThis.__catsup.editor.hasSelection()));
+  ok("F.selectWorks", await page.evaluate(() => globalThis.__catsup.editor.hasAnySelection()));
   ok("F.selectNoRevision", (await st()).rev === r0);
   await page.evaluate(() => globalThis.__catsup.editor.deselectAll());
 

@@ -54,7 +54,7 @@ const res = await page.evaluate(async ({ MODE, N }) => {
   // 拖一个池（第一个盒子）：选中 → 移动工具 → 按下拖 8 帧 → 松手；每帧 = 整体变换预演（override）
   const b0 = px(Pt(0.5, 0.5, 1));
   const h0 = e.pickAt(b0.x, b0.y); e.selectExpand(h0, 2);
-  out.poolSelected = e.hasSelection() && !e.hasGeometrySelection();
+  out.poolSelected = e.hasAnySelection() && !e.hasGeometrySelection();
   e.setTool("move");
   fire("pointerdown", b0.x, b0.y, { button: 0, buttons: 1 });
   out.dragPool = frames((i) => fire("pointermove", b0.x + 6 * (i + 1), b0.y, { buttons: 1 }), 8);

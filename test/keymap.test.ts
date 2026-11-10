@@ -3,7 +3,7 @@ import { describe, it, eq } from "./runner.mjs";
 import { resolveKey, chordOf, chordLabel, layersOf, modifierChords, keyDocs, ALL_LAYERS, LAYER_DOCS, KNOWN_CONFLICTS, muscleConflicts, meaningOf, type KeyContext, type KeyEvt } from "../src/controller/keymap.ts";
 import { KEYS_TABLE, README_SECTIONS } from "../src/app/readme-docs.ts";
 
-const base: KeyContext = { mode: "geometry", tool: "select", gesture: false, hasSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, typingWants: () => false };
+const base: KeyContext = { mode: "geometry", tool: "select", gesture: false, anySelection: false, actableSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, typingWants: () => false };
 const ctx = (o: Partial<KeyContext>): KeyContext => ({ ...base, ...o });
 const K = (code: string, key = code.replace(/^Key/, "").toLowerCase(), m: Partial<KeyEvt> = {}): KeyEvt => ({ key, code, shift: false, ctrl: false, alt: false, ...m });
 const act = (c: KeyContext, e: KeyEvt): string => { const r = resolveKey(c, e); return r === null ? "∅" : r === "swallow" ? "swallow" : r.action; };
@@ -13,10 +13,10 @@ describe("键表：什么时候按 X 是什么意思", () => {
     eq(chordOf(K("KeyX")), "x"); eq(chordOf(K("KeyB", "b", { ctrl: true, shift: true })), "ctrl+shift+b"); eq(chordOf(K("Space", " ")), "space"); eq(chordOf(K("ArrowRight", "ArrowRight", { shift: true })), "shift+arrowright");
   });
   it("自由建模：选择工具 X = 删除（有选区）；操作工具 X / Y / Z = 轴（手势外先锁、手势中锁）——user「move模式相当于blender帮你自动按G」", () => {
-    eq(act(ctx({ mode: "freeform", tool: "select", hasSelection: true }), K("KeyX")), "delete.ifAny");
-    eq(act(ctx({ mode: "freeform", tool: "select", hasSelection: false }), K("KeyX")), "delete.ifAny");   // 没选区 = 什么都不删（不再先锁 X）
+    eq(act(ctx({ mode: "freeform", tool: "select", anySelection: true, actableSelection: true }), K("KeyX")), "delete.ifAny");
+    eq(act(ctx({ mode: "freeform", tool: "select", anySelection: false, actableSelection: false }), K("KeyX")), "delete.ifAny");   // 没选区 = 什么都不删（不再先锁 X）
     for (const tool of ["move", "rotate", "scale", "pp", "offset", "shrink"] as const) {
-      eq(act(ctx({ mode: "freeform", tool, hasSelection: true }), K("KeyX")), "lock.axis:x", tool);
+      eq(act(ctx({ mode: "freeform", tool, anySelection: true, actableSelection: true }), K("KeyX")), "lock.axis:x", tool);
       eq(act(ctx({ mode: "freeform", tool, gesture: true }), K("KeyX")), "lock.key:x", `${tool} 手势中`);
       eq(act(ctx({ mode: "freeform", tool, gesture: true }), K("KeyZ", "z", { shift: true })), "lock.key:z:plane", `${tool} 手势中 Shift`);
     }
@@ -36,7 +36,7 @@ describe("键表：什么时候按 X 是什么意思", () => {
     eq(act(ctx({ walk: "walk", walking: true }), K("KeyL")), "swallow");
     eq(act(ctx({ walk: "place" }), K("Escape", "Escape")), "walk.cancelPlace");
     eq(act(ctx({ walk: "edit", walking: true }), K("Escape", "Escape")), "walk.exit");
-    eq(act(ctx({ walk: "edit", walking: true, hasSelection: true }), K("Escape", "Escape")), "escape");
+    eq(act(ctx({ walk: "edit", walking: true, anySelection: true, actableSelection: true }), K("Escape", "Escape")), "escape");
     eq(act(ctx({ walk: "edit", walking: true }), K("Space", " ")), "∅", "走路时空格归跳");
   });
   it("镜像会话回车 = 应用；数值小窗要的键先给它；方向键锁 / Shift+Tab 格点", () => {
@@ -56,7 +56,7 @@ describe("键表：什么时候按 X 是什么意思", () => {
     eq(shift.find((x) => x.chord === "shift+z")?.label, "面锁 XY", "操作工具里 Shift+Z = 面锁（操作工具层压过自由建模层）");
     // 不变量：披露的每一条 = 真按下去生效的那条（resolveKey 同一条）
     const evt = (ch: string): KeyEvt => { const p = ch.split("+"), n = p[p.length - 1]; return { key: n === "space" ? " " : n, code: /^[a-z]$/.test(n) ? `Key${n.toUpperCase()}` : /^[0-9]$/.test(n) ? `Digit${n}` : n, shift: p.includes("shift"), ctrl: p.includes("ctrl"), alt: p.includes("alt") }; };
-    for (const c of [ff, ctx({}), ctx({ mode: "freeform", tool: "select", hasSelection: true }), ctx({ mode: "freeform", tool: "move", gesture: true })]) for (const m of ["shift", "ctrl", "alt"] as const) for (const x of modifierChords(c, m)) { const r = resolveKey(c, evt(x.chord)); eq(r !== null && r !== "swallow" ? r.label : String(r), x.label, `${c.mode}/${c.tool} ${x.chord}`); }
+    for (const c of [ff, ctx({}), ctx({ mode: "freeform", tool: "select", anySelection: true, actableSelection: true }), ctx({ mode: "freeform", tool: "move", gesture: true })]) for (const m of ["shift", "ctrl", "alt"] as const) for (const x of modifierChords(c, m)) { const r = resolveKey(c, evt(x.chord)); eq(r !== null && r !== "swallow" ? r.label : String(r), x.label, `${c.mode}/${c.tool} ${x.chord}`); }
     eq(modifierChords(ctx({}), "shift").find((x) => x.chord === "shift+z")?.label, "缩放到全部", "硬表面选择工具");
     eq(new Set(shift.map((x) => x.chord)).size, shift.length, "同一和弦只露一次");
     eq(chordLabel("ctrl+shift+b"), "Ctrl+Shift+B"); eq(chordLabel("shift+arrowright"), "Shift+→"); eq(chordLabel("space"), "Space");
