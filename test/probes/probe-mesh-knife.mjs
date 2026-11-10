@@ -1,6 +1,7 @@
 // 自由建模工作台的刀 + 环切（2026-10-27 Claude Opus 5.5；tools/mesh-knife.ts + mesh-edits/）：网格体盒子里——
 // ① 顶面对角两个角点各点一下 = 切一刀（面 6 → 7、一步撤销）；② 接着从刚才那个点切到对边的中点（链式；不在同一张面 = 拒绝不崩）；
-// ③ 侧面一条竖边点两下 = 环切一圈（4 条新边进选区）；④ 浮条「环切」：选一条边 → 一圈；⑤ 撤到头 / 重做到头不崩。
+// ③ 侧面一条竖边点两下 = 环切一圈（4 条新边进选区）；④ 浮条「环切」：选一条边 → 一圈；⑤ 撤到头 / 重做到头不崩；
+// ⑥ 落点在透视下不偏（W-1）：立方体边正中、4 m 长边五处，标记离光标 ≤ 1 像素，透视正交都是。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-knife.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -59,6 +60,31 @@ const res = await page.evaluate(async () => {
   out.undoRedoAll = { threw, kind: S().kindOf(def), mode: e.modeId, check: m().check().join(";") };
   return out;
 });
+// ⑥ 落点在透视下不偏（W-1，2026-11-10 Claude Opus 5.5；白模第一批）：沿 Y 4 m 长、往里伸的边，屏幕上 15–85% 五处悬停，
+// 标记（落点）投回屏幕离光标 ≤ 1 像素；正交同样五处；默认视角（透视）立方体边正中悬停，标记在光标下。以前按屏幕比例取点：8 / 54–160 像素。
+const perspCheck = async (which) => { await page.goto(process.argv[2] ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200); return page.evaluate(async (which) => {
+  const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const c = document.getElementById("board"), r = c.getBoundingClientRect(), px = (p) => e.cam.angularPx(p, e.vp());
+  const hover = async (x, y) => { for (const [dx, dy] of [[3, 3], [0, 0]]) { c.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: r.left + x + dx, clientY: r.top + y + dy, pointerId: 5, pointerType: "mouse", isPrimary: true, buttons: 0 })); await sleep(15); } const s = e.snapInfo; if (!s) return null; const q = px(s.p); return { kind: s.kind, off: +Math.hypot(q.x - x, q.y - y).toFixed(3) }; };
+  const ly = which === "cube" ? 1 : 4, B = [[0, 0], [1, 0], [1, ly], [0, ly]], segs = [];
+  for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], 1), P(d[0], d[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); }
+  e.setGrid({ ...e.grid, on: false }); const projection0 = e.cam.projection;
+  e.commitOp({ op: "addEdges", at: e.activePool(), segs }); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
+  const S = e.scene, inst = [...S.def(S.root).instances.values()][0]; e.cam.setView("iso"); e.zoomExtents(); e.cam.halfH *= 1.6; e.draw();
+  e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(30); e.setTool("knife"); await sleep(20);
+  if (which === "cube") { const mid = px(P(0.5, 0, 1)); return { defaultProjection: projection0, mid: await hover(mid.x, mid.y) }; }
+  const sweep = async (projection) => {
+    e.cam.projection = projection; e.cam.target = P(0.5, 2, 0.5); e.cam.halfH = 1.6; e.cam.pitch = 0.45;
+    let best = null; for (let k = 0; k < 16; k++) { e.cam.yaw = (k / 16) * Math.PI * 2; const f = e.cam.forward(); if (!best || f.y > best.fy) best = { yaw: e.cam.yaw, fy: f.y }; }
+    e.cam.yaw = best.yaw; e.draw(); await sleep(30);
+    const qa = px(P(1, 0, 1)), qb = px(P(1, 4, 1)), rows = [];
+    for (const s of [0.15, 0.3, 0.5, 0.7, 0.85]) rows.push(await hover(qa.x + (qb.x - qa.x) * s, qa.y + (qb.y - qa.y) * s));
+    return rows;
+  };
+  return { persp: await sweep("persp"), ortho: await sweep("ortho") };
+}, which); };
+res.cube = await perspCheck("cube");
+res.long = await perspCheck("long");
 await b.close();
 res.errs = errs;
 const ok = res.rail.includes("knife") && res.started.active
@@ -67,7 +93,9 @@ const ok = res.rail.includes("knife") && res.started.active
   && res.cut2.st.f === 8 && res.cut2.steps === 2 && res.cut2.check === "" && res.escaped && res.undo
   && res.loop.d.f === 4 && res.loop.d.v === 4 && res.loop.selEdges === 0 && res.loop.check === "" && res.loopFlat && !res.loop.active
   && res.menu.includes("mesh.loopCut") && res.menuLoop.d === 4 && res.menuLoop.selEdges === 4 && res.menuLoop.flat
-  && !res.undoRedoAll.threw && res.undoRedoAll.check === "" && errs.length === 0;
+  && !res.undoRedoAll.threw && res.undoRedoAll.check === "" && errs.length === 0
+  && res.cube.defaultProjection === "persp" && res.cube.mid?.kind === "on-edge" && res.cube.mid.off <= 1
+  && [...res.long.persp, ...res.long.ortho].every((x) => x?.kind === "on-edge" && x.off <= 1);
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-knife OK" : "probe-mesh-knife FAIL");
 process.exit(ok ? 0 : 1);

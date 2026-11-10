@@ -137,17 +137,20 @@ export class MeshKnifeTool implements ToolHandler {
     else ctx.hint(`环切：切了一圈 ${r.edges.length} 条边${r.closed ? "（闭合）" : "（开口带）"}`);
   }
 
-  /** 光标下看得见的点 / 边上的点（拓扑吸附，永远开）。边上的点 = 光标在这条边屏幕投影上的位置。 */
+  /**
+   * 光标下看得见的点 / 边上的点（拓扑吸附，永远开）。边上的点 = 光标正下方那一点在这条边上的位置：问指针帧的 distToSeg
+   * （桌面相机按深度做透视校正、VR 帧按射线算；W-1 2026-11-10 Claude Opus 5.5：以前把屏幕上的比例直接当成边上的比例，
+   * 透视下标记跑偏——默认视角 8 像素，一条往里伸的 4 m 长边上 160 像素 / 1.2 m；正交下两者相同）。
+   */
   private snapAt(ctx: ToolCtx, s: { x: number; y: number }): Hit | null {
     const c = ctx.classify(ctx.world(), ctx.pickStatic(s.x, s.y));   // 真身的拓扑（预演里那条边已经劈开了）
     if (c.kind !== "entity") return null;
     const m = ctx.mesh(), X = ctx.ctxXform(), h = c.local;
     if (h.vertex !== undefined && m.hasV(h.vertex)) return { pt: { v: h.vertex }, w: applyPt(X, m.pt(h.vertex)), kind: "endpoint" };
     if (h.edge !== undefined && m.hasE(h.edge)) {
-      const a = applyPt(X, m.pt(m.edgeA[h.edge])), b = applyPt(X, m.pt(m.edgeB[h.edge])), vp = ctx.vp(), qa = ctx.frame().project?.(a, vp), qb = ctx.frame().project?.(b, vp);
-      let t = 0.5;
-      if (qa && qb) { const ux = qb.x - qa.x, uy = qb.y - qa.y, L2 = ux * ux + uy * uy; if (L2 > 1e-9) t = ((s.x - qa.x) * ux + (s.y - qa.y) * uy) / L2; }
-      t = Math.max(0.001, Math.min(0.999, t));
+      const a = applyPt(X, m.pt(m.edgeA[h.edge])), b = applyPt(X, m.pt(m.edgeB[h.edge]));
+      const t0 = ctx.frame().distToSeg(s.x, s.y, a, b, ctx.vp()).t;
+      const t = Math.max(0.001, Math.min(0.999, Number.isFinite(t0) ? t0 : 0.5));
       return { pt: { e: h.edge, t }, w: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t }, kind: "on-edge" };
     }
     return null;
