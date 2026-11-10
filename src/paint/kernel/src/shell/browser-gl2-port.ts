@@ -15,6 +15,12 @@
 //   - **context-loss 生命周期（结构自愈契约）**：listen lost(preventDefault)+restored(重编 program/
 //     重建 FBO 池/generation++ → onInvalidated 广播 → backend 下帧从 CPU tile 池全量重传)。
 //     iOS Safari/PWA 后台必丢 → 这是命门。
+//   - **共用别人的画面**（`BrowserGl2Port.fromContext(gl)`，2026-11-10 Claude Opus 5.5；CatsUp 贴图主线 1-1 探路）：
+//     建在宿主已有的 WebGL2 context 上（CatsUp = three 的画面）。宿主会留下任意 GL 状态，所以共用时每个碰 GL 的入口
+//     先过 `_ensureBase()`，把本模块**依赖却从不自己设**的状态设回默认（深度 / 剔除 / 模板 / 偏移 / 覆盖采样 / 光栅丢弃关、
+//     颜色写全开、像素上传 / 读回的 pixelStore 全回默认、像素缓冲区解绑、用到的贴图单元解绑 sampler 对象）。
+//     自己的 context（`new BrowserGl2Port(canvas)`）不做这一步：状态从没人动过，行为和开销一个字节不变。
+//     宿主那边：本模块做完一批之后，宿主要把自己缓存的 GL 状态作废（three = renderer.resetState()）。
 //
 // 验证边界：本模块全是 gl.* 调用，node DOM-shim 下是 no-op → **node 测不了**，GL smoke
 //   （Playwright + SwiftShader）+ 真机批验证。故刻意只放标准、可读、无分支魔法的 GL 样板。
@@ -54,9 +60,12 @@ export class BrowserTileArena implements Gl2TileArena {
   private _capacity: number;
   private _disposed = false;
   private _onDisposed: (() => void) | null;
+  /** 共用画面时：每次碰 GL 前把依赖的状态设回默认（BrowserGl2Port._ensureBase）；自己的 context = 不传。 */
+  private _ensure: (() => void) | null;
 
-  constructor(gl: WebGL2RenderingContext, tileSize: number, initialSlices: number, onDisposed?: () => void) {
+  constructor(gl: WebGL2RenderingContext, tileSize: number, initialSlices: number, onDisposed?: () => void, ensureBase?: () => void) {
     this._gl = gl;
+    this._ensure = ensureBase ?? null;
     this.tileSize = tileSize;
     this._capacity = initialSlices;
     this._onDisposed = onDisposed ?? null;
@@ -74,6 +83,7 @@ export class BrowserTileArena implements Gl2TileArena {
   }
 
   private _alloc(): void {
+    this._ensure?.();
     const gl = this._gl;
     const tex = gl.createTexture();
     if (!tex) throw new Error("CREATE_ARRAY_TEX_FAILED");
@@ -100,6 +110,7 @@ export class BrowserTileArena implements Gl2TileArena {
 
   uploadSlice(slice: number, pixels: Uint8Array): void {
     this._aliveGuard();
+    this._ensure?.();   // 共用画面：three 留下的 UNPACK_FLIP_Y=true 会让 texSubImage3D(typed array) 直接 INVALID_OPERATION
     const gl = this._gl;
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, this._tex);
     gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, slice, this.tileSize, this.tileSize, 1,
@@ -109,6 +120,7 @@ export class BrowserTileArena implements Gl2TileArena {
 
   copySlice(from: PooledFBO, slice: number, srcX: number, srcY: number, w: number, h: number): void {
     this._aliveGuard();
+    this._ensure?.();
     const gl = this._gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, (from as BrowserFBO).fbo);
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, this._tex);
@@ -151,9 +163,18 @@ export class BrowserGl2Port implements Gl2Port {
   private _invalidated: (() => void)[] = [];
   private _lost = false;
   private _gen = 0;   // restore 代际：每次 context 恢复 +1。
+  /** 建在别人的画面上（fromContext）：每个碰 GL 的入口先 _ensureBase()。 */
+  readonly shared: boolean;
 
-  constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
+  /** 建在宿主已有的 WebGL2 context 上（CatsUp = three 的画面）。context 的属性归宿主（不再要 alpha:false / preserveDrawingBuffer 这些）；
+   *  本模块只往自己借的 FBO 里画，target = "screen" 时画进的是宿主的默认画面。丢失 / 恢复照旧听这张画布（宿主也在听，两边都 preventDefault，各自重建）。 */
+  static fromContext(gl: WebGL2RenderingContext): BrowserGl2Port {
+    return new BrowserGl2Port(gl.canvas as HTMLCanvasElement | OffscreenCanvas, gl);
+  }
+
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, sharedGl?: WebGL2RenderingContext) {
     this.canvas = canvas;
+    this.shared = !!sharedGl;
     const attrs: WebGLContextAttributes = {
       alpha: false,              // 板背景不透明（与现 board {alpha:false} 一致）
       antialias: false,          // 我们自己控合成，不要 MSAA
@@ -165,7 +186,7 @@ export class BrowserGl2Port implements Gl2Port {
       preserveDrawingBuffer: true,
       powerPreference: "high-performance",
     };
-    const gl = canvas.getContext("webgl2", attrs) as WebGL2RenderingContext | null;
+    const gl = sharedGl ?? (canvas.getContext("webgl2", attrs) as WebGL2RenderingContext | null);
     if (!gl) throw new Error("WEBGL2_UNAVAILABLE");   // caller 给中文「需要 WebGL2」提示
     this.gl = gl;
 
@@ -196,6 +217,36 @@ export class BrowserGl2Port implements Gl2Port {
   get generation(): number { return this._gen; }
 
   onInvalidated(cb: () => void): void { this._invalidated.push(cb); }
+
+  /**
+   * 共用画面时把本模块依赖、却从不自己设的状态设回默认（自己的 context = 什么都不做）。
+   * 逐条的来历（宿主 = three 会留下的）：深度测试 / 背面剔除（three 常开；方向还会被负缩放翻成 CW）/ 模板 / 多边形偏移 / alpha-to-coverage
+   * （材质选项）——都会让本模块画进自己 FBO 的三角形被剔掉或写不进；颜色写（three 有 colorWrite:false 的材质）——关着连 clear 都没效果；
+   * UNPACK_FLIP_Y（three 给贴图上传时按 texture.flipY 设、不复原）——WebGL2 里 texImage3D / texSubImage3D 收 typed array 时它必须是 false，否则 INVALID_OPERATION；
+   * 其余 pixelStore（对齐、按行跳过、行长）和 PIXEL_PACK / UNPACK_BUFFER 绑定（three 的异步读回用 PBO）——上传 / 读回按默认值解释字节。
+   * 本模块自己会设并复原的（目标、视口、裁剪框、混合、program、VAO、贴图单元）不在这里。
+   * 本文件只上传字节数组（typed array / null），**不从页面元素（图片 / 画布 / 视频 / ImageBitmap）上传**，所以 UNPACK_COLORSPACE_CONVERSION_WEBGL
+   * 不在单子里；哪天加了那种上传，这里要补它（守卫 test/gl-port-shared-guard.test.mjs：没有页面元素上传 + 碰 GL 的方法先归位）。
+   */
+  private _ensureBase(): void {
+    if (!this.shared) return;
+    const gl = this.gl;
+    gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.disable(gl.STENCIL_TEST); gl.disable(gl.POLYGON_OFFSET_FILL);
+    gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE); gl.disable(gl.SAMPLE_COVERAGE); gl.disable(gl.RASTERIZER_DISCARD);
+    gl.colorMask(true, true, true, true);
+    gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4); gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0); gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0); gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0); gl.pixelStorei(gl.UNPACK_SKIP_IMAGES, 0);
+    gl.pixelStorei(gl.PACK_ALIGNMENT, 4); gl.pixelStorei(gl.PACK_ROW_LENGTH, 0); gl.pixelStorei(gl.PACK_SKIP_ROWS, 0); gl.pixelStorei(gl.PACK_SKIP_PIXELS, 0);
+  }
+
+  /** 壳侧（off-contract，backend 摸不到）：一张 FBO / 2D 纹理背后的 WebGLTexture。共用画面时宿主拿它当自己的贴图采样（不读回）。
+   *  context 恢复后旧句柄作废：等 onInvalidated 之后重新合成、重新取。 */
+  glTextureOf(src: PooledFBO | Gl2Texture): WebGLTexture {
+    if ("kind" in src && (src as Gl2Texture).kind === "tex2d") return (src as BrowserTexture).tex;
+    return (src as BrowserFBO).tex;
+  }
 
   // ---- shader program 缓存 + 反射 ----
   program(name: string, vert?: string, frag?: string): void {
@@ -359,6 +410,7 @@ export class BrowserGl2Port implements Gl2Port {
   }
 
   clearFBO(f: PooledFBO, rgba: [number, number, number, number]): void {
+    this._ensureBase();
     const gl = this.gl;
     gl.disable(gl.SCISSOR_TEST);
     gl.bindFramebuffer(gl.FRAMEBUFFER, (f as BrowserFBO).fbo);
@@ -368,6 +420,7 @@ export class BrowserGl2Port implements Gl2Port {
   }
 
   private _createFBO(w: number, h: number, prec: FBOPrec): BrowserFBO {
+    this._ensureBase();
     const gl = this.gl;
     const tex = gl.createTexture();
     if (!tex) throw new Error("CREATE_TEXTURE_FAILED");
@@ -448,11 +501,14 @@ export class BrowserGl2Port implements Gl2Port {
   }
 
   private _drawCommon(spec: Gl2DrawSpec, instances: Float32Array | null, count: number): void {
+    this._ensureBase();
     const gl = this.gl;
     const meta = this._meta(spec.program);
 
     // 目标 + viewport
     if (spec.target === "screen") {
+      // 共用画面时默认画面归宿主（three 的，带深度 / 模板，没验过）：拒绝，画进借来的 FBO 再把它的贴图交给宿主（0-4）
+      if (this.shared) throw new Error("SHARED_CONTEXT_SCREEN_DRAW (the host owns the default framebuffer; draw into a borrowed FBO and hand its texture over)");
       if (!spec.viewport) throw new Error("SCREEN_DRAW_NEEDS_VIEWPORT");
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(...spec.viewport);
@@ -540,6 +596,7 @@ export class BrowserGl2Port implements Gl2Port {
         else { src = entry.src; filter = entry.filter; }
       }
       gl.activeTexture(gl.TEXTURE0 + s.unit);
+      if (this.shared) gl.bindSampler(s.unit, null);   // 宿主绑过 sampler 对象的话，它的参数会盖掉贴图自己的过滤 / 包裹
       if (s.type === gl.SAMPLER_2D_ARRAY) {
         const tex = src ? (src as BrowserTileArena).texture : this._placeholderArr();
         gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
@@ -566,6 +623,7 @@ export class BrowserGl2Port implements Gl2Port {
 
   private _placeholder2d(): WebGLTexture {
     if (this._ph2d) return this._ph2d;
+    this._ensureBase();
     const gl = this.gl;
     const tex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -579,6 +637,7 @@ export class BrowserGl2Port implements Gl2Port {
 
   private _placeholderArr(): WebGLTexture {
     if (this._phArr) return this._phArr;
+    this._ensureBase();
     const gl = this.gl;
     const tex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
@@ -592,6 +651,7 @@ export class BrowserGl2Port implements Gl2Port {
 
   // ---- 读回 ----
   readPixels(src: PooledFBO, x: number, y: number, w: number, h: number): Uint8Array {
+    this._ensureBase();
     const gl = this.gl;
     const out = new Uint8Array(w * h * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, (src as BrowserFBO).fbo);
@@ -602,6 +662,7 @@ export class BrowserGl2Port implements Gl2Port {
 
   // ---- 2D 纹理 ----
   createTexture(): Gl2Texture {
+    this._ensureBase();
     const gl = this.gl;
     const tex = gl.createTexture();
     if (!tex) throw new Error("CREATE_TEXTURE_FAILED");
@@ -616,6 +677,7 @@ export class BrowserGl2Port implements Gl2Port {
   }
 
   uploadTexture(tex: Gl2Texture, format: TexUploadFormat, w: number, h: number, data: ArrayBufferView): void {
+    this._ensureBase();
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, (tex as BrowserTexture).tex);
     // typed array 上传字节 verbatim 上卡（premult 转换 flag 对 typed array 无效，防御性关掉）。
@@ -644,7 +706,7 @@ export class BrowserGl2Port implements Gl2Port {
   private _arenas = new Set<BrowserTileArena>();
 
   createTileArena(tileSize: number, initialSlices: number): Gl2TileArena {
-    const a: BrowserTileArena = new BrowserTileArena(this.gl, tileSize, initialSlices, () => this._arenas.delete(a));
+    const a: BrowserTileArena = new BrowserTileArena(this.gl, tileSize, initialSlices, () => this._arenas.delete(a), this.shared ? () => this._ensureBase() : undefined);
     this._arenas.add(a);
     return a;
   }

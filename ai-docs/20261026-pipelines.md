@@ -509,7 +509,7 @@ flowchart LR
 ## 追记 2026-11-10 深夜（v0.19.0，Claude Opus 5.5；贴图主线 0-1）：画画内核是拷来的，正本在画画仓
 
 - `src/paint/kernel/` = 画画仓（WeebPaint）内核的**原样拷贝**：`src/backend/`（先不含 `timelapse/`）、`src/common/`、`src/shell/browser-gl2-port.ts`、它们用到的第三方库文件、内核自己的测试。相对位置原样（`src/paint/kernel/` 当一个小「仓根」），内核文件里的 import 一个字没改。
-- **怎么来的**：`bash scripts/pull-paint-kernel.sh <画画仓提交>` → 按提交读画画仓里的 `test/kernel-tests.json`（拷什么的名单）→ `git archive` 那个提交（不读那边的工作目录）→ 解进 `src/paint/kernel/` → 写 `KERNEL-MANIFEST.json`（来源提交、画画版本、每个文件的 sha256）。这一版拉的是 WeebPaint v0.14.69 @ 5c8f9f0（163 个文件，约 2 MB）。
+- **怎么来的**：`bash scripts/pull-paint-kernel.sh <画画仓提交>` → 按提交读画画仓里的 `test/kernel-tests.json`（拷什么的名单）→ `git archive` 那个提交（不读那边的工作目录）→ 解进 `src/paint/kernel/` → 写 `KERNEL-MANIFEST.json`（来源提交、画画版本、每个文件的 sha256）。v0.19.0 拉的是 WeebPaint v0.14.69 @ 5c8f9f0（163 个文件，约 2 MB）；**v0.19.1 重拉 WeebPaint v0.14.70 @ 0eecc80**（165 个文件：多了 zip.js 的许可证和来历说明；显卡实现多了 `BrowserGl2Port.fromContext(gl)`，能建在 three 的画面上，共用时每个碰 GL 的入口先归位、画到屏幕抛，0-4）。
 - **守**：`test/paint-kernel-guard.test.ts`：每个文件的哈希对清单、不多不少（手改 = 红）；`src/` 里只有 `src/paint/` 能 import 内核。画画仓那边 `test/kernel-boundary.test.mjs` 守内核的 import 边界、界面全局和名单不过时。
 - **测**：`npm test` 末尾跑 `node --expose-gc src/paint/kernel/test/run-kernel.mjs`（62 个文件 549 条、约 4 秒、末尾查图块句柄泄漏）。拷来的测试不做类型检查（`tsconfig` exclude `src/paint/kernel/test`，画画仓自己也不查测试）；内核源码照常查。
 - **进包**：现在没有任何地方 import 它，包不变大。往后经 `src/paint/` 里自己的接缝用（施工方案的「空间层」），内核的改动只在画画仓做，这边重新拉。

@@ -20,6 +20,8 @@
     "vendor/upng/LICENSE",
     "vendor/upng/upng.esm.d.ts",
     "vendor/upng/upng.esm.js",
+    "vendor/zip-js/LICENSE",
+    "vendor/zip-js/README.md",
     "vendor/zip-js/zip-full.min.js"
   ],
   "helpers": [
