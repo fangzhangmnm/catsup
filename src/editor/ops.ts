@@ -149,6 +149,8 @@ export type Op =
   | { op: "meshSubdivide"; def: number; levels: number }
   /** 强行对称（2026-10-28 FM134；mesh/mirror.ts symmetrize）：side 那半为准，另一半删掉照它镜回来；跨过镜像面的面 = 拒。 */
   | { op: "meshSymmetrize"; def: number; axis: 0 | 1 | 2; side: -1 | 1 }
+  /** 网格体的「对称」属性开 / 关 / 换轴（mirror = null 关）：骨架级、进撤销（2026-11-09 计划书 20261109-audit-fixes-plan §3 第 7 条；以前直接改 Scene.meshMirrors、不进撤销 = 撤销后模型回来了、强行对称还开着）。 */
+  | { op: "setMeshMirror"; def: number; mirror: { mode: "edit" | "force"; axis: 0 | 1 | 2 } | null }
   /** 对称对齐（FM136；只动选中的点）：mode auto = 选区重心那边为准 / flip = 另一边 / average = 取平均。 */
   | { op: "meshSymmetrySnap"; def: number; verts: number[]; axis: 0 | 1 | 2; tol: number; mode: "auto" | "flip" | "average" }
   /** 合并到中心（Blender M → 到中心；2026-10-28 user「选择多个点的时候右键可以merge to center」）：这几个点并成一个、放在它们的平均位置；退化的面自动清掉（mesh/ops/merge.ts）。 */
@@ -759,6 +761,11 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       subdivide(k, Math.round(op.levels));
       return { scene: s, events: [] };
     }
+    case "setMeshMirror": {
+      if (!s.defs.has(op.def) || s.kindOf(op.def) !== "mesh") throw new OpTargetError(`setMeshMirror: definition ${op.def} is not a mesh`);
+      if (op.mirror) s.meshMirrors.set(op.def, { mode: op.mirror.mode, axis: op.mirror.axis }); else s.meshMirrors.delete(op.def);
+      return { scene: s, events: [] };
+    }
     case "meshSymmetrize": {
       try { symmetrize(meshOf(s, op.def).kernel, op.axis, op.side); }   // 先沿镜像面切开再对称；劈不开的凹面 = 拒
       catch (err) { throw new OpTargetError(err instanceof Error ? err.message : String(err)); }
@@ -896,6 +903,7 @@ export function describeOp(op0: Op): string {
     case "meshBevel": return `meshBevel def=${op.def} edges=${op.edges.length} w=${op.width.toFixed(4)} seg=${op.segments}`;
     case "meshBevelVerts": return `meshBevelVerts def=${op.def} verts=${op.verts.length} w=${op.width.toFixed(4)}`;
     case "meshSubdivide": return `meshSubdivide def=${op.def} levels=${op.levels}`;
+    case "setMeshMirror": return `setMeshMirror def=${op.def} ${op.mirror ? `${op.mirror.mode} ${"xyz"[op.mirror.axis]}` : "off"}`;
     case "meshSymmetrize": return `meshSymmetrize def=${op.def} axis=${"xyz"[op.axis]} side=${op.side}`;
     case "meshMerge": return `meshMerge def=${op.def} verts=${op.verts.length}`;
     case "meshSymmetrySnap": return `meshSymmetrySnap def=${op.def} verts=${op.verts.length} axis=${"xyz"[op.axis]} tol=${op.tol} ${op.mode}`;

@@ -381,6 +381,15 @@ export type Op =
     axis: 0 | 1 | 2;
     side: -1 | 1;
 }
+/** 网格体的「对称」属性开 / 关 / 换轴（mirror = null 关）：骨架级、进撤销（2026-11-09 计划书 20261109-audit-fixes-plan §3 第 7 条；以前直接改 Scene.meshMirrors、不进撤销 = 撤销后模型回来了、强行对称还开着）。 */
+ | {
+    op: "setMeshMirror";
+    def: number;
+    mirror: {
+        mode: "edit" | "force";
+        axis: 0 | 1 | 2;
+    } | null;
+}
 /** 对称对齐（FM136；只动选中的点）：mode auto = 选区重心那边为准 / flip = 另一边 / average = 取平均。 */
  | {
     op: "meshSymmetrySnap";

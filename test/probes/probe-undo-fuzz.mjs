@@ -16,7 +16,8 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
   const S = () => e.scene;
   const fp = (sc) => [...sc.defs.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => {
     const body = d.body.kind === "brep" ? `b${d.body.kernel.faces().length}f${d.body.kernel.edges().length}e${d.body.kernel.vertices().map((v) => `${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)}`).sort().join(";")}g${d.body.groups.size}s${d.body.materialSlots.join(",")}L${d.body.kernel.faces().map((f) => `${d.body.kernel.faceMaterialOf(f.id, 0) ?? "-"}/${d.body.kernel.faceMaterialOf(f.id, 1) ?? "-"}`).sort().join(",")}` : `m${d.body.kernel.faceCount()}f${d.body.kernel.verts().map((v) => { const p = d.body.kernel.pt(v); return `${p.x.toFixed(4)},${p.y.toFixed(4)},${p.z.toFixed(4)}`; }).sort().join(";")}`;
-    return `D${id}:${body}|I${[...d.instances.values()].map((i) => `${i.id}:${i.def}:${i.xform.map((x) => x.toFixed(4)).join(",")}`).join(";")}`;   // 不排序：同级顺序是数据（ID-2）
+    const mr = sc.meshMirrors.get(id);   // 对称设置 2026-11-09 起进撤销（op setMeshMirror）：指纹算上它，撤 / 重做 / 重放都要对得上
+    return `D${id}:${body}|I${[...d.instances.values()].map((i) => `${i.id}:${i.def}:${i.xform.map((x) => x.toFixed(4)).join(",")}`).join(";")}${mr && d.body.kind === "mesh" ? `|M${mr.mode}${mr.axis}` : ""}`;   // 不排序：同级顺序是数据（ID-2）
   }).join("\n");
   const guidsOf = (sc) => JSON.stringify([sc.shelf.items.map((it) => [it.guid, it.ref]), [...sc.defs.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => [id, d.guid, [...d.instances.values()].map((i) => i.guid), d.body.kind === "brep" ? [...d.body.groups.values()].map((g) => g.guid) : []]), sc.materials.map((m) => m.guid), sc.layers.map((l) => l.guid)]);
   const unusedMats = (sc) => { const used = new Set(); for (const d of sc.defs.values()) { const b = d.body; if (b.kind === "mesh") { for (const f of b.kernel.faces()) { const m = b.materialSlots[b.kernel.faceMat[f]]; if (m !== undefined) used.add(m); } continue; } for (const k of [b.kernel, ...[...b.groups.values()].map((g) => g.kernel)]) for (const f of k.faces()) for (const side of [0, 1]) { const sl = k.faceMaterialOf(f.id, side); if (sl !== undefined && b.materialSlots[sl] !== undefined) used.add(b.materialSlots[sl]); } } return sc.materials.map((_, i) => i).filter((i) => !used.has(i)); };
@@ -30,6 +31,9 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
   // 提交失败按指令数（身份地基 ID-3：失败只进控制台 = fuzz 看不见；粘贴从同一层拷的东西不该失败，锁 / 斜切是规矩拒绝）
   const commitFails = {}, pasteFails = [];
   let nextDecision = { entries: "update" }; e.host.resolvePaste = async () => nextDecision;
+  // 应用内确认框代答（2026-11-09 Claude Opus 5.5）：v0.18.46 起开关镜像进撤销，撤销会把镜像编辑 / 强行对称撤回来，之后删除 / 改拓扑 / 换原点就会按设计问一句；
+  // 没人答 = 框一直开着、输入闸拦住后面所有撤销（12 × 60 时红过）。轮流答「照做 / 不做」：两条路都跑到（照做 = 关镜像 + 照做同一步，撤销一起回去）
+  let confirmYes = false; e.host.confirm = async () => (confirmYes = !confirmYes);
   const trace0 = e.host.trace; e.host.trace = (t) => { if (t.kind === "drift") drifts.push(t); if (t.kind === "fail" && t.where === "commit") { const k = `${t.op?.op}: ${String(t.message).replace(/\d+/g, "N").slice(0, 70)}`; commitFails[k] = (commitFails[k] ?? 0) + 1; if (t.op?.op === "paste" && !/^locked|斜切/.test(String(t.message))) pasteFails.push(t.message); } trace0?.(t); };   // 层 3 的纠正不许被用上（用上 = 层 1 漏了）
   const modeFits = () => e.mode.kinds.includes(S().kindOf(S().defOfContext(e.context)));
   // 面层的槽号 < 槽表长度（计划书 §12 C1：预演开的槽不许漏进真身）；手势中途真身一个字节不动（2026-11-04 Claude Opus 5.5）

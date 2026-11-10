@@ -70,8 +70,9 @@ const res = await page.evaluate(async () => {
   sheetOk?.click(); await sleep(80);
   out.four.facesAfter = m().faceCount() - f0; out.four.mirrorAfter = e.mirrorOf()?.mode ?? null; out.four.hint = hint();
   e.undo(); await sleep(10);
-  out.four.undone = m().faceCount() - f0;
+  out.four.undone = m().faceCount() - f0; out.four.mirrorUndone = e.mirrorOf()?.mode ?? null;   // 2026-11-09 起「关掉镜像，照做」= 一步：撤销一下镜像编辑也回来
   // ⑤ 强行对称：先把 -x 那个角挪歪（镜像关着），选 +x 的一张面再开强行对称（以选区那边为准）→ 对称了
+  e.setMirror(null);   // ④ 的撤销把镜像编辑也撤回来了（v0.18.46 起开关进撤销）：这里明确关掉
   e.commitOp({ op: "meshMove", def, moves: [{ v: w, to: P(cx - 1.5, Y1, Z1) }] });
   out.five = { symBefore: sym(m()) };
   await mirrorPick("force"); await closeAll();
@@ -175,7 +176,7 @@ const res = await page.evaluate(async () => {
     e.deselectAll(); const f0 = k().faceCount();
     e.setMirror("force", 0); await sleep(30);
     out.eleven = { f0, faces: k().faceCount(), sym: sym(k()), hint: hint() };
-    e.undo(); await sleep(20); out.eleven.undone = k().faceCount();
+    e.undo(); await sleep(20); out.eleven.undone = k().faceCount(); out.eleven.mirrorAfterUndo = e.mirrorOf()?.mode ?? null;   // 11-09 审查：以前撤销后模型回来了、强行对称还开着（设置不进撤销）
   }
   // ⑫（v0.18.45 改：第 1 层）强行对称开着、盒子在中间（已经对称）→ 选 +X 那张面「设置原点到选择中心」= 模型会整个跑到 −X 那半 → 先问「关掉镜像，照做 / 取消」
   //   （v0.18.40 这一下悄悄换了原点、下一步挪中缝点 6 张面 → 1 张；v0.18.41 不删光了但补成 10 张）。取消 = 模型、原点、镜像都没动；照做 = 强行对称关了、原点换了
@@ -256,7 +257,7 @@ res.errs = errs;
 const ok = res.one.row && /组件「块」/.test(res.one.who) && /网格体/.test(res.one.who) && !res.one.axisBefore && res.one.axisAfter && /关/.test(res.one.items) && /镜像编辑/.test(res.one.items) && /强行对称/.test(res.one.items) && res.found.v !== undefined && res.found.w !== undefined   // 「对称对齐…」要有选区才露（没选 = 不露），⑥ 走它
   && res.two.mode === "edit" && res.two.noPlaneOnModel && res.two.gizmo?.mode === "edit" && res.two.gizmo?.unpaired === 0 && res.two.gizmo?.stroke === "#8b5cf6" && res.two.seam
   && Math.abs(res.three.w.x - (res.localCenterX - 1.3)) < 1e-9 && Math.abs(res.three.w.y - (res.local.Y1 + 0.2)) < 1e-9 && res.three.steps === 1 && Math.abs(res.three.afterUndo.w.x - (res.localCenterX - 1)) < 1e-9
-  && res.four.selFaces === 1 && /关掉镜像/.test(res.four.sheet ?? "") && res.four.facesBefore === 0 && res.four.facesAfter === 4 && res.four.mirrorAfter === null && res.four.undone === 0
+  && res.four.selFaces === 1 && /关掉镜像/.test(res.four.sheet ?? "") && res.four.facesBefore === 0 && res.four.facesAfter === 4 && res.four.mirrorAfter === null && res.four.undone === 0 && res.four.mirrorUndone === "edit"
   && res.five.symBefore === false && res.five.mode === "force" && res.five.symAfterOn && res.five.extrude.dFaces === 8 && res.five.extrude.steps === 1 && res.five.extrude.sym && res.five.undo === 0
   && res.six.symBefore === false && res.six.symAfter
   && res.seven.faces0 === 6 && Math.abs(res.seven.center) < 1e-9 && res.seven.faces === 10 && res.seven.sym && /切开/.test(res.seven.hint)
@@ -266,7 +267,7 @@ const ok = res.one.row && /组件「块」/.test(res.one.who) && /网格体/.tes
   && res.nine.previewVerts === res.nine.n0 - 1 && res.nine.previewKeepX === 0 && res.nine.verts === res.nine.n0 - 1 && res.nine.keepX === 0 && res.nine.dropGone && res.nine.sym && res.nine.check === 0 && /并成一个/.test(res.nine.hint)
   && res.nine.undoVerts === res.nine.n0 && res.nine.undoBack
   && res.ten.n0 === 12 && res.ten.verts === 12 && res.ten.x === 0 && Math.abs(res.ten.dy - 0.1) < 1e-9 && res.ten.sym && res.ten.faces === 10
-  && res.eleven.f0 === 6 && res.eleven.faces === 12 && res.eleven.sym && /以 −X 那半为准/.test(res.eleven.hint) && /\+X 那半是空的/.test(res.eleven.hint) && res.eleven.undone === 6
+  && res.eleven.f0 === 6 && res.eleven.faces === 12 && res.eleven.sym && /以 −X 那半为准/.test(res.eleven.hint) && /\+X 那半是空的/.test(res.eleven.hint) && res.eleven.undone === 6 && res.eleven.mirrorAfterUndo === null
   && /关掉镜像/.test(res.twelve.ask ?? "") && res.twelve.cancel.faces === 6 && res.twelve.cancel.same && res.twelve.cancel.mode === "force" && res.twelve.cancel.steps === 0 && /没做/.test(res.twelve.cancel.hint)
   && res.twelve.ok.faces === 6 && Math.abs(res.twelve.ok.xmax) < 1e-9 && res.twelve.ok.mode === null && /照做了/.test(res.twelve.ok.hint)
   && res.fourteen.start === "5/5" && res.fourteen.del.lr === "4/4" && res.fourteen.del.last === "meshDelete" && res.fourteen.del.sym

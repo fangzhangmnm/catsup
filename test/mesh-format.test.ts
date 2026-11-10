@@ -103,14 +103,16 @@ describe("CATSUP_mesh 1.2：对称属性进文件（2026-10-28 晚 Claude Fable 
     eq(plain.meshMirrors.size, 0);
     assert(!("mirror" in meshItem(glbOf()).mesh), "没设对称 = 文件里没有 mirror 键");
   });
-  it("认不出的 mirror 值 = 当没有（关），不拒开；撤销换场景不碰它（clone / cloneSkeleton 共享同一张表）", () => {
+  it("认不出的 mirror 值 = 当没有（关），不拒开；clone / cloneSkeleton 各拷一份（2026-11-09 起进撤销：op setMeshMirror；以前共享 = 不进撤销）", () => {
     const s = sceneMeshed(), d = [...s.defs.values()].find((x) => x.body.kind === "mesh")!;
     s.meshMirrors.set(d.id, { mode: "edit", axis: 2 });
     const g = decodeGlb(writeCatsup(documentFromScene(s, "t"))) as unknown as { json: AnyJson; bin: Uint8Array };
     meshItem(g).mesh.mirror = { mode: "whatever", axis: 7 };
     const back = sceneFromDocument(readCatsup(encodeGlb(g.json, g.bin)));
     eq(back.meshMirrors.size, 0);
-    assert(s.clone().meshMirrors === s.meshMirrors && s.cloneSkeleton().meshMirrors === s.meshMirrors);
+    const c = s.clone(), k = s.cloneSkeleton();
+    assert(c.meshMirrors !== s.meshMirrors && k.meshMirrors !== s.meshMirrors, "各拷一份，不共享");
+    eq(c.meshMirrors.get(d.id)?.axis, 2); eq(k.meshMirrors.get(d.id)?.mode, "edit");
   });
 });
 

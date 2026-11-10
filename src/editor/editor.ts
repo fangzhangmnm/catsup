@@ -240,10 +240,10 @@ const OP_TITLES: Readonly<Record<string, string>> = {
   eraseInstance: "删除物件", moveInstance: "挪物件", purgeDefs: "清理组件", purgeMaterials: "清理材质", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
   setAxes: "改原点", setDrawFrame: "坐标架", castDefinition: "转换身体", addGuide: "参考线", eraseGuides: "删参考线", clearGuides: "清参考线", makeGroup: "建组", makeComponent: "建组件", explode: "炸开",
   shelfPut: "放上素材架", shelfTake: "从素材架取下", shelfMove: "挪素材", shelfFolderAdd: "建素材文件夹", shelfFolderRename: "改素材文件夹名", shelfFolderRemove: "删素材文件夹", copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
-  meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshSymmetrize: "对称", meshSymmetrySnap: "对称对齐", meshSubdivide: "细分", meshMerge: "合并", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
+  meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshSymmetrize: "对称", setMeshMirror: "镜像设置", meshSymmetrySnap: "对称对齐", meshSubdivide: "细分", meshMerge: "合并", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
 };
 /** 只记骨架（内核没动）的 op：复现包「上一步」的内核 = 现在这份。 */
-const SKELETON_ONLY: ReadonlySet<string> = new Set(["transformInstance", "placeInstance", "eraseInstance", "moveInstance", "purgeMaterials", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
+const SKELETON_ONLY: ReadonlySet<string> = new Set(["setMeshMirror", "transformInstance", "placeInstance", "eraseInstance", "moveInstance", "purgeMaterials", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
 function opLabel(op: Op): StepLabel { return { title: OP_TITLES[op.op] ?? op.op }; }
 function labelText(l: StepLabel | undefined): string { return l ? (l.count ? `${l.title}（${l.count}）` : l.title) : "一步"; }
 
@@ -1098,17 +1098,18 @@ export class Editor {
     const d = def ?? (this.activeKind() === "mesh" ? this.activePool().def : undefined);
     return d !== undefined && this.scene.kindOf(d) === "mesh" ? this.mirrors.get(d) ?? null : null;
   }
-  /** 开 / 关 / 换轴（mode = null 关）。开强行对称 = 马上对称一次（一步，可撤销）。缺 def = 正在编辑的网格体。 */
+  /** 开 / 关 / 换轴（mode = null 关）= 一条 setMeshMirror（进撤销，2026-11-09）；开强行对称 = 同一步里马上对称一次（撤销一下设置和模型一起回去）。缺 def = 正在编辑的网格体。 */
   setMirror(mode: MirrorMode | null, axis?: MirrorAxis, defIn?: number): void {
     const def = defIn ?? (this.activeKind() === "mesh" ? this.activePool().def : undefined);
     if (def === undefined || this.scene.kindOf(def) !== "mesh") { this.host.hint("对称：只有网格体有这个属性"); return; }
     const ax = axis ?? this.mirrors.get(def)?.axis ?? 0, A = "XYZ"[ax];
-    if (!mode) { this.mirrors.delete(def); this._revision++; this.host.hint("镜像：关"); this.host.changed(); this.draw(); return; }
-    this.mirrors.set(def, { mode, axis: ax }); this._revision++;   // 属性进文件了（CATSUP_mesh 1.2）：算改动，存盘钮要亮
+    const set = (pass: StepPass): boolean => { this.commitIn(pass, { op: "setMeshMirror", def, mirror: mode ? { mode, axis: ax } : null }); return !this.stepFailed; };   // 属性进文件（CATSUP_mesh 1.2）：提交 = 存盘钮亮
+    if (!mode) { if (this.step(set, { title: "镜像：关" })) this.host.hint("镜像：关"); this.host.changed(); this.draw(); return; }
+    if (!this.step((pass) => set(pass) && (mode === "edit" || (this.symmetrizeNow(def, ax), true)), { title: mode === "edit" ? "镜像编辑" : "强行对称" })) { this.host.changed(); this.draw(); return; }
     if (mode === "edit") {
-      const lone = [...mirrorPairs(this.scene.mesh(def).kernel, ax).values()].filter((w) => w < 0).length;
+      const lone = [...mirrorPairs(this.scene.mesh(def).kernel, ax).values()].filter((w) => w < 0).length;   // 强行对称那一句在 symmetrizeNow 里说
       this.host.hint(`镜像编辑：开（${A} 轴；挪点时对面的点一起镜，中缝上的点钉在镜像面上；改拓扑的操作不镜）${lone ? `——${lone} 个点对面找不到（镜像面在这个物体自己的原点上，模型对它不对称），挪它们只改这一边。模型偏在一边：全选、右键「设置原点到选择中心」把镜像面挪到中间；只是歪了一点：右键「镜像 › 对称对齐」` : ""}`);
-    } else this.symmetrizeNow(def, ax);
+    }
     this.host.changed(); this.draw();
   }
   /** 选区重心在镜像面哪一边（没选区 / 正好在面上 = null）。 */
@@ -1156,8 +1157,7 @@ export class Editor {
     const what = opLabel(op).title;
     void this.host.confirm!("强行对称开着", `「${what}」会把镜像面挪到模型偏一边的地方：之后每一步都会以一半为准、把另一半重建。要照做，先关掉强行对称。`, "关掉镜像，照做").then((ok) => {
       if (!ok) { this.host.hint(`「${what}」没做（强行对称开着）`); return; }
-      this.mirrors.delete(def); this._revision++;
-      this.step((pass) => this.commitIn(pass, op), { title: what });
+      this.step((pass) => { this.commitIn(pass, { op: "setMeshMirror", def, mirror: null }); this.commitIn(pass, op); }, { title: what });   // 关镜像 + 照做 = 一步（撤销一起回去）
       this.host.hint(`强行对称已关，「${what}」照做了`); this.host.changed(); this.draw();
     });
     return true;
@@ -1171,8 +1171,7 @@ export class Editor {
     const what = opLabel(op).title;
     void this.mirrorAsk(what).then((ok) => {
       if (!ok) return;
-      this.mirrors.delete(def);
-      this.step((pass) => this.commitIn(pass, op), { title: what });
+      this.step((pass) => { this.commitIn(pass, { op: "setMeshMirror", def, mirror: null }); this.commitIn(pass, op); }, { title: what });   // 关镜像 + 照做 = 一步
       this.host.hint(`镜像已关，「${what}」照做了（只改了这一边；要对齐用右键「镜像 › 对称对齐」，要两边一起长用「强行对称」）`);
       this.host.changed(); this.draw();
     });
@@ -1187,7 +1186,7 @@ export class Editor {
     const ms = this.mirrorOf();
     if (!ms || ms.mode !== "edit" || !this.host.confirm) return false;
     const def = this.activePool().def;
-    void this.mirrorAsk(what).then((ok) => { if (ok) { this.mirrors.delete(def); again(); } });
+    void this.mirrorAsk(what).then((ok) => { if (ok) this.step((pass) => { this.commitIn(pass, { op: "setMeshMirror", def, mirror: null }); again(); }, { title: what }); });   // 关镜像 + 再来一次 = 一步
     return true;
   }
   /** 中缝上的点（自由建模、开着镜像时）。镜像面本身不画在模型上（2026-10-28 user「这边镜像面也不应该随着内容变大。其实我倾向于不画。可以画在gizmos之类的上面。

@@ -18,6 +18,7 @@ export declare const MIRROR_OP_CLASS: {
     readonly meshSymmetrize: "meta";
     readonly meshSymmetrySnap: "meta";
     readonly meshSmoothDefault: "meta";
+    readonly setMeshMirror: "meta";
     readonly paste: "topo";
     readonly mergeObject: "topo";
     readonly explode: "topo";

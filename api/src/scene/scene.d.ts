@@ -92,8 +92,9 @@ export interface EditContext {
 }
 export declare const ROOT_CONTEXT: EditContext;
 export declare class Scene {
-    /** 网格体的「对称」属性（镜像编辑 / 强行对称 + 镜像面；UX 心智模型 §2.1 物体窗口的字段；文件 CATSUP_mesh 1.2 `mirror`）：按定义 id 记。编辑方式那一层、**不进撤销**（0.15 账本 FM134）——
-     *  所以 clone / cloneSkeleton 都共享同一张表（撤销换场景时它不跟着倒回去）；定义转成硬表面体 / 删掉后留下的旧条目无害（读的人按 kindOf 筛）。 */
+    /** 网格体的「对称」属性（镜像编辑 / 强行对称 + 镜像面；UX 心智模型 §2.1 物体窗口的字段；文件 CATSUP_mesh 1.2 `mirror`）：按定义 id 记。编辑方式那一层。
+     *  **2026-11-09 起进撤销**（计划书 20261109-audit-fixes-plan §3 第 7 条，user 没回「要不要」、按默认做）：只经 op `setMeshMirror` 写（骨架级），clone / cloneSkeleton 各拷一份——
+     *  以前共享（0.15 账本 FM134「不进撤销」），撤销后模型回来了、强行对称还开着，下一步又改。定义转成硬表面体 / 删掉后留下的旧条目无害（读的人按 kindOf 筛）。 */
     readonly meshMirrors: Map<DefId, MirrorSetting>;
     readonly defs: Map<number, Definition>;
     readonly root: DefId;

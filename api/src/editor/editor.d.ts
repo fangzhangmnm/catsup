@@ -682,7 +682,7 @@ export declare class Editor {
     private static readonly MIRROR_TOPO_ACTIONS;
     /** 网格体的「对称」属性：缺 def = 正在编辑的那个（不在网格体里 = null）；给 def = 那个网格体（物体窗口里设子物体的）。 */
     mirrorOf(def?: number): MirrorSetting | null;
-    /** 开 / 关 / 换轴（mode = null 关）。开强行对称 = 马上对称一次（一步，可撤销）。缺 def = 正在编辑的网格体。 */
+    /** 开 / 关 / 换轴（mode = null 关）= 一条 setMeshMirror（进撤销，2026-11-09）；开强行对称 = 同一步里马上对称一次（撤销一下设置和模型一起回去）。缺 def = 正在编辑的网格体。 */
     setMirror(mode: MirrorMode | null, axis?: MirrorAxis, defIn?: number): void;
     /** 选区重心在镜像面哪一边（没选区 / 正好在面上 = null）。 */
     private selectionSide;

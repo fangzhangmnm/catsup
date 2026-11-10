@@ -10,7 +10,7 @@ const SHELF_OPS: ReadonlySet<Op["op"]> = new Set<Op["op"]>(["shelfPut", "shelfTa
 export const LOCKED_HINT = "已锁定：解锁后再改（选中它 → 解锁）";
 /** 目标池在锁住的 group 里 / 整体动・删・炸一个锁住的子项 / 当前上下文在锁住的实例里面。setLocked 本身豁免（解锁要能做）。 */
 export function opTouchesLocked(s: Scene, op: Op, contextLocked: () => boolean): boolean {
-  if (op.op === "setLocked" || op.op === "setHidden" || op.op === "unhideAll" || op.op === "rename" || SHELF_OPS.has(op.op)) return false;   // 解锁要能做；藏 / 显示不改东西（锁着的也能藏）；素材架只存引用，不碰几何（锁着的也能上架）
+  if (op.op === "setLocked" || op.op === "setHidden" || op.op === "unhideAll" || op.op === "rename" || op.op === "setMeshMirror" || SHELF_OPS.has(op.op)) return false;   // 解锁要能做；藏 / 显示不改东西（锁着的也能藏）；素材架只存引用，不碰几何（锁着的也能上架）
   if (op.op === "paste" && !op.brep && !op.mesh && !op.groups?.length && !op.instances?.length) return false;   // 纯合并（素材导入）：只往文件里加条目，不碰任何摆着的东西
   if (op.op === "batch") return op.ops.some((o) => opTouchesLocked(s, o, contextLocked));
   if ("at" in op && op.at && s.hasPool(op.at) && s.poolLocked(op.at)) return true;

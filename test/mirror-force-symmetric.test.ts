@@ -198,3 +198,26 @@ describe("强行对称第 5 层：对称化带上裸线 / 孤点 / 隐藏；选�
     assert(concave < 60, `劈不开的步数太多（${concave}）：随机步没在测东西`);
   });
 });
+
+describe("强行对称第 7 条：开关镜像进撤销（op setMeshMirror，骨架级；2026-11-09）", () => {
+  it("提交「开强行对称」+ 对称化（同一步）→ 撤销：设置和模型一起回去；重做：一起回来；场景拷贝之间不共享这张表", async () => {
+    const { Scene } = await import("../src/scene/scene.ts"), { History } = await import("../src/editor/history.ts"), { applyOp } = await import("../src/editor/ops.ts");
+    const { sceneBox } = await import("./format-scenes.ts"), { IDENTITY } = await import("../src/scene/xform.ts");
+    const s0 = new Scene(sceneBox()), d = s0.mintDef("盒", sceneBox());
+    s0.mintInstance(s0.root, null, d.id, IDENTITY);
+    let s = applyOp(s0, { op: "castDefinition", def: d.id, to: "mesh" }).scene;
+    const h = new History(s), f0 = s.mesh(d.id).kernel.faceCount();
+    s = h.commit(s, { op: "setMeshMirror", def: d.id, mirror: { mode: "force", axis: 0 } }).scene;
+    s = h.commit(s, { op: "meshSymmetrize", def: d.id, axis: 0, side: 1 }, true).scene;
+    eq(s.meshMirrors.get(d.id)?.mode, "force");
+    const u = h.undo()!; s = u.scene;
+    eq(s.meshMirrors.has(d.id), false, "撤销一下：强行对称关回去了（以前不进撤销：模型回来了、强行对称还开着）");
+    eq(s.mesh(d.id).kernel.faceCount(), f0, "模型也回来了");
+    s = h.redo(s)!.scene;
+    eq(s.meshMirrors.get(d.id)?.mode, "force", "重做：设置回来");
+    const c = s.cloneSkeleton(); c.meshMirrors.delete(d.id);
+    eq(s.meshMirrors.get(d.id)?.mode, "force", "骨架拷贝改它的表，原件不受影响");
+    let threw = ""; try { applyOp(s, { op: "setMeshMirror", def: s.root, mirror: { mode: "edit", axis: 0 } }); } catch (e) { threw = (e as Error).name; }
+    eq(threw, "OpTargetError", "只对网格体");
+  });
+});

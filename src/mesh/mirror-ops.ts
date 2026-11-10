@@ -13,7 +13,7 @@ export const MIRROR_OP_CLASS = {
   meshExtrude: "topo", meshDuplicate: "topo", meshFill: "topo", meshFlip: "topo", meshKnife: "topo", meshLoopCut: "topo", meshDelete: "topo", meshInset: "topo", meshBevel: "topo", meshBevelVerts: "topo", meshMerge: "topo", meshAddPrimitive: "topo",
   meshEdgeMarks: "flags",
   meshSubdivide: "whole",
-  meshSymmetrize: "meta", meshSymmetrySnap: "meta", meshSmoothDefault: "meta",
+  meshSymmetrize: "meta", meshSymmetrySnap: "meta", meshSmoothDefault: "meta", setMeshMirror: "meta",
   // 不叫 mesh* 但会改网格内核的（2026-11-09 Claude Opus 5.5；计划书 20261109-audit-fixes-plan §3 第 2 层）：以前强行对称按「名字以 mesh 开头」判，它们做完不对称化，
   // 之后在另一边做一步就被当成「另一半」删掉（11-09 真 app：左边贴进一张面，再在右边挪一个点，贴的那张没了）。现在编辑器按「内核版本号变没变」判（不看名字），这里登记是给人看 + 给守卫逼新 op 想一下。
   paste: "topo", mergeObject: "topo", explode: "topo", separateObject: "topo", plugin: "topo", makeComponent: "topo",
