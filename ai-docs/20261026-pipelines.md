@@ -505,3 +505,11 @@ flowchart LR
 - 新指令 `mesh.flatten.x / y / z / normal / mirror`（`src/editor/mesh-edits/index.ts`）走「动作 → 指令调用」（`Editor.runAction`）：右键「压平 ›」或缩放工具右下角「压平…」（弹的是同一份子菜单，`app/context-menu.ts openSubmenuAt`）→ 规划 = 选区的点（O(选中的点)）→ 方向（X / Y / Z = 网格体自己的轴；「这圈的朝向」= 最贴合平面的法向，`mesh/ops/flatten.ts bestFitNormal`，O(点)）→ 每个点 `scaleAlong(p, 中心, 方向, 0)` → **一条 `meshMove`、一步撤销** → 马后炮（方向 / 压到平均位置还是最后选中的点；镜像那条没有参数）。镜像编辑开着时和挪一样由提交那一步补对面（镜像分类表：直接做）。
 - `scaleAlong`（`mesh/ops/flatten.ts`）= 缩放手势锁轴那一档原来那一行算式搬下来（`tools/mesh-transform.ts`，结果逐位不变）：压平和「S X 0」是同一段。
 - 数值小窗的快捷值（`app/vcb.ts`，缩放手势中锁了轴才出：0 / ½ / 2 / −1）= 往「正在打的字」（`controller/typed-input.ts`）里打这个数再回车，和键盘打数同一条路；没在等下一点的拖（按着没松）照旧松手才定。
+
+## 追记 2026-11-10 深夜（v0.19.0，Claude Opus 5.5；贴图主线 0-1）：画画内核是拷来的，正本在画画仓
+
+- `src/paint/kernel/` = 画画仓（WeebPaint）内核的**原样拷贝**：`src/backend/`（先不含 `timelapse/`）、`src/common/`、`src/shell/browser-gl2-port.ts`、它们用到的第三方库文件、内核自己的测试。相对位置原样（`src/paint/kernel/` 当一个小「仓根」），内核文件里的 import 一个字没改。
+- **怎么来的**：`bash scripts/pull-paint-kernel.sh <画画仓提交>` → 按提交读画画仓里的 `test/kernel-tests.json`（拷什么的名单）→ `git archive` 那个提交（不读那边的工作目录）→ 解进 `src/paint/kernel/` → 写 `KERNEL-MANIFEST.json`（来源提交、画画版本、每个文件的 sha256）。这一版拉的是 WeebPaint v0.14.69 @ 5c8f9f0（163 个文件，约 2 MB）。
+- **守**：`test/paint-kernel-guard.test.ts`：每个文件的哈希对清单、不多不少（手改 = 红）；`src/` 里只有 `src/paint/` 能 import 内核。画画仓那边 `test/kernel-boundary.test.mjs` 守内核的 import 边界、界面全局和名单不过时。
+- **测**：`npm test` 末尾跑 `node --expose-gc src/paint/kernel/test/run-kernel.mjs`（62 个文件 549 条、约 4 秒、末尾查图块句柄泄漏）。拷来的测试不做类型检查（`tsconfig` exclude `src/paint/kernel/test`，画画仓自己也不查测试）；内核源码照常查。
+- **进包**：现在没有任何地方 import 它，包不变大。往后经 `src/paint/` 里自己的接缝用（施工方案的「空间层」），内核的改动只在画画仓做，这边重新拉。

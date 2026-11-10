@@ -12,6 +12,7 @@ import "./units.test.ts";   // 单位深模块（2026-10-24 Opus）
 import "./no-native-select.test.ts";   // 下拉标准件守卫（2026-10-24 Opus）
 import "./page-ids.test.ts";   // 页面不许重复 id（2026-10-25：手册面板与图标撞名）
 import "./scale-ref.test.ts";   // B43 尺度参考适配层（2026-10-25 Opus）
+import "./paint-kernel-guard.test.ts";   // 画画内核拷贝：哈希对清单、src/paint/ 以外不直接 import（贴图主线 0-1，2026-11-10 Opus）
 import "./tap-train.test.ts";   // 点按族：笔双击三击偏向点（2026-10-25 Opus）
 import "./format-stamps.test.ts";   // 三级拍子 + 直通顺序（F-69，2026-10-25 Fable）
 import "./desk.test.ts";   // CATSUP_desk 桌面态：☰ 停在哪页跟文件走、太新不拒开（2026-10-25 Fable）

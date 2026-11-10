@@ -29,5 +29,6 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
-  "exclude": ["experiments", "node_modules", ".claude"]
+  // src/paint/kernel/test = 从画画仓原样拷来的内核测试：画画仓自己不做类型检查（它的 include 只列源码），这里照它的样子不查；内核源码照常查（贴图主线 0-1，2026-11-10 Opus）
+  "exclude": ["experiments", "node_modules", ".claude", "src/paint/kernel/test"]
 }
