@@ -18,6 +18,13 @@ const KEYS: readonly (readonly string[])[] = [
   ["0", ".", "x", "/"],
 ];
 const LAST_ROW: readonly string[] = ["清空", "↵"];
+/** 缩放手势里锁了轴时的常用倍数（W-5 2026-11-10 Claude Opus 5.5；白模第一批第 2 条「a zero button on scaling panel?」）：点一下 = 打这个数 + 回车（和键盘打 S X 0 回车同一条路）。 */
+const QUICK_FACTORS: readonly { label: string; text: string; title: string }[] = [
+  { label: "0", text: "0", title: "沿锁着的轴缩到 0 = 压平" },
+  { label: "½", text: "0.5", title: "沿锁着的轴缩到一半" },
+  { label: "2", text: "2", title: "沿锁着的轴放大到两倍" },
+  { label: "−1", text: "-1", title: "沿锁着的轴翻过来" },
+];
 
 export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
   let padOpen = false;
@@ -27,9 +34,15 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
   const label = document.createElement("span"); label.className = "vcb-label";
   const field = document.createElement("button"); field.type = "button"; field.className = "vcb-field"; field.title = "数值小窗：输入精确值（点开键盘）";
   const pad = document.createElement("div"); pad.className = "vcb-pad"; pad.hidden = true;
+  const quick = document.createElement("div"); quick.className = "vcb-row vcb-quick"; quick.hidden = true;
+  for (const q of QUICK_FACTORS) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "vcb-key"; b.textContent = q.label; b.title = q.title;
+    b.addEventListener("click", () => { typing.clear(); for (const ch of q.text) typing.press(ch); typing.press("↵"); render(); });
+    quick.appendChild(b);
+  }
   // 上下文选项那段（#toolStrip，context-bar.ts 往里画）是 root 里原有的子节点：挪到最下面（贴角、位置稳）
   const strip = root.querySelector<HTMLElement>("#toolStrip");
-  root.append(params, label, field, pad);
+  root.append(params, label, field, quick, pad);
   if (strip) root.appendChild(strip);
   const keyRow = (row: readonly string[]): HTMLElement => {
     const r = document.createElement("div"); r.className = "vcb-row";
@@ -99,6 +112,7 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
     label.textContent = tgt === "gesture" ? "打数" : st.prompt;   // 手势进行中：同一颗胶囊 = 打数的回显 + 小键盘入口（触屏「按一下弹」）
     field.textContent = buf || (tgt === "gesture" ? "…" : st.echo || "…");
     field.classList.toggle("typing", !!buf);
+    quick.hidden = !(tgt === "gesture" && editor.typedQuantityTag() === "factor" && editor.axisLock !== null);   // 只在缩放手势锁了轴时出（Fable：锁了轴才出）
     pad.hidden = !padOpen || !tgt;
     if (!pad.hidden) renderUnits();
   };

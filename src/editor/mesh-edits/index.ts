@@ -3,7 +3,8 @@
 // 做完的选区走 PlanOut.select（规划时在副本上跑一遍拿新 id；op 确定性 = 提交后同一批）。
 import type { Command, MeshUnit } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
-import { loopCut as loopCutOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits, duplicateGeometry, fillOrBridge } from "../../mesh/ops/index.ts";
+import { loopCut as loopCutOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits, duplicateGeometry, fillOrBridge, bestFitNormal, flattenMoves } from "../../mesh/ops/index.ts";
+import { add3, scale3, type Pt3 } from "../../kernel/geom.ts";
 import { snapToSymmetry, type MirrorAxis, type SnapSide } from "../../mesh/mirror.ts";
 import { F_SHARP, F_SMOOTH, F_SOFT, type MeshKernel, type SmoothDefaultMode } from "../../mesh/mesh-kernel.ts";
 import type { QuantityTag } from "../units.ts";
@@ -285,6 +286,65 @@ export const symmetrySnap: Command<MeshUnit> = {
   none: "对称对齐：先选点 / 边 / 面",
 };
 
+// ---------- 压平（W-5 2026-11-10 Claude Opus 5.5；白模第一批第 2 条，user「think about how to implement S X 0 efficiently. a zero button on scaling panel? or a dedicated UX?」）----------
+// 右键「压平 ›」：沿 X / Y / Z / 这圈的朝向，压到这圈的平均位置（马后炮里能换方向、换成压到最后选中的那个点）；镜像开着时多一项「到镜像面」（方向 = 镜像轴、那个坐标正好是零）。
+// 算法 = 沿这根轴缩到 0，和缩放手势锁轴那一档同一段（mesh/ops/flatten.ts scaleAlong）；一条 meshMove、一步撤销。X / Y / Z = 这个网格体自己的轴（= 进到它里面时的坐标架）。
+type FlatDir = "x" | "y" | "z" | "normal";
+type FlatTo = "mean" | "last";
+const FLAT_DIRS: readonly FlatDir[] = ["x", "y", "z", "normal"];
+const FLAT_DIR_LABEL: Record<FlatDir, string> = { x: "X", y: "Y", z: "Z", normal: "这圈的朝向" };
+const FLAT_TO_LABEL: Record<FlatTo, string> = { mean: "这圈的平均位置", last: "最后选中的那个点" };
+const UNIT_AXES: readonly Pt3[] = [{ x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 }];
+const ORIGIN: Pt3 = { x: 0, y: 0, z: 0 };
+/** 压平的那一条 op（没点要动 = 不提交，说「已经平了」）。 */
+function flattenPlan(m: MeshKernel, def: number, vs: readonly number[], axis: Pt3, pivot: Pt3): { ops: { op: "meshMove"; def: number; moves: { v: number; to: Pt3 }[] }[]; count: number; notes?: string[] } {
+  const moves = flattenMoves(new Map(vs.map((v) => [v, m.pt(v)] as const)), pivot, axis);
+  return moves.length ? { ops: [{ op: "meshMove", def, moves }], count: moves.length } : { ops: [], count: 0, notes: ["已经是平的了"] };
+}
+function flattenAlong(dir: FlatDir): Command<MeshUnit> {
+  return {
+    id: `mesh.flatten.${dir}` as const, unit: "mesh", title: "压平",
+    defaults: () => ({ dir, to: "mean" }),
+    params: () => [
+      { key: "dir", def: { kind: "enum", label: "沿", values: FLAT_DIRS.map((id) => ({ id, label: FLAT_DIR_LABEL[id] })) } },
+      { key: "to", def: { kind: "enum", label: "压到", values: (["mean", "last"] as const).map((id) => ({ id, label: FLAT_TO_LABEL[id] })) } },
+    ],
+    quickCount: (env, u) => { if (!u.sel) return 0; const n = selectionVerts(env.scene.mesh(u.def).kernel, u.sel).length; return n >= 2 ? n : 0; },
+    plan(env, u, v) {
+      if (!u.sel) return { ops: [], count: 0 };
+      const m = env.scene.mesh(u.def).kernel, vs = selectionVerts(m, u.sel).sort((a, b) => a - b), d = String(v.dir) as FlatDir, to = String(v.to) as FlatTo;
+      if (vs.length < 2) return { ops: [], count: 0 };
+      const axis = d === "normal" ? bestFitNormal(vs.map((x) => m.pt(x))) : UNIT_AXES[d === "x" ? 0 : d === "y" ? 1 : 2];
+      if (!axis) return { ops: [], count: 0, notes: ["这几个点排成一条线（或叠在一起），定不出朝向：换 X / Y / Z"] };
+      let pivot: Pt3;
+      if (to === "last") {
+        const last = [...u.sel.verts].filter((x) => m.hasV(x)).pop();   // 选区按选的先后存：最后加进来的那个点
+        if (last === undefined) return { ops: [], count: 0, notes: ["要压到最后选中的那个点，得直接点选点（选的是边 / 面时没有「最后一个点」）"] };
+        pivot = m.pt(last);
+      } else { let c = ORIGIN; for (const x of vs) c = add3(c, m.pt(x)); pivot = scale3(c, 1 / vs.length); }
+      return flattenPlan(m, u.def, vs, axis, pivot);
+    },
+    done: (n, _x, v) => { const d = String(v.dir) as FlatDir; return `压平：${n} 个点${d === "normal" ? "沿这圈的朝向" : `沿 ${FLAT_DIR_LABEL[d] ?? ""} `}压到${FLAT_TO_LABEL[String(v.to) as FlatTo] ?? ""}（方向 / 压到哪在马后炮里改）`; },
+    none: "压平：先选两个以上的点（或边 / 面）",
+  };
+}
+export const flattenX = flattenAlong("x"), flattenY = flattenAlong("y"), flattenZ = flattenAlong("z"), flattenNormal = flattenAlong("normal");
+/** 压到镜像面：方向 = 镜像轴，压到那个坐标正好是零的面上（中缝合不上多半就差这一下）。物件没开镜像 = 数出来是 0，菜单不露。 */
+export const flattenMirror: Command<MeshUnit> = {
+  id: "mesh.flatten.mirror", unit: "mesh", title: "压到镜像面",
+  defaults: () => ({}),
+  params: () => [],
+  quickCount: (env, u) => (u.sel && env.scene.meshMirrors.get(u.def) ? selectionVerts(env.scene.mesh(u.def).kernel, u.sel).length : 0),
+  plan(env, u) {
+    const mir = env.scene.meshMirrors.get(u.def);
+    if (!u.sel || !mir) return { ops: [], count: 0, notes: mir ? [] : ["这个物件没开镜像"] };
+    const m = env.scene.mesh(u.def).kernel, vs = selectionVerts(m, u.sel).sort((a, b) => a - b);
+    return flattenPlan(m, u.def, vs, UNIT_AXES[mir.axis], ORIGIN);
+  },
+  done: (n) => `压到镜像面：${n} 个点压到中缝上（镜像轴那个坐标正好是零）`,
+  none: "压到镜像面：先选点（或边 / 面），并且这个物件开着镜像",
+};
+
 const SMOOTH_LABEL: Record<SmoothDefaultMode, string> = { angle: "按角度", smooth: "全部平滑", hard: "全部是棱" };
 /** 默认平滑的三档各一条指令（菜单里一档一行；已经是这一档的不露，按角度那条永远露、马后炮里改角度）。 */
 function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
@@ -305,7 +365,7 @@ function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
 export const smoothByAngle = smoothDefaultCommand("angle"), smoothAll = smoothDefaultCommand("smooth"), smoothNone = smoothDefaultCommand("hard");
 
 const commands: readonly Command[] = [duplicate as Command, fill as Command, flipNormals as Command, loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
-  bevel as Command, bevelPoints as Command, symmetrySnap as Command, mergeCenter as Command, subdivideCmd as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
+  bevel as Command, bevelPoints as Command, symmetrySnap as Command, mergeCenter as Command, flattenX as Command, flattenY as Command, flattenZ as Command, flattenNormal as Command, flattenMirror as Command, subdivideCmd as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
 /** 图标 = stopgap（剪刀；图标库 TODO 已登记 loop-cut）。 */
 const actions: readonly Action[] = [
   { id: "mesh.duplicate", icon: "copy", label: (n) => `复制（${n}）`, commands: { mesh: "mesh.duplicate" } },
@@ -320,6 +380,11 @@ const actions: readonly Action[] = [
   { id: "mesh.subdivide", icon: "collection", label: () => "细分（Catmull-Clark）…", commands: { mesh: "mesh.subdivide" } },
   { id: "mesh.symmetrySnap", icon: "axes", label: (n) => `对称对齐（${n} 个点）`, commands: { mesh: "mesh.symmetrySnap" } },
   { id: "mesh.mergeCenter", icon: "target", label: (n) => `合并到中心（${n} 个点）`, commands: { mesh: "mesh.mergeCenter" } },
+  { id: "mesh.flatten.x", icon: "axes", label: (n) => `压平：沿 X（${n} 个点）`, commands: { mesh: "mesh.flatten.x" } },
+  { id: "mesh.flatten.y", icon: "axes", label: (n) => `压平：沿 Y（${n} 个点）`, commands: { mesh: "mesh.flatten.y" } },
+  { id: "mesh.flatten.z", icon: "axes", label: (n) => `压平：沿 Z（${n} 个点）`, commands: { mesh: "mesh.flatten.z" } },
+  { id: "mesh.flatten.normal", icon: "axes", label: (n) => `压平：沿这圈的朝向（${n} 个点）`, commands: { mesh: "mesh.flatten.normal" } },
+  { id: "mesh.flatten.mirror", icon: "axes", label: (n) => `压到镜像面（${n} 个点）`, commands: { mesh: "mesh.flatten.mirror" } },
   { id: "mesh.markSharp", icon: "line", label: (n) => `标成棱（${n} 条边）`, commands: { mesh: "mesh.markSharp" } },
   { id: "mesh.markSmooth", icon: "line", label: (n) => `标成平滑（${n} 条边）`, commands: { mesh: "mesh.markSmooth" } },
   { id: "mesh.clearMarks", icon: "line", label: (n) => `清掉手标（${n} 条边）`, commands: { mesh: "mesh.clearMarks" } },
@@ -330,6 +395,11 @@ const actions: readonly Action[] = [
 const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }, { action: "mesh.connect", where: "contextBar", order: 21, modes: ["freeform"] }, { action: "mesh.inset", where: "contextBar", order: 22, modes: ["freeform"] },
   { action: "mesh.bevel", where: "contextBar", order: 23, modes: ["freeform"] }, { action: "mesh.bevelVerts", where: "contextBar", order: 24, modes: ["freeform"] }, { action: "mesh.originToSelection", where: "contextBar", order: 30, modes: ["freeform"] },
   { action: "mesh.mergeCenter", where: "contextBar", order: 25, modes: ["freeform"] },
+  { action: "mesh.flatten.x", where: "contextBar", order: 25.1, modes: ["freeform"], submenu: { label: "压平", item: "沿 X" } },   // W-5：右键「压平 ›」；工具条入口 = 缩放工具右下角「压平…」（main.ts toolActions，弹的是这同一份）
+  { action: "mesh.flatten.y", where: "contextBar", order: 25.2, modes: ["freeform"], submenu: { label: "压平", item: "沿 Y" } },
+  { action: "mesh.flatten.z", where: "contextBar", order: 25.3, modes: ["freeform"], submenu: { label: "压平", item: "沿 Z" } },
+  { action: "mesh.flatten.normal", where: "contextBar", order: 25.4, modes: ["freeform"], submenu: { label: "压平", item: "沿这圈的朝向" } },
+  { action: "mesh.flatten.mirror", where: "contextBar", order: 25.5, modes: ["freeform"], submenu: { label: "压平", item: "到镜像面" } },
   { action: "mesh.duplicate", where: "contextBar", order: 26, modes: ["freeform"] }, { action: "mesh.fill", where: "contextBar", order: 27, modes: ["freeform"] },
   { action: "mesh.flipNormals", where: "contextBar", order: 28, modes: ["freeform"] },
   { action: "mesh.subdivide", where: "objectWindow", order: 36 },   // 细分 / 默认平滑 = 物体级 → 物体窗口（user 10-28「镜像细分默认平滑这些都收到选窗里面」）

@@ -499,3 +499,9 @@ flowchart LR
 - **改写**（`prepareOp` → `mirrorRewrite`，提交 / 预演共用）：强行对称下删除 / 翻面、两种模式下的标记，指令里补上对面那份（O(网格体) 配对 + 面按点集查表）。
 - **提交后**（`forceAfter`）：`rev` 变了、`isSymmetric` 说不对称的，`forceSide` 选边（顺序见上「三处选边同一道收尾」；v0.18.47 起点名的排在新长的前面：把面推过镜像面 = 在中缝切开、和对面焊上，不再和盒子脱开）→ 拷贝上试 `symmetrize` → 同一步补一条 `meshSymmetrize`。`isSymmetric` 现在多查朝向 / 材质 / 边标记（O(网格体)，同量级）。
 - 预演：活动池是开着强行对称的网格体就同样走 `forcesOn` / `forceSideFor` / `meshSymmetrize`（和提交同一段）。
+
+## 追记 2026-11-10 深夜（v0.18.51，Claude Opus 5.5；白模第一批 W-5）：压平；缩放锁轴那一档和它共用一段
+
+- 新指令 `mesh.flatten.x / y / z / normal / mirror`（`src/editor/mesh-edits/index.ts`）走「动作 → 指令调用」（`Editor.runAction`）：右键「压平 ›」或缩放工具右下角「压平…」（弹的是同一份子菜单，`app/context-menu.ts openSubmenuAt`）→ 规划 = 选区的点（O(选中的点)）→ 方向（X / Y / Z = 网格体自己的轴；「这圈的朝向」= 最贴合平面的法向，`mesh/ops/flatten.ts bestFitNormal`，O(点)）→ 每个点 `scaleAlong(p, 中心, 方向, 0)` → **一条 `meshMove`、一步撤销** → 马后炮（方向 / 压到平均位置还是最后选中的点；镜像那条没有参数）。镜像编辑开着时和挪一样由提交那一步补对面（镜像分类表：直接做）。
+- `scaleAlong`（`mesh/ops/flatten.ts`）= 缩放手势锁轴那一档原来那一行算式搬下来（`tools/mesh-transform.ts`，结果逐位不变）：压平和「S X 0」是同一段。
+- 数值小窗的快捷值（`app/vcb.ts`，缩放手势中锁了轴才出：0 / ½ / 2 / −1）= 往「正在打的字」（`controller/typed-input.ts`）里打这个数再回车，和键盘打数同一条路；没在等下一点的拖（按着没松）照旧松手才定。

@@ -14,7 +14,7 @@ import type { SnapKind } from "../solver.ts";
 import { add3, dot3, len3, normalize3, scale3, sub3, cross3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { applyDir, applyPt, invert } from "../../scene/xform.ts";
-import { extrudeNormalDirs, selectionVerts } from "../../mesh/ops/index.ts";
+import { extrudeNormalDirs, selectionVerts, scaleAlong } from "../../mesh/ops/index.ts";
 import { fmtLen } from "../units.ts";
 import { softDistances, softWeights } from "../../mesh/soft-select.ts";
 import { meshSnapTarget } from "./mesh-snap.ts";
@@ -231,7 +231,7 @@ export class MeshTransformTool implements ToolHandler {
         let f = Math.hypot(s1.x - o.x, s1.y - o.y) / Math.hypot(d0.x, d0.y);
         if (this.snapOn) f = Math.round(f / SCALE_STEP) * SCALE_STEP;
         if (typed !== null) f = typed;   // 打的倍数（S Z 0 = 沿 Z 压平）
-        if (ax) fW = (p) => { const v = sub3(p, pivot); return add3(p, scale3(ax, dot3(v, ax) * (f - 1))); };   // 只沿这根轴（S Z 0 = 压平）
+        if (ax) fW = (p) => scaleAlong(p, pivot, ax, f);   // 只沿这根轴（S Z 0 = 压平；和右键「压平」同一段，mesh/ops/flatten.ts）
         else if (pn) fW = (p) => { const v = sub3(p, pivot), vn = scale3(pn, dot3(v, pn)); return add3(pivot, add3(vn, scale3(sub3(v, vn), f))); };   // 只在面内
         else fW = (p) => add3(pivot, scale3(sub3(p, pivot), f));
         dims = `缩放 ×${f.toFixed(3)}${ax ? "（锁轴）" : pn ? "（锁面）" : ""}${tag}`;

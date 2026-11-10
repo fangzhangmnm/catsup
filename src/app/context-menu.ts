@@ -53,3 +53,21 @@ export function openSelectionMenu(editor: Editor, hud: HudModel, anchor: HTMLEle
   if (!items().length) return;
   openPopupMenu({ anchor, items: () => foldSubmenus(items()), onPick: (id) => { hud.pick(id); } });
 }
+
+/**
+ * 右键菜单里某个子菜单那几项，单独挂在一个按钮旁边弹（缩放工具右下角「压平…」= 右键「压平 ›」同一份；W-5 2026-11-10 Claude Opus 5.5）。
+ * 工具条点完会整条重画、按钮换掉，所以不挂在按钮上：把右键用的那个 0×0 锚点（ctxAnchor）摆到按钮的位置再弹。没有可做的就不弹。
+ */
+/** 右键菜单里某个子菜单现在有哪几项（露不露 = 放置表的工作台 + 指令数出来的个数，app 层不另判工作台；W-5）。 */
+export function submenuItems(hud: HudModel, label: string): PopupMenuItem[] {
+  return menuItems(hud, "selection").filter((it) => it.submenu?.label === label).map((it) => ({ id: it.id, label: it.submenu?.item ?? it.label, icon: it.icon, disabled: it.disabled }));
+}
+export function openSubmenuAt(hud: HudModel, btn: HTMLElement, label: string): void {
+  const items = (): PopupMenuItem[] => submenuItems(hud, label);
+  if (!items().length) return;
+  const r = btn.getBoundingClientRect();
+  let anchor = document.getElementById("ctxAnchor") as HTMLElement | null;
+  if (!anchor) { anchor = document.createElement("div"); anchor.id = "ctxAnchor"; document.body.appendChild(anchor); }
+  anchor.style.left = `${r.left}px`; anchor.style.top = `${r.top}px`;
+  openPopupMenu({ anchor, items, onPick: (id) => { hud.pick(id); } });
+}

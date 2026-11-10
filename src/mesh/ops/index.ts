@@ -14,3 +14,4 @@ export { bevelEdges, bevelVerts, type BevelResult } from "./bevel.ts";
 export { catmullClark, subdivide, looseBits } from "./subdivide.ts";
 export { addPrimitive, PRIMITIVES, primitiveDims, primitiveDefaultLen, isFlatPrimitive, type PrimitiveKind, type PrimitiveFrame } from "./primitives.ts";
 export { duplicateGeometry, fillOrBridge, edgeLoops, type MeshSel } from "./duplicate.ts";
+export { scaleAlong, bestFitNormal, flattenMoves } from "./flatten.ts";

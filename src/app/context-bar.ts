@@ -17,7 +17,7 @@ import { stanceOf } from "../controller/stance.ts";
 import type { HudItem } from "./ui/hud-model.ts";
 
 /** 工具自己的动作 / chip（轴 → 重置轴；卷尺 / 量角器 / 圆规 → 删除所有参考几何；油漆桶 → 当前材质 / 吸色）。 */
-export interface BarAction { id: string; label: string; disabled?: boolean; onClick(): void; /** 色块（CSS background；材质 chip）。 */ swatch?: string; /** 开关态。 */ active?: boolean; title?: string;
+export interface BarAction { id: string; label: string; disabled?: boolean; /** el = 被点的那个按钮（要在它旁边弹菜单的用；W-5）。 */ onClick(el?: HTMLElement): void; /** 色块（CSS background；材质 chip）。 */ swatch?: string; /** 开关态。 */ active?: boolean; title?: string;
   /** 只画图标（字进 title / 读屏）：删除 = 垃圾桶（user 10-30「删除统一用icon」）。 */ icon?: string }
 /** 选区条里只画图标的项（字进 title）：删除统一用垃圾桶（user 10-30「删除统一用icon」）。 */
 const ICON_ONLY = new Set(["delete"]);
@@ -64,7 +64,7 @@ export function mountContextBar(root: HTMLElement, editor: Editor, p: ContextBar
     if (a.swatch) { const sw = document.createElement("span"); sw.className = "strip-swatch"; sw.style.background = a.swatch; b.appendChild(sw); }
     if (a.icon) { b.classList.add("strip-icon-action"); b.innerHTML = iconHtml(a.icon); b.title = a.title ?? a.label; b.setAttribute("aria-label", a.label); }
     else b.appendChild(document.createTextNode(a.label));
-    b.addEventListener("click", () => { a.onClick(); render(); });
+    b.addEventListener("click", () => { a.onClick(b); render(); });
     return b;
   };
   const selectionBtn = (it: HudItem): HTMLButtonElement => {
