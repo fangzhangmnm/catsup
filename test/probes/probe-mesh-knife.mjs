@@ -1,7 +1,8 @@
 // 自由建模工作台的刀 + 环切（2026-10-27 Claude Opus 5.5；tools/mesh-knife.ts + mesh-edits/）：网格体盒子里——
 // ① 顶面对角两个角点各点一下 = 切一刀（面 6 → 7、一步撤销）；② 接着从刚才那个点切到对边的中点（链式；不在同一张面 = 拒绝不崩）；
 // ③ 同一条竖边点一下光标不动 = 没有环切预演、原地再点 = 收刀不切（W-2），Ctrl+R 再点它 = 环切一圈；④ 浮条「环切」：选一条边 → 一圈；⑤ 撤到头 / 重做到头不崩；
-// ⑥ 落点在透视下不偏（W-1）：立方体边正中、4 m 长边五处，标记离光标 ≤ 1 像素，透视正交都是。
+// ⑥ 落点在透视下不偏（W-1）：立方体边正中、4 m 长边五处，标记离光标 ≤ 1 像素，透视正交都是；
+// ⑦ 每个点按下、滑动、松手才定（W-3）：中点、笔从面中间滑到边上、换边重开没有旧线、面中间提示行空、转视角线不飘、笔切一刀。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-knife.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -91,6 +92,44 @@ const perspCheck = async (which) => { await page.goto(process.argv[2] ?? "http:/
 }, which); };
 res.cube = await perspCheck("cube");
 res.long = await perspCheck("long");
+// ⑦ 按下、滑动、松手才定（W-3，2026-11-10 Claude Opus 5.5）：鼠标悬停在中点附近 = 中点；笔（没有悬停）按在面中间、滑到边上、松手 = 第一个点在边上；
+// 换一条边重新开始时屏幕上没有连到上一笔的线、标记在新起点上；光标滑到面中间提示行是空的；转视角之后刀线末端还在光标下（不飘）；笔按下滑动松手切一刀。
+res.pen = await (async () => { await page.goto(process.argv[2] ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200); return page.evaluate(async () => {
+  const e = globalThis.__catsup.editor, hud = globalThis.__catsup.hud, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const c = document.getElementById("board"), r = c.getBoundingClientRect(), px = (p) => e.cam.angularPx(p, e.vp());
+  const fire = (type, q, buttons, pointerType) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: r.left + q.x, clientY: r.top + q.y, pointerId: pointerType === "pen" ? 7 : 5, pointerType, isPrimary: true, button: 0, buttons, pressure: buttons ? 0.5 : 0 }));
+  const penSlide = async (a, z) => { fire("pointerdown", a, 1, "pen"); await sleep(20); for (let i = 1; i <= 8; i++) { fire("pointermove", { x: a.x + (z.x - a.x) * i / 8, y: a.y + (z.y - a.y) * i / 8 }, 1, "pen"); await sleep(15); } fire("pointerup", z, 0, "pen"); await sleep(40); };
+  const penTap = async (q) => { fire("pointerdown", q, 1, "pen"); await sleep(20); fire("pointerup", q, 0, "pen"); await sleep(40); };
+  const hover = async (q) => { fire("pointermove", { x: q.x + 2, y: q.y + 2 }, 0, "mouse"); await sleep(15); fire("pointermove", q, 0, "mouse"); await sleep(25); };
+  const B = [[0, 0], [1, 0], [1, 1], [0, 1]], segs = [];
+  for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], 1), P(d[0], d[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); }
+  e.setGrid({ ...e.grid, on: false });
+  e.commitOp({ op: "addEdges", at: e.activePool(), segs }); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
+  const S = e.scene, inst = [...S.def(S.root).instances.values()][0], m = () => S.mesh(inst.def).kernel; e.cam.setView("iso"); e.zoomExtents(); e.cam.halfH *= 1.6; e.draw();
+  e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(30); e.setTool("knife"); await sleep(20);
+  const k = e.handlers.knife, line = () => k.viewExtras(e.toolCtx)?.knifeLine ?? null, esc = async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true })); await sleep(30); };
+  const out = {};
+  const mq = px(P(0.5, 0, 1)); await hover({ x: mq.x + 3, y: mq.y }); out.mid = e.snapInfo?.kind ?? null;
+  // 笔按在右侧面中间、滑到上边（离中点远一点）、松手
+  await penSlide(px(P(1, 0.5, 0.5)), px(P(1, 0.25, 1)));
+  out.slide = { active: e.isGestureActive(), onEdge: !!k.start && "e" in k.start && Math.abs(k.startW.z - 1) < 1e-6, pressing: k.pressing, hint: hud.status() };
+  await esc();
+  // 笔从面中间滑到竖边 X（x=1, y=1）松手 = 起点在 X；Esc；再笔点另一条竖边 Y（x=1, y=0）：起点在 Y、屏幕上没有刀线连到 X
+  await penSlide(px(P(1, 0.5, 0.5)), px(P(1, 1, 0.3))); await esc();
+  await penTap(px(P(1, 0, 0.3)));
+  const L = line(), sn = e.snapInfo; out.fresh = { startIsY: !!k.startW && Math.abs(k.startW.y) < 1e-6 && Math.abs(k.startW.x - 1) < 1e-6, line: !!L && Math.hypot(L.b.x - L.a.x, L.b.y - L.a.y, L.b.z - L.a.z) > 1e-6, markerAtStart: !!sn && !!k.startW && Math.hypot(sn.p.x - k.startW.x, sn.p.y - k.startW.y, sn.p.z - k.startW.z) < 1e-9 };
+  // 鼠标滑到同一张面的上边（有预演 = 提示行有字），再滑到面中间（没落点 = 提示行空）
+  await hover(px(P(1, 0.25, 1))); out.hintOnEdge = hud.status();
+  const fm = px(P(1, 0.6, 0.6)); await hover(fm); out.hintOnFace = hud.status();
+  // 转视角（不动光标）：刀线末端投回屏幕还在光标下
+  e.cam.yaw += 0.7; e.cam.pitch = Math.max(0.05, e.cam.pitch - 0.2); e.draw(); await sleep(30);
+  const L2 = line(), q2 = L2 ? px(L2.b) : null; out.orbit = { line: !!L2, off: q2 ? +Math.hypot(q2.x - fm.x, q2.y - fm.y).toFixed(3) : null };
+  e.cam.setView("iso"); e.zoomExtents(); e.cam.halfH *= 1.6; e.draw(); await sleep(20);
+  // 笔：从面中间按下、滑到上边、松手 = 从 Y 上的起点切一刀
+  const f0 = m().faceCount(); await penSlide(px(P(1, 0.6, 0.6)), px(P(1, 0.75, 1)));
+  out.penCut = { df: m().faceCount() - f0, active: e.isGestureActive(), check: m().check().join(";"), hint: hud.status() };
+  return out;
+}); })();
 await b.close();
 res.errs = errs;
 const ok = res.rail.includes("knife") && res.started.active
@@ -101,8 +140,11 @@ const ok = res.rail.includes("knife") && res.started.active
   && res.loop.d.f === 4 && res.loop.d.v === 4 && res.loop.selEdges === 0 && res.loop.check === "" && res.loopFlat && !res.loop.active
   && res.menu.includes("mesh.loopCut") && res.menuLoop.d === 4 && res.menuLoop.selEdges === 4 && res.menuLoop.flat
   && !res.undoRedoAll.threw && res.undoRedoAll.check === "" && errs.length === 0
-  && res.cube.defaultProjection === "persp" && res.cube.mid?.kind === "on-edge" && res.cube.mid.off <= 1
-  && [...res.long.persp, ...res.long.ortho].every((x) => x?.kind === "on-edge" && x.off <= 1);
+  && res.cube.defaultProjection === "persp" && ["on-edge", "midpoint"].includes(res.cube.mid?.kind) && res.cube.mid.off <= 1
+  && [...res.long.persp, ...res.long.ortho].every((x) => ["on-edge", "midpoint"].includes(x?.kind) && x.off <= 1)
+  && res.pen.mid === "midpoint" && res.pen.slide.active && res.pen.slide.onEdge && !res.pen.slide.pressing
+  && res.pen.fresh.startIsY && !res.pen.fresh.line && res.pen.fresh.markerAtStart && res.pen.hintOnFace === "" && res.pen.hintOnEdge !== ""
+  && res.pen.orbit.line && res.pen.orbit.off <= 1 && res.pen.penCut.df === 1 && res.pen.penCut.active;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-knife OK" : "probe-mesh-knife FAIL");
 process.exit(ok ? 0 : 1);
