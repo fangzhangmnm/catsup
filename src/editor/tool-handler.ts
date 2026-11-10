@@ -252,8 +252,8 @@ export interface ToolHandler {
   readonly grammar: ToolGrammar;
   /** draw 类工具（画线 / 矩形 / 圆…）：手里的膜只算 BIRTH 出来的（底座 freshHand 据此豁免遮挡）。 */
   readonly draws?: boolean;
-  /** steps 工具：等下一点时在锚点附近又按一下，也递给工具（底座默认当「同一处又点了一下」吞掉）。刀要它：同一条边点两下 = 环切。 */
-  readonly repeatTap?: boolean;
+  /** steps 工具：等下一点时在锚点附近（吸附半径内）又按一下 = 收（画线 = 收笔、刀 = 收刀）；没有 = 底座吞掉这一下。W-2 2026-11-10：以前底座按工具名只认画线，刀要的是「递给工具、同一条边点两下 = 环切」（user 同意环切只走自己的入口）。 */
+  readonly sameSpotEnds?: boolean;
   /** steps 工具的「点一下（没拖）」：有它 = 不进「再点一下落定」，交给工具（自由建模：点空处 = 取消选择、点东西 = 选它；只有拖才是操作——user 10-27）。 */
   tap?(ctx: ToolCtx, ev: ToolPointer): void;
   /** 键盘起手（Blender G / R / S / E；自由建模）：用选区当目标、以光标处为起点开始一次手势（不用按下）；之后跟着鼠标走、点一下落定、Esc / 右键取消。没选区 = false。 */

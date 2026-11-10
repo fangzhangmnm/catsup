@@ -77,6 +77,7 @@ abstract class DrawTool implements ToolHandler {
 
 export class LineTool extends DrawTool {
   readonly tool = "line" as const;
+  readonly sameSpotEnds = true;   // 同一处再点一下 = 收笔（底座 pointerDownStep；以前底座按工具名认画线）
   readonly lock = "axis" as const;
   track(ctx: ToolCtx, s: { x: number; y: number }, travel?: number): void {
     const a = this.anchor;

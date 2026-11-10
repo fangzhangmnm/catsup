@@ -1,6 +1,6 @@
 // 自由建模工作台的刀 + 环切（2026-10-27 Claude Opus 5.5；tools/mesh-knife.ts + mesh-edits/）：网格体盒子里——
 // ① 顶面对角两个角点各点一下 = 切一刀（面 6 → 7、一步撤销）；② 接着从刚才那个点切到对边的中点（链式；不在同一张面 = 拒绝不崩）；
-// ③ 侧面一条竖边点两下 = 环切一圈（4 条新边进选区）；④ 浮条「环切」：选一条边 → 一圈；⑤ 撤到头 / 重做到头不崩；
+// ③ 同一条竖边点一下光标不动 = 没有环切预演、原地再点 = 收刀不切（W-2），Ctrl+R 再点它 = 环切一圈；④ 浮条「环切」：选一条边 → 一圈；⑤ 撤到头 / 重做到头不崩；
 // ⑥ 落点在透视下不偏（W-1）：立方体边正中、4 m 长边五处，标记离光标 ≤ 1 像素，透视正交都是。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-knife.mjs
 import { createRequire } from "node:module";
@@ -43,8 +43,14 @@ const res = await page.evaluate(async () => {
   await esc(); out.escaped = !e.isGestureActive();
   key("z"); await sleep(30); key("z"); await sleep(30);
   out.undo = JSON.stringify(stat()) === JSON.stringify(st0);
-  // ③ 右侧面的一条竖边（x=1, y=0）点两下 = 环切：绕盒子一圈（水平那圈）
-  const st3a = stat(); await tap(P(1, 0, 0.5)); await tap(P(1, 0, 0.52));
+  // ③ W-2（2026-11-10）：环切只走自己的入口。竖边（x=1, y=0）点一下、光标不动 = 刀开着、没有环切预演；同一处再点一下 = 收刀、什么都没切；
+  // Ctrl+R 再点这条边 = 环切：绕盒子一圈（水平那圈）
+  const st3a = stat(), pos3 = e.history.position(), s3 = px(P(1, 0, 0.5));
+  await tap(P(1, 0, 0.5)); fire("pointermove", s3.x + 0.5, s3.y, 0); await sleep(30); fire("pointermove", s3.x, s3.y, 0); await sleep(30);
+  out.still = { active: e.isGestureActive(), preview: !!e.liveMesh, hint: hud.status() };
+  await tap(P(1, 0, 0.52));
+  out.again = { same: JSON.stringify(stat()) === JSON.stringify(st3a), steps: e.history.position() - pos3, active: e.isGestureActive() };
+  key("r"); await sleep(30); await tap(P(1, 0, 0.5));
   out.loop = { st: stat(), d: { f: stat().f - st3a.f, v: stat().v - st3a.v }, selEdges: e.selection.edges.size, check: m().check().join(";"), hint: hud.status(), active: e.isGestureActive() };
   const ringZ = [...e.selection.edges].flatMap((x) => [m().edgeA[x], m().edgeB[x]]).map((v) => q(m().pt(v).z));
   out.loopFlat = true;   // 没选区开始的环切做完不留选区（user 10-27）：环的位置在 ④（菜单版，有选区）里核
@@ -91,6 +97,7 @@ const ok = res.rail.includes("knife") && res.started.active
   && res.cut1.st.f === 7 && res.cut1.steps === 1 && res.cut1.check === "" && res.cut1.active
   && res.cross.steps === 1 && /不在同一张面/.test(res.cross.hint)
   && res.cut2.st.f === 8 && res.cut2.steps === 2 && res.cut2.check === "" && res.escaped && res.undo
+  && res.still.active && !res.still.preview && res.again.same && res.again.steps === 0 && !res.again.active
   && res.loop.d.f === 4 && res.loop.d.v === 4 && res.loop.selEdges === 0 && res.loop.check === "" && res.loopFlat && !res.loop.active
   && res.menu.includes("mesh.loopCut") && res.menuLoop.d === 4 && res.menuLoop.selEdges === 4 && res.menuLoop.flat
   && !res.undoRedoAll.threw && res.undoRedoAll.check === "" && errs.length === 0
