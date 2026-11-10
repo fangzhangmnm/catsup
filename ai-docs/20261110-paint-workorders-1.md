@@ -119,4 +119,71 @@ user 11-10 深夜：「升版本号同意」。三维仓从 0.18 换到 0.19。*
 
 ## 施工记录
 
-（小弟写）
+### 0-1 拷贝机制（2026-11-10 深夜，Claude Opus 5.5 = Catsup小弟；做完停在两个仓的分支上，等 Fable 审）
+
+**在哪**：两个仓都是分支 `paint-kernel-0`，开在副本文件夹里，主工作目录没切分支。
+
+| 仓 | 副本文件夹 | 提交 | 版本 |
+|---|---|---|---|
+| 画画仓 | `20260524 WeebPaint/.claude/worktrees/paint-kernel-0` | 5c8f9f0（起点 main 6ab7514） | v0.14.69 |
+| 三维仓 | `20260627 CatsUp/.claude/worktrees/paint-kernel-0` | 73fa2f5（起点 main b50fd5a） | v0.19.0 |
+
+**副本里补的东西**（都不进仓）：
+
+- 两边各链了一个 `node_modules` 到主工作目录。
+- 画画仓另链了 `tools/esbuild`：GL smoke 要用它打包，它没进仓。
+- 三维仓的 `.gitignore` 写的是 `node_modules/`（带斜杠只认文件夹），链接在副本里显示成「未跟踪」，提交时我点名加文件，没带进去。
+- 三维仓的 `.gitignore` 第 4 行本来就忽略整个 `.claude/`，所以施工单说要在 main 上加的那一行用不着，main 上没为此提交。
+
+**画画仓这一半**（内核代码一行没动）：
+
+- `test/kernel-tests.json`：一份机器读的名单，写了这几样：
+  - 内核范围：`src/backend` 不含 `timelapse`、`src/common`、`src/shell/browser-gl2-port.ts`；
+  - 要跟着拷的第三方库文件：`fflate`、`jpeg-js` 的编码器、`upng`、`zip-js`，带许可证和类型声明；
+  - 测试辅助文件；
+  - 62 个内核自己的测试文件，共 549 条。
+  
+  给人看的说明在画画仓 `ai-docs/20261110-kernel-own-tests.md`。判据照施工单：import 的全在内核、名单里的第三方库和测试辅助里；另加两条：至少碰到一个内核文件、不读仓里的文件。
+- `test/run-kernel.mjs`：只跑这一圈，末尾照全量那样查图块句柄泄漏。约 4.6 秒，549 条全过，泄漏 0。
+- `test/kernel-shim.mjs`：单独跑时查出内核有两处「靠别人」，全量里都是别处顺手补上的：
+  - **`ImageData`**：内核拿它当像素容器，node 里没有，全量靠最前面的 DOM 模拟补。垫片只补这一个，不装别的 DOM 模拟。
+  - **全局 `zip`**：`src/backend/zip.ts` 不 import zip.js，读的是全局 `zip`，浏览器里由 `<script>` 挂上；全量里能过，是排在前面的测试先挂好了。垫片照 `test/zip-node.mjs` 那几行自己挂。`zip-node.mjs` 本身不能进名单，它另一个函数会 import 内核以外的 `src/sevenzip.ts`。
+- `test/kernel-boundary.test.mjs`，进了 `npm test`：
+  1. 内核只 import 内核自己和名单里的第三方库文件；
+  2. `src/backend`、`src/common` 不用界面全局。现在一处都没有，`zip.ts`、`png-codec.ts`、`painting-view.ts` 里提到的都在注释里；
+  3. `createImageBitmap`、`OffscreenCanvas`、`new ImageData` 现有 7 处做成白名单，多了红，少了也红；
+  4. 名单不过时：列着的测试仍符合判据；反过来，符合判据却没列的也红。
+  
+  故意弄坏三处（加 `document.title`、import `src/app.ts`、去掉一处 `new ImageData`），各红一条，改回全绿。
+- 验：
+  - `npm test` 1740 条过、红 1 条：副本路径下总账检查找不到 `../ai-docs`，是已知现象，主工作目录不红。
+  - `npm run smoke`（GL 逐像素基线）PASSED，`goldens.json` 没变。
+  - 没打接口签名树：没有接口变化。也没构建 `dist`：画画仓的发版习惯是合回 main 时再打包。
+
+**三维仓这一半**：
+
+- `scripts/pull-paint-kernel.sh <画画仓提交>`：按提交读那个提交里的 `test/kernel-tests.json`，`git archive` 那个提交，不读画画仓的工作目录；解进 `src/paint/kernel/`，相对位置原样；写 `KERNEL-MANIFEST.json`（来源提交、画画版本、每个文件的 sha256）。这一版是 WeebPaint v0.14.69 @ 5c8f9f0，163 个文件，约 2 MB。在副本文件夹里跑时，`../20260524 WeebPaint` 不存在，脚本会往上找到家族根再找。
+- `test/paint-kernel-guard.test.ts`：
+  1. 每个文件的哈希对清单，不多不少；只看仓内，不读画画仓。
+  2. `src/` 里只有 `src/paint/` 能 import 内核。
+  
+  **试过**：改内核文件 `src/common/tile-geometry.ts` 的一个字节，红，报出文件名和来源版本，改回绿；在 `src/editor/units.ts` 加一条直接 import 内核，红，改回绿。
+- `npm test` 末尾接 `node --expose-gc src/paint/kernel/test/run-kernel.mjs`：549 条全过，约 4 秒，泄漏 0。全套约 52 秒，没超一分钟，所以没截成子集。
+- 现有扫 `src/` 的守卫和构建检查一个都没撞上内核文件：内核里本来就没有 three、DOM、本地存储。**一个都没改**。
+- `tsc` 干净。改了一处 `tsconfig`，见下面「要 Fable 定」第 1 条。
+- `./bump.sh v0.19.0-20261110`；`CLAUDE.md` 当前纪元改成「0.19 贴图纪元」，原来那条改成「上一纪元：0.18 物品栏纪元」；流程图文档末尾追记一节「画画内核是拷来的，正本在画画仓」。
+- 包的大小：2,632,857 → 2,632,856 字节，只差版本号少一位，内核没进包。
+
+**要 Fable 定 / 和施工单不一样的地方**：
+
+1. **`tsconfig` 排除了拷来的测试（`src/paint/kernel/test`）**。这一条贴着「过不了 tsc 就停下来报」，所以单列出来：
+   - 内核源码在三维仓的 `tsc` 下是干净的。
+   - 只有一个拷来的测试 `color-cluster.test.ts` 用了 node 的 `Buffer`，报了 3 个错。
+   - 画画仓自己从来不对测试做类型检查（它的 `include` 只列 89 个源码文件）。我照它的样子在三维仓也不查拷来的测试，没改任何内核文件。
+   - 不同意的话撤这一行，就得在画画仓改那个测试（这张单不动内核）。
+2. **名单用 JSON**：机器读的那份是画画仓 `test/kernel-tests.json`，`ai-docs` 那页是给人看的说明；施工单写的是名单在 `ai-docs` 下。
+3. **多拉了一个第三方库 `zip-js`，另加了垫片**：施工单的例子是 upng、fflate，写着「别的用到才拉」。zip-js 是内核靠全局用到的；`vendor/zip-js/` 里只有那一个压缩文件，**没有单独的许可证文件**（zip.js 是 BSD-3），该补一份，这张单没动。
+4. **画画仓的守卫比施工单多管了两样**：名单漏列也红；内核引用的第三方库文件必须在名单里。
+5. **内核测试单独跑（不在全量里）时**，画画仓那边原来红的 13 条，都是上面两处「靠别人」，补了垫片全绿；没有一条测试改过。
+
+**没做的**：合回 main、推开发版（等审）；副本文件夹等合完再删。
