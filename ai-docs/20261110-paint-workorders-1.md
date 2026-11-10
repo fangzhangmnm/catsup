@@ -1,9 +1,22 @@
 # 贴图主线施工单（一）：拷贝机制、共用显卡画面的探路
 
-> created 20261110 by Claude Fable 5.2 · as-of 三维 v0.18.49 / 画画 v0.14.67 · 2026-11-10 深夜
-> 给谁：Catsup小弟。**先别动**：白模第一批的 W-3 做完、Fable 审过之后，Fable 发消息放行才开始。
+> created 20261110 by Claude Fable 5.2 · as-of 三维 v0.18.50 / 画画 v0.14.68 · 2026-11-10 深夜
+> 给谁：Catsup小弟。**0-1 放行了（11-10 深夜）**：手上的 W-5 做完就接着做它。1-1 等 0-1 审过再放。
 > 大局看 `20261110-marriage-construction-plan.md`；数据格式看 `20261110-painting-data-contract.md` 第 4 版（这两张用不到，知道有就行）。
 > 这两张都动画画内核，照规矩在分支上做，停在分支等 Fable 审过再合。两个仓各开一条同名分支 `paint-kernel-0`。
+
+## 分支上的活在哪儿做（先读这一节）
+
+三个会话会碰这两个仓的工作目录：你、Fable（只提交文档）、杂事线（偶尔动画画仓的 main）。所以**两个仓的主工作目录永远留在 main 上，不在里面切分支**。
+
+- 分支开在单独的副本文件夹里，照画画仓已有的做法（`.claude/worktrees/chores-batch`）：
+  - 画画仓：`git worktree add .claude/worktrees/paint-kernel-0 -b paint-kernel-0 main`，起点是 main 的 6ab7514 或更新（杂事线刚收完同步库，v0.14.68；它没碰 `src/backend`、`src/common`、`src/shell`）。
+  - 三维仓：同样的命令。三维仓的 `.gitignore` 里没有 `.claude/worktrees/`，先在 main 上加这一行再建。
+- 副本文件夹里没有 `node_modules`：从主工作目录链一个过去（两个仓的 `node_modules` 都只是工具，不进仓）。别的要补的你看着办，记下来。
+- 画画仓的副本里，总账的检查会有两条找不到 `../ai-docs`、`journal/` 的红（杂事线上次碰到过，是副本的路径问题，主工作目录里不红）。认得它就行，别去改。
+- **施工记录照旧写在 main 上的这一页**（主工作目录里），不写在副本里。账只有一本。
+- 版本号：画画仓从 v0.14.69 往后排。
+- 做完停在分支上，发消息给 Fable。合回 main、推开发版，等 Fable 审过再做。副本文件夹在合完之后删。
 
 ## 版本号
 
@@ -41,7 +54,7 @@ user 11-10 深夜：「升版本号同意」。三维仓从 0.18 换到 0.19。*
 
 ### 三维仓这一半
 
-1. `scripts/pull-paint-kernel.sh <画画仓的提交>`：从同一台机器上的画画仓（`../20260524 WeebPaint`）按上面的摆法拷文件，写 `KERNEL-MANIFEST.json`。脚本只读画画仓。
+1. `scripts/pull-paint-kernel.sh <画画仓的提交>`：从同一台机器上的画画仓（`../20260524 WeebPaint`）按上面的摆法拷文件，写 `KERNEL-MANIFEST.json`。脚本只读画画仓，而且**按提交读**（`git -C … archive <提交>` 或 `git show <提交>:<路径>`），不读那边工作目录里的文件。这样那边签出的是什么、有没有没提交的改动，都不影响拷出来的东西。这一张拉的提交 = 画画仓分支 `paint-kernel-0` 上带守卫和清单的那一个。
 2. 守卫测试（新）：
    - `src/paint/kernel/` 下每个文件的 sha256 和清单一致（拦手改）。**守卫只看仓内的文件和清单，不去读画画仓**（家规：测试不引用仓外的东西）。
    - `src/` 里除了 `src/paint/` 自己，不许直接 import `src/paint/kernel/` 里的文件。
