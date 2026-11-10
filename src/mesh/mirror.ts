@@ -116,6 +116,37 @@ export function sideOfChange(before: MeshKernel, after: MeshKernel, axis: Mirror
   return vote > 1e-12 ? 1 : vote < -1e-12 ? -1 : 0;
 }
 
+/** 一组点 / 边 / 面（边、面按它们的点算）的坐标和在镜像面哪一边：正好在面上 / 一个都没有 = null（打开强行对称时按选区那边为准）。 */
+export function sideOfElements(m: MeshKernel, verts: Iterable<number>, edges: Iterable<number>, faces: Iterable<number>, axis: MirrorAxis, tol = MIRROR_TOL): -1 | 1 | null {
+  const vs = new Set<number>(verts);
+  for (const e of edges) if (m.hasE(e)) { vs.add(m.edgeA[e]); vs.add(m.edgeB[e]); }
+  for (const f of faces) if (m.hasF(f)) for (const v of m.faceVerts(f)) vs.add(v);
+  let c = 0; for (const v of vs) if (m.hasV(v)) c += coordOf(m.pt(v), axis);
+  return sideOf(c, tol) || null;
+}
+
+/**
+ * 这一半有没有对称化会带过去的东西 = 有一个点在这一半的面（跨过镜像面的面两半都算：对称化会先把它切开）。
+ * 对称化（symmetrize）现在只把面镜过去；以后让它把裸线 / 孤点也镜过去时（计划书 `ai-docs/20261109-audit-fixes-plan.md` §3 第 5 层），这里同一处跟着加——选边和对称化必须说的是同一件事。
+ */
+function sideHasFaces(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol: number): boolean {
+  for (const f of m.faces()) for (const v of m.faceVerts(f)) if (sideOf(coordOf(m.pt(v), axis), tol) === side) return true;
+  return false;
+}
+/**
+ * 强行对称以哪半为准的最后一道（计划书 §3 第 0 层；created 2026-11-09 by Claude Opus 5.5）：想要的那半（wanted）没有面 → 换另一半；两半都没有 → null = 这一步不对称化（说出来）。
+ * 挡的是：「看不出动的是哪边，默认 + 那半」碰上「+ 那半是空的」= 删掉另一半、镜过来 0 张面 = 整个模型删光（11-09 真 app 里跑出来的：模型整个在 − 那半时打开强行对称，6 张面 → 0）。
+ * 不变量：只要模型里有不躺在镜像面上的面，返回值就不是 null，而且按它对称化之后至少留着它那半原有的面。
+ * 打开强行对称、每步之后、预演三处选边都必须过它。
+ */
+export function pickSide(m: MeshKernel, axis: MirrorAxis, wanted: -1 | 1, tol = MIRROR_TOL): -1 | 1 | null {
+  if (sideHasFaces(m, axis, wanted, tol)) return wanted;
+  const other = -wanted as -1 | 1;
+  return sideHasFaces(m, axis, other, tol) ? other : null;
+}
+/** 「+X」「−Z」这类说法（提示行里说以哪半为准）。 */
+export const sideLabel = (side: -1 | 1, axis: MirrorAxis): string => `${side > 0 ? "+" : "−"}${"XYZ"[axis]}`;
+
 /** 已经对称了吗：每个点都找得到对面、每条边的镜像也是一条边（强行对称每步先查，对称的就不重建另一半 = 另一半的 id 不乱换）。 */
 export function isSymmetric(m: MeshKernel, axis: MirrorAxis, tol = MIRROR_TOL): boolean {
   const p = mirrorPairs(m, axis, tol);

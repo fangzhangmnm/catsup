@@ -47,6 +47,17 @@ export declare function mirrorMoves(m: MeshKernel, moves: readonly {
 }[], axis: MirrorAxis, mode?: MirrorMode, tol?: number): MirrorMovesResult;
 /** 这一步动了哪一边（新长出来的点按 1、挪过的点按挪的距离投票；挪到中缝上的点按它来的那一边算）：+1 / -1；看不出来 = 0。 */
 export declare function sideOfChange(before: MeshKernel, after: MeshKernel, axis: MirrorAxis, tol?: number): -1 | 0 | 1;
+/** 一组点 / 边 / 面（边、面按它们的点算）的坐标和在镜像面哪一边：正好在面上 / 一个都没有 = null（打开强行对称时按选区那边为准）。 */
+export declare function sideOfElements(m: MeshKernel, verts: Iterable<number>, edges: Iterable<number>, faces: Iterable<number>, axis: MirrorAxis, tol?: number): -1 | 1 | null;
+/**
+ * 强行对称以哪半为准的最后一道（计划书 §3 第 0 层；created 2026-11-09 by Claude Opus 5.5）：想要的那半（wanted）没有面 → 换另一半；两半都没有 → null = 这一步不对称化（说出来）。
+ * 挡的是：「看不出动的是哪边，默认 + 那半」碰上「+ 那半是空的」= 删掉另一半、镜过来 0 张面 = 整个模型删光（11-09 真 app 里跑出来的：模型整个在 − 那半时打开强行对称，6 张面 → 0）。
+ * 不变量：只要模型里有不躺在镜像面上的面，返回值就不是 null，而且按它对称化之后至少留着它那半原有的面。
+ * 打开强行对称、每步之后、预演三处选边都必须过它。
+ */
+export declare function pickSide(m: MeshKernel, axis: MirrorAxis, wanted: -1 | 1, tol?: number): -1 | 1 | null;
+/** 「+X」「−Z」这类说法（提示行里说以哪半为准）。 */
+export declare const sideLabel: (side: -1 | 1, axis: MirrorAxis) => string;
 /** 已经对称了吗：每个点都找得到对面、每条边的镜像也是一条边（强行对称每步先查，对称的就不重建另一半 = 另一半的 id 不乱换）。 */
 export declare function isSymmetric(m: MeshKernel, axis: MirrorAxis, tol?: number): boolean;
 /** 跨过镜像面的面（两侧都有点）有几张：强行对称做不了这种（先在中缝上切一刀）。 */

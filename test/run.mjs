@@ -64,6 +64,7 @@ import "./mesh-bevel.test.ts";   // 网格体倒角：倒边 / 倒点，封闭�
 import "./export-naming.test.ts";   // 导出名带导出时间（WeebPaint 同款，2026-10-28 Opus）
 import "./mesh-mirror.test.ts";   // 网格体镜像：配对 / 镜像编辑 / 强行对称 / 对称对齐（FM134 / FM136，2026-10-28 Opus）
 import "./mirror-ops.test.ts";   // 镜像分类表守卫（F-113 审计，2026-10-28 晚）
+import "./mirror-force-symmetric.test.ts";   // 强行对称的定理（第 0 层：空的那半不当准；计划书 20261109-audit-fixes-plan §3，2026-11-09 Opus）
 import "./export-model.test.ts";   // 导出模型 = 只写 glTF core 的交付物（导出设计稿 §5，2026-10-28 Opus）
 import "./doc-names.test.ts";   // 工程文件名字：.catsup 新、.glb 老；改名保留后缀；云库种类表两行（2026-10-28 Opus）
 import "./placement.test.ts";   // 放置表的 app 那半：左柱 / ☰ / 放置面渲染器登记（接线清单第 1 条，2026-10-28 Opus）

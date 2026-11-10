@@ -694,6 +694,8 @@ export declare class Editor {
     private mirrorRewrite;
     /** 强行对称管这条 op 吗（提交 / 预演共用）。 */
     private mirrorForces;
+    /** 强行对称这一步以哪半为准（提交 / 预演同一个）：动了哪边 → 上一次的边 → +；最后过 pickSide = 空的那半不当准，两半都空 = null。 */
+    private forceSide;
     private mirrorForceBefore;
     private mirrorForceAfter;
     /** 镜像编辑开着、这一下要改拓扑：直说，「关掉镜像，照做」/ 取消（不硬拦）。挡下来了 = true（确认了再在新的一步里提交同一条 op）。 */

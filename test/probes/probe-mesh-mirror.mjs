@@ -156,6 +156,38 @@ const res = await page.evaluate(async () => {
     out.ten = { n0, verts: m3().vertexCount(), x: m3().pt(seamV).x, dy: m3().pt(seamV).y - p0.y, sym: sym(m3()), faces: m3().faceCount() };
     e.undo(); await sleep(10);
   }
+  // ⑪⑫（2026-11-09 Claude Opus 5.5；计划书 20261109-audit-fixes-plan.md §3 第 0 层）：空的那半不当准。新做一个网格体盒子，本地挪到想要的位置（镜像关着），再开强行对称
+  const freshMesh = async (shiftTo) => {
+    e.setMirror(null); e.exitTo(0); await sleep(20);
+    const before = new Set(S().def(S().root).instances.keys());
+    box(14, 0, 0, 16, 1, 1); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("偏2"); e.runAction("object.toMesh"); await sleep(20);
+    const it = [...S().def(S().root).instances.values()].find((x) => !before.has(x.id) && S().kindOf(x.def) === "mesh");
+    e.selectedPools.clear(); e.selectedPools.set(`i${it.id}`, { kind: "instance", instance: it.id }); e.enterSelected(); await sleep(30);
+    const k = () => S().mesh(it.def).kernel, xs = k().verts().map((q) => k().pt(q).x), d = shiftTo - (Math.min(...xs) + Math.max(...xs)) / 2;
+    e.commitOp({ op: "meshMove", def: it.def, moves: k().verts().map((q) => ({ v: q, to: { ...k().pt(q), x: k().pt(q).x + d } })) }); await sleep(20);
+    return { def: it.def, k };
+  };
+  // ⑪ 模型整个在 −X 那半（本地 −3..−1）、什么都没选、开强行对称 → 以 −X 为准镜过去（以前 = 以 +X 为准、删光 6 张面）
+  {
+    const { k } = await freshMesh(-2);
+    e.deselectAll(); const f0 = k().faceCount();
+    e.setMirror("force", 0); await sleep(30);
+    out.eleven = { f0, faces: k().faceCount(), sym: sym(k()), hint: hint() };
+    e.undo(); await sleep(20); out.eleven.undone = k().faceCount();
+  }
+  // ⑫ 强行对称开着、盒子在中间（本地 −1..1，已经对称）→ 选 +X 那张面「设置原点到选择中心」（模型整个跑到 −X 那半、+X 那张贴着镜像面）→ 把贴着镜像面的一个点往上挪 → 以 −X 为准（以前 6 张面 → 1 张，没有提示）
+  {
+    const { def, k } = await freshMesh(0);
+    e.setMirror("force", 0); await sleep(30);
+    const rf = k().faces().find((f) => k().faceVerts(f).every((q) => k().pt(q).x > 0.5));
+    e.deselectAll(); e.selection.faces.add(rf); e.runAction("mesh.originToSelection"); await sleep(30);
+    const f0 = k().faceCount(), xs = k().verts().map((q) => k().pt(q).x), sv = k().verts().find((q) => Math.abs(k().pt(q).x) < 1e-6), p0 = { ...k().pt(sv) };
+    out.twelve = { f0, xmax: Math.max(...xs), xmin: Math.min(...xs) };
+    e.deselectAll(); e.commitOp({ op: "meshMove", def, moves: [{ v: sv, to: { ...p0, z: p0.z + 0.1 } }] }); await sleep(30);
+    out.twelve.faces = k().faceCount(); out.twelve.sym = sym(k()); out.twelve.hint = hint();
+    e.undo(); await sleep(20); out.twelve.undone = k().faceCount();
+    e.setMirror(null);
+  }
   return out;
 });
 await b.close();
@@ -173,6 +205,8 @@ const ok = res.one.row && /组件「块」/.test(res.one.who) && /网格体/.tes
   && res.nine.previewVerts === res.nine.n0 - 1 && res.nine.previewKeepX === 0 && res.nine.verts === res.nine.n0 - 1 && res.nine.keepX === 0 && res.nine.dropGone && res.nine.sym && res.nine.check === 0 && /并成一个/.test(res.nine.hint)
   && res.nine.undoVerts === res.nine.n0 && res.nine.undoBack
   && res.ten.n0 === 12 && res.ten.verts === 12 && res.ten.x === 0 && Math.abs(res.ten.dy - 0.1) < 1e-9 && res.ten.sym && res.ten.faces === 10
+  && res.eleven.f0 === 6 && res.eleven.faces === 12 && res.eleven.sym && /以 −X 那半为准/.test(res.eleven.hint) && /\+X 那半是空的/.test(res.eleven.hint) && res.eleven.undone === 6
+  && res.twelve.f0 === 6 && Math.abs(res.twelve.xmax) < 1e-9 && res.twelve.xmin < -1.9 && res.twelve.faces === 10 && res.twelve.sym && /\+X 那半是空的，按 −X 那半为准/.test(res.twelve.hint) && res.twelve.undone === 6
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-mirror OK" : "probe-mesh-mirror FAIL");
