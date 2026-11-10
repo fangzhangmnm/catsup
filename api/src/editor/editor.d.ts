@@ -680,7 +680,6 @@ export declare class Editor {
     private mirrorNoteShown;
     private static readonly MIRROR_TOPO;
     private static readonly MIRROR_TOPO_ACTIONS;
-    private static readonly NO_SYMMETRIZE;
     /** 网格体的「对称」属性：缺 def = 正在编辑的那个（不在网格体里 = null）；给 def = 那个网格体（物体窗口里设子物体的）。 */
     mirrorOf(def?: number): MirrorSetting | null;
     /** 开 / 关 / 换轴（mode = null 关）。开强行对称 = 马上对称一次（一步，可撤销）。缺 def = 正在编辑的网格体。 */
@@ -689,18 +688,16 @@ export declare class Editor {
     private selectionSide;
     private symmetrizeNow;
     /** 在副本上试一次对称（会先沿镜像面切开）：成了 = 结果（切了几条边、删了 / 镜了几张面，说给人听），劈不开 = null。 */
-    private trySymmetrize;
     /**
      * 挪点在镜像下的纪律（两种模式；设计稿 `ai-docs/20261028-mirror-redo-design.md` §1）：中缝上的点钉住、想穿过去的夹在面上、落到中缝的和孪生点并成一个；
      * 镜像编辑另外补上对面的点、手标补上对面的边。提交前改写；进日志的是改写后的 op = 重放一致；并点作为同一步里紧跟的 meshMerge 提交（commitIn）。
      */
     private mirrorRewrite;
-    /** 强行对称管这条 op 吗（提交 / 预演共用）。 */
-    private mirrorForces;
-    /** 强行对称这一步以哪半为准（提交 / 预演同一个）：动了哪边 → 上一次的边 → +；最后过 pickSide = 空的那半不当准，两半都空 = null。 */
-    private forceSide;
-    private mirrorForceBefore;
+    /** 强行对称的编排住 editor/mirror-force.ts（管不管 / 提交前记什么 / 提交后怎么补 / 换原点前先试）；这里只给环境、提交、问人。 */
+    private get forceEnv();
     private mirrorForceAfter;
+    /** 第 1 层：换原点 / 应用缩放会把开着强行对称的网格体挪到镜像面一边 = 问「关掉镜像，照做 / 取消」（不硬拦）。挡下来了 = true。 */
+    private forceOriginAsk;
     /** 镜像编辑开着、这一下要改拓扑：直说，「关掉镜像，照做」/ 取消（不硬拦）。挡下来了 = true（确认了再在新的一步里提交同一条 op）。 */
     private mirrorBlocks;
     private mirrorAsk;

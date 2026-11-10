@@ -9,12 +9,18 @@ const fs = (await import("node:fs" as string)) as { readFileSync(p: string, enc:
 const src = (p: string): string => fs.readFileSync(url.fileURLToPath(new URL(p, import.meta.url)), "utf8");
 
 describe("镜像分类表（mesh/mirror-ops.ts）", () => {
-  it("ops.ts 的每条 mesh* op 都登记了类、表里没有多余的", () => {
-    const names = new Set([...src("../src/editor/ops.ts").matchAll(/\{ op: "(mesh[A-Za-z]+)"/g)].map((m) => m[1]));
-    assert(names.size >= 15, `ops.ts 里找到的 mesh op 太少（${names.size}），正则可能过期`);
+  it("ops.ts 里碰网格内核的每条 op 都登记了类（mesh* 全部 + applyOp 里碰网格体的那些），表里没有多余的", () => {
+    // 2026-11-09（计划书 20261109-audit-fixes-plan §3 第 2 层）：登记范围从「名字以 mesh 开头」扩到「applyOp 里碰到网格内核的每一条」——粘贴 / 合并 / 炸开 / 分离以前漏了。
+    // 判「碰网格内核」= applyOp 里那条 case 的正文（截到下一条 case）出现 meshOf( / .mesh( / === "mesh" / appendMesh( / explodeInstance( / explodeAcrossKinds(；插件指令（修复）的正文在各自模块里，显式列。
+    const ops = src("../src/editor/ops.ts"), all = new Set([...ops.matchAll(/\{ op: "([A-Za-z]+)"/g)].map((m) => m[1]));
+    const mesh = new Set([...all].filter((n) => n.startsWith("mesh")));
+    assert(mesh.size >= 15, `ops.ts 里找到的 mesh op 太少（${mesh.size}），正则可能过期`);
+    const body = ops.slice(ops.indexOf("export function applyOp")), touching = new Set<string>(["plugin"]);
+    for (const m of body.matchAll(/\n    case "([A-Za-z]+)":([\s\S]*?)(?=\n    case "|\n    default:|\n  \}\n)/g)) if (/meshOf\(|\.mesh\(|=== "mesh"|appendMesh\(|explodeInstance\(|explodeAcrossKinds\(/.test(m[2])) touching.add(m[1]);
+    for (const n of ["paste", "mergeObject", "explode", "separateObject"]) assert(touching.has(n), `${n} 应该被判成碰网格内核（启发式过期了？）`);
     const keys = new Set(Object.keys(MIRROR_OP_CLASS));
-    eq([...names].filter((n) => !keys.has(n)).join(","), "", "没登记的 op");
-    eq([...keys].filter((k) => !names.has(k)).join(","), "", "表里多出来的（ops.ts 已经没有这条 op）");
+    eq([...mesh, ...touching].filter((n) => !keys.has(n)).join(","), "", "碰网格内核却没登记的 op（它在强行对称 / 镜像编辑下归哪一类？）");
+    eq([...keys].filter((k) => !all.has(k)).join(","), "", "表里多出来的（ops.ts 已经没有这条 op）");
   });
   it("注册表里每个路由到网格体指令的动作，都在「改拓扑」或「直接做」之一（且不重复）", () => {
     const meshActs = allActions().filter((a) => routesOf(a).some((r) => r.kind === "mesh")).map((a) => a.id);
@@ -27,7 +33,8 @@ describe("镜像分类表（mesh/mirror-ops.ts）", () => {
   it("editor.ts 只从分类表取集合，不再手写", () => {
     const ed = src("../src/editor/editor.ts");
     assert(/MIRROR_TOPO = new Set<Op\["op"\]>\(opsOfClass\("topo"\)\)/.test(ed), "MIRROR_TOPO 要从 opsOfClass(\"topo\") 取");
-    assert(/NO_SYMMETRIZE = new Set<Op\["op"\]>\(opsOfClass\("meta"\)\)/.test(ed), "NO_SYMMETRIZE 要从 opsOfClass(\"meta\") 取");
+    assert(/META = new Set<string>\(opsOfClass\("meta"\)\)/.test(src("../src/editor/mirror-force.ts")), "强行对称的「不对称化」集合要从 opsOfClass(\"meta\") 取（2026-11-09 起住 editor/mirror-force.ts）");
+    assert(!/NO_SYMMETRIZE = new Set/.test(ed), "editor.ts 不再自己造「不对称化」集合（编排搬去 mirror-force.ts 了）");
     assert(!/MIRROR_TOPO_ACTIONS = new Set\(\[/.test(ed), "MIRROR_TOPO_ACTIONS 不许在 editor.ts 手写");
   });
 });

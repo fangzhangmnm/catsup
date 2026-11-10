@@ -2,7 +2,7 @@
 // user：「所以镜像还是用我一开始那个颠覆的思路，就是不是存一半然后推导，而是按照blender的镜像编辑那么做。然后可以选择是镜像编辑，对歪的地方有容差，还是强行删一半保持对称 两种」
 // 「然后可以只对选择区域修复镜像snap吗」。两半都是真几何（不是后处理器）；镜像面 = 网格体自己坐标的 axis = 0 平面；中缝上的点钉在镜像面上；哪边动了哪边说了算。
 // 纯函数（只读 / 改传进来的内核），编辑器在提交和预演两处各调一次（editor.ts mirrorRewrite / mirrorAfter）。
-import { MeshKernel } from "./mesh-kernel.ts";
+import { F_HIDDEN, FF_HIDDEN, MeshKernel } from "./mesh-kernel.ts";
 import { splitEdge, splitFace } from "./ops/split.ts";
 import type { Pt3 } from "../kernel/kernel.ts";
 
@@ -104,9 +104,10 @@ export function mirrorMoves(m: MeshKernel, moves: readonly { v: number; to: Pt3 
   return { moves: [...out].sort((a, b) => a[0] - b[0]).map(([v, to]) => ({ v, to })), merges: merges.sort((a, b) => a.keep - b.keep), mirrored, unpaired, pinned, clamped };
 }
 
-/** 这一步动了哪一边（新长出来的点按 1、挪过的点按挪的距离投票；挪到中缝上的点按它来的那一边算）：+1 / -1；看不出来 = 0。 */
+/** 这一步动了哪一边（新长出来的点、删掉的点各按 1，挪过的点按挪的距离投票；挪到中缝上的点按它来的那一边算）：+1 / -1；看不出来 = 0。删掉的点 2026-11-09 补上（计划书第 5 层：以前不算删的 = 删一边看不出动的是哪边）。 */
 export function sideOfChange(before: MeshKernel, after: MeshKernel, axis: MirrorAxis, tol = MIRROR_TOL): -1 | 0 | 1 {
   let vote = 0;
+  for (const v of before.verts()) if (!after.hasV(v)) vote += sideOf(coordOf(before.pt(v), axis), tol);
   for (const v of after.verts()) {
     const p = after.pt(v), s = sideOf(coordOf(p, axis), tol);
     if (!before.hasV(v)) { if (s) vote += s; continue; }
@@ -125,27 +126,66 @@ export function sideOfElements(m: MeshKernel, verts: Iterable<number>, edges: It
   return sideOf(c, tol) || null;
 }
 
-/**
- * 这一半有没有对称化会带过去的东西 = 有一个点在这一半的面（跨过镜像面的面两半都算：对称化会先把它切开）。
- * 对称化（symmetrize）现在只把面镜过去；以后让它把裸线 / 孤点也镜过去时（计划书 `ai-docs/20261109-audit-fixes-plan.md` §3 第 5 层），这里同一处跟着加——选边和对称化必须说的是同一件事。
- */
+/** 这一半有面吗（有一个点在这一半的面；跨过镜像面的面两半都算：对称化会先把它切开）。 */
 function sideHasFaces(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol: number): boolean {
   for (const f of m.faces()) for (const v of m.faceVerts(f)) if (sideOf(coordOf(m.pt(v), axis), tol) === side) return true;
   return false;
 }
+/** 这一半有没有对称化会带过去的东西：面，或者裸线 / 孤点（v0.18.45 起 symmetrize 也镜它们）——选边和对称化必须说的是同一件事。 */
+function sideHasAnything(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol: number): boolean {
+  for (const v of m.verts()) if (sideOf(coordOf(m.pt(v), axis), tol) === side) return true;
+  return false;
+}
 /**
- * 强行对称以哪半为准的最后一道（计划书 §3 第 0 层；created 2026-11-09 by Claude Opus 5.5）：想要的那半（wanted）没有面 → 换另一半；两半都没有 → null = 这一步不对称化（说出来）。
+ * 强行对称以哪半为准的最后一道（计划书 §3 第 0 层；created 2026-11-09 by Claude Opus 5.5）：想要的那半（wanted）没有面、另一半有 → 换另一半；
+ * 两半都没有面 → 有东西（裸线 / 孤点）的那半，wanted 优先；什么都没有 → null = 这一步不对称化（说出来）。
+ * 面优先于线（v0.18.45，Opus 定的边界、待 Fable 审）：计划书原文是「没有任何面也没有裸线才换」，但那样「想要的那半只有一条线、另一半是整个模型」= 面全删；换过去最坏丢的是刚画的一条线（有提示、能撤销）。
  * 挡的是：「看不出动的是哪边，默认 + 那半」碰上「+ 那半是空的」= 删掉另一半、镜过来 0 张面 = 整个模型删光（11-09 真 app 里跑出来的：模型整个在 − 那半时打开强行对称，6 张面 → 0）。
  * 不变量：只要模型里有不躺在镜像面上的面，返回值就不是 null，而且按它对称化之后至少留着它那半原有的面。
  * 打开强行对称、每步之后、预演三处选边都必须过它。
  */
 export function pickSide(m: MeshKernel, axis: MirrorAxis, wanted: -1 | 1, tol = MIRROR_TOL): -1 | 1 | null {
-  if (sideHasFaces(m, axis, wanted, tol)) return wanted;
   const other = -wanted as -1 | 1;
-  return sideHasFaces(m, axis, other, tol) ? other : null;
+  if (sideHasFaces(m, axis, wanted, tol)) return wanted;
+  if (sideHasFaces(m, axis, other, tol)) return other;
+  if (sideHasAnything(m, axis, wanted, tol)) return wanted;
+  return sideHasAnything(m, axis, other, tol) ? other : null;
+}
+export interface ForceSide { readonly want: -1 | 1; readonly side: -1 | 1 | null; /** 动了哪边、点了谁都看不出来，用的是上一次的边（或 +）：提示行要说。 */ readonly guessed: boolean }
+/**
+ * 强行对称这一步以哪半为准（提交 / 预演共用；计划书 §3 第 5 层）：动了哪边（挪的距离 + 新长出来的 + 删掉的）→ 指令点名的点 / 边 / 面在之前的哪边 → 上一次的边 → +；最后过 pickSide。
+ * named 的 id 在 before 的 id 空间里（mirror-ops.ts namedElements 从指令里取）。
+ */
+export function forceSide(before: MeshKernel, after: MeshKernel, axis: MirrorAxis, named: { verts: readonly number[]; edges: readonly number[]; faces: readonly number[] }, last: -1 | 1 | undefined, tol = MIRROR_TOL): ForceSide {
+  const seen = sideOfChange(before, after, axis, tol) || sideOfElements(before, named.verts, named.edges, named.faces, axis, tol);
+  const want = seen || last || 1;
+  return { want, side: pickSide(after, axis, want, tol), guessed: !seen };
 }
 /** 「+X」「−Z」这类说法（提示行里说以哪半为准）。 */
 export const sideLabel = (side: -1 | 1, axis: MirrorAxis): string => `${side > 0 ? "+" : "−"}${"XYZ"[axis]}`;
+
+/**
+ * 点 / 边 / 面各自加上它们的镜像（找得到的才加；中缝上的 = 自己）：强行对称下「点了谁就对谁做」的操作（删、翻、标记）把对面的一起做（计划书 §3 第 3 层）——
+ * 做完自然对称，另一半不用重建、编号不乱；也不用猜「哪边为准」（左边删 A、右边删 B 时，按一边为准会把其中一张镜回来）。
+ * 点 = mirrorPairs；边 = 两头的孪生点之间那条边；面 = 点集是镜像点集的那张面。只处理传进来的字段；输出升序去重。
+ */
+export function withMirrorCounterparts(m: MeshKernel, axis: MirrorAxis, t: { readonly verts?: readonly number[]; readonly edges?: readonly number[]; readonly faces?: readonly number[] }, tol = MIRROR_TOL): { verts?: number[]; edges?: number[]; faces?: number[] } {
+  const p = mirrorPairs(m, axis, tol), sorted = (xs: Set<number>): number[] => [...xs].sort((a, b) => a - b), out: { verts?: number[]; edges?: number[]; faces?: number[] } = {};
+  if (t.verts) { const s = new Set(t.verts); for (const v of t.verts) { const w = p.get(v) ?? -1; if (w >= 0) s.add(w); } out.verts = sorted(s); }
+  if (t.edges) {
+    const s = new Set(t.edges);
+    for (const e of t.edges) { if (!m.hasE(e)) continue; const a = p.get(m.edgeA[e]) ?? -1, b = p.get(m.edgeB[e]) ?? -1; if (a >= 0 && b >= 0 && a !== b) { const x = m.edgeOf(a, b); if (x >= 0) s.add(x); } }
+    out.edges = sorted(s);
+  }
+  if (t.faces) {
+    const setKey = (vs: readonly number[]): string => [...vs].sort((a, b) => a - b).join(","), byVerts = new Map<string, number>();
+    for (const f of m.faces()) byVerts.set(setKey(m.faceVerts(f)), f);
+    const s = new Set(t.faces);
+    for (const f of t.faces) { if (!m.hasF(f)) continue; const ws = m.faceVerts(f).map((v) => p.get(v) ?? -1); if (ws.some((w) => w < 0)) continue; const g = byVerts.get(setKey(ws)); if (g !== undefined) s.add(g); }
+    out.faces = sorted(s);
+  }
+  return out;
+}
 
 /** 这些点的镜像孪生点（不含自己 / 中缝上的点 / 对面找不到的）：镜像开着时拖它们，孪生点跟着动——吸附不该吸孪生点原来的位置（ToolCtx.mirrorFollowers；计划书 20261109-audit-fixes-plan 工单 3）。 */
 export function mirrorTwins(m: MeshKernel, verts: Iterable<number>, axis: MirrorAxis, tol = MIRROR_TOL): Set<number> {
@@ -154,12 +194,28 @@ export function mirrorTwins(m: MeshKernel, verts: Iterable<number>, axis: Mirror
   return out;
 }
 
-/** 已经对称了吗：每个点都找得到对面、每条边的镜像也是一条边（强行对称每步先查，对称的就不重建另一半 = 另一半的 id 不乱换）。 */
+/**
+ * 已经对称了吗（计划书 §3 定理，第 4 层；2026-11-09 Claude Opus 5.5 照条文重写——以前只查点、边存在和面的点集，漏了挖面 / 翻面 / 材质 / 边标记 / 裸线标记）：
+ * 点（含孤点）一一对应；每条边（含裸线）的镜像是一条边、标记相同；每张面的镜像（点序倒过来 = 朝向相反）是一张面、材质槽相同；
+ * 整张躺在镜像面上的面对应它自己；跨过镜像面的面 / 边镜过去是它自己（同一条查法自然成立）。「隐藏」是看法，不算。
+ * 强行对称每步先查它：对称的就不重建另一半（另一半的 id 不乱换）；右上角方片、「开镜像时已经对称」也问它。
+ */
 export function isSymmetric(m: MeshKernel, axis: MirrorAxis, tol = MIRROR_TOL): boolean {
   const p = mirrorPairs(m, axis, tol);
   for (const v of m.verts()) if ((p.get(v) ?? -1) < 0) return false;
-  for (const e of m.edges()) { const a = p.get(m.edgeA[e])!, b = p.get(m.edgeB[e])!; if (a === b || m.edgeOf(a, b) < 0) return false; }
-  if (m.faces().length !== new Set(m.faces().map((f) => m.faceVerts(f).map((v) => p.get(v)!).sort((x, y) => x - y).join(","))).size) return false;
+  for (const e of m.edges()) {
+    const t = m.edgeOf(p.get(m.edgeA[e])!, p.get(m.edgeB[e])!);
+    if (t < 0 || (m.edgeFlags[e] & ~F_HIDDEN) !== (m.edgeFlags[t] & ~F_HIDDEN)) return false;
+  }
+  const ringKey = (r: readonly number[]): string => { let k = 0; for (let i = 1; i < r.length; i++) if (r[i] < r[k]) k = i; return [...r.slice(k), ...r.slice(0, k)].join(","); };
+  const byRing = new Map<string, number>();
+  for (const f of m.faces()) byRing.set(ringKey(m.faceVerts(f)), f);
+  for (const f of m.faces()) {
+    const r = m.faceVerts(f);
+    if (r.every((v) => p.get(v) === v)) continue;   // 躺在镜像面上 = 它自己
+    const g = byRing.get(ringKey(r.map((v) => p.get(v)!).reverse()));
+    if (g === undefined || m.faceMat[g] !== m.faceMat[f]) return false;
+  }
   return true;
 }
 
@@ -228,11 +284,13 @@ function planeChords(m: MeshKernel, f: number, r: readonly number[], sides: read
   return out;
 }
 
-export interface SymmetrizeResult { removedFaces: number; removedVerts: number; added: number; pinned: number; cutEdges: number; walls: number }
+export interface SymmetrizeResult { removedFaces: number; removedVerts: number; added: number; pinned: number; cutEdges: number; walls: number; /** 镜过去的裸线 / 孤点（v0.18.45 起；T45）。 */ wires: number; points: number }
 /**
  * 强行对称：先沿镜像面切开（bisectPlane）；中缝上的点钉回镜像面；删掉 side 的另一边全部面和点；把 side 这边的面镜过去
  * （绕向反过来 = 朝向一致，中缝上的点两边共用 = 焊上）。切开以后还有跨过镜像面的面（凹多边形劈不开）= 抛（调用方在副本上先试，说出来）。边的标记跟着镜过去。
  * 最后 R4：整张躺在镜像面上、镜完变成夹层的面（每条边都夹在 ≥ 3 张面之间）清掉（user 10-28「degenerate和中线上的面也许应该清」，读成「只清会变成夹层的」）。
+ * v0.18.45（计划书 §3 第 5 层，2026-11-09 Claude Opus 5.5）：这一边的裸线、孤点也镜过去（T45：以前只镜面，留着的那边有裸线 = 每一步都把另一半整个重建）；
+ * 镜过去的面 / 边连「隐藏」一起抄（隐藏不算对称，但不抄的话另一半每次重建都会重新露出来）。做完 isSymmetric 必为真（测试钉住：再对称化一次 = 删 0 加 0）。
  */
 export function symmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol = MIRROR_TOL): SymmetrizeResult {
   const cut = bisectPlane(m, axis, tol);
@@ -245,21 +303,29 @@ export function symmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol = 
   for (const f of other) m.removeFace(f);
   let removedVerts = 0;
   for (const v of m.verts()) if (s(v) === -side) { for (const e of [...m.vEdges(v)]) if (!m.eFaces(e).length) m.removeEdge(e); if (!m.vEdges(v).length) { m.removeVertex(v); removedVerts++; } }
-  // 这一边的面镜过去（全在中缝上的面不镜，免得叠两张）
+  // 这一边的面镜过去（全在中缝上的面不镜，免得叠两张）；裸线 / 孤点先记下来（面镜完再镜它们）
   const src = m.faces().filter((f) => m.faceVerts(f).some((v) => s(v) === side));
+  const wireSrc = m.edges().filter((e) => !m.eFaces(e).length && (s(m.edgeA[e]) === side || s(m.edgeB[e]) === side));
+  const pointSrc = m.verts().filter((v) => s(v) === side && !m.vEdges(v).length);
   const twin = new Map<number, number>();
   const tw = (v: number): number => { if (s(v) === 0) return v; let t = twin.get(v); if (t === undefined) { t = m.addVertex(mirrorPt(m.pt(v), axis)); twin.set(v, t); } return t; };
   let added = 0;
   const flagCopies: [number, number, number][] = [];
   for (const f of src) {
     const r = m.faceVerts(f), mr = r.map(tw).reverse();
-    m.addFace(mr, m.faceMat[f]); added++;
+    const nf = m.addFace(mr, m.faceMat[f]); added++;
+    if (m.faceFlags[f] & FF_HIDDEN) m.setFaceFlags(nf, FF_HIDDEN, true);
     for (let i = 0; i < r.length; i++) { const e = m.edgeOf(r[i], r[(i + 1) % r.length]); if (e >= 0 && m.edgeFlags[e]) flagCopies.push([tw(r[i]), tw(r[(i + 1) % r.length]), m.edgeFlags[e]]); }
   }
   for (const [a, b, fl] of flagCopies) { const e = m.edgeOf(a, b); if (e >= 0 && a !== b) m.setEdgeFlags(e, fl); }
+  for (const e of wireSrc) { const a = tw(m.edgeA[e]), b = tw(m.edgeB[e]); if (a !== b) m.setEdgeFlags(m.ensureEdge(a, b), m.edgeFlags[e]); }
+  for (const v of pointSrc) tw(v);
   const walls = removeSeamWalls(m, axis, tol);
-  return { removedFaces: other.length, removedVerts, added, pinned, cutEdges: cut.cutEdges, walls };
+  return { removedFaces: other.length, removedVerts, added, pinned, cutEdges: cut.cutEdges, walls, wires: wireSrc.length, points: pointSrc.length };
 }
+
+/** 在副本上试一次对称化（会先沿镜像面切开）：成了 = 结果（切了几条边、删了 / 镜了几张面，说给人听），劈不开 = null。编辑器打开强行对称 / 每步之后用它先试。 */
+export function trySymmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1): SymmetrizeResult | null { try { return symmetrize(m.clone(), axis, side); } catch { return null; } }
 
 /** R4：整张躺在镜像面上、而且每条边都已经夹在 ≥ 3 张面之间的面（镜完变成两半中间的夹层）删掉；孤零零躺在镜像面上的平面（没有两侧）不碰。返回删了几张。 */
 export function removeSeamWalls(m: MeshKernel, axis: MirrorAxis, tol = MIRROR_TOL): number {

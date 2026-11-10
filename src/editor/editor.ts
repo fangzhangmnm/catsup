@@ -24,7 +24,9 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { GuideSelection } from "./guide-selection.ts";
 import { describeEvent } from "./describe-event.ts";
-import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, type SymmetrizeResult, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, mirrorTwins, pickSide, sideLabel, sideOfChange, sideOfElements, symmetrize } from "../mesh/mirror.ts";
+import { snapHoldTol } from "./snap-hysteresis.ts";
+import { type ForceEnv, type ForceSnaps, forceAfter, forceSideFor, forceSnapshot, forcesOn, originNeedsAsk } from "./mirror-force.ts";
+import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, mirrorTwins, withMirrorCounterparts, pickSide, sideLabel, sideOfElements, trySymmetrize } from "../mesh/mirror.ts";
 import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts";
 import { marqueeScreen, areaTest, type ScreenArea } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
@@ -164,16 +166,6 @@ export interface EditorHost {
   working?(label: string | null): Promise<void> | void;
 }
 
-function epsOfKindVR(e: EpsSet, kind: string): number {
-  if (kind === "on-edge") return e.edge;
-  if (kind === "edge-align" || kind === "align-combo") return e.combo;
-  if (kind === "align" || kind.startsWith("axis-")) return e.line;
-  return e.point;
-}
-const EPS_OF: Record<string, number> = {
-  endpoint: 10, origin: 10, midpoint: 10, "on-edge": 7,
-  "edge-align": 12, "align-combo": 12, align: 5, "axis-x": 5, "axis-y": 5, "axis-z": 5, "on-extension": 5, tool: 5,
-};
 export { type GridSettings, type GridPlane, type UnitSystem, GRID_PLANES, UNIT_SYSTEMS, DEFAULT_SNAP, gridLadder, snapLevels, snapLabel, isUnitSystem } from "./grid-settings.ts";
 
 const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -1101,7 +1093,6 @@ export class Editor {
   // 镜像下每条 op / 动作归哪一类 = mesh/mirror-ops.ts 的分类表（守卫 test/mirror-ops.test.ts 逼新 op 登记；F-113 审计 2026-10-28 晚）；这里只按类取集合
   private static readonly MIRROR_TOPO = new Set<Op["op"]>(opsOfClass("topo"));
   private static readonly MIRROR_TOPO_ACTIONS = MIRROR_TOPO_ACTIONS;
-  private static readonly NO_SYMMETRIZE = new Set<Op["op"]>(opsOfClass("meta"));
   /** 网格体的「对称」属性：缺 def = 正在编辑的那个（不在网格体里 = null）；给 def = 那个网格体（物体窗口里设子物体的）。 */
   mirrorOf(def?: number): MirrorSetting | null {
     const d = def ?? (this.activeKind() === "mesh" ? this.activePool().def : undefined);
@@ -1126,7 +1117,7 @@ export class Editor {
     return this.step((pass) => {
       const m = this.scene.mesh(def).kernel, A = "XYZ"[ax];
       if (isSymmetric(m, ax)) { this.host.hint(`强行对称：开（${A} 轴；已经是对称的）——以后每一步都会对称，动了哪边哪边为准`); return; }
-      const want = this.selectionSide(def, ax) ?? this.mirrorLastSide.get(def) ?? 1, side = pickSide(m, ax, want), r = side && this.trySymmetrize(m, ax, side);
+      const want = this.selectionSide(def, ax) ?? this.mirrorLastSide.get(def) ?? 1, side = pickSide(m, ax, want), r = side && trySymmetrize(m, ax, side);
       if (!side) { this.host.hint(`强行对称：开（${A} 轴）——镜像面两边都还没有面，没有可镜的；以后每一步都会对称`); return; }
       if (!r) { this.host.hint(`强行对称：开，但有面跨过镜像面、而且一刀劈不开（凹的面）：先在中缝上手动切一刀；在那之前每一步都不对称`); return; }
       this.mirrorLastSide.set(def, side);
@@ -1135,15 +1126,12 @@ export class Editor {
     }, { title: "强行对称" });
   }
   /** 在副本上试一次对称（会先沿镜像面切开）：成了 = 结果（切了几条边、删了 / 镜了几张面，说给人听），劈不开 = null。 */
-  private trySymmetrize(m: MeshKernel, ax: MirrorAxis, side: -1 | 1): SymmetrizeResult | null {
-    try { return symmetrize(m.clone(), ax, side); } catch { return null; }
-  }
   /**
    * 挪点在镜像下的纪律（两种模式；设计稿 `ai-docs/20261028-mirror-redo-design.md` §1）：中缝上的点钉住、想穿过去的夹在面上、落到中缝的和孪生点并成一个；
    * 镜像编辑另外补上对面的点、手标补上对面的边。提交前改写；进日志的是改写后的 op = 重放一致；并点作为同一步里紧跟的 meshMerge 提交（commitIn）。
    */
   private mirrorRewrite(op: Op): { op: Op; merges: MirrorMovesResult["merges"]; note?: string } {
-    if (op.op !== "meshMove" && op.op !== "meshEdgeMarks") return { op, merges: [] };
+    if (op.op !== "meshMove" && op.op !== "meshEdgeMarks" && op.op !== "meshDelete" && op.op !== "meshFlip") return { op, merges: [] };
     const ms = this.mirrors.get(op.def);
     if (!ms) return { op, merges: [] };
     const m = this.scene.mesh(op.def).kernel;
@@ -1154,31 +1142,25 @@ export class Editor {
       if (r.merges.length) notes.push(`${r.merges.length} 处在中缝上并成一个点`);
       return { op: { ...op, moves: r.moves }, merges: r.merges, ...(notes.length ? { note: `${ms.mode === "edit" ? "镜像编辑" : "强行对称"}：${notes.join("；")}` } : {}) };
     }
-    if (ms.mode !== "edit") return { op, merges: [] };
-    const p = mirrorPairs(m, ms.axis), es = new Set(op.edges);
-    for (const e of op.edges) { const a = p.get(m.edgeA[e]) ?? -1, b = p.get(m.edgeB[e]) ?? -1; if (a >= 0 && b >= 0 && a !== b) { const t = m.edgeOf(a, b); if (t >= 0) es.add(t); } }
-    return { op: { ...op, edges: [...es].sort((x, y) => x - y) }, merges: [] };
+    if (op.op !== "meshEdgeMarks" && ms.mode !== "force") return { op, merges: [] };   // 删 / 翻：镜像编辑开着是护栏先问（mirrorBlocks），这里只管强行对称
+    return { op: { ...op, ...withMirrorCounterparts(m, ms.axis, op) } as Op, merges: [] };   // 第 3 层（计划书 §3）：点了谁就对谁做的，把对面的一起做（标记两种模式都补）
   }
-  /** 强行对称管这条 op 吗（提交 / 预演共用）。 */
-  private mirrorForces(op: Op): MirrorSetting | null {
-    if (this.mirrorMerging || !op.op.startsWith("mesh") || !("def" in op) || Editor.NO_SYMMETRIZE.has(op.op)) return null;
-    const ms = this.mirrors.get((op as { def: number }).def);
-    return ms && ms.mode === "force" ? ms : null;
-  }
-  /** 强行对称这一步以哪半为准（提交 / 预演同一个）：动了哪边 → 上一次的边 → +；最后过 pickSide = 空的那半不当准，两半都空 = null。 */
-  private forceSide(def: number, before: MeshKernel, after: MeshKernel, ax: MirrorAxis): { want: -1 | 1; side: -1 | 1 | null } { const want = sideOfChange(before, after, ax) || this.mirrorLastSide.get(def) || 1; return { want, side: pickSide(after, ax, want) }; }
-  private mirrorForceBefore(op: Op): MeshKernel | null { return this.mirrorForces(op) ? this.scene.mesh((op as { def: number }).def).kernel.clone() : null; }
-  private mirrorForceAfter(pass: StepPass, op: Op, before: MeshKernel): void {
-    const def = (op as { def: number }).def, ms = this.mirrors.get(def);
-    if (!ms) return;
-    const m = this.scene.mesh(def).kernel;
-    if (isSymmetric(m, ms.axis)) return;
-    const { want, side } = this.forceSide(def, before, m, ms.axis);
-    if (!side) { this.mirrorNote = "强行对称：镜像面两边都还没有面，这一步没对称"; return; }
-    if (!this.trySymmetrize(m, ms.axis, side)) { this.mirrorNote = "强行对称：有面跨过镜像面、而且一刀劈不开（凹的面），这一步没对称（先在中缝上手动切一刀）"; return; }
-    if (side !== want) this.mirrorNote = [this.mirrorNote, `强行对称：${sideLabel(want, ms.axis)} 那半是空的，按 ${sideLabel(side, ms.axis)} 那半为准`].filter(Boolean).join("；");
-    this.mirrorLastSide.set(def, side);
-    this.commitIn(pass, { op: "meshSymmetrize", def, axis: ms.axis, side });
+  /** 强行对称的编排住 editor/mirror-force.ts（管不管 / 提交前记什么 / 提交后怎么补 / 换原点前先试）；这里只给环境、提交、问人。 */
+  private get forceEnv(): ForceEnv { return { scene: this.scene, mirrors: this.mirrors, lastSide: this.mirrorLastSide, merging: this.mirrorMerging }; }
+  private mirrorForceAfter(pass: StepPass, op: Op, snaps: ForceSnaps): void { const n = forceAfter(this.forceEnv, op, snaps, (o) => this.commitIn(pass, o)); if (n) this.mirrorNote = [this.mirrorNote, n].filter(Boolean).join("；"); }
+  /** 第 1 层：换原点 / 应用缩放会把开着强行对称的网格体挪到镜像面一边 = 问「关掉镜像，照做 / 取消」（不硬拦）。挡下来了 = true。 */
+  private forceOriginAsk(op: Op): boolean {
+    const def = this.host.confirm ? originNeedsAsk(this.forceEnv, op) : null;
+    if (def === null) return false;
+    this.mirrorDeferred = true;
+    const what = opLabel(op).title;
+    void this.host.confirm!("强行对称开着", `「${what}」会把镜像面挪到模型偏一边的地方：之后每一步都会以一半为准、把另一半重建。要照做，先关掉强行对称。`, "关掉镜像，照做").then((ok) => {
+      if (!ok) { this.host.hint(`「${what}」没做（强行对称开着）`); return; }
+      this.mirrors.delete(def); this._revision++;
+      this.step((pass) => this.commitIn(pass, op), { title: what });
+      this.host.hint(`强行对称已关，「${what}」照做了`); this.host.changed(); this.draw();
+    });
+    return true;
   }
   /** 镜像编辑开着、这一下要改拓扑：直说，「关掉镜像，照做」/ 取消（不硬拦）。挡下来了 = true（确认了再在新的一步里提交同一条 op）。 */
   private mirrorBlocks(op: Op): boolean {
@@ -1261,7 +1243,8 @@ export class Editor {
     const t0 = performance.now();
     const join = this.stepDepth > 0 && this.stepHasOp, before = join ? undefined : (this.stepBefore ?? this.sessionSnap());   // 新的一步：它之前的会话（步开始时记的；手势按下时点选的那份延后进来）
     const label = join ? undefined : (this.stepLabel ?? opLabel(op));
-    const symBefore = this.mirrorForceBefore(op);   // 强行对称：这一步之前的样子（判「动了哪边」）
+    if (this.forceOriginAsk(op)) return [];   // 强行对称第 1 层：换原点 / 应用缩放会把模型挪到镜像面一边 = 先问
+    const symBefore = forceSnapshot(this.forceEnv, op);   // 强行对称：这一步之前的样子（判「动了哪边」）
     let r: ReturnType<History["commit"]>;
     try { r = perf.time("commit", () => this.history.commit(this.scene, op, join, before, label)); }
     catch (err) {
@@ -3257,8 +3240,7 @@ export class Editor {
   private applyHysteresis(sn: Snap3, sx: number, sy: number): Snap3 {
     if (sn.kind !== null) { this.lastSnap = sn; return sn; }
     if (this.lastSnap?.kind) {
-      const e = this.frame().eps?.(this.fvp());
-      const tol = e ? epsOfKindVR(e, this.lastSnap.kind) : (EPS_OF[this.lastSnap.kind] ?? 8) * (this.fvp().h / 800);
+      const tol = snapHoldTol(this.lastSnap.kind, this.frame().eps?.(this.fvp()), this.fvp().h);
       if (this.frame().distTo(sx, sy, this.lastSnap.p, this.fvp()) <= tol * 1.5) return this.lastSnap;
     }
     this.lastSnap = null;
@@ -3585,11 +3567,11 @@ export class Editor {
     const r = applyOp(sc, previewVariant(op));
     this.liveEvents = this.liveEvents.length ? [...this.liveEvents, ...r.events] : r.events;
     if (!base) { this.live = sc.kernelOf(pool); return; }
-    const m = sc.mesh(pool.def).kernel, ms = this.mirrorForces(op);
+    const m = sc.mesh(pool.def).kernel, ms = forcesOn(this.forceEnv, pool.def, op);
     this.liveMesh = m;
     for (const mg of rw.merges) applyOp(sc, mergeOp(pool.def, mg));
     if (ms && !isSymmetric(m, ms.axis)) {   // 强行对称：提交是同一步里补一条，这里同一条上影子；劈不开 = 预演照原样（提交时会说）
-      const keep = m.clone(), { side } = this.forceSide(pool.def, base, m, ms.axis);
+      const keep = m.clone(), { side } = forceSideFor(this.forceEnv, pool.def, base, m, ms.axis, op);
       if (side) try { applyOp(sc, { op: "meshSymmetrize", def: pool.def, axis: ms.axis, side }); } catch { m.swapWith(keep); }
     }
   }

@@ -18,8 +18,27 @@ export declare const MIRROR_OP_CLASS: {
     readonly meshSymmetrize: "meta";
     readonly meshSymmetrySnap: "meta";
     readonly meshSmoothDefault: "meta";
+    readonly paste: "topo";
+    readonly mergeObject: "topo";
+    readonly explode: "topo";
+    readonly separateObject: "topo";
+    readonly plugin: "topo";
+    readonly makeComponent: "topo";
+    readonly setAxes: "whole";
+    readonly castDefinition: "meta";
+    readonly setHidden: "meta";
+    readonly unhideAll: "meta";
 };
 export type MeshOpName = keyof typeof MIRROR_OP_CLASS;
+/**
+ * 指令点名的点 / 边 / 面（强行对称选边的第二顺位 =「点了谁」在之前的哪边，mirror.ts forceSide；计划书 20261109-audit-fixes-plan §3 第 5 层）。
+ * 按字段名取（verts / edges / faces / edge / face / moves[].v），不认识的指令 = 空；id 在提交前那个内核的 id 空间里。
+ */
+export declare function namedElements(op: object): {
+    verts: number[];
+    edges: number[];
+    faces: number[];
+};
 /** 某一类的 op 名（编辑器拿它造集合）。 */
 export declare function opsOfClass(c: MirrorOpClass): MeshOpName[];
 /** 注册表里路由到网格体指令的动作：会改拓扑的（镜像编辑开着先问）vs 对称进对称出 / 只改标记 / 镜像自己的（直接做）。每个网格体动作必须在其中一张里（守卫查注册表）。 */

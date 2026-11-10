@@ -158,10 +158,11 @@ const res = await page.evaluate(async () => {
     e.undo(); await sleep(10);
   }
   // ⑪⑫（2026-11-09 Claude Opus 5.5；计划书 20261109-audit-fixes-plan.md §3 第 0 层）：空的那半不当准。新做一个网格体盒子，本地挪到想要的位置（镜像关着），再开强行对称
+  let freshN = 0;   // 每个新盒子摆在不同的地方（2026-11-09：⑪–⑭ 以前全叠在 x 14..16 同一处，按点的时候被叠着的别的组件挡住）
   const freshMesh = async (shiftTo) => {
     e.setMirror(null); e.exitTo(0); await sleep(20);
-    const before = new Set(S().def(S().root).instances.keys());
-    box(14, 0, 0, 16, 1, 1); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("偏2"); e.runAction("object.toMesh"); await sleep(20);
+    const before = new Set(S().def(S().root).instances.keys()), yo = 4 * freshN++;
+    box(14, yo, 0, 16, yo + 1, 1); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("偏2"); e.runAction("object.toMesh"); await sleep(20);
     const it = [...S().def(S().root).instances.values()].find((x) => !before.has(x.id) && S().kindOf(x.def) === "mesh");
     e.selectedPools.clear(); e.selectedPools.set(`i${it.id}`, { kind: "instance", instance: it.id }); e.enterSelected(); await sleep(30);
     const k = () => S().mesh(it.def).kernel, xs = k().verts().map((q) => k().pt(q).x), d = shiftTo - (Math.min(...xs) + Math.max(...xs)) / 2;
@@ -176,17 +177,52 @@ const res = await page.evaluate(async () => {
     out.eleven = { f0, faces: k().faceCount(), sym: sym(k()), hint: hint() };
     e.undo(); await sleep(20); out.eleven.undone = k().faceCount();
   }
-  // ⑫ 强行对称开着、盒子在中间（本地 −1..1，已经对称）→ 选 +X 那张面「设置原点到选择中心」（模型整个跑到 −X 那半、+X 那张贴着镜像面）→ 把贴着镜像面的一个点往上挪 → 以 −X 为准（以前 6 张面 → 1 张，没有提示）
+  // ⑫（v0.18.45 改：第 1 层）强行对称开着、盒子在中间（已经对称）→ 选 +X 那张面「设置原点到选择中心」= 模型会整个跑到 −X 那半 → 先问「关掉镜像，照做 / 取消」
+  //   （v0.18.40 这一下悄悄换了原点、下一步挪中缝点 6 张面 → 1 张；v0.18.41 不删光了但补成 10 张）。取消 = 模型、原点、镜像都没动；照做 = 强行对称关了、原点换了
   {
     const { def, k } = await freshMesh(0);
     e.setMirror("force", 0); await sleep(30);
-    const rf = k().faces().find((f) => k().faceVerts(f).every((q) => k().pt(q).x > 0.5));
-    e.deselectAll(); e.selection.faces.add(rf); e.runAction("mesh.originToSelection"); await sleep(30);
-    const f0 = k().faceCount(), xs = k().verts().map((q) => k().pt(q).x), sv = k().verts().find((q) => Math.abs(k().pt(q).x) < 1e-6), p0 = { ...k().pt(sv) };
-    out.twelve = { f0, xmax: Math.max(...xs), xmin: Math.min(...xs) };
-    e.deselectAll(); e.commitOp({ op: "meshMove", def, moves: [{ v: sv, to: { ...p0, z: p0.z + 0.1 } }] }); await sleep(30);
-    out.twelve.faces = k().faceCount(); out.twelve.sym = sym(k()); out.twelve.hint = hint();
-    e.undo(); await sleep(20); out.twelve.undone = k().faceCount();
+    const rf = () => k().faces().find((f) => k().faceVerts(f).every((q) => k().pt(q).x > 0.5));
+    const xs = () => k().verts().map((q) => k().pt(q).x), sheet = () => { const b = document.getElementById("sheetConfirm"); return b && !b.closest("[hidden]") ? b.textContent : null; };
+    const xs0 = xs().join(","), steps0 = e.history.steps();
+    e.deselectAll(); e.selection.faces.add(rf()); e.runAction("mesh.originToSelection"); await sleep(60);
+    out.twelve = { ask: sheet(), f0: k().faceCount() };
+    document.getElementById("sheetCancel")?.click(); await sleep(60);
+    out.twelve.cancel = { faces: k().faceCount(), same: xs().join(",") === xs0, mode: e.mirrorOf()?.mode ?? null, steps: e.history.steps() - steps0, hint: hint() };
+    e.deselectAll(); e.selection.faces.add(rf()); e.runAction("mesh.originToSelection"); await sleep(60);
+    document.getElementById("sheetConfirm")?.click(); await sleep(80);
+    out.twelve.ok = { faces: k().faceCount(), xmax: Math.max(...xs()), mode: e.mirrorOf()?.mode ?? null, hint: hint() };
+    e.undo(); await sleep(20);
+  }
+  // ⑭（v0.18.45：第 2 / 3 层）强行对称下：删左边一张面 / 给左边一条边打标记 / 翻左边一张面 = 对面那份一起做（不重建另一半：这一步最后一条指令就是它自己）；
+  //   左边原位贴进一张面，再在右边挪一个点 = 贴的那张还在、右边也有了（以前贴的不对称化，下一步被当成「另一半」删掉）
+  {
+    const { def, k } = await freshMesh(0);
+    const cut = k().edges().find((x) => Math.abs(k().pt(k().edgeA[x]).x - k().pt(k().edgeB[x]).x) > 1);
+    e.commitOp({ op: "meshLoopCut", def, edge: cut, t: 0.5 }); await sleep(20);
+    e.setMirror("force", 0); await sleep(30);
+    const side = (f) => { const r = k().faceVerts(f); return r.reduce((a, q) => a + k().pt(q).x, 0) / r.length; };
+    const LR = () => { let L = 0, R = 0; for (const f of k().faces()) (side(f) < 0 ? L++ : R++); return `${L}/${R}`; };
+    const lastOp = () => e.history.ops.at(-1)?.op;
+    const leftEnd = () => k().faces().find((f) => k().faceVerts(f).every((q) => k().pt(q).x < -0.5));
+    out.fourteen = { start: LR() };
+    e.deselectAll(); e.selection.faces.add(leftEnd()); e.deleteSelection(); await sleep(30);
+    out.fourteen.del = { lr: LR(), last: lastOp(), sym: sym(k()) };
+    e.undo(); await sleep(20);
+    const markable = k().edges().find((x) => k().pt(k().edgeA[x]).x < -0.5 && k().pt(k().edgeB[x]).x < -0.5);
+    e.deselectAll(); e.selection.edges.add(markable); e.runAction("mesh.markSharp"); await sleep(30);
+    const marked = (sgn) => k().edges().filter((x) => k().edgeFlags[x] && sgn * (k().pt(k().edgeA[x]).x + k().pt(k().edgeB[x]).x) > 0).length;
+    out.fourteen.mark = { left: marked(-1), right: marked(1), last: lastOp() };
+    e.undo(); await sleep(20);
+    const lf = k().faces().find((f) => side(f) < -0.1 && k().faceVerts(f).some((q) => Math.abs(k().pt(q).x) < 1e-9));
+    e.deselectAll(); e.selection.faces.add(lf); e.runAction("mesh.flipNormals"); await sleep(30);
+    out.fourteen.flip = { last: lastOp(), symmetric: e.mirrorOf() ? !document.querySelector(".gizmo-mirror[data-unpaired]:not([data-unpaired='0'])") : null, lr: LR() };
+    e.undo(); await sleep(20);
+    e.deselectAll(); e.selection.faces.add(leftEnd()); const copied = e.copySelection(); e.pasteClipboard(); await sleep(40);
+    out.fourteen.paste = { copied, afterPaste: LR() };
+    const rv = k().verts().find((q) => k().pt(q).x > 0.5), p0 = { ...k().pt(rv) };
+    e.deselectAll(); e.commitOp({ op: "meshMove", def, moves: [{ v: rv, to: { ...p0, z: p0.z + 0.2 } }] }); await sleep(30);
+    out.fourteen.paste.afterMove = LR(); out.fourteen.paste.sym = sym(k());
     e.setMirror(null);
   }
   // ⑬（2026-11-09 Claude Opus 5.5；计划书 20261109-audit-fixes-plan 工单 3）：镜像编辑开着，移动工具真拖一个角点、按住 Shift 开吸附，光标停在它孪生点「原来」的屏幕位置上 = 不吸它
@@ -231,7 +267,12 @@ const ok = res.one.row && /组件「块」/.test(res.one.who) && /网格体/.tes
   && res.nine.undoVerts === res.nine.n0 && res.nine.undoBack
   && res.ten.n0 === 12 && res.ten.verts === 12 && res.ten.x === 0 && Math.abs(res.ten.dy - 0.1) < 1e-9 && res.ten.sym && res.ten.faces === 10
   && res.eleven.f0 === 6 && res.eleven.faces === 12 && res.eleven.sym && /以 −X 那半为准/.test(res.eleven.hint) && /\+X 那半是空的/.test(res.eleven.hint) && res.eleven.undone === 6
-  && res.twelve.f0 === 6 && Math.abs(res.twelve.xmax) < 1e-9 && res.twelve.xmin < -1.9 && res.twelve.faces === 10 && res.twelve.sym && /\+X 那半是空的，按 −X 那半为准/.test(res.twelve.hint) && res.twelve.undone === 6
+  && /关掉镜像/.test(res.twelve.ask ?? "") && res.twelve.cancel.faces === 6 && res.twelve.cancel.same && res.twelve.cancel.mode === "force" && res.twelve.cancel.steps === 0 && /没做/.test(res.twelve.cancel.hint)
+  && res.twelve.ok.faces === 6 && Math.abs(res.twelve.ok.xmax) < 1e-9 && res.twelve.ok.mode === null && /照做了/.test(res.twelve.ok.hint)
+  && res.fourteen.start === "5/5" && res.fourteen.del.lr === "4/4" && res.fourteen.del.last === "meshDelete" && res.fourteen.del.sym
+  && res.fourteen.mark.left === 1 && res.fourteen.mark.right === 1 && res.fourteen.mark.last === "meshEdgeMarks"
+  && res.fourteen.flip.last === "meshFlip" && res.fourteen.flip.lr === "5/5"
+  && res.fourteen.paste.copied && res.fourteen.paste.afterPaste === "6/6" && res.fourteen.paste.afterMove === "6/6" && res.fourteen.paste.sym
   && res.thirteen.moving && !res.thirteen.twinSnapped && res.thirteen.otherSnapped && res.thirteen.unchanged
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
