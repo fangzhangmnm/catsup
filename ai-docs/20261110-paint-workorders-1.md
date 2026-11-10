@@ -381,3 +381,9 @@ user 11-10 深夜：「升版本号同意」。三维仓从 0.18 换到 0.19。*
 - `test/kernel-tests.json` 的 `vendor` 加上这两个文件，内核边界守卫 6 条照过。
 
 **没做（等审）**：画画仓合 main、推开发版；三维仓从画画仓 main 重拉内核（带着许可证）、测试、进 main、升末位版本。三维仓的探路分支照旧不合、不删。
+
+**合并（Fable 审过之后，11-10 夜）**：
+- **画画仓**：main 快进到 7afc800；主工作目录里 npm test 1743 过（副本路径那条红在这里不红），泄漏 0；打开发版包 0eecc80「v0.14.70: dev bundle (weebpaint-7a4bf22d2282)」，推了 origin。
+  - 两个副本文件夹删了（`kernel-shared-gl`、`paint-spike-1`）：先用不带 `-r` 的 `rm` 删我链进去的两个链接，再删 `tmp` 日志，然后正常移除，不用强删。
+  - `kernel-shared-gl` 分支已合进 main，删了；`paint-spike-1` 分支留着。
+- **三维仓**：拉取脚本从画画仓 main 的 0eecc80 重拉，165 个文件（多了 zip.js 的 `LICENSE`、`README.md`）。npm test 1755 条加内核 549 条过，泄漏 0；tsc 干净。升 v0.19.1，提交 45f4b1c，推了两个远端；包的大小没变（2,632,856 字节）。三维仓的 `paint-spike-1` 分支和副本文件夹都留着。不推正式版。
