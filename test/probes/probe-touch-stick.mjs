@@ -18,6 +18,8 @@ for (const [name, vp] of [["竖屏", { width: 744, height: 1133 }], ["横屏", {
     const L = globalThis.__catsup.locomotion, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), out = {};
     const root = document.querySelector(".touch-ctl"), left = root.querySelector(".tc-left"), right = root.querySelector(".tc-right");
     L.enterWalk(); L.sim.standAt({ x: 0, y: 0, z: 0 }, 0); await sleep(100);
+    // 模拟时钟（2026-11-09 Claude Opus 5.5，user「你模拟的时候能不能用模拟的时钟？」）：走 / 冲刺 / 趴 / 跳的时间由探针按固定步拨，和机器快慢无关（以前墙上 500 ms 走多远随帧率浮动：冲刺 0.6 / 2.3 m 时红）
+    L.setManualClock(true); const clock = async (sec) => { L.advanceClock(sec); await sleep(0); };
     // enterWalk 不经 onPhase 以外的路：确保操作层按阶段露
     out.visible = !root.hidden && getComputedStyle(root).display !== "none";
     // 没按的时候摇杆待在左下角（user 10-28 截图「摇杆位置不对」：v0.15.42 停在 (0, 0)、罩在 ☰ 上）
@@ -29,18 +31,18 @@ for (const [name, vp] of [["竖屏", { width: 744, height: 1133 }], ["横屏", {
     // ② 往上推满（56 px）走 0.5 s
     const sx = lr.left + lr.width / 2, sy = lr.top + lr.height * 0.7;
     fire("pointerdown", left, sx, sy, 21); fire("pointermove", left, sx, sy - 56, 21);
-    const p0 = { ...L.sim.state.pos }; await sleep(500); const p1 = { ...L.sim.state.pos };
+    const p0 = { ...L.sim.state.pos }; await clock(0.5); const p1 = { ...L.sim.state.pos };
     out.walk = { dist: Math.hypot(p1.x - p0.x, p1.y - p0.y), read: L.touch() };
     // ③ 推出底座边缘 = 冲刺
     fire("pointermove", left, sx, sy - 56 * 1.6, 21);
-    const q0 = { ...L.sim.state.pos }; await sleep(500); const q1 = { ...L.sim.state.pos };
+    const q0 = { ...L.sim.state.pos }; await clock(0.5); const q1 = { ...L.sim.state.pos };
     out.dash = { dist: Math.hypot(q1.x - q0.x, q1.y - q0.y), dash: L.touch().dash };
     fire("pointerup", left, sx, sy - 90, 21); await sleep(50);
     out.released = L.touch();
     // 趴 / 蹲（v0.15.45，user 10-28「嗯可以做一个爬」）：点「趴」= 趴、头降到爬高；再点「蹲」= 换成蹲（互斥）；再点蹲 = 站
     { const crawl = root.querySelector(".tc-crawl"), crouch = root.querySelector(".tc-crouch");
-      crawl.click(); await sleep(400); const a = { ...L.touch(), head: L.sim.state.headZ, crawlHead: L.sim.cfg.crawlHead };
-      crouch.click(); await sleep(50); const b = L.touch(); crouch.click(); await sleep(400);
+      crawl.click(); await clock(0.4); const a = { ...L.touch(), head: L.sim.state.headZ, crawlHead: L.sim.cfg.crawlHead };
+      crouch.click(); await sleep(50); const b = L.touch(); crouch.click(); await clock(0.4);
       out.posture = { crawlOn: a.crawl && !a.crouch, headLow: Math.abs(a.head - a.crawlHead) < 0.03, swapped: b.crouch && !b.crawl, standing: !L.touch().crouch && !L.touch().crawl && L.sim.state.headZ > 1.5 }; }
     // ④ 右半屏往右拖 100 px
     const h0 = L.sim.state.heading, rx = rr.left + rr.width / 2, ry = rr.top + rr.height * 0.5;
@@ -49,13 +51,13 @@ for (const [name, vp] of [["竖屏", { width: 744, height: 1133 }], ["横屏", {
     // ⑤ 跳
     const jump = root.querySelector(".tc-jump"), jr = jump.getBoundingClientRect();
     jump.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: jr.left + 10, clientY: jr.top + 10, pointerId: 23, pointerType: "touch" }));
-    await sleep(250); out.jumpZ = L.sim.state.pos.z;
+    await clock(0.25); out.jumpZ = L.sim.state.pos.z;
     jump.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 23, pointerType: "touch" }));
-    await sleep(800);
+    await clock(0.8);
     // ⑥ 原地编辑
     root.querySelector(".tc-edit").click(); await sleep(50);
     out.edit = { phase: L.walkPhase(), hidden: root.hidden };
-    L.exitWalk();
+    L.setManualClock(false); L.exitWalk();
     return out;
   });
   await page.close();

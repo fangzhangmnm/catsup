@@ -18,7 +18,7 @@
 
 import type { Editor } from "../editor/editor.ts";
 import { KernelCollisionWorld } from "../editor/collision-world.ts";
-import { PlayerSim, type RigPose, type PlayerConfig, DEFAULT_CONFIG } from "../player/player.ts";
+import { PlayerSim, type RigPose, type PlayerConfig, DEFAULT_CONFIG, PHYS_DT } from "../player/player.ts";
 import { type AvatarSpec, AVATAR_DEFAULT, statureOf, withAvatar } from "../player/body.ts";
 import { FlatInput } from "../player/flat-input.ts";
 import type { InputFrame } from "../player/input.ts";
@@ -257,8 +257,16 @@ export class Locomotion {
     if (force || this.world.revision !== this.editor.revision) this.world.rebuild(this.editor.worldGeom(), this.editor.revision);   // 全场景（世界坐标，含网格体）
   }
 
-  /** 每渲染帧：喂输入、步进、写相机（XR 模式相机归 XR，只步进）。 */
-  tick(dt: number): void {
+  /**
+   * 模拟时钟（探针用；user 11-09「你模拟的时候能不能用模拟的时钟？」；2026-11-09 Claude Opus 5.5）：开着时渲染循环不推进步行，时间只由 advanceClock 按固定步拨——
+   * 结果和机器快慢无关（无头浏览器一帧几百毫秒时，真实时钟会撞上「一帧最多补 8 步」= 慢动作，探针按墙上时间等就等不到）。每一步走的是 tick 同一段（输入 / 冻结 / 碰撞 / 镜头）；原地编辑时照样不走。
+   */
+  private manualClock = false;
+  setManualClock(on: boolean): void { this.manualClock = on; }
+  advanceClock(seconds: number): void { for (let i = Math.round(seconds / PHYS_DT); i > 0; i--) this.step(PHYS_DT); }
+  /** 每渲染帧：喂输入、步进、写相机（XR 模式相机归 XR，只步进）。模拟时钟开着 = 不步进（探针自己拨）。 */
+  tick(dt: number): void { if (!this.manualClock) this.step(dt); }
+  private step(dt: number): void {
     if (this.mode === "orbit") return;
     if (this.phase === "edit") return;   // 原地编辑 = 时间暂停（user 10-29「蹲下的时候tab会是当前这一帧的位置，动画到一半也是一样，类似时间暂停」）：不步进、不写镜头，蹲到一半就停在一半
     this.syncWorld();

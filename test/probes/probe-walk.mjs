@@ -69,6 +69,10 @@ const placed = await page.evaluate(() => ({ phase: globalThis.__catsup.locomotio
 check(placed.phase === "walk" && placed.walking && Math.abs(placed.pos.x + 1.5) < 0.05 && !placed.panel, `点地面 = 落在那里、进 FPS、小窗收起 ${JSON.stringify(placed)}`);
 check(await page.evaluate(() => globalThis.__lockRequests >= 1), "落人那一下请求了锁鼠标（FPS）");
 await page.evaluate(() => { globalThis.__catsup.locomotion.sim.standAt({ x: -1, y: 0, z: 0 }, -Math.PI / 2); });
+// 模拟时钟（2026-11-09 Claude Opus 5.5；工单 5，user「你模拟的时候能不能用模拟的时钟？」）：从这里起步行的时间由探针按固定步拨（locomotion.advanceClock），渲染循环不推进。
+// 以前按墙上时间等：无头 swiftshader 一帧 200–600 ms 时撞上「一帧最多补 8 步」= 慢动作，走墙 / 瞬移 / 落地 / 蹲各段轮流红（11-09 量过：落地要墙上 1.5–2 s 才到）。断言一条没改。
+await page.evaluate(() => globalThis.__catsup.locomotion.setManualClock(true));
+const clock = (sec) => page.evaluate((s) => globalThis.__catsup.locomotion.advanceClock(s), sec);
 const st0 = await page.evaluate(() => ({ ...globalThis.__catsup.locomotion.sim.state.pos, walking: globalThis.__catsup.locomotion.isWalking() }));
 check(st0.walking && Math.abs(st0.x + 1) < 1e-9, `就位 ${JSON.stringify(st0)}`);
 const hint = await page.evaluate(() => document.getElementById("hint").textContent);
@@ -76,20 +80,20 @@ check(hint.startsWith("步行"), `状态行切到步行提示：${hint.slice(0, 
 
 // W 走 1.5 s：被挡在 x ≈ 0.7
 await page.keyboard.down("w");
-await page.waitForTimeout(1500);
+await clock(1.5);
 await page.keyboard.up("w");
 const st1 = await page.evaluate(() => ({ ...globalThis.__catsup.locomotion.sim.state.pos }));
 check(st1.x > 0.4 && st1.x < 0.75 && Math.abs(st1.z) < 0.01, `走到墙边被挡 ${JSON.stringify(st1)}`);
 await page.screenshot({ path: out + "/probe-walk-1-wall.png" });
 
 // 后退一点，空格+W 跳上盒子
-await page.keyboard.down("s"); await page.waitForTimeout(300); await page.keyboard.up("s");
+await page.keyboard.down("s"); await clock(0.3); await page.keyboard.up("s");
 await page.keyboard.down("Space"); await page.keyboard.down("w");
-await page.waitForTimeout(300);
+await clock(0.3);
 await page.keyboard.up("Space");
-await page.waitForTimeout(400);
+await clock(0.4);
 await page.keyboard.up("w");
-await page.waitForTimeout(600);
+await clock(0.6);
 const st2 = await page.evaluate(() => ({ ...globalThis.__catsup.locomotion.sim.state.pos, grounded: globalThis.__catsup.locomotion.sim.state.grounded }));
 check(st2.x > 1 && st2.z > 0.75 && st2.grounded, `跳上盒顶 ${JSON.stringify(st2)}`);
 await page.screenshot({ path: out + "/probe-walk-2-top.png" });
@@ -106,11 +110,11 @@ check(h1 < h0, `右拖看向右 heading ${h0.toFixed(3)} → ${h1.toFixed(3)}`);
 // teleport：T 按住瞄准前方地面 → 松开跳过去
 await page.evaluate(() => { const l = globalThis.__catsup.locomotion; l.sim.standAt({ x: -4, y: 0, z: 0 }, -Math.PI / 2); });
 await page.mouse.move(box.x + 600, box.y + 600);   // 光标偏下 = 瞄地面
-await page.keyboard.down("t"); await page.waitForTimeout(300);
+await page.keyboard.down("t"); await clock(0.3);
 const arc = await page.evaluate(() => { const a = globalThis.__catsup.locomotion.sim.state.teleport.arc; return a ? { valid: a.valid, n: a.points.length, reason: a.reason } : null; });
 check(arc && arc.valid, `充能弧线 ${JSON.stringify(arc)}`);
 await page.screenshot({ path: out + "/probe-walk-3-arc.png" });
-await page.keyboard.up("t"); await page.waitForTimeout(150);
+await page.keyboard.up("t"); await clock(0.15);
 const st3 = await page.evaluate(() => ({ ...globalThis.__catsup.locomotion.sim.state.pos }));
 check(st3.x > -3.5, `瞬移落地 ${JSON.stringify(st3)}`);
 
@@ -148,21 +152,21 @@ check(tip === "端点", `步行模式吸附角点 tip=${tip}`);
 await page.mouse.move(box.x + 500, box.y + 500); await page.mouse.down();
 await page.mouse.move(box.x + 560, box.y + 520, { steps: 4 });
 await page.evaluate(() => { globalThis.__catsup.locomotion.sim.state.pos.z = 3; globalThis.__catsup.locomotion.sim.state.grounded = false; });
-await page.waitForTimeout(150);
+await clock(0.15);
 const zFrozen1 = await page.evaluate(() => globalThis.__catsup.locomotion.sim.state.pos.z);
-await page.waitForTimeout(400);
+await clock(0.4);
 const zFrozen = await page.evaluate(() => globalThis.__catsup.locomotion.sim.state.pos.z);
 check(Math.abs(zFrozen - 3) < 1e-6 && zFrozen === zFrozen1, `手势中冻结不掉 z=${zFrozen}`);
 await page.mouse.up();
-await page.waitForTimeout(150);
+await page.waitForTimeout(80); await clock(0.15);
 const zArmed = await page.evaluate(() => ({ z: globalThis.__catsup.locomotion.sim.state.pos.z, active: globalThis.__catsup.editor.isGestureActive() }));
 check(zArmed.active && Math.abs(zArmed.z - 3) < 1e-6, `线工具连画待命 = 手势仍进行中 = 仍冻结 ${JSON.stringify(zArmed)}`);
 await page.keyboard.press("Escape");   // 收笔 = 手势结束
-await page.waitForTimeout(600);
+await page.waitForTimeout(60); await clock(0.6);
 const zPaused = await page.evaluate(() => globalThis.__catsup.locomotion.sim.state.pos.z);
 check(Math.abs(zPaused - 3) < 1e-6, `原地编辑 = 时间暂停：收笔后也停在这一帧 z=${zPaused}`);   // v0.17.49 起（user 10-29「蹲下的时候tab会是当前这一帧的位置，动画到一半也是一样，类似时间暂停」）；以前收笔就解冻往下掉
 // 「继续走」回 FPS：从停住的那一帧接着走 → 这才落地；FPS 里 Esc = 离开步行、回到进来之前的视角（什么都没发生过）
-await page.click("#walkBtn"); await page.waitForTimeout(900);
+await page.click("#walkBtn"); await clock(0.9);
 const resumed = await page.evaluate(() => ({ phase: globalThis.__catsup.locomotion.walkPhase(), hidden: document.getElementById("walkBar").hidden, z: globalThis.__catsup.locomotion.sim.state.pos.z }));
 check(resumed.phase === "walk" && resumed.hidden, "点「继续走」= 回 FPS、按钮收起");
 check(resumed.z < 0.9, `继续走之后才落地 z=${resumed.z}`);
@@ -174,14 +178,14 @@ const tab2 = await page.evaluate(() => globalThis.__catsup.locomotion.walkPhase(
 check(tab1 === "edit" && tab2 === "walk", `Tab = 暂停 / 再按 Tab = 接着走 ${tab1} → ${tab2}`);
 // Ctrl = 蹲的开关；蹲到一半按 Tab = 停在这一帧（user 10-29「蹲下的时候tab会是当前这一帧的位置，动画到一半也是一样，类似时间暂停」；按住 Ctrl 再按 Tab = 浏览器切标签页，所以 Ctrl 是开关）
 const eyeZ = () => page.evaluate(() => globalThis.__catsup.editor.cam.eye().z);
-await page.waitForTimeout(300);
+await clock(0.3);
 const stand = await eyeZ();
-await page.keyboard.press("ControlLeft"); await page.waitForTimeout(70);
+await page.keyboard.press("ControlLeft"); await clock(0.07);
 await page.keyboard.press("Tab"); await page.waitForTimeout(40);
-const mid1 = await eyeZ(); await page.waitForTimeout(500); const mid2 = await eyeZ();
-await page.keyboard.press("Tab"); await page.waitForTimeout(700);
+const mid1 = await eyeZ(); await clock(0.5); const mid2 = await eyeZ();   // 暂停中拨钟 0.5 s：验的就是「原地编辑时模拟不走」
+await page.keyboard.press("Tab"); await clock(0.7);
 const low = await eyeZ();
-await page.keyboard.press("ControlLeft"); await page.waitForTimeout(800);
+await page.keyboard.press("ControlLeft"); await clock(0.8);
 const back = await eyeZ();
 check(mid1 < stand - 1e-3 && Math.abs(mid1 - mid2) < 1e-9 && low < mid1 - 1e-3 && Math.abs(back - stand) < 0.02,
   `Ctrl 开关蹲 + 蹲到一半 Tab 定格：站 ${stand.toFixed(3)} → 一半 ${mid1.toFixed(3)} / 半秒后 ${mid2.toFixed(3)} → 接着蹲 ${low.toFixed(3)} → 再按 Ctrl 起来 ${back.toFixed(3)}`);

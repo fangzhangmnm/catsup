@@ -65,6 +65,10 @@ const res = await page.evaluate(async () => {
   await sleep(30);
   out.menuStillOpenAfterLift = !!menu();
   document.body.click(); await sleep(30);
+  // 关掉长按留下的菜单再往下走（2026-11-09 Claude Opus 5.5；工单 5）：v0.18.38 输入闸以后菜单开着 = 画布不收输入，后面的推拉不会发生、英制三条就红了（探针过时，功能没坏）。
+  // document.body.click() 关不掉它（菜单认的是 pointerdown / Esc）；关没关上单独记一条，以后关菜单的方式变了这里先红、不连累后面
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 3, clientY: 3 })); await sleep(80);
+  out.menuClosedBeforeImperial = !menu();
   // ⑤ 英制：单位切 ft，推拉后打 3'6" → 1.0668
   e.cancel(); e.setGrid({ system: "imperial", snap: 0.0254 });
   e.setTool("pp");
@@ -89,7 +93,7 @@ const res = await page.evaluate(async () => {
 });
 console.log(JSON.stringify(res));
 console.log("errors:", errs.length ? errs.join("; ") : "none");
-const ok = res.selBarHiddenBefore && res.rightClickSelected && res.menuOpen && res.menuLabels.includes("建组") && res.groupMade && res.menuClosedAfterPick && res.selBarHiddenForMouse && res.selBarShown && res.selBarLabels.includes("删除") && res.selBarLabels.includes("更多…") && res.crumbsShown && res.crumbsExit && res.longPressMenu && res.longPressSelected && res.imperialOk && res.imperialExact && res.echo === "3' 6\"" && errs.length === 0;
+const ok = res.menuClosedBeforeImperial && res.selBarHiddenBefore && res.rightClickSelected && res.menuOpen && res.menuLabels.includes("建组") && res.groupMade && res.menuClosedAfterPick && res.selBarHiddenForMouse && res.selBarShown && res.selBarLabels.includes("删除") && res.selBarLabels.includes("更多…") && res.crumbsShown && res.crumbsExit && res.longPressMenu && res.longPressSelected && res.imperialOk && res.imperialExact && res.echo === "3' 6\"" && errs.length === 0;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await browser.close();
 process.exit(ok ? 0 : 1);

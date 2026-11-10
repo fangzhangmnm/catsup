@@ -115,8 +115,16 @@ export declare class Locomotion {
     lookRad(dYaw: number, dPitch: number): void;
     /** 碰撞世界跟 checkpoint（force = 无视 revision）。 */
     syncWorld(force?: boolean): void;
-    /** 每渲染帧：喂输入、步进、写相机（XR 模式相机归 XR，只步进）。 */
+    /**
+     * 模拟时钟（探针用；user 11-09「你模拟的时候能不能用模拟的时钟？」；2026-11-09 Claude Opus 5.5）：开着时渲染循环不推进步行，时间只由 advanceClock 按固定步拨——
+     * 结果和机器快慢无关（无头浏览器一帧几百毫秒时，真实时钟会撞上「一帧最多补 8 步」= 慢动作，探针按墙上时间等就等不到）。每一步走的是 tick 同一段（输入 / 冻结 / 碰撞 / 镜头）；原地编辑时照样不走。
+     */
+    private manualClock;
+    setManualClock(on: boolean): void;
+    advanceClock(seconds: number): void;
+    /** 每渲染帧：喂输入、步进、写相机（XR 模式相机归 XR，只步进）。模拟时钟开着 = 不步进（探针自己拨）。 */
     tick(dt: number): void;
+    private step;
     private readFlat;
     pose(): RigPose;
     /** 第一人称：把 rig 姿态写成 OrbitCamera（眼 = headWorld；yaw/pitch 换算见 camera.ts 约定）。 */
