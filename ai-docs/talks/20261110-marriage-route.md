@@ -183,3 +183,15 @@
 - **user 原话**：「好，现在再跳出来，系统的看一下我们整个施工方案长什么样」
 - **Fable 做的**：通读设计稿的施工部分，另写一份干净的 `../20261110-marriage-construction-plan.md`（三层分工、五段工单表、先后、门、守卫清单、风险、明确不做的、开工前还差什么）。设计稿第十二节的旧工单表作废、指过去。
 - **通读查出的三处（没拍，等 user 看）**：① 内核不用认坐标表了：照表取样落在三维仓自己的着色器里，内核只多认一种「宿主画好的薄层」（核了 `gl-room.ts _addOverlay`：现有三种，加第四种是抄笔尖那一支、去掉自己栅格那一步），所以原来两张改内核取样的工单取消；② 漏了工单：画画的界面和输入、预算归宿主、存盘和崩溃恢复、变换手柄的纯数学抽出来；③ 共用显卡画面的探路提到最前。
+
+## 11-10 深夜 · 第十五轮：怎么管施工；白模第一批
+- **user 原话**：
+  - 「所以你现在比较稳了吗？ / 升 你是说干什么？ / 以及现在第一批白膜建模报告已经出来了，你看一下如何合理理智的安排工作，以及是否应该你来统筹，然后我开一个agent来施工？我可以给agent命名来防止管理混乱」
+  - 「推已经推完了」
+  - 「白模报告我手动发你 / remember the axis lock for each tools / think about how to implement S X 0 efficiently. a zero button on scaling panel? or a dedicated UX? / for knife, we need hovering. we need to slide first before the first cut commit, aligh with hard surface modeling. try to figure out other tools on whether they aligns / in knife tool, it will render weirdly before commiting. try to carefully audit the gestures of knife tool」
+  - 「catsup小弟我帮你开好了，你和他交流一下，不过施工之前还是先让我说施工你在管」
+  - 「以及你能控制小弟compact吗，还是需要等我手动」
+- **定了**：Fable 统筹，user 开的 Opus 会话「Catsup小弟」施工；Fable 可以直接和小弟交流；施工开始前等 user 说。两个正式版已推完（user 说的；三维仓功能账 16:00 有一行「正式版推到 v0.18.47」）。
+- **Fable 做的**：解释了「升」= 三维版本号从 0.18 换成 0.19（之前用简称没说清）；白模第一批四条读代码查完，写成 `../20261110-whitebox-batch1.md`（判断、方案、工单 W-0…W-5、四个要 user 点头的问题）；给小弟发了开工说明（只读、待命）。
+- **答 user**：小弟的压缩 Fable 控制不了，只能发消息；压缩要 user 在小弟那条里手动做，或者等它自己到长度自动压。
+- **还等 user**：白模第一批的四个问题；说「开始」放行 W-0；三维版本号可不可以换成 0.19。
