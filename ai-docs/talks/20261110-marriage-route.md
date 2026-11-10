@@ -52,3 +52,41 @@
   - 草稿 = 这份画里的一层，画在表面上，落在模型外的不留。
   - 路线改成：整理内核 → 第一笔 → 能磨草稿（毕业）→ 铺得好 → 接住现成的 → 往后。
 - **还等 user 拍的**：第一轮那五件没变（同一份内核 / 画属于物件 / 用 ORA 存 / 第一笔和磨草稿先于材质窗口和导入 / 两个正式版要不要先推）。
+
+## 11-10 夜到深夜 · 第三轮：想第二遍；空间；逐条批
+- **user 原话**（按收到的顺序，照抄；中英混着的照原样）：
+  1. 「画画软件的核心已经是一台能单独搬走的发动机 我今年六月刚立项的时候就在想着今天呢！」
+  2. 「一条规矩：工具不知道三维，三维不知道工具。 think twice about it very critically. how does bodypaint works （我没有用过），how I complaint about procreate? why blender paint is akward enough but enough for me to complete Klee but i have to rely on reference image? and for little red I have to jump between procreate and for eyes i have to paste 2d assets instead of drawing it」
+  3. 「also if the engine is good enough, perhaps we can 结婚 instead of 分家生小孩，the two app use the same engine. that is ideal. but the problem is the engine is entangled with undo system and vram management. and catsup of course have a more superior one」
+  4. 「五段路线同意，你也看得出来眼睛是斩杀线。高分辨率，高绝对位置精度。其他的反而随便纯色刷一下拉倒，photoshop在2duv上画都接得住」
+  5. 「变换，涂抹在哪个空间? screen space? uv space(terrible?)? 3d space?」
+  6. 「冒出来的操作问题我记账，在段和段之间一小版一小版修。 赞，按照这个规矩来」
+  7. 「同一份内核，不各自长，然后3d这边改了也要和画画协调」
+  8. 「第一笔排在材质窗口和导入前面 可以，不然材质只是一个好看但是没内容的东西」
+  9. 「我建议属于物件 赞，记得之前我说的语义而不是pbr slot嘛 / 属于物件，这样少管理一个东西 / 其实有两个情况，角色/单品属于物件 材质/通用可以做成材质，应该都支持」
+  10. 「文件里用画画软件的分层格式（ORA）存一份画 可以」
+  11. 「两个正式版要不要先推 都推，然后itchio也推，你写handoff我开一个opus agent执行」
+  12. 「贴上去的图浮着时，你转视角它贴着屏幕不动。 我不懂你在说什么，听上去是个坏想法。应该是每一笔的时候屏幕锁住不能旋转，但是commit之后就烤上去了，以及看到的preview应该是预演，就是不能commit的时候突然视觉跳变」
+  13. 「笔的大小先按屏幕算 理想的时候这样最舒服」
+  14. 「一笔只画进你当前站在里面的那个物件 这个归ux，我希望引擎支持多选多画」
+  15. 「三维的渲染器和画画内核共用同一块显卡画面 不惜一切代价争取，必须要」
+  16. 「小块边长从写死的 256 改成可调，会不会碰到按 256 开好的数组 可以好好想想」
+  17. 「VR 里怎么画没设计 这个其实简单，模拟三次元的刷子就行了」
+  18. 「（引 Fable：我找到三处讨论……）帮我系统的整理进热文档」
+  19. 「画画内核只会一件事：照一张坐标表取样 对这是我当时的直觉」
+  20. 「需要pixel accurate」
+  21. 「贴图像素去屏幕哪里取（落点表） 需要小心near parallem和遮挡和z fighting」
+  22. 「套索三档 赞，以后还有顺着manifold滑的模式，可以wishlist」
+  23. 「接缝看一下weebpaint的png defringe. weebpaint记账默认保存强制defringe，不暴露开关，默认开，以后有空一起做了」
+  24. 「如果我用选区圈模型的一个腿，会圈到外面，然后填色，也许有x ray 和non x ray两种模式，这个能做吗」
+  25. 「然后我们也许还需要mask，这个weebpaint没有，我们非常需要，而且和选区独立」
+  26. 「想一下那些sculpting软件」
+  27. 「x ray mode, lasso select this leg, fill all. if we can support this it will be very speedpainting」（配图：白模角色，红色虚线套索圈住一条小腿连鞋，圈到了模型外面）
+  28. 「带子拉成矩形、按面积比例分整数像素 赞，想要，不过这个是可选项，像素风格或者n64极端小图开，一般的模型可以看一下是否适合」
+  29. 「（引 Fable 说的两种画法）我想的反而是第一种……第二种反而觉得akward，不够有手感。也许都支持？以及第二种的话，有一个非常大的问题，就是如果贴着表面的话，你的笔刷大小会因为密度的变化而时大时小，所以我才觉得第一种是正道」
+  30. 「vr是3d空间，可能这个才是最理想的，也可以考虑一下」「反正绝不uv空间」「3d or viewport」「uv空间的斩杀线是接缝和bleeding」「随便一个模糊你就越界了」
+- **这轮拍了的**：设计稿第八节那张清单，一条对一条。
+- **Fable 这轮说错又收回的**：中途说过「主路应该是贴着表面画、一块贴图就是一张画布」。那是 UV 空间。user 第 29、30 条否了；Fable 写第 3 版时也已经自己收回（理由：user 看不见 UV，跟着 UV 走的行为都是潜规则）。还有两处被 user 改回：笔的大小 Fable 改成了跟物体走 → user 定按屏幕；「浮着时转视角贴屏幕」→ user 定操作期间锁视角。「沿贴图格一格一格挪」那一档 user 先说了三档赞、后说绝不 UV，Fable 按后一句去掉，并在回复里说明了这个冲突。
+- **Fable 的设计、user 没逐条说的**：看得见看不见的判法（和显示同一遍画出每个屏幕像素是哪张面，不比深度；朝向权重）；补边两层（邻面 + 去白边）；蒙版做在内核里、工具改问「选区扣掉蒙版」；发动机和撤销、显存的拆法（机制留在发动机，栈和预算归宿主）；小块边长这一轮不改，以及「不是 256 池」读成「不要自己管自己的固定大池子」。
+- **还差的一句**：三维升 0.19，等 user 明说。
+- **另出的文档**：推正式版的交接 = 家族根 `ai-docs/20261110-handoff-push-prod-catsup-weebpaint.md`；画画仓账本 11-10 追记三条（保存强制去白边、蒙版、共用内核）。
