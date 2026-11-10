@@ -81,6 +81,11 @@ export declare class MeshTransformTool implements ToolHandler {
     /** 沿边滑：抓住的那个点（离按下处最近的）按拖动方向挑一条边、拖的量换成沿那条边的比例 t；别的点挑和它方向最像的那条边、走同样的 t。 */
     private solveSlide;
     /** 软选择这一帧的权重：半径（屏幕像素）在轴心那里换成世界长度；顺手画半径圈。没开 = null。 */
+    /**
+     * 这一下拖动会带着动的点：选中的 + 软选择里权重 > 0 的 + 镜像带着走的孪生点（计划书 20261109-audit-fixes-plan 工单 3）。
+     * 吸附不吸它们原来的位置（吸附模型 `ai-docs/20260901-snap-model.md`：目标 = 这次拖动不会让它动、画面上看得见）；以前只排除了选中的那几个 = 会吸到一个画面上已经看不见的位置。
+     */
+    private movingNow;
     private softWeightsNow;
     private commit;
     private verb;

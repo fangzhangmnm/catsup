@@ -192,6 +192,8 @@ export interface ToolCtx {
   hasAnySelection(): boolean;
   /** 有工具能动的选中（点 / 边 / 面 / 组 / 组件）：移动 / 旋转 / 缩放 / 手柄「对选区做」问这个。 */
   hasActableSelection(): boolean;
+  /** 这些点的镜像孪生点（正在编辑的网格体开着镜像时拖它们会带着动；没开镜像 / 不在网格体里 = 空）。吸附排除它们原来的位置用（吸附模型「目标 = 这次拖动不会让它动」）。 */
+  mirrorFollowers(verts: Iterable<number>): ReadonlySet<number>;
   /** 取点悬停（无手势）：画面平面 + 吸附 + 充能 + 光标提示——line / rect / 卷尺 / 轴 / 量角器都用这一套。 */
   hoverSnap(s: { x: number; y: number }): void;
   // ---- 0.11 尺规纪元：轴 ----

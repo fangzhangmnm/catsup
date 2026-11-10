@@ -113,10 +113,11 @@ const res = await page.evaluate(async () => {
   const inst3 = [...S().def(S().root).instances.values()].find((x) => !before8.has(x.id) && S().kindOf?.(x.def) !== "brep") ?? [...S().def(S().root).instances.values()].at(-1), m3 = () => S().mesh(inst3.def).kernel;
   e.selectedPools.clear(); e.selectedPools.set(`i${inst3.id}`, { kind: "instance", instance: inst3.id }); e.enterSelected(); await sleep(30);
   e.commitOp({ op: "meshMove", def: inst3.def, moves: m3().verts().map((q) => ({ v: q, to: { ...m3().pt(q), x: m3().pt(q).x + 0.7 } })) });
-  e.setMirror("edit", 0); await sleep(250);
-  for (let i = 0; i < 12 && !gz(); i++) await sleep(120);   // 方片是 rAF 画的：机器忙时 250 ms 可能还没画上（2026-10-28 一次假红），轮询等它出现
+  // 方片每个动画帧重画一次（view-gizmo.ts tick）：等真出两帧 = 一定按现在的状态画过了，和机器快慢无关（以前按墙上 250 ms 等 + 只等「出现」：机器忙时读到旧的，2026-10-28 / 11-09 各假红过）
+  const frames = (n) => new Promise((res) => { let k = n; const f = () => (--k <= 0 ? res() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+  e.setMirror("edit", 0); await frames(2);
   out.eight = { gizmoOff: gz(), hintOn: hint() };
-  e.selectAll(); e.runAction("mesh.originToSelection"); e.deselectAll(); await sleep(250);
+  e.selectAll(); e.runAction("mesh.originToSelection"); e.deselectAll(); await frames(2);
   out.eight.gizmoCentered = gz();
   const vs3 = m3().verts(), X3 = Math.max(...vs3.map((q) => m3().pt(q).x)), Yt = Math.max(...vs3.map((q) => m3().pt(q).y)), Zt = Math.max(...vs3.map((q) => m3().pt(q).z));
   const near3 = (q, x) => Math.abs(m3().pt(q).x - x) < 1e-9 && Math.abs(m3().pt(q).y - Yt) < 1e-9 && Math.abs(m3().pt(q).z - Zt) < 1e-9;
@@ -188,6 +189,30 @@ const res = await page.evaluate(async () => {
     e.undo(); await sleep(20); out.twelve.undone = k().faceCount();
     e.setMirror(null);
   }
+  // ⑬（2026-11-09 Claude Opus 5.5；计划书 20261109-audit-fixes-plan 工单 3）：镜像编辑开着，移动工具真拖一个角点、按住 Shift 开吸附，光标停在它孪生点「原来」的屏幕位置上 = 不吸它
+  //   （孪生点跟着镜过去了，原来的位置画面上已经看不见）；对照：停在一个不动的角点上 = 吸得到
+  {
+    const { def, k } = await freshMesh(0);
+    e.setMirror("edit", 0); e.deselectAll(); await sleep(20);
+    const X = S().xformOfContext(e.ctx), W = (q) => { const lp = k().pt(q); return { x: X[0] * lp.x + X[1] * lp.y + X[2] * lp.z + X[3], y: X[4] * lp.x + X[5] * lp.y + X[6] * lp.z + X[7], z: X[8] * lp.x + X[9] * lp.y + X[10] * lp.z + X[11] }; };
+    const vs = k().verts(), Xm = Math.max(...vs.map((q) => k().pt(q).x)), Ym = Math.max(...vs.map((q) => k().pt(q).y)), Zm = Math.max(...vs.map((q) => k().pt(q).z)), Y0 = Math.min(...vs.map((q) => k().pt(q).y));
+    const near = (q, x, y, z) => Math.abs(k().pt(q).x - x) < 1e-9 && Math.abs(k().pt(q).y - y) < 1e-9 && Math.abs(k().pt(q).z - z) < 1e-9;
+    const v = vs.find((q) => near(q, Xm, Ym, Zm)), w = vs.find((q) => near(q, -Xm, Ym, Zm)), u = vs.find((q) => near(q, Xm, Y0, Zm));
+    const vw = W(v), ww = W(w), uw = W(u);
+    e.cam.target = { x: (vw.x + ww.x) / 2, y: (vw.y + uw.y) / 2, z: 0.5 }; e.draw(); await sleep(20);
+    const sv = px(vw), swn = px(ww), su = px(uw);
+    const fireS = (type, x, y, buttons) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.left + x, clientY: r.top + y, pointerId: 11, pointerType: "mouse", isPrimary: true, button: 0, buttons, shiftKey: true }));
+    e.setTool("move"); await sleep(10);
+    fire("pointermove", sv.x, sv.y, 0); await sleep(10); fire("pointerdown", sv.x, sv.y, 1); await sleep(10);
+    for (let i = 1; i <= 4; i++) { fire("pointermove", sv.x + 6 * i, sv.y - 4 * i, 1); await sleep(15); }
+    const at = async (q) => { fireS("pointermove", q.x + 2, q.y + 1, 1); await sleep(15); fireS("pointermove", q.x, q.y, 1); await sleep(30); const sn = e.snapInfo; return sn ? { kind: sn.kind, p: sn.p } : null; };
+    const same = (a, b) => !!a && Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1e-6;
+    const snW = await at(swn), snU = await at(su);
+    out.thirteen = { moving: e.isGestureActive(), twinSnapped: same(snW?.p, ww), otherSnapped: same(snU?.p, uw), otherKind: snU?.kind ?? null };
+    e.cancel(); fire("pointerup", su.x, su.y, 0); await sleep(30); e.cancel();
+    out.thirteen.unchanged = same(W(v), vw) && same(W(w), ww);
+    e.setMirror(null);
+  }
   return out;
 });
 await b.close();
@@ -207,6 +232,7 @@ const ok = res.one.row && /组件「块」/.test(res.one.who) && /网格体/.tes
   && res.ten.n0 === 12 && res.ten.verts === 12 && res.ten.x === 0 && Math.abs(res.ten.dy - 0.1) < 1e-9 && res.ten.sym && res.ten.faces === 10
   && res.eleven.f0 === 6 && res.eleven.faces === 12 && res.eleven.sym && /以 −X 那半为准/.test(res.eleven.hint) && /\+X 那半是空的/.test(res.eleven.hint) && res.eleven.undone === 6
   && res.twelve.f0 === 6 && Math.abs(res.twelve.xmax) < 1e-9 && res.twelve.xmin < -1.9 && res.twelve.faces === 10 && res.twelve.sym && /\+X 那半是空的，按 −X 那半为准/.test(res.twelve.hint) && res.twelve.undone === 6
+  && res.thirteen.moving && !res.thirteen.twinSnapped && res.thirteen.otherSnapped && res.thirteen.unchanged
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-mirror OK" : "probe-mesh-mirror FAIL");

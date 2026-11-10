@@ -58,6 +58,8 @@ export declare function sideOfElements(m: MeshKernel, verts: Iterable<number>, e
 export declare function pickSide(m: MeshKernel, axis: MirrorAxis, wanted: -1 | 1, tol?: number): -1 | 1 | null;
 /** 「+X」「−Z」这类说法（提示行里说以哪半为准）。 */
 export declare const sideLabel: (side: -1 | 1, axis: MirrorAxis) => string;
+/** 这些点的镜像孪生点（不含自己 / 中缝上的点 / 对面找不到的）：镜像开着时拖它们，孪生点跟着动——吸附不该吸孪生点原来的位置（ToolCtx.mirrorFollowers；计划书 20261109-audit-fixes-plan 工单 3）。 */
+export declare function mirrorTwins(m: MeshKernel, verts: Iterable<number>, axis: MirrorAxis, tol?: number): Set<number>;
 /** 已经对称了吗：每个点都找得到对面、每条边的镜像也是一条边（强行对称每步先查，对称的就不重建另一半 = 另一半的 id 不乱换）。 */
 export declare function isSymmetric(m: MeshKernel, axis: MirrorAxis, tol?: number): boolean;
 /** 跨过镜像面的面（两侧都有点）有几张：强行对称做不了这种（先在中缝上切一刀）。 */

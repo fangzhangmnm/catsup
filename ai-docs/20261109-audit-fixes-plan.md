@@ -216,3 +216,9 @@
 - **落地是绿的**（和 11-09 审查一致）。验过它真会红：临时放一个写着「Ctrl+Shift+Q」的文件，红、点名文件和行号；删掉后绿。
 - 文件头写明挡不住的三样：键在但意思 / 工作台不对；单个字母键；「按住 Shift = …」这类修饰键语义。逐行派生另排。
 - **和计划书不一样**：计划书「每张工单一个 patch」；这张只加测试、app 一个字节没变，不单出版本，跟下一张（工单 3）一起发。
+
+### v0.18.44 工单 3：自由建模吸附不吸跟着一起动的点（+ 工单 4 一起发）（2026-11-09，Claude Opus 5.5）
+
+- **改了**：`mesh/mirror.ts mirrorTwins`（一组点的镜像孪生点，纯函数）；`ToolCtx.mirrorFollowers(verts)`（编辑器按正在编辑的网格体的镜像设置回答，没开 = 空；编辑器里只占 ToolCtx 字面量同一行，`editor.ts` 仍 4138 行）；`mesh-transform.ts movingNow` = 选中的 + 软选择权重 > 0 的 + 它们的孪生点，每帧交给 `meshSnapTarget`；`mesh-pull.ts` = 拉的点 + 它们的孪生点。硬表面旋转吸到自己原来的角点 = 故意不改（转回 0° 咬住是好事）。不变量写进 `ai-docs/20260901-snap-model.md` 末节。
+- **验收**：`probe-soft-select` ⑥（软选择开着 G 拖最高点、按住 Shift，光标停在最近邻点原来的位置 = 不吸；停在最远那个不动的点 = 吸到端点）；`probe-mesh-mirror` ⑬（镜像编辑开着真拖一个角点、按住 Shift，停在孪生点原来的位置 = 不吸；停在另一个不动的角点 = 吸到）。**两段都在 v0.18.43 原样代码上跑过：旧代码吸到了（红），新代码不吸（绿）。** 照跑：mesh-transform / mesh-pull / extrude-feel / edge-slide / typed-amount / mesh-workbench / mirror-xform / selecting 绿。
+- **顺手修的探针假红**：`probe-mesh-mirror` ⑧ 读右上角镜像方片以前按墙上 250 ms 等（+ 只等「方片出现」），机器忙时读到旧的那张，8 次里红 2 次；方片每个动画帧重画一次（`view-gizmo.ts` tick），改成「等真出两帧」= 一定按现在的状态画过（同 user 11-09「用模拟的时钟」的道理：等事件本身，不等墙上时间）。之后 6 次全绿。

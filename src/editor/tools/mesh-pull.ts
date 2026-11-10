@@ -117,7 +117,7 @@ export class MeshPullTool implements ToolHandler {
     this.cur = { x: s.x, y: s.y };
     const p = this.onPlane(ctx, s.x, s.y);
     if (p) ctx.setCursor(p);
-    this.snapT = ctx.snapBase() !== ctx.mods().shift ? meshSnapTarget(ctx, s, this.src) : null;   // 吸 = 底 XOR Shift（和移动同一套）
+    this.snapT = ctx.snapBase() !== ctx.mods().shift ? meshSnapTarget(ctx, s, new Set([...this.src, ...ctx.mirrorFollowers(this.src)])) : null;   // 吸 = 底 XOR Shift（和移动同一套）；镜像带着动的孪生点也不吸（工单 3）
     ctx.setSnap(this.snapT ? { p: this.snapT.p, kind: this.snapT.kind } : null);
   }
 

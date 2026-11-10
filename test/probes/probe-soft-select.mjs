@@ -54,6 +54,23 @@ await keys("Enter");
 d = diff(z0, await snap());
 const part = Object.entries(d).filter(([k, x]) => Number(k) !== top && x > 1e-6 && x < 0.5 - 1e-6).length, still = Object.values(d).filter((x) => Math.abs(x) < 1e-9).length;
 r.on = { top: d[top], partial: part, still, steps: (await page.evaluate(() => globalThis.__catsup.editor.history.steps())) - st, ringAfter: await page.evaluate(() => !!document.getElementById("softRing")?.hidden) };
+// ⑥（2026-11-09 Claude Opus 5.5；计划书 20261109-audit-fixes-plan 工单 3）：拖的时候按住 Shift 开吸附，光标停在一个被软选择带着走的邻点「原来」的屏幕位置上 = 不吸它
+//   （以前只排除选中的点：会吸到一个画面上已经看不见的位置）；对照：停在一个不动的点上 = 吸得到
+await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(40);
+sel = await selectTop(); top = sel.sel[0]; await hover();
+await keys("g"); await page.mouse.move(512, 392); await page.waitForTimeout(60);
+const spots = await page.evaluate((d) => {
+  const e = globalThis.__catsup.editor, m = e.scene.mesh(d).kernel, H = e.toolHandler("move"), X = e.scene.xformOfContext(e.ctx);
+  const W = (v) => { const p = m.pt(v); return { x: X[0] * p.x + X[1] * p.y + X[2] * p.z + X[3], y: X[4] * p.x + X[5] * p.y + X[6] * p.z + X[7], z: X[8] * p.x + X[9] * p.y + X[10] * p.z + X[11] }; };
+  const ds = [...H.soft.dist].filter(([v, dd]) => dd > 1e-9).sort((a, b) => a[1] - b[1]), near = ds[0][0], far = ds[ds.length - 1][0];
+  return { near, far, nearW: W(near), farW: W(far), nearS: e.cam.angularPx(W(near), e.vp()), farS: e.cam.angularPx(W(far), e.vp()) };
+}, def);
+const snapAt = async (sc) => { await page.mouse.move(sc.x + 3, sc.y + 2); await page.mouse.move(sc.x, sc.y); await page.waitForTimeout(80); return page.evaluate(() => { const s = globalThis.__catsup.editor.snapInfo; return s ? { kind: s.kind, p: s.p } : null; }); };
+const same = (a, b) => !!a && Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1e-6;
+await page.keyboard.down("Shift");
+const sNear = await snapAt(spots.nearS), sFar = await snapAt(spots.farS);
+await page.keyboard.up("Shift"); await keys("Escape");
+r.ghost = { nearSnapped: same(sNear?.p, spots.nearW), farSnapped: same(sFar?.p, spots.farW), farKind: sFar?.kind ?? null };
 // ④
 const r0 = await page.evaluate(() => globalThis.__catsup.editor.config.get("soft", "radius"));
 await keys("]"); r.bigger = (await page.evaluate(() => globalThis.__catsup.editor.config.get("soft", "radius"))) > r0;
@@ -64,6 +81,6 @@ await b.close();
 r.errs = errs;
 console.log(JSON.stringify(r, null, 1));
 const ok = Math.abs(r.off.top - 0.5) < 1e-9 && r.off.moved === 1 && r.ui.on && r.ui.strip && r.ui.slider && r.ring
-  && Math.abs(r.on.top - 0.5) < 1e-9 && r.on.partial >= 3 && r.on.still >= 10 && r.on.steps === 1 && r.on.ringAfter && r.bigger && !r.sliderOnSelect && errs.length === 0;
+  && Math.abs(r.on.top - 0.5) < 1e-9 && r.on.partial >= 3 && r.on.still >= 10 && r.on.steps === 1 && r.on.ringAfter && r.bigger && !r.sliderOnSelect && !r.ghost.nearSnapped && r.ghost.farSnapped && errs.length === 0;
 console.log(ok ? "probe-soft-select OK" : "probe-soft-select FAIL");
 process.exit(ok ? 0 : 1);

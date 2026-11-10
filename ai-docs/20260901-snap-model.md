@@ -158,3 +158,9 @@ edited by Claude Fable 5 2026-09-03
 - **各工具自己的标量**（推拉高度、偏移距离、卷尺线模式的垂直偏移、弧扫角、旋转角）：同一个开关、同样「近才咬」。Shift 不再在各工具里单独 = 15° / 整数增量（v0.13.13 那套退役）。选择（加选）/ 橡皮（硬化）/ 方向键（面锁）的 Shift 不变。
 - 纯数学 SSoT：`src/editor/increments.ts`；求解器：`solver.ts snapPoint` 的格点段；测试 `test/grid.test.ts`「整格 / 整角吸附」；探针 `probe-smallbatch`（Shift 反转）、`probe-tape-grid`（斜边线模式整格）。
 
+
+## 吸附目标的不变量：这次拖动不会让它动，并且画面上看得见（2026-11-09，Claude Opus 5.5；计划书 `20261109-audit-fixes-plan.md` 工单 3）
+
+- **两台吸附引擎都守这一条**：硬表面的对齐引擎（`solver.ts`，在手里的东西 = `AlignHand` / 世界视图里的孪生槽，11-09 审查读码确认没有「越拖越偏」的回路）和自由建模的 `tools/mesh-snap.ts meshSnapTarget`（`moving` 里的点、连着它们的边 / 面不算）。
+- **自由建模「会动的点」= 选中的 + 软选择里权重 > 0 的 + 镜像带着走的孪生点**（`mesh-transform.ts movingNow`、`mesh-pull.ts`；孪生点问 `ToolCtx.mirrorFollowers` → `mesh/mirror.ts mirrorTwins`）。v0.18.43 以前只排除了选中的那几个：软选择带着走的邻点、镜像对面的孪生点，原来的位置还会被吸住 = 吸到一个画面上已经看不见的位置。
+- **故意不改的一处**：硬表面旋转第三步会吸到被转的东西自己原来的角点——转回 0° 时咬住是好事（那个位置就是「不转」），不算违反。

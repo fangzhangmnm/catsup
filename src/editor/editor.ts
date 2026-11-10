@@ -24,7 +24,7 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { GuideSelection } from "./guide-selection.ts";
 import { describeEvent } from "./describe-event.ts";
-import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, type SymmetrizeResult, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, pickSide, sideLabel, sideOfChange, sideOfElements, symmetrize } from "../mesh/mirror.ts";
+import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, type SymmetrizeResult, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, mirrorTwins, pickSide, sideLabel, sideOfChange, sideOfElements, symmetrize } from "../mesh/mirror.ts";
 import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts";
 import { marqueeScreen, areaTest, type ScreenArea } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
@@ -4002,7 +4002,7 @@ export class Editor {
       enterPool: (p) => this.enterPool(p),
       exitContext: () => this.exitContext(),
       contextDepth: () => this.contextDepth(),
-      hasAnySelection: () => this.hasAnySelection(), hasActableSelection: () => this.hasActableSelection(),
+      hasAnySelection: () => this.hasAnySelection(), hasActableSelection: () => this.hasActableSelection(), mirrorFollowers: (vs) => { const ms = this.mirrorOf(); return ms ? mirrorTwins(this.scene.mesh(this.activePool().def).kernel, vs, ms.axis) : new Set<number>(); },
       softenEdges: (ids, on) => this.softenEdges(ids, on),
     };
   }
