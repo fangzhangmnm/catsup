@@ -74,7 +74,7 @@ import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { Renderer3 } from "../minccino/providers/three/render3.ts";
 import { browserPaintBoards, PAINT_UNDO_KIND, type PaintRec } from "../paint/boards.ts";
-import { initPaintTileJobs } from "../paint/tile-jobs.ts";
+import { initPaintTileJobs, paintTileStats } from "../paint/tile-jobs.ts";
 import { PaintSaver } from "../paint/save.ts";
 import { PaintWorkbench } from "./paint-workbench.ts";   // 画画工作台的控制器（1-7）
 import { createPaintColor, mountPaintColorSheet, hexOf, parseHexColor, PAINT_COLOR_DEFAULT } from "./paint-color.ts";
@@ -2575,6 +2575,7 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
     state: (guid: string) => paintBoards.stateOf(editor.sceneRef, guid),
     saver: paintSaver,
     stats: () => (editor.renderer3 as unknown as { liveStats(): { images: number; copyMs: number } }).liveStats(),
+    tiles: () => paintTileStats(),   // 图块池占多少（连开十份文件那项测量，统筹 11-11）
     /** 画画工作台（1-7）：现在的颜色（一个入口）、控制器。 */
     color: paintColor, workbench: paintWb,
     /** 一整笔（贴图主线 1-4b；探针用）：屏幕点（CSS 像素）→ 1-4a 控制器 → 薄层（真显卡）→ 档口；每一点画一帧（准备在 draw 里）；cancel = 取消。第一笔时建画板。 */

@@ -1035,7 +1035,7 @@ export class Renderer3 implements RenderProvider {
       n.linesVisible = showL; n.thickLines = thickLines; n.xthick.visible = false; n.xpixel.visible = false; n.pixelSrc = n.pixel.geometry; n.markKey = "\u0000";
     }
     // 没了的槽：节点摘掉（几何是共享引用，不在这里释放）
-    for (const [key, n] of this.slotNodes) if (n.gen !== this.syncGen) { this.dropThickOwn(n); this.scene.remove(n.root); this.slotNodes.delete(key); }
+    for (const [key, n] of this.slotNodes) if (n.gen !== this.syncGen) { this.dropThickOwn(n); this.dropThickMark(n); this.scene.remove(n.root); this.slotNodes.delete(key); }
     // 块的显卡副本：两代没人用的释放
     for (const [id, g] of this.chunkGpus) if (g.gen < this.syncGen - 1) { g.geo.dispose(); this.chunkGpus.delete(id); }
   }
@@ -1193,6 +1193,8 @@ export class Renderer3 implements RenderProvider {
     for (const name of ["instanceStart", "instanceEnd", "instanceColorStart", "instanceColorEnd", "instanceW1", "instanceW2"]) own.geo.deleteAttribute(name);
     own.geo.dispose(); n.thickOwn = null;
   }
+  /** 槽的节点扔掉时：标记粗线那份自己的几何（thickMark / thickMarkHidden 共用，每个槽建时自己 new 一份）也还掉——以前漏了，每换一次文件漏一份（1-4d「连开十份文件」量出来的，2026-11-11 Opus）。 */
+  private dropThickMark(n: SlotNodes): void { const g = n.thickMark.geometry; if (g !== this.emptyLineGeo) g.dispose(); }
   /** 被标记的边的粗线拷贝（边线材质、颜色 = 标记色）；轮廓旗没有（原生线来的）= 按内边画。 */
   private setMarkCopy(n: SlotNodes, S: number[], C: number[], prof: { W1: number[]; W2: number[]; F: number[] } | null, hidden: boolean): void {
     if (!S.length) { n.thickMark.visible = false; n.thickMarkHidden.visible = false; return; }
