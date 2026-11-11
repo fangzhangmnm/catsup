@@ -56,7 +56,29 @@
 
 ## 施工细则
 
-（小弟动手前写）
+> 2026-11-11 · Catsup小弟（Claude Opus 5.5）动手前写。分支 `paint-stroke-gl`（副本 `.claude/worktrees/paint-stroke-gl`，从 1-3c 的分支开、之后合进了 main = v0.19.18）。
+
+**已经做了的前置（统筹 11-11 裁定 ①）**：内核软件显卡没有给内核外面登记 JavaScript 版的口 → 画画仓加了 `Gl2Port.registerProgram(name, { vert, frag, cpu })`（登记挂在接口实例上；撞内核程序名 / 登记两次 / 没给 JavaScript 版 = 抛；没登记的照旧 SHADER_NO_CPU_EQUIV；内核自己的程序只认内核那张表；GLSL 和 JavaScript 在同一处交）；`CpuDraw` 等四个类型原样搬到 `common/cpu-draw.ts`（C2 目录格律）。画画仓 v0.14.72（main ee255c6，开发版线上核过），画画仓全套 1770（1 红 = 副本路径下总账 lint，老问题）、内核 598、全量层 3、显卡冒烟过；三维重拉内核 = 本分支 61e7b95。
+
+**接内核的地方（侦察到的）**
+- 档口 = 内核 `StrokeSession(deps, engine, [叶], { historyType, finalize }, "host")`；`deps` 照内核测试 `host-overlay.test.mjs` 的 rig 拼：`begin` / `tokenChanged` / `tokenBeforeImage` 接作品，`setHostOverlays` 交给画板（画板合成时把这些薄层传给 `GLBoard.composite` 的 `stampOverlays`），`commitHost` = `GLBoard.commitBrushStroke`（= `bakeStamps` 写回链，在令牌内），区域笔那几个不用（抛 / 空）。一张贴图一个档口；一次手势在每张贴图上是一步，这一张进**内核自带的栈**（作品给 `UndoStack`；1-8 换 HostedSteps）。
+- 薄层 = `HostOverlayInput { tex（和画布一样大的预乘图）, bx, by, bw, bh（报给内核的范围）, layerId, opacity, erase, blendMode, lockAlpha, selMask }`；锁透明、选区由档口补。
+- 上色 = 内核公开的 `GLStampRasterizer.colorize(accum, color, ow, oh, scissor)`；累积 = 显卡接口里有名字的两种混合（取最大 / 预乘叠加）。
+- 我自己的着色器（名字 `catsup-space-tip` 一类，带 `catsup-` 前缀免得撞内核）用 `registerProgram` 交 GLSL + JavaScript 版；JavaScript 版对每个像素调 1-4a 的 `tipCellsInPoly` 那一套（标准答案），不另写算式。
+
+**数据怎么进着色器（定的方向，动手时细化）**
+- 每颗笔尖 × 它碰到的每块画布多边形 = 一个实例（四个数：笔尖号、多边形号、和两个备用），实例的方块 = 那块多边形的范围 ∩ 笔尖在画布上的外接框。笔尖（球心减去落笔点、半径、浓度）、多边形下挂的面、每格归属 / 取样点 / 每张面上的位置放进单通道 32 位浮点的数据图里取；**位置不放半精度，上传前一律减去这一笔落笔的那一点**。
+- 一格对着的面多于着色器里那一圈的上限（镜像两半 = 2；复制叠在一起的更多）= 停下来报。
+- 定型的笔尖只画一次，攒在「定型层」上；每帧把定型层拷到当帧那张、再画还会变的尾巴（每帧的活只随新定型的 + 尾巴涨）。
+- 往薄层里画时裁剪框 = 报给内核的范围；读回整张薄层验范围之外全是零。
+
+**统筹 11-11 留给这一张的两件**
+1. 两半共用同一块画布多边形的镜像（强行对称的网格体上 startPaint 出来的就是）要能造出来；在它上面测「画在右半边、左半边同时有」和「点到哪格」（1-3c 的探针那一套）各一遍。
+2. 选中 / 淡出状态下的画截一张图看一眼。
+
+**已知的别扭（照裁定，不为它多做东西）**：这一张用内核自带的栈，画板跟着坐标改大小会落成那个栈里的一步；只有调试钩子够得着，记录里写明。
+
+**这一张要跑的**：新测试（node，软件显卡）——薄层逐格 = 标准答案（软笔、硬笔、取最大、叠加、压在镜像中缝上、跨好几张面，差 ≤ 1/255）、预览 = 结果、范围之外全是零、档口一步撤销 / 取消零痕迹；探针（浏览器）——过缝不断、斜面线宽、镜像同时有、铺法换掉结果不变一例、丢画面、量各段时间；截图基线、`probe-paint-display`、`probe-texture-srgb`。全套一次在交审前。
 
 ## 施工记录
 
