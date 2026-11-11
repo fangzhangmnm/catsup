@@ -162,6 +162,8 @@ import "./history-transaction.test.ts";   // 撤销栈的整步事务 + 摘记�
 import "./paint-undo.test.ts";   // 画的每一步进三维的撤销栈（2026-11-11 贴图主线 1-8a）
 import "./paint-undo-random.test.ts";   // 同上：混着来回逐字节对（拆开跑）
 import "./paint-undo-leak.test.ts";   // 同上：画板的图块不漏（截断 / 驱逐 / 删物件 / 换文件之后图块池回到开始之前）
+import "./paint-memory.test.ts";   // 画的内存额度（0-3a）：图块池接上压缩、撤销栈对「画」现问字节；压缩之后撤销逐字节对
+import "./paint-memory-undo.test.ts";   // 同上之二：压缩之后撤销逐字节对；歇着的画板被压下去、撤回来画还在（拆开跑）
 import "./scene-ops.test.ts";
 import "./offset.test.ts";   // offset 几何（0.8，2026-10-21）
 import "./followme.test.ts";   // follow-me 扫掠 + 像表 XOR（0.8，2026-10-21）

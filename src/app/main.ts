@@ -71,6 +71,7 @@ import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { Renderer3 } from "../minccino/providers/three/render3.ts";
 import { browserPaintBoards, PAINT_UNDO_KIND, type PaintRec } from "../paint/boards.ts";
+import { initPaintTileJobs } from "../paint/tile-jobs.ts";
 import { PAINT_STEP_LABELS } from "../editor/step-labels.ts";   // 画板登记处（贴图主线 1-3c）：一张贴图一块画板；这一张只有调试钩子 __catsup.paint 建
 import { paintPlaceOf } from "../scene/paint.ts";
 import { buildTriGrid, pickSurface } from "../paint/surface-pick.ts";   // 调试钩子 __catsup.paint.cellAt：1-3a 的落点
@@ -272,6 +273,7 @@ const editor = new Editor(canvas, {
   readout: (text) => { readoutEl.textContent = text; readoutEl.hidden = !READOUT_ON || !text; },   // 右下血槽位（A28）；10-25 先不显示（READOUT_ON）
 }, new Renderer3(canvas, perf));
 // 画显示到模型上（贴图主线 1-3c）：内核的显卡接口建在渲染器的画面上（第一次建画板时）；换文件 = editor.docEpoch 变 = 全部销毁。没有画板 = 渲染器每帧不多做事。
+initPaintTileJobs({ log: (m) => note("paint", m) });   // 画画内核的图块池：额度、压缩、泄漏上报、空闲 / 切后台压（0-3a；第一块画板之前）
 const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => editor.docEpoch, (m) => note("paint", m), () => editor.renderer3.resetPaintState(),
   (texture, why, tell) => {   // 内核说这张画以前的步全作废：三维的栈摘掉它的记录；状态不可信那一种告诉用户（1-8a）
     editor.dropUndoRecords(PAINT_UNDO_KIND, (d) => (d as PaintRec).tex === texture);
