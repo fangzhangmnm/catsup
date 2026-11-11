@@ -44,7 +44,24 @@
 
 ## 施工细则
 
-（小弟动手前写）
+> 2026-11-11 · Catsup小弟（Claude Opus 5.5）动手前写。分支 `paint-display`（副本 `.claude/worktrees/paint-display`，从 main `32dec75` 开）。
+
+**画布大小（统筹 11-11 裁定，代替「关键的形状」1 里那两句）**：① 画板的「步的去处」是一个参数，这一张不给（内核记录随手丢，改大小不留步）；② 显示时贴图坐标按**画板实际的宽高**除；③ 坐标的画布加高了画板跟着加高；缩回去时要砍的行（列同理）全空白才缩，有内容就不缩、留着比坐标大，在调试日志里记一笔，不抛、永远不砍有内容的；④ 长远（1-8）画板用 HostedSteps、改大小那一步并进三维的同一步撤销——这一张不做。
+
+**侦察到的、照着做的**
+- 内核口：`BrowserGl2Port.fromContext(gl)`（0-4）、`port.glTextureOf(fbo)`、`port.onInvalidated`；作品 = `PaintingWorkpiece({ tree: { width, height } })`（不给 `undo` = 记录随手丢）；合成 = `GLBoard.composite(doc, [r,g,b,1], …)`（0-5，返回 `PooledFBO`，第 0 行 = 画布第 0 行，下一次合成前有效）；改大小 = 令牌里 `layerTiles.resizeAllLeaves(lp => lp.cropped(0, 0, w, h))` + `layerTree.setTreeProp("width"/"height")`（和画画仓 `crop` 同一批动词）。作品 → `GLDoc` 的那一步我在画板里写（树的 view + 每叶的 `LayerPixels`）。
+- three r185 的 `ExternalTexture` 绑定时只认 `sourceTexture`、不碰采样设置（`three.module.js setTexture2D`）：专用显示图是渲染器自己用原始 GL 建的一张，采样设置自己定，**不改 vendor**。
+- 导入的图：`SRGBColorSpace`、多级缩小图、平铺、画风是像素风时换最近邻。专用显示图要和它「屏幕上同一格颜色相同」：建成 `SRGB8_ALPHA8`（和 three 给导入的图建的同一种），拷贝用一遍小着色器 `texelFetch` 内核那张（字节 = sRGB 编码值）→ 解成线性 → 写进 sRGB 的图（显卡写的时候再编码回去）→ `generateMipmap`。解码再编码能不能逐字节回来，探针里 256 个值全量验；不能 = 停下来报（施工单那一条）。放大 `NEAREST`、缩小 `LINEAR_MIPMAP_LINEAR`、夹边，不跟画风走。
+- 网格体的面三角化直接用角的编号（`faceTriangles` 给的是角的下标），所以三角形每个顶点能对回第几个角，贴图坐标 = `cornerValues(面, 那一套)[2i..]` ÷ 画板实际宽高。
+
+**放在哪**
+- `src/paint/board.ts`：一块画板（作品 + 自己的 `GLBoard` + 底色 + 改大小的规矩 + 合成）。`src/paint/boards.ts`：按贴图 GUID 登记、换文件（`docEpoch` 变了）全部销毁、`sync(场景)` 跟着坐标改大小、每块一个 `LiveImage`。不认识 three。
+- 契约 `minccino/contract/stream.ts`：`LiveImage { kind: "live", width, height, current(): { handle, version } | null }`，`MaterialRef.map` 可以是它。`contract/render-provider.ts` 多两样：`paintGl()`（显卡画面）、`resetPaintState()`（内核动过显卡）。
+- 渲染器 `minccino/providers/three/live-image.ts`：专用显示图 + 拷贝那一遍（原始 GL）；`render3.ts` 每帧开画前问一遍用到的 `LiveImage`、有变的拷、统一 `resetState` 一次；没有 `LiveImage` 时一步不多走。
+- 编辑器 `stream-provider.ts` / `pool-mesh.ts`：走画、有画板、角上有位置的面进「画」那一组（贴图坐标 = 角上的数 ÷ 画板宽高）；其余照旧。画板出现 / 消失 / 改大小进材质槽签名（那个池整份重建）。`editor.ts` 行数零余量：只把 `provider` 那个字段改成对外只读（同一行），别的都不进它。
+- 调试钩子 `__catsup.paint`（`main.ts`）：给一张走画的贴图建画板、灌像素、列出来。
+
+**这一张要跑的**：新测试 `test/paint-board.test.ts`（node，内核软件显卡：建板、灌、合成、加高 / 缩回空白 / 缩回有内容不缩、换文件销毁）、`test/paint-display-uv.test.ts`（池网格给画的面的贴图坐标）；新探针 `probe-paint-display`（点到哪格、导入的图和画同一格同色、sRGB 256 值回环、丢画面再恢复、没画板时每帧不多做事、几种画风截图、量合成 + 拷贝 + 缩小图的时间）；老的：截图基线、`probe-style`、`probe-mesh-bucket`、`probe-paint-spike` 退役（探路分支删掉时一起）。全套一次在交审前。
 
 ## 施工记录
 
