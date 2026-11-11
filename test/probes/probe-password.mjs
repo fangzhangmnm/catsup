@@ -75,7 +75,7 @@ await page2.close(); await page3.close();
 // ⑥ 本地加密文件：当临时模型打开
 const local = await page.evaluate(async () => {
   const s = globalThis.__catsup.session, E = globalThis.__catsup.encryption;
-  const blob = await E.packContainer({ dataBytes: s.encode(), fileName: "本地加密", ext: "catsup", password: "本地口令" });
+  const blob = await E.packContainer({ dataBytes: await s.encodeNow(), fileName: "本地加密", ext: "catsup", password: "本地口令" });
   globalThis.__catsup.crypto.answer(async () => "本地口令");
   const okOpen = await s.openLocalBytes(new Uint8Array(await blob.arrayBuffer()), "本地加密.catsup.zip", null);
   return { okOpen, home: s.home.kind, name: s.home.name ?? null };

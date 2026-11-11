@@ -83,7 +83,7 @@ console.log("① 解开的加密件：影子只存容器");
   const page = await open(ctx);
   const opened = await page.evaluate(async () => {
     const s = globalThis.__catsup.session, E = globalThis.__catsup.encryption;
-    const blob = await E.packContainer({ dataBytes: s.encode(), fileName: "本地加密", ext: "catsup", password: "本地口令" });
+    const blob = await E.packContainer({ dataBytes: await s.encodeNow(), fileName: "本地加密", ext: "catsup", password: "本地口令" });
     globalThis.__catsup.crypto.answer(async () => "本地口令");
     const okOpen = await s.openLocalBytes(new Uint8Array(await blob.arrayBuffer()), "本地加密.catsup.zip", null);
     return { okOpen, home: s.home.kind, name: s.home.name };
@@ -303,7 +303,7 @@ console.log("出门规则：另存 / 导出工程默认容器；明文显式；�
   // 解开的本地件：另存到磁盘（FSA 桩）
   const sealedRun = await page.evaluate(async () => {
     const c = globalThis.__catsup, s = c.session, E = c.encryption;
-    const blob = await E.packContainer({ dataBytes: s.encode(), fileName: "本地加密", ext: "catsup", password: "本地口令" });
+    const blob = await E.packContainer({ dataBytes: await s.encodeNow(), fileName: "本地加密", ext: "catsup", password: "本地口令" });
     c.crypto.lock(); c.crypto.answer(async () => "本地口令");
     await s.openLocalBytes(new Uint8Array(await blob.arrayBuffer()), "本地加密.catsup.zip", null);
     window.__written = [];

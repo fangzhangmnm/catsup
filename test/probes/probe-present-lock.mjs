@@ -56,7 +56,7 @@ const labels = await page.evaluate(() => [...document.querySelectorAll(".popup-m
 ok("menuSaysUnlock", labels.includes("解锁") && !labels.some((l) => /定稿|改稿|锁上/.test(l)));
 await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 // ⑨ 导出字节带 desk.locked，不带老 final
-const bytes = await page.evaluate(() => Array.from(globalThis.__catsup.session.encode()));
+const bytes = await page.evaluate(async () => Array.from(await globalThis.__catsup.session.encodeNow()));
 const glbJson = (arr) => { const buf = Buffer.from(arr); const len = buf.readUInt32LE(12); return JSON.parse(buf.subarray(20, 20 + len).toString("utf8")); };
 { const j = glbJson(bytes); ok("bytesCarryLock", j.extensions.CATSUP_desk.locked === true && !("final" in j.extensions.CATSUP_document) && j.extensions.CATSUP_desk.minor >= 2); }   // 锁是 desk 1.2 加的；之后加别的键（1.3 画风 / 屏幕）不影响
 
@@ -80,7 +80,7 @@ await page.keyboard.press("Control+v"); await page.waitForTimeout(80);
 ok("pasteRefused", (await rev()) === r1);
 
 // ⑩ 新页面读这份字节（锁着导出的那份）= 打开就是锁着的；解锁后能画
-const locked = await page.evaluate(() => Array.from(globalThis.__catsup.session.encode()));
+const locked = await page.evaluate(async () => Array.from(await globalThis.__catsup.session.encodeNow()));
 const page2 = await b.newPage({ viewport: { width: 1000, height: 800 } }); page2.setDefaultTimeout(4000); page2.on("pageerror", (e) => errs.push("p2 " + String(e.stack ?? e).slice(0, 300)));
 await page2.goto(url, { waitUntil: "load", timeout: 30000 }); await page2.waitForTimeout(1500);
 const reopened = await page2.evaluate(async (arr) => { const s = globalThis.__catsup.session, e = globalThis.__catsup.editor; await s.openLocalBytes(new Uint8Array(arr), "锁着的.catsup", null); await new Promise((r) => setTimeout(r, 200));
