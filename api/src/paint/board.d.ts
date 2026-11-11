@@ -75,6 +75,8 @@ export declare class PaintBoard {
      * 同步：真显卡上是一次读回（会等显卡做完）。显卡画面丢了 / 扔过 = null。
      */
     composeBytes(rows?: number): Uint8ClampedArray | null;
+    /** 显示的那张合成图上一格的颜色（RGBA 字节，垫着底色、不透明；吸管用，1-7）。出界 / 显卡画面丢了 = null。 */
+    pixelAt(x: number, y: number): Uint8Array | null;
     /** 现在的底色（sRGB 0..1，三个数）。 */
     get background(): readonly [number, number, number];
     dispose(): void;

@@ -24,6 +24,8 @@ export interface SpacePaintDeps {
     readonly camera: () => SpaceCamera;
     /** 一笔落层之后（内核封的那几步在画板登记处攒着）：交给三维的撤销栈当一步（1-8a；label = 画一笔 / 擦一笔）。不给 = 不进三维的栈（测试）。 */
     readonly commitStep?: (erase: boolean) => void;
+    /** 这一笔开不了（建这一笔的表时出错，比如画布上的格子超过这一版的上限）：这一笔已经取消、零痕迹；告诉宿主为什么（1-7：不许每帧在「准备」里抛）。 */
+    readonly failed?: (err: unknown) => void;
 }
 export interface SpacePaintOpts {
     readonly brush: ResolvedBrush;
@@ -63,6 +65,12 @@ export declare class SpacePaintStroke {
     /** 抬笔那一下各段（量；毫秒）：收路 / 整笔重画（含取笔尖、画薄层、交档口）/ 落层（档口 end = 内核写回）。 */
     lastUp: Record<string, number>;
     cancel(): void;
+    /** 这一笔到现在一帧里最大的那张数据表（个数、哪张、上限；探针量）。 */
+    peak: {
+        values: number;
+        table: string;
+        cap: number;
+    };
     /** 现在的范围（报给内核的那一块；探针用）。 */
     range(): {
         x: number;
@@ -82,6 +90,8 @@ export declare class SpacePaintStroke {
         hostMs: number;
     };
     /** 这一帧的准备（画板登记处的 prepare 调；合成在它后面）。 */
+    /** 建这一笔的表时出过错（已经取消、零痕迹）。 */
+    private broken;
     private prepare;
     private finish;
     private close;

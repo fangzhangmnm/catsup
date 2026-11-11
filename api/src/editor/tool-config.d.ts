@@ -16,6 +16,8 @@ interface OptionShown {
         readonly key: string;
         readonly in: readonly string[];
     };
+    /** 这个选项有自己的控件、不进工具条（画画的大小 / 浓度 = 左栏 dial 那两根竖滑条，1-7）。值、存法照旧在这张表里。 */
+    readonly elsewhere?: boolean;
 }
 export interface EnumOption extends OptionShown {
     readonly kind: "enum";
@@ -505,6 +507,70 @@ export declare const TOOL_OPTIONS: {
         };
     };
     /** 表面指派共用（user 2026-10-24 要的持久化 = 跟机器；scope device，经 host 递来的 device-kv）。 */
+    readonly paintPen: {
+        readonly size: {
+            readonly kind: "number";
+            readonly label: "大小";
+            readonly def: 12;
+            readonly min: 1;
+            readonly max: 400;
+            readonly step: 1;
+            readonly unit: "像素";
+            readonly scope: "session";
+            readonly elsewhere: true;
+        };
+        readonly opacity: {
+            readonly kind: "number";
+            readonly label: "浓度";
+            readonly def: 1;
+            readonly min: 0.05;
+            readonly max: 1;
+            readonly step: 0.05;
+            readonly scope: "session";
+            readonly elsewhere: true;
+        };
+        readonly hardness: {
+            readonly kind: "number";
+            readonly label: "硬度";
+            readonly def: 0.8;
+            readonly min: 0;
+            readonly max: 1;
+            readonly step: 0.05;
+            readonly scope: "session";
+        };
+    };
+    readonly paintEraser: {
+        readonly size: {
+            readonly kind: "number";
+            readonly label: "大小";
+            readonly def: 24;
+            readonly min: 1;
+            readonly max: 400;
+            readonly step: 1;
+            readonly unit: "像素";
+            readonly scope: "session";
+            readonly elsewhere: true;
+        };
+        readonly opacity: {
+            readonly kind: "number";
+            readonly label: "浓度";
+            readonly def: 1;
+            readonly min: 0.05;
+            readonly max: 1;
+            readonly step: 0.05;
+            readonly scope: "session";
+            readonly elsewhere: true;
+        };
+        readonly hardness: {
+            readonly kind: "number";
+            readonly label: "硬度";
+            readonly def: 0.8;
+            readonly min: 0;
+            readonly max: 1;
+            readonly step: 0.05;
+            readonly scope: "session";
+        };
+    };
     readonly surface: {
         readonly tier: {
             readonly kind: "enum";

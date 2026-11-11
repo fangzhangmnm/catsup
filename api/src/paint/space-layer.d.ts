@@ -84,6 +84,12 @@ export declare class SpaceLayer {
     /** 每张面（面号）的三角形反解数据（tipRect 用）。 */
     private readonly faceInv;
     private bounds;
+    /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）。 */
+    readonly peak: {
+        values: number;
+        table: string;
+        cap: number;
+    };
     constructor(gpu: SpaceGpu, g: TargetGeo, ti: number, o: SpaceLayerOpts);
     /** 报给内核的范围（这一笔到现在碰过的所有实例方块的并）；什么都没碰 = null。 */
     range(): {

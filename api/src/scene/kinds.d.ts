@@ -1,7 +1,7 @@
 import { type PlaneParams, type Pt3 } from "../kernel/geom.ts";
 import type { BodyKind } from "./body-kind.ts";
 import type { Body, BrepBody, DefId, MeshBody, Scene } from "./scene.ts";
-export type KindModeId = "geometry" | "surface" | "freeform";
+export type KindModeId = "geometry" | "surface" | "freeform" | "paint";
 export interface AlignGeometry {
     points: Pt3[];
     segments: [Pt3, Pt3][];

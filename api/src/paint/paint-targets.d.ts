@@ -5,4 +5,4 @@ import type { Guid } from "../format/guid.ts";
 export declare function paintTargets(world: WorldView, scene: Scene, texture: Guid, canvas: {
     readonly width: number;
     readonly height: number;
-}): PaintTarget[];
+}, chain?: readonly number[]): PaintTarget[];

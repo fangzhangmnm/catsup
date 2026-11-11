@@ -38,6 +38,14 @@ export interface ToolSample {
     extra: Readonly<Record<string, number>>;
 }
 /** 底座递给工具的全部能力（窄接口 = 测试面：给假 ctx 喂事件序列，断言 commitOp 收到的 op）。 */
+/** 画画工作台交给宿主的一下（ToolCtx.paint）：哪把工具、哪个阶段、画布本地 CSS px。 */
+export interface PaintPointer {
+    readonly tool: "paintPen" | "paintEraser" | "eyedrop";
+    readonly phase: "hover" | "down" | "move" | "up" | "cancel" | "pick";
+    readonly x: number;
+    readonly y: number;
+    readonly pointerType?: string;
+}
 /** 放人的指针阶段（ToolCtx.placeBody）。 */
 export type BodyPlacePhase = "hover" | "press" | "drag" | "drop";
 export interface ToolCtx {
@@ -207,6 +215,8 @@ export interface ToolCtx {
     }[] | null): void;
     /** 放人（验证工作台的步行）：指针交给宿主的放置模块（悬停 / 按下 / 拖 = 虚影跟着、落下 = 放人；画布本地 CSS px）。编辑器不认识这个人。 */
     placeBody(phase: BodyPlacePhase, x: number, y: number): void;
+    /** 画画（画画工作台的笔 / 橡皮 / 吸管；贴图主线 1-7）：指针交给宿主的画画控制器（画画内核、画板、落点都在宿主；画布本地 CSS px）。编辑器不认识画画内核。 */
+    paint(ev: PaintPointer): void;
     /** 软选择的半径圈（画布本地 CSS px；null = 收）。 */
     softRing(c: {
         x: number;

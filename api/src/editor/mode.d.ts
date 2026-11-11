@@ -2,7 +2,7 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { EditorCore, ToolHandler } from "./tool-handler.ts";
 import type { ViewState } from "./view-state.ts";
-export type ModeId = "object" | "geometry" | "surface" | "freeform" | "verify";
+export type ModeId = "object" | "geometry" | "surface" | "freeform" | "verify" | "paint";
 export interface Mode {
     readonly id: ModeId;
     /** 左上下拉框里显示的名字。 */

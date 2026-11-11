@@ -11,6 +11,8 @@ export interface GestureOpts {
     look?(dxPx: number, dyPx: number): boolean;
     /** 步行模式中滚轮无意义（相机每帧由 player 写）。 */
     walking?(): boolean;
+    /** 这一下工具手势进行当中相机不许动（画画工作台的一笔：贴图主线 1-7「一笔进行当中视角不动」）。true = 工具指针活着时，环绕 / 平移 / 双指都不碰相机（平时「画到一半转视角」照旧）。 */
+    cameraLocked?(): boolean;
     /** 工具停摆（teleport 充能中）：不喂工具指针事件、悬停预告清掉（VR 同款，vr.ts）。 */
     toolBlocked?(): boolean;
     /** 上下文菜单（#19，2026-10-21）：桌面右键（没拖成环绕）/ 触屏长按（没动）→ 在该点弹菜单。坐标 = 画布本地 + client。 */

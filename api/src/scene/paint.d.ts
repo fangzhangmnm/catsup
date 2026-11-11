@@ -2,7 +2,7 @@ import type { DefId, Material, Scene, UvSetRow } from "./scene.ts";
 import { type TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
 /** 第六节那几种动作碰到走画的面时的原因（拒绝之后场景一个字节不变）。 */
-export declare const PAINT_CANT_MOVE = "\u5E26\u7740\u753B\u7684\u9762\u73B0\u5728\u8FD8\u642C\u4E0D\u4E86\uFF08\u753B\u8DDF\u7740\u9762\u642C\u5BB6\u662F\u540E\u9762\u7684\u4E00\u5F20\u5DE5\u5355\uFF09";
+export declare const PAINT_CANT_MOVE = "\u8FD9\u4E9B\u9762\u4E0A\u6709\u753B\uFF1A\u5E26\u7740\u753B\u7684\u9762\u73B0\u5728\u8FD8\u4E0D\u80FD\u5E76\u8FDB\u522B\u7684\u7269\u4EF6\u3001\u5206\u51FA\u53BB\u3001\u505A\u6210\u552F\u4E00\u3001\u590D\u5236\u7C98\u8D34\u3001\u70B8\u5F00\u6216\u8005\u8F6C\u6210\u786C\u8868\u9762\uFF08\u8FD9\u4E2A\u529F\u80FD\u8FD8\u6CA1\u505A\uFF09";
 /** 这张面走哪一套贴图坐标（走画 = 那一套的 GUID；不走 = null）。 */
 export declare function paintUvOf(s: Scene, def: DefId, f: number): Guid | null;
 /**

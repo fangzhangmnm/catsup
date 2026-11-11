@@ -7,7 +7,7 @@ import { type MirrorAxis, type MirrorMode, type MirrorSetting } from "../mesh/mi
 import { type SelMode } from "./tools.ts";
 import { type ArcGesture } from "./arc-build.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
-import type { BodyPlacePhase, ToolHandler } from "./tool-handler.ts";
+import type { BodyPlacePhase, ToolHandler, PaintPointer } from "./tool-handler.ts";
 import { type GridSettings, type UnitSystem } from "./grid-settings.ts";
 import type { CurveParams } from "../kernel/kernel.ts";
 import { type LengthUnit, type VcbKind } from "./vcb.ts";
@@ -129,7 +129,8 @@ export interface EditorHost {
         x: number;
         y: number;
     }[] | null): void;
-    /** 放人（ToolCtx.placeBody 的另一头；缺 = 宿主没有步行）。 */ placeBody?(phase: BodyPlacePhase, x: number, y: number): void;
+    /** 放人（ToolCtx.placeBody 的另一头；缺 = 宿主没有步行）。 */ placeBody?(phase: BodyPlacePhase, x: number, y: number): void; /** 画画（ToolCtx.paint 的另一头；缺 = 宿主没有画画）。 */
+    paint?(ev: PaintPointer): void;
     /** 软选择的半径圈（画布本地 CSS px；null = 收）。 */
     softRing?(c: {
         x: number;
