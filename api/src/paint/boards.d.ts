@@ -19,7 +19,7 @@ export interface PaintBoardsOpts {
 }
 /** 「画」这种撤销记录：哪张贴图 + 内核封的那一步（内核的对象，三维不看里面）。 */
 export interface PaintRec {
-    readonly texture: Guid;
+    readonly tex: Guid;
     readonly step: Parameters<HostedSteps["flip"]>[0];
 }
 export declare const PAINT_UNDO_KIND = "paint";
@@ -69,6 +69,9 @@ export declare class PaintBoards {
     load(texture: Guid, data: Parameters<PaintBoard["load"]>[0]): void;
     /** 歇着、而且三维的栈里一条它的记录都没有了 = 扔。 */
     private retire;
+    /** 扔一块画板：图块全部还池（PaintBoard.dispose）；这期间内核清栈发的 onReset 不往三维的栈里摘记录。 */
+    private kill;
+    private disposing;
     private recordGone;
     /** 「画」这一种撤销成分（编辑器 registerUndoComponent 登记）。 */
     undoComponent(): UndoComponent<PaintRec>;
