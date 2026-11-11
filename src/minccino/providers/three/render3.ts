@@ -940,6 +940,9 @@ export class Renderer3 implements RenderProvider {
     return (this.offscreen = og);
   }
   /** 探针：上一次拷活的图花了多少毫秒；现在登记着几张。 */
+  liveMips(mode: "region" | "full" | "driver"): void { this.liveTextures().setMipMode(mode); }
+  liveFrameMs(): { copy: number; mips: number } { return { copy: this.live?.frameCopyMs ?? 0, mips: this.live?.frameMipsMs ?? 0 }; }
+  liveVerify(): ReturnType<LiveTextures["verify"]> { if (!this.live) return []; const r = this.live.verify(); this.renderer.resetState(); return r; }
   liveStats(): { images: number; copyMs: number; frameCopyMs: number } { return { images: this.live?.size ?? 0, copyMs: this.live?.lastCopyMs ?? 0, frameCopyMs: this.live?.frameCopyMs ?? 0 }; }
 
   /** 线稿风格（视图菜单「粗线稿」）：池的边换粗线 / 像素线 = 重拉一次（块不变，槽节点换几何）。 */

@@ -229,6 +229,7 @@ import "./paint-workbench-say.test.ts";   // 1-7：画画工作台一笔开不�
 import "./paint-board.test.ts";
 import "./paint-display-uv.test.ts";
 import "./paint-kernel-surface.test.ts";
+import "./brush-kinds.test.ts";
 import "./space-layer.test.ts";
 import "./space-vs-kernel2d.test.ts";
 import "./space-stroke-kernel.test.ts";

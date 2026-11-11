@@ -8,6 +8,7 @@
 //   画画的准备（1-4c space-prep.ts：整份几何 + 每格的表）每帧对一次：这个物件上热的画都要现成；过期了（在工作台里撤销到建模那几步 = 网格体修改号变了）
 //   这一帧就重建，不等落笔。落笔撞上「还没重建完」= 这一笔不开始、提示行说一句（和「这张画还在打开」同一个口）。出了画画工作台 = 全放。
 // · 不用不多做事：不进画画工作台就什么都不做（不建画板、不起内核）。
+import { brushKindOfTool, strokeKindOpts } from "../paint/brush-kinds.ts";
 import type { Editor } from "../editor/editor.ts";
 import type { PaintPointer } from "../editor/tool-handler.ts";
 import type { PaintBoards } from "../paint/boards.ts";
@@ -142,7 +143,7 @@ export class PaintWorkbench {
     const size = cfg.get(tool, "size"), opacity = cfg.get(tool, "opacity"), hardness = cfg.get(tool, "hardness");
     const brush = { ...hookBrush({ size, hardness }), opacity };
     try {
-      this.stroke = new SpacePaintStroke({ ...this.d.strokeDeps(e.context.chain), failed: (err) => { this.stroke = null; this.d.hint(strokeFailedSay(err)); } }, a.tex, { brush, color: this.d.color.get(), accum: "over", erase: tool === "paintEraser" });
+      this.stroke = new SpacePaintStroke({ ...this.d.strokeDeps(e.context.chain), failed: (err) => { this.stroke = null; this.d.hint(strokeFailedSay(err)); } }, a.tex, { brush, color: this.d.color.get(), ...strokeKindOpts(brushKindOfTool(tool)!) });   // 种类相关的（擦不擦、怎么叠）只经笔的种类表
     } catch (err) { this.d.hint(strokeFailedSay(err)); this.stroke = null; return; }   // 准备没好（刚撤销改了模型）/ 撞到容量上限：这一笔不开始，说那句人话
     this.t0 = performance.now();
     this.stroke.down(ev.x, ev.y, 1, 0);

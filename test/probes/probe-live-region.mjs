@@ -2,6 +2,7 @@
 // probe-live-region.mjs —— 显示图只拷变了的那一块、缩小图只重做受影响的那一块（贴图主线 1-4d 第 6 条，三维这一半）。created 2026-11-11 by Claude Opus 5.5
 // 证明：增量拷出来的显示图 = 整张重拷出来的，逐字节相同（第 0 级和几级缩小图）。查的时刻：一长笔画到一半（笔还按着）、抬笔之后、撤销之后、再画一笔之后。
 // 量：同一长笔（2048 见方的画布），每帧拷显示图花多少（前后各读回一格当同步：含显卡真做的时间）、拷了多大一块——三种做法各一遍：只拷一块（现在的）/ 每次整张（改之前的做法，同一个缩小图着色器）/ 画的时候不做缩小图、停了再整套做。
+// 笔的种类 × 极端的笔（统筹 11-11）：BRUSH_MATRIX 按 paint/brush-kinds.ts 的表一种一组；读数角标的「走法」三档和「核对」也在这里验（核对抓得到故意丢掉的报格）。
 // 软件显卡上的绝对数只作参考。用法：python3 -m http.server 8765 后 node test/probes/probe-live-region.mjs [url]
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -153,6 +154,137 @@ for (const x of rows) console.log(`    ${x.mode === "full" ? "每次整张（改
 const full = rows[0], reg = rows[1];
 check(side === 2048 && reg.medianCells < full.medianCells / 4, `只拷一块：中位一块 ${reg.medianCells} 格 < 整张 ${full.medianCells} 格的四分之一`);
 check(regionCells >= 0, "（读到了最近一次拷的块）");
+// ───────── 笔的种类 × 几支极端的笔（统筹 11-11：「影响的半径这种我们现在的版本不会算错吧。以后碰到大喷枪之类的」）─────────
+// 每一组用调试钩子按笔的种类表起一笔，画到一半（笔还按着）和抬笔后各核一次：app 自己的核对（C.paint.diag.detail：内核合成图 = 强制整张重合、显示图每一级 = 整张重拷，逐字节）。
+// 场景 = 细分三次的方盒子（384 张碎面），等轴看。种类来自 paint/brush-kinds.ts：表里有、这里没有 = 守卫红（test/brush-kinds.test.ts），运行时再核一遍页面上的表。
+// 加一种笔 = 这里加一组（形状和它有关的极端情况：喷枪要停着不动喷、流挂要往下淌……）。
+const BRUSH_MATRIX = {
+  pen: [
+    { what: "最小的硬笔（1 像素）", size: 1, hardness: 1, path: "across" },
+    { what: "滑条最大的软笔（400 像素、硬度 0）", size: 400, hardness: 0, path: "across" },
+    { what: "比一张面还大的笔（120 像素，一颗笔尖跨很多碎面）", size: 120, hardness: 0.7, path: "across" },
+    { what: "贴着画布边画", size: 10, hardness: 1, path: "canvasEdge" },
+    { what: "贴着岛边画（沿方盒子顶面和正面之间的棱）", size: 6, hardness: 1, path: "islandEdge" },
+  ],
+  eraser: [
+    { what: "最小的硬橡皮（1 像素）", size: 1, hardness: 1, path: "across" },
+    { what: "滑条最大的软橡皮（400 像素、硬度 0）", size: 400, hardness: 0, path: "across2" },
+    { what: "比一张面还大的橡皮（120 像素）", size: 120, hardness: 0.7, path: "across" },
+    { what: "橡皮贴着画布边", size: 10, hardness: 1, path: "canvasEdge" },
+    { what: "橡皮贴着岛边", size: 6, hardness: 1, path: "islandEdge" },
+  ],
+};
+
+console.log("\n笔的种类 × 极端的笔（碎面方盒子，等轴看）：画到一半和抬笔后，内核合成图 = 强制整张重合、显示图每一级 = 整张重拷（app 自己的核对，逐字节）");
+const page2 = await browser.newPage({ viewport: { width: 1000, height: 800 }, deviceScaleFactor: 1 });
+page2.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
+const S2 = (f, a) => page2.evaluate(f, a);
+const frames2 = (n = 3) => S2(async (n) => { for (let i = 0; i < n; i++) { globalThis.__catsup.editor.draw(); await new Promise((r) => requestAnimationFrame(r)); } }, n);
+await page2.goto(url, { waitUntil: "load" }); await page2.waitForFunction(() => globalThis.__catsup?.editor); await page2.waitForTimeout(600);
+const kinds = await S2(() => globalThis.__catsup.paint.brushKinds);
+check(kinds.length > 0 && kinds.every((k) => k in BRUSH_MATRIX), `页面上的笔的种类（${kinds.join(" / ")}）这里每一种都有一组`, JSON.stringify({ kinds, matrix: Object.keys(BRUSH_MATRIX) }));
+const scene2 = await S2(async () => {
+  const C = globalThis.__catsup, e = C.editor, P = (x, y, z = 0) => ({ x, y, z }), g = () => crypto.randomUUID(), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  e.setGrid({ ...e.grid, on: false });
+  const B = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]], segs = [];
+  for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], 1), P(d[0], d[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); }
+  e.commitOp({ op: "addEdges", at: e.activePool(), segs }); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(10);
+  const S = e.sceneRef, inst = [...S.def(S.root).instances.values()][0];
+  e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(10);
+  for (let i = 0; i < 3; i++) { e.runAction("mesh.subdivide"); await sleep(0); }
+  e.exitTo(0); e.clearSelection?.();
+  const def = inst.def, k = e.sceneRef.mesh(def).kernel, tex = g();
+  e.commitOp({ op: "startPaint", def, faces: k.faces(), uvSet: g(), textureGuid: tex, materialGuid: g(), names: { uvSet: "UV", paint: "画", material: "画" }, color: [0.3, 0.5, 0.7] });
+  const info = C.paint.ensure(tex);
+  e.cam.setView("iso"); e.zoomExtents(); e.draw();
+  return { tex, faces: k.faces().length, W: info.width, H: info.height };
+});
+await frames2(3);
+check(scene2.faces >= 384, `碎面方盒子：${scene2.faces} 张面，画布 ${scene2.W} × ${scene2.H}`);
+/** 一条路（屏幕点，CSS 像素）：across = 顶面斜着下到正面；across2 = 另一条；islandEdge = 顶面和正面之间那条棱；canvasEdge = 找画布边上的格对应的屏幕点。 */
+const pathOf = (kind) => S2(([kind, tex, W, H]) => {
+  const C = globalThis.__catsup, e = C.editor, P = (x, y, z) => ({ x, y, z }), seg = (W0, n = 14) => { const out = []; for (let k = 0; k + 1 < W0.length; k++) for (let i = 0; i < n; i++) { const t = i / n, a = W0[k], b = W0[k + 1]; out.push(e.cam.project(P(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t), e.vp())); } return out; };
+  if (kind === "across") return seg([P(-0.35, 0.35, 1), P(0, -0.1, 1), P(0.05, -0.5, 0.7), P(0.35, -0.5, 0.25)]);
+  if (kind === "across2") return seg([P(-0.4, -0.2, 1), P(0.4, 0.3, 1), P(0.3, -0.5, 0.5)]);
+  if (kind === "islandEdge") return seg([P(-0.45, -0.5, 1), P(0.45, -0.5, 1)], 30);
+  // canvasEdge：屏幕上扫一遍，挑落在画布最边上（离边 ≤ 2 格）的那些点，按画布上的位置排成一条
+  const vp = e.vp();
+  //   铺法在画布边上可能留了空：取「离边最近的那些格」（最近的再往里 2 格以内），说清离边多远
+  const all = [];
+  for (let y = 0; y < vp.h; y += 3) for (let x = 0; x < vp.w; x += 3) { const h = C.paint.cellAt(tex, x, y); if (!h?.cell) continue; const [cx, cy] = h.cell; all.push({ x, y, cx, cy, d: Math.min(cx, cy, W - 1 - cx, H - 1 - cy) }); }
+  const minD = Math.min(...all.map((q) => q.d)), hits = all.filter((q) => q.d <= minD + 2);
+  globalThis.__edgeMinD = minD;
+  hits.sort((a, b) => a.cx - b.cx || a.cy - b.cy);
+  const pick = hits.filter((_, i) => i % Math.max(1, Math.floor(hits.length / 40)) === 0).slice(0, 40);
+  return pick.map((q) => ({ x: q.x, y: q.y }));
+}, [kind, scene2.tex, scene2.W, scene2.H]);
+/** 用调试钩子画一笔；画到一半和抬笔后各核一次；顺手读显示图第 0 级前后差了多少像素（这一笔真改到了东西）。 */
+const strokeAndCheck = (pts, v, kind) => S2(async ([pts, v, kind]) => {
+  const C = globalThis.__catsup, lt = C.editor.renderer3.live, ent = () => [...lt.entries.values()][0], lv0 = () => { const e = ent(); return e?.disp ? lt.readLevels(e.disp, e.w, e.h)[0].px : null; };
+  const sum = (d) => ({ ok: d.ok, kernel: d.kernel.reduce((n, k) => n + k.diff, 0), display: d.display.reduce((n, L) => n + L.diff, 0), levels: d.display.length, bad: [...d.kernel.filter((k) => k.diff).map((k) => `内核 ${k.diff}@${k.box}`), ...d.display.filter((L) => L.diff).map((L) => `第${L.level}级 ${L.diff}@${L.box}`)].slice(0, 4) });
+  const b0 = lv0(); let mid = null;
+  const r = C.paint.stroke({ points: pts, size: v.size, hardness: v.hardness, kind, color: [0.9, 0.2, 0.1], midway: () => { mid = sum(C.paint.diag.detail()); } });
+  C.editor.draw(); await new Promise((res) => requestAnimationFrame(res)); C.editor.draw();
+  const end = sum(C.paint.diag.detail()), b1 = lv0();
+  let changed = 0; if (b0 && b1) for (let i = 0; i < b0.length; i += 4) if (b0[i] !== b1[i] || b0[i + 1] !== b1[i + 1] || b0[i + 2] !== b1[i + 2] || b0[i + 3] !== b1[i + 3]) changed++;
+  return { tips: r.tips, refused: r.refused ?? null, mid, end, changed };
+}, [pts, v, kind]);
+const fmt = (x) => x ? `${x.ok ? "=" : "≠"}（内核差 ${x.kernel}、显示图 ${x.levels} 级差 ${x.display}${x.bad.length ? "：" + x.bad.join("，") : ""}）` : "没核到";
+for (const kind of Object.keys(BRUSH_MATRIX)) {
+  if (kind === "eraser") {   // 橡皮要有东西擦：先用大笔铺两道
+    for (const pk of ["across", "across2"]) await strokeAndCheck(await pathOf(pk), { size: 300, hardness: 0.5 }, "pen");
+    await frames2(2);
+  }
+  for (const v of BRUSH_MATRIX[kind]) {
+    const pts = await pathOf(v.path);
+    if (pts.length < 4) { check(false, `${v.what}：找不到路（${v.path} 只有 ${pts.length} 个点）`); continue; }
+    if (v.path === "canvasEdge") console.log(`    （画布边那条路：屏幕上能点到的格离画布边最近 ${await S2(() => globalThis.__edgeMinD)} 格）`);
+    const r = await strokeAndCheck(pts, v, kind);
+    check(!r.refused && r.tips > 0 && r.changed > 0 && r.mid?.ok && r.end.ok, `${kind} · ${v.what}：画到一半 ${fmt(r.mid)}、抬笔后 ${fmt(r.end)}；显示图改了 ${r.changed} 像素`, JSON.stringify(r));
+  }
+}
+
+console.log("\n同一笔在「自动」和「强制整张」下：显示图每一级逐字节一样（测量用那一档不比，只查它自己核对得上）");
+const levelsHash = () => S2(() => { const lt = globalThis.__catsup.editor.renderer3.live, e = [...lt.entries.values()][0], out = []; for (const L of lt.readLevels(e.disp, e.w, e.h)) { let s = 2166136261; for (let k = 0; k < L.px.length; k++) { s ^= L.px[k]; s = Math.imul(s, 16777619); } out.push((s >>> 0).toString(16)); } globalThis.__catsup.editor.renderer3.resetPaintState(); return out; });
+const samePts = await pathOf("across2"), runPath = async (mode) => {
+  await S2((m) => globalThis.__catsup.paint.diag.setPath(m), mode); await frames2(2);
+  const r = await strokeAndCheck(samePts, { size: 60, hardness: 0.6 }, "pen"); await frames2(2);
+  const h = await levelsHash(), path = await S2(() => { const C = globalThis.__catsup, g = C.paint.boards.guids()[0]; return C.paint.boards.get(g).gl._tree.lastPath.path; });
+  await S2(() => globalThis.__catsup.editor.undo()); await frames2(3);
+  return { r, h, path };
+};
+const A = await runPath("auto"), F = await runPath("full"), M = await runPath("measure");
+await S2(() => globalThis.__catsup.paint.diag.setPath("auto")); await frames2(2);
+check(A.h.length > 3 && A.h.every((x, i) => x === F.h[i]), `自动 vs 强制整张：${A.h.length} 级逐字节一样`, JSON.stringify({ A: A.h, F: F.h }));
+check(A.r.end.ok && F.r.end.ok && M.r.end.ok && A.r.mid?.ok && F.r.mid?.ok && M.r.mid?.ok, `三档各自核对都对得上（自动 ${fmt(A.r.mid)}；强制整张 ${fmt(F.r.mid)}；测量用 ${fmt(M.r.mid)}）`);
+
+console.log("\n核对自己抓得到少报：把薄层报的格每 3 次丢 1 次（只在探针里包一层），画到一半核对必须说对不上");
+await S2(() => {
+  const C = globalThis.__catsup, B = C.paint.boards.get(C.paint.boards.guids()[0]), orig = B.wrapLayer.bind(B);
+  B.wrapLayer = (src) => { const ext = orig(src), m = ext.markChanged.bind(ext); let n = 0; ext.markChanged = (...a) => { if (++n % 3 === 0) return; return m(...a); }; return ext; };
+});
+const lossy = await strokeAndCheck(await pathOf("across"), { size: 30, hardness: 1 }, "pen");
+check(lossy.mid && !lossy.mid.ok && lossy.mid.kernel > 0 && lossy.mid.display > 0, `丢了报格：画到一半核对说对不上，内核和显示图都说（${fmt(lossy.mid)}）`, JSON.stringify(lossy.mid));
+check(lossy.end.ok, `抬笔落层之后整张重合，又对上了（${fmt(lossy.end)}）`);
+
+console.log("\n读数角标那一组：开读数 + 核对，画一笔 → 抬笔之后核对过、对不上 0；带着丢报再画一笔 → 对不上 ≥ 1、调试日志里有一行「核对：」");
+await S2(() => { const B = globalThis.__catsup.paint.boards.get(globalThis.__catsup.paint.boards.guids()[0]); delete B.wrapLayer; });
+await S2(() => { const C = globalThis.__catsup; if (!C.meter().toggle()) C.meter().toggle(); C.paint.diag.setCheck(true); /* 开读数（toggle 交回开着没有）+ 核对 */ });
+await strokeAndCheck(await pathOf("across2"), { size: 20, hardness: 1 }, "pen"); await frames2(3);
+const snap1 = await S2(() => globalThis.__catsup.meter().snapshot());
+check(snap1.checks >= 1 && snap1.mismatches === 0, `好的一笔：角标核对 ${snap1.checks} 次、对不上 ${snap1.mismatches} 次`, JSON.stringify(snap1));
+await S2(() => {
+  const C = globalThis.__catsup, B = C.paint.boards.get(C.paint.boards.guids()[0]), orig = B.wrapLayer.bind(B);
+  B.wrapLayer = (src) => { const ext = orig(src), m = ext.markChanged.bind(ext); let n = 0; ext.markChanged = (...a) => { if (++n % 3 === 0) return; return m(...a); }; return ext; };
+});
+// 丢报的那一笔：每帧都画（编辑器 afterRender → 角标），核对每 30 帧一次 + 抬笔一次；抬笔那次已经落层对上了，所以画长一点、让中途那次撞上
+const longPts = [...(await pathOf("across")), ...(await pathOf("across2")), ...(await pathOf("across"))];
+await strokeAndCheck(longPts, { size: 30, hardness: 1 }, "pen"); await frames2(3);
+const snap2 = await S2(() => globalThis.__catsup.meter().snapshot()), log2 = await S2(() => globalThis.__catsup.paint.diag.log());
+check(snap2.mismatches >= 1 && /核对：/.test(log2), `丢报的一笔：角标对不上 ${snap2.mismatches} 次、调试日志里有「核对：」`, JSON.stringify(snap2));
+await S2(() => { const C = globalThis.__catsup, B = C.paint.boards.get(C.paint.boards.guids()[0]); delete B.wrapLayer; C.paint.diag.setCheck(false); });
+await page2.close();
+
 check(errs.length === 0, "页面没报错", errs.slice(0, 3).join(" | "));
 console.log(`\nprobe-live-region ${failN ? "FAIL" : "OK"}（${pass} ✓ / ${failN} ✗）`);
 await browser.close();

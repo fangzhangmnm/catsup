@@ -123,6 +123,17 @@ export class PaintBoards {
     paintMeter.put("compose", this.lastPrepare.composeMs);   // 每帧的读数（1-4d；关着不做事）
     if (touched) this.o.touched?.();
   }
+  /**
+   * 核对（读数角标「核对」；统筹 11-11）：这块画板的内核合成图 vs 强制整张重合（PaintBoard.verifyFull），完了把「准备好的」换成整张那张——
+   * 显示那一侧的核对从它重拷（不换的话 current() 还交帧头那张：内核整张重合可能换了一张图，显示图的核对会拿旧的比旧的，什么都看不出来；探针丢报那条抓到的）。
+   */
+  verifyFull(texture: Guid): { diff: number; box: readonly [number, number, number, number] | null } | null {
+    const e = this.entries.get(texture);
+    if (!e || e.dormant) return null;
+    const d = e.board.verifyFull(), r = e.board.compose();
+    e.prepared = r ? { gpuImage: gpuImageOf(this.port!, r.fbo), version: r.version } : null;
+    return d;
+  }
   /** 上一次「准备」两段（量；毫秒）：这一帧的准备活（薄层）/ 内核合成（含缩小图）。 */
   lastPrepare = { jobsMs: 0, composeMs: 0 };
   /** 只给量的时候用（探针）：每段前后等显卡把活做完，量到的才是显卡真花的时间。平时 null。 */

@@ -405,9 +405,15 @@ await S(() => { globalThis.__catsup.pickWorkbench("paint"); globalThis.__catsup.
 const meterBtn = page.locator('#toolStrip button:has-text("读数")');
 check(await meterBtn.isVisible(), "笔的工具条上有「读数」");
 await meterBtn.click(); await frames(2);
+// 读数那一组（统筹 11-11）：读数开着才露「走法」「核对」；角标写现在走哪条；点「走法」换到强制整张
+check(await page.locator('#toolStrip button:has-text("走法")').isVisible() && await page.locator('#toolStrip button:has-text("核对")').isVisible(), "读数开着：工具条上露「走法」「核对」");
+await page.locator('#toolStrip button:has-text("走法")').click(); await frames(2);
+const path13 = await S(() => globalThis.__catsup.paint.diag.state().path);
+check(path13 === "full" && await page.locator('#toolStrip button:has-text("走法：强制整张")').isVisible(), `点一下「走法」：换到强制整张（${path13}）`);
 const tex13 = await S(() => [...globalThis.__catsup.editor.sceneRef.textures.values()].find((t) => t.content.kind === "layered" && globalThis.__catsup.paint.state(t.guid) !== "view-only")?.guid);
 await S((t) => { const C = globalThis.__catsup, V = C.editor.vp(), pts = []; for (let i = 0; i <= 20; i++) pts.push({ x: V.w * (0.4 + 0.2 * i / 20), y: V.h * 0.5 }); C.paint.warm?.(t); C.paint.stroke({ guid: t, points: pts, size: 20 }); }, tex13); await frames(6);
 const m13 = await S(() => ({ shown: !document.querySelector(".meter-badge").hidden, text: document.querySelector(".meter-badge").textContent, snap: globalThis.__catsup.meter().snapshot() }));
+check(/走法：强制整张/.test(m13.text) && /做缩小图/.test(m13.text), "角标上写着走法、缩小图单列一行", m13.text);
 check(m13.shown && /每帧读数/.test(m13.text) && /最近一秒画了 \d+ 帧、掉了 \d+ 帧/.test(m13.text) && m13.snap.frames > 0 && m13.snap.avg.scene > 0, `开了：角标露着、最近一秒 ${m13.snap.frames} 帧、三维画场景平均 ${m13.snap.avg.scene.toFixed(1)} 毫秒`, JSON.stringify(m13.snap));
 await S(() => globalThis.__catsup.pickWorkbench("freeform")); await frames(2);
 check(await S(() => document.querySelector(".meter-badge").hidden), "出了画画工作台：角标藏起来");
@@ -415,6 +421,8 @@ await S(() => { globalThis.__catsup.pickWorkbench("paint"); globalThis.__catsup.
 await page.locator('#toolStrip button:has-text("读数")').click(); await frames(2);
 const off13 = await S(async () => { const C = globalThis.__catsup, m = C.meter(); for (let i = 0; i < 5; i++) { C.editor.draw(); await new Promise((r) => requestAnimationFrame(r)); } return { hidden: document.querySelector(".meter-badge").hidden, frames: m.snapshot().frames }; });
 check(off13.hidden && off13.frames === 0, `关了：角标藏、关着画了 5 帧一帧都没记（${off13.frames}）`);
+const st13 = await S(() => globalThis.__catsup.paint.diag.state());
+check(st13.path === "auto" && !st13.check && !(await page.locator('#toolStrip button:has-text("走法")').isVisible()), `关读数 = 走法回到自动、核对关掉、两个钮收起（${JSON.stringify(st13)}）`);
 
 await browser.close();
 if (errs.length) { console.log("页面错误：", errs.slice(0, 5)); process.exitCode = 1; }

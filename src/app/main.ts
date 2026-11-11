@@ -9,6 +9,8 @@ import { mountSelectField, type SelectField } from "./ui/select-field.ts";
 import { ERASERS, BRUSHES, isReadOnlyTool, isPaintTool } from "../editor/tool-ids.ts";
 import { mountPaintMeterBadge, type PaintMeterBadge } from "./paint-meter-badge.ts";
 import { paintMeter } from "../paint/frame-meter.ts";
+import { strokeKindOpts, BRUSH_KIND_IDS, type BrushKind } from "../paint/brush-kinds.ts";
+import { CHECK_EVERY, displayDiag, DISPLAY_PATHS, DISPLAY_PATH_LABELS, MIPS_OF } from "../paint/display-diag.ts";
 import { inputGate, installInputDom } from "./input-dom.ts";
 import { planeLockLabel } from "../editor/locks.ts";
 import { snapSwitchLook, snapSwitchSay } from "../editor/grid-state.ts";
@@ -908,7 +910,12 @@ function deleteAction(): { id: string; label: string; icon?: string; title?: str
 }
 function toolActions(tool: string): { id: string; label: string; title?: string; disabled?: boolean; active?: boolean; onClick(el?: HTMLElement): void }[] {
     // 画画工作台的「读数」（贴图主线 1-4d 第 1 条）：每帧各段各花几毫秒的小角标；只在这一次打开里记
-    if (isPaintTool(tool)) return [{ id: "paintMeter", label: "读数", active: paintMeter.on, title: "每帧读数：这一帧各段（收点 / 打射线 / 走步 / 找面 / 画薄层 / 合成 / 拷贝 / 画场景）各花几毫秒、最近一秒掉了几帧（只在这一次打开里记）", onClick: () => { meterBadge?.toggle(); meterBadge?.sync(true); editor.draw(); } }];
+    if (isPaintTool(tool)) return [{ id: "paintMeter", label: "读数", active: paintMeter.on, title: "每帧读数：这一帧各段（收点 / 打射线 / 走步 / 找面 / 画薄层 / 合成 / 拷贝 / 缩小图 / 画场景）各花几毫秒、最近一秒掉了几帧（只在这一次打开里记）", onClick: () => { if (meterBadge?.toggle() === false) setDisplayPath("auto", false); meterBadge?.sync(true); syncUi(); editor.draw(); } },
+      // 读数开着才露（统筹 11-11；只在这一次打开里）：走法三档、核对。关读数 = 两个都回到正式的样子（不留着一条看不见的慢路）
+      ...(paintMeter.on ? [
+        { id: "paintPath", label: `走法：${DISPLAY_PATH_LABELS[displayDiag.path]}`, title: "显示那条链走哪条路：自动 = 只做这一帧改到的格（正式）→ 强制整张（同一个着色器每帧全做，量省了多少）→ 测量用（整张 + 驱动做缩小图 = 改之前那条路，量会不会负优化；远看的颜色可能和没画过的画差一点）", onClick: () => { setDisplayPath(DISPLAY_PATHS[(DISPLAY_PATHS.indexOf(displayDiag.path) + 1) % DISPLAY_PATHS.length], displayDiag.check); syncUi(); editor.draw(); } },
+        { id: "paintCheck", label: "核对", active: displayDiag.check, title: `每 ${CHECK_EVERY} 帧和每次抬笔之后：正显示着的（内核合成图 + 显示图每一级）和强制整张重来的逐字节比；对不上记进调试日志、角标亮一下。核对的那一帧不算进读数`, onClick: () => { displayDiag.check = !displayDiag.check; displayDiag.penUp = false; syncUi(); editor.draw(); } },
+      ] : [])];
     // 压平（W-5 2026-11-10 Opus；白模第一批第 2 条：iPad 上不用键盘、不用进手势就能「S X 0」）：缩放工具、没在做手势、右键「压平 ›」这会儿有东西（= 自由建模 + 选了点；放置表管工作台，这里不判 modeId）= 右下角「压平…」，弹的是那同一份
     if (tool === "scale" && !editor.isGestureActive() && submenuItems(hud, "压平").length) return [{ id: "flattenMenu", label: "压平…", title: "把选中的点沿一个方向压平：X / Y / Z / 这圈的朝向，镜像开着时还能压到镜像面（和右键「压平」同一份；一步撤销）", onClick: (el) => { if (el) openSubmenuAt(hud, el, "压平"); } }];
     // 画画工作台的「开始画…」/「把这几张面加进来」不在这里：上方正中的主按钮（施工单十五第三节；user「马后炮是高级配置，而不是核心工作流步骤」）
@@ -2549,7 +2556,31 @@ paintColor.subscribe(() => syncUi());
 // eslint-disable-next-line no-var
 // 每帧读数的小角标（1-4d 第 1 条）：编辑器画完一帧交给它；关着什么都不做
 // eslint-disable-next-line no-var
-var meterBadge: PaintMeterBadge | null = mountPaintMeterBadge({ sceneMs: () => editor.renderer3.lastMeasurement?.frameMs ?? 0, copyMs: () => (editor.renderer3 as unknown as { liveStats?(): { frameCopyMs: number } }).liveStats?.().frameCopyMs ?? 0 });
+var meterBadge: PaintMeterBadge | null = mountPaintMeterBadge({ sceneMs: () => editor.renderer3.lastMeasurement?.frameMs ?? 0, copyMs: () => editor.renderer3.liveFrameMs().copy, mipsMs: () => editor.renderer3.liveFrameMs().mips,
+  pathLabel: () => DISPLAY_PATH_LABELS[displayDiag.path], check: () => runPaintCheck() });
+/** 读数那一组的「走法」（统筹 11-11）：画那一侧报整张还是只报改到的格（space-paint 读 displayDiag.path）+ 渲染器的缩小图做法，一起换。 */
+function setDisplayPath(path: typeof displayDiag.path, check: boolean): void {
+  displayDiag.path = path; displayDiag.check = check; displayDiag.penUp = false;
+  editor.renderer3.liveMips(MIPS_OF[path]);
+}
+/**
+ * 读数那一组的「核对」（统筹 11-11）：每块热的画板——内核那张合成图 = 强制整张重合？显示图每一级 = 整张重拷？逐字节比。
+ * 对不上记进调试日志（哪张画、内核还是显示图、哪一级、哪一块、差了多少像素、走的哪条路），返回 false（角标亮一下）。都对上 = true，不记日志。
+ */
+function runPaintCheck(): boolean {
+  const d = paintCheckDetail();
+  for (const k of d.kernel) if (k.diff) note("paint", `核对：画 ${k.guid.slice(0, 8)} 内核合成图 ≠ 强制整张重合：差 ${k.diff} 像素，范围 (${k.box!.join(", ")})，走法 ${displayDiag.path}`);
+  for (const L of d.display) if (L.diff) note("paint", `核对：显示图 ${L.w}×${L.h} 第 ${L.level} 级 ≠ 整张重拷：差 ${L.diff} 像素，范围 (${L.box!.join(", ")})，走法 ${displayDiag.path}`);
+  return d.ok;
+}
+/** 核对的数（runPaintCheck 记日志用；探针直接读）：先比内核（verifyFull 留下整张那张），再比显示图（从整张那张重拷）。 */
+function paintCheckDetail(): { ok: boolean; kernel: { guid: string; diff: number; box: readonly number[] | null }[]; display: { w: number; h: number; level: number; diff: number; box: readonly number[] | null }[] } {
+  const kernel: ReturnType<typeof paintCheckDetail>["kernel"] = [], display: ReturnType<typeof paintCheckDetail>["display"] = [];
+  for (const g of paintBoards.guids()) { const k = paintBoards.verifyFull(g); if (k) kernel.push({ guid: g, ...k }); }   // 经登记处：核完把「准备好的」换成整张那张
+  editor.renderer3.resetPaintState();
+  for (const im of editor.renderer3.liveVerify()) for (const L of im.levels) display.push({ w: im.w, h: im.h, ...L });
+  return { ok: kernel.every((k) => !k.diff) && display.every((L) => !L.diff), kernel, display };
+}
 editor.afterRender = () => meterBadge?.frame();
 var paintWb: PaintWorkbench | null = new PaintWorkbench({ editor, boards: paintBoards, strokeDeps: (chain) => paintStrokeDeps(chain), gate: (t) => paintStrokeGate(t), color: paintColor, prep: paintPrep, flashStart: () => { primary.sync(); primary.flash("paint"); }, hint: (t) => { hintEl.textContent = t; } });
 function paintStrokeGate(texture: string): "warming" | "view-only" | null {
@@ -2566,6 +2597,10 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
 (window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor, canvasWin: () => canvasWin, meter: () => meterBadge,
   // 画板（贴图主线 1-3c；没有界面入口）：ensure = 给一张走画的贴图建画板（不给 GUID = 场景里第一张画）；fill = 灌一层像素（RGBA、画板大小）；探针 test/probes/probe-paint-display.mjs
   paint: {
+    /** 笔的种类表（paint/brush-kinds.ts；probe-live-region 按它跑）。 */
+    brushKinds: BRUSH_KIND_IDS,
+    /** 读数那一组的两个开关（统筹 11-11）：探针用——setPath = 角标「走法」那一下、check = 跑一次核对（true = 都对上）、state = 现在的开关。 */
+    diag: { setPath: (p: typeof displayDiag.path) => setDisplayPath(p, displayDiag.check), setCheck: (on: boolean) => { displayDiag.check = on; displayDiag.penUp = false; }, check: () => runPaintCheck(), detail: () => paintCheckDetail(), state: () => ({ ...displayDiag }), log: () => debugLogText() },
     boards: paintBoards,
     ensure: (guid?: string) => { const g = guid ?? [...editor.sceneRef.textures.keys()].find((t) => paintPlaceOf(editor.sceneRef, t)); if (!g) throw new Error("no placed paint in this scene"); const b = paintBoards.ensure(editor.sceneRef, g); editor.draw(); return { guid: g, width: b.width, height: b.height }; },
     fill: (guid: string, rgba: ArrayLike<number>) => { const b = paintBoards.get(guid); if (!b) throw new Error(`no board for ${guid}`); paintBoards.load(guid, { width: b.width, height: b.height, nodes: [{ name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: { rect: { x: 0, y: 0, w: b.width, h: b.height }, bytes: new Uint8ClampedArray(rgba) } }] }); editor.draw(); },
@@ -2579,7 +2614,7 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
     /** 画画工作台（1-7）：现在的颜色（一个入口）、控制器。 */
     color: paintColor, workbench: paintWb,
     /** 一整笔（贴图主线 1-4b；探针用）：屏幕点（CSS 像素）→ 1-4a 控制器 → 薄层（真显卡）→ 档口；每一点画一帧（准备在 draw 里）；cancel = 取消。第一笔时建画板。 */
-    stroke: (o: { guid?: string; points: readonly { x: number; y: number; p?: number }[]; size?: number; hardness?: number; color?: readonly number[]; accum?: "max" | "over"; erase?: boolean; cancel?: boolean; taperOut?: number; measure?: boolean; beforeUp?: () => void }) => {
+    stroke: (o: { guid?: string; points: readonly { x: number; y: number; p?: number }[]; size?: number; hardness?: number; color?: readonly number[]; accum?: "max" | "over"; erase?: boolean; kind?: BrushKind; cancel?: boolean; taperOut?: number; measure?: boolean; beforeUp?: () => void; midway?: () => void }) => {
       const S = editor.sceneRef, g = o.guid ?? [...S.textures.keys()].find((t) => paintPlaceOf(S, t));
       if (!g) throw new Error("no placed paint in this scene");
       const gate = paintStrokeGate(g);   // 落笔撞上冷的画：这一笔不开始、说一句、同时解开（1-8b）；以后真的笔（1-7）走同一个口
@@ -2591,7 +2626,8 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
       const prob = paintPrep.problem(pt);
       if (prob !== null) return { guid: g, refused: prob === "pending" ? "pending" : String((prob as { say?: string }).say ?? prob), prepMs };   // 撞到容量上限：这一笔不开始，交出那句人话
       void cam; void gpu;
-      const st = new SpacePaintStroke(paintStrokeDeps(), g, { brush, color: [o.color?.[0] ?? 0.1, o.color?.[1] ?? 0.1, o.color?.[2] ?? 0.1], accum: o.accum ?? "over", erase: o.erase });
+      const kindOpts = o.kind ? strokeKindOpts(o.kind) : { accum: o.accum ?? "over", erase: o.erase };   // kind = 按笔的种类表起笔（探针按表跑）；不给 = 老的散参数
+      const st = new SpacePaintStroke(paintStrokeDeps(), g, { brush, color: [o.color?.[0] ?? 0.1, o.color?.[1] ?? 0.1, o.color?.[2] ?? 0.1], ...kindOpts });
       // measure：每一帧各段（射线 + 走步 = move；准备里的取新笔尖 / 画薄层 / 交给档口；内核合成；拷到显示图；整帧）
       const frames: Record<string, number>[] = [], R3 = editor.renderer3 as unknown as { liveStats(): { copyMs: number } };
       const ctx = (document.getElementById("board") as HTMLCanvasElement).getContext("webgl2")!, px1 = new Uint8Array(4);
@@ -2603,6 +2639,7 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
         const b = performance.now();
         editor.draw();
         if (o.measure) sync();
+        if (i === o.points.length >> 1) o.midway?.();   // 探针：画到一半（笔还按着）那一帧之后（核对 / 比字节）
         if (o.measure) frames.push({ moveMs: b - a, drawMs: performance.now() - b, tips: st.tipCount(), ...st.lastFrame, gpuLayerMs: paintBoards.lastPrepare.jobsMs - st.lastFrame.tipsMs - st.lastFrame.hostMs, composeMs: paintBoards.lastPrepare.composeMs, copyMs: R3.liveStats().copyMs });
       });
       const range = st.range(), tips = st.tipCount(), buildMs = st.buildMs;

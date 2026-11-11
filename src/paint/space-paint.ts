@@ -3,6 +3,7 @@
 // 每帧的活登记进画板登记处的「准备」（编辑器在渲染之前明着调一次）：取笔尖 → 新定型的画进定型层、尾巴每帧重画 → 包成内核的纹理对象交给档口 → 画板合成。
 // 定型：笔尖所在那一段两头的路点都定型了（seg + 1 < 路的定型点数）。抬笔：收笔的渐细这时才知道总长，所以抬笔时定型层清掉、整笔重画一次（只这一次），再落层。
 // 橡皮 = 同一支笔，交给档口时 erase = true。取消 = 档口取消（零痕迹）。
+import { displayDiag } from "./display-diag.ts";
 import { SpaceStroke, type SpaceCamera } from "./space-stroke.ts";
 import { paintMeter } from "./frame-meter.ts";
 import { SpaceLayer, type FaceTables } from "./space-layer.ts";
@@ -144,9 +145,11 @@ export class SpacePaintStroke {
     const t2 = performance.now();
     // 当帧那张真变过的格子（内核的脏格子位图，薄层直接标的）：报给内核（它只重合这些格）和画板的变化史（显示那一侧只拷这些格）。这一帧什么都没画 = null = 不重合成（1-4d 第 6 条）
     //   叫过 markChanged 之后，改了像素就必须报（没报 = 那块在显示上留着旧的，直到下一次整张；存盘不受影响）：当帧那张只在 update / resetFrozen 里改，两处都记进位图
-    const tc = performance.now(), ch = this.layer.takeChanged();
+    //   读数角标「强制整张 / 测量用」（display-diag.ts，只在这次打开里）：照样标格（读数照记），但报整张——内核整张合成、显示图整张拷
+    const tc = performance.now(), ch = this.layer.takeChanged(), whole = displayDiag.path !== "auto";
     let runs = 0, cells = 0, bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
-    if (ch) for (const run of ch.runs()) {
+    if (ch && whole) { const f = this.layer.frame; this.ext!.markChanged(0, 0, f.w, f.h); runs = 1; cells = f.w * f.h; bx0 = 0; by0 = 0; bx1 = f.w; by1 = f.h; }
+    else if (ch) for (const run of ch.runs()) {
       this.ext!.markChanged(run.x, run.y, run.w, run.h); runs++; cells += run.w * run.h;
       bx0 = Math.min(bx0, run.x); by0 = Math.min(by0, run.y); bx1 = Math.max(bx1, run.x + run.w); by1 = Math.max(by1, run.y + run.h);
     }
@@ -154,7 +157,7 @@ export class SpacePaintStroke {
     const cellsMs = this.layer.lastMarkMs + (performance.now() - tc);   // 这一帧算这张图（标格 + 出行段 + 报）
     const r = this.layer.range();
     if (r) this.session!.setHostLayers([{ tex: this.ext!, bx: r.x, by: r.y, bw: r.w, bh: r.h, layerId: this.layerId, opacity: 1, erase: !!this.o.erase, blendMode: "source-over" }]);
-    this.board.overlayChanged(ch);
+    this.board.overlayChanged(ch && whole ? undefined : ch);
     this.lastFrame = { fresh: tips.length, frozen: frozenHere, tipsMs: t1 - t0, layerMs: t2 - t1, hostMs: performance.now() - t2, cellsMs, runs, cells, boxCells };
   }
   private finish(): void {
@@ -162,7 +165,7 @@ export class SpacePaintStroke {
     if (this.session) this.session.end();   // 内核落层、封一步（经 HostedSteps 交到画板登记处攒着）
     this.board.overlayChanged();
     this.close();
-    if (landed) this.d.commitStep?.(!!this.o.erase);   // 攒着的那几步交给三维的撤销栈：一笔 = 一步（1-8a）
+    if (landed) { this.d.commitStep?.(!!this.o.erase); displayDiag.penUp = true; }   // 读数角标「核对」开着：抬笔之后核对一次   // 攒着的那几步交给三维的撤销栈：一笔 = 一步（1-8a）
   }
   private close(): void { this.unhook(); this.untrack(); this.layer?.dispose(); this.layer = null; this.session = null; }
 }

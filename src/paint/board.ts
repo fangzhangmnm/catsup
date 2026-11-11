@@ -8,6 +8,7 @@ import { PaintingWorkpiece, type PaintingData } from "./kernel/src/backend/workp
 import { isGroupNode, type TreeNode } from "./kernel/src/backend/workpiece/layer-tree.ts";
 import { GLBoard } from "./kernel/src/shell/gl-board.ts";
 import { poolCapacityForBudget } from "./kernel/src/backend/gl/gl-room.ts";
+import { diffBox } from "../minccino/contract/pixel-diff.ts";
 import type { DocNode } from "./kernel/src/backend/gl/gl-doc-bridge.ts";
 import type { ExternalImage, ExternalTexture, Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
 import type { StepSink } from "./kernel/src/backend/workpiece/undo-stack.ts";
@@ -224,6 +225,22 @@ export class PaintBoard {
     if (!fbo) return null;
     const px = this.port.readPixels(fbo, 0, 0, this.width, Math.min(rows, this.height));
     return new Uint8ClampedArray(px.buffer, px.byteOffset, px.byteLength);
+  }
+  /**
+   * 核对（读数角标「核对」开着时；统筹 11-11）：现在显示的那张合成图（可能是只合了脏格的）读回 → 强制整张重合（同样的内容、同样垫着薄层）→ 再读回，逐字节比。
+   * 整张那张留下来当现在的图；对不上 = 变化史记一版「整张」（显示那一侧下一帧整张重拷，不留着错的）。没合成过 / 画面丢了 = null。读回会等显卡做完：只在核对那一帧做。
+   */
+  verifyFull(): { diff: number; box: readonly [number, number, number, number] | null } | null {
+    const r = this.compose();
+    if (!r) return null;
+    const a = this.port.readPixels(r.fbo, 0, 0, this.width, this.height);
+    this.gl.markContentDirty();
+    const fbo = this.gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg, [], this.hostOverlays);
+    if (!fbo) { this.last = null; this.lastCommitted = null; return null; }
+    this.last = { fbo, key: this.key() };
+    const d = diffBox(this.port.readPixels(fbo, 0, 0, this.width, this.height), a, this.width);
+    if (d.diff) { this.history.push({ version: ++this.shown, change: "all" }); if (this.history.length > HISTORY) this.history.shift(); }
+    return d;
   }
   /** 显示的那张合成图上一格的颜色（RGBA 字节，垫着底色、不透明；吸管用，1-7）。出界 / 显卡画面丢了 = null。 */
   pixelAt(x: number, y: number): Uint8Array | null {

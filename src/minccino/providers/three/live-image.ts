@@ -13,6 +13,7 @@
 // 这里只用原始 GL；动完显卡由调用的人统一 renderer.resetState() 一次。
 import * as THREE from "three";
 import type { LiveImage, ChangedCells } from "../../contract/stream.ts";
+import { diffBox } from "../../contract/pixel-diff.ts";
 
 /** 每个实例一个方框（这一级视口里 [0,1] 的 x, y, w, h）：只拷 / 只重做这些格（1-4d 第 6 条）；整张 = 一个实例 (0, 0, 1, 1)。六个顶点拼一个方块。 */
 const VS = `#version 300 es
@@ -71,16 +72,25 @@ export class LiveTextures {
   /**
    * 缩小图怎么跟（1-4d 第 6 条要量两种做法）："region" = 每次只重做变了的那一块牵涉到的格子（默认）；
    * "defer" = 画的时候只拷第 0 级、缩小图等不再变了（有一帧没有新版本）再整套做一次——只给探针量，缩小着看会看不到正在画的那一笔；
-   * "full" = 不看变化史、每次整张（改之前的做法，只给探针当对照量）。
+   * "full" = 不看变化史、每次整张（同一个着色器；读数角标「强制整张」、探针当对照量）；
+   * "driver" = 每次整张、缩小图交给驱动的 generateMipmap（= 改之前那条路；读数角标「测量用」，只为量会不会负优化——远看的颜色可能和冷的合成图差一点）。
+   * 换做法用 setMipMode（换了 = 下一帧整张重拷，两种算法的缩小图不混在一张图里）。
    */
-  mipMode: "region" | "defer" | "full" = "region";
+  mipMode: "region" | "defer" | "full" | "driver" = "region";
+  setMipMode(m: "region" | "defer" | "full" | "driver"): void {
+    if (m === this.mipMode) return;
+    this.mipMode = m;
+    for (const e of this.entries.values()) e.ver = -1;
+  }
   /** 最近一次拷了多少格（第 0 级的像素数）、几段（实例数）（探针量）。 */
   lastCopyCells = 0;
   lastCopyRuns = 0;
   /** 最近一次拷贝（拷 + 生成缩小图）花了多少毫秒（CPU 时间；探针量）。 */
   lastCopyMs = 0;
-  /** 这一帧拷了多久（每次 update 从 0 记起；没拷 = 0）。 */
+  /** 这一帧拷第 0 级花了多久（不含缩小图；每次 update 从 0 记起；没拷 = 0）。 */
   frameCopyMs = 0;
+  /** 这一帧做缩小图花了多久（读数角标单列：缩小图每级一趟，真机上占多少要一眼看得见；统筹 11-11）。 */
+  frameMipsMs = 0;
   private readonly gl: WebGL2RenderingContext;
   constructor(gl: WebGL2RenderingContext) { this.gl = gl; }
 
@@ -145,7 +155,7 @@ export class LiveTextures {
 
   /** 画的时候：挨个问 current()（只读准备好的），版本变了的拷进显示图。返回 true = 拷过（调用的人 resetState 一次）。一张都没有 = 什么都不做。 */
   update(): boolean {
-    this.frameCopyMs = 0;
+    this.frameCopyMs = 0; this.frameMipsMs = 0;
     if (!this.entries.size && !this.statics.size) return false;
     let touched = false;
     for (const s of this.statics) if (!s.disp && !this.gl.isContextLost()) { this.upload(s); touched = true; }   // 显卡画面丢过：从位图重传
@@ -153,17 +163,17 @@ export class LiveTextures {
       const cur = img.current();   // 只读准备好的结果（合成在编辑器的「准备」里，1-4b）
       if (!cur) continue;
       if (cur.version === e.ver && e.disp && e.w === img.width && e.h === img.height) {
-        if (e.mipsStale) { const t0 = performance.now(); this.mips(e.disp, e.w, e.h, "all"); e.mipsStale = false; touched = true; this.frameCopyMs += performance.now() - t0; }   // defer：不再变了，整套补上
+        if (e.mipsStale) { this.mips(e.disp, e.w, e.h, "all"); e.mipsStale = false; touched = true; }   // defer：不再变了，整套补上
         continue;
       }
-      const t0 = performance.now();
-      // 从上次拷过的版本到现在变了哪些格：没给口 / 第一次 / 大小变了 / 说不清 = 整张
+      const t0 = performance.now(), m0 = this.frameMipsMs;
+      // 从上次拷过的版本到现在变了哪些格：没给口 / 第一次 / 大小变了 / 说不清 / 强制整张的两种做法 = 整张
       const fresh = !e.disp || e.w !== img.width || e.h !== img.height || e.ver < 0;
-      const ch = fresh || !img.changedSince || this.mipMode === "full" ? "all" : img.changedSince(e.ver);
+      const ch = fresh || !img.changedSince || this.mipMode === "full" || this.mipMode === "driver" ? "all" : img.changedSince(e.ver);
       this.copy(e, cur.gpuImage as WebGLTexture, img.width, img.height, ch !== "all" && (ch.w !== img.width || ch.h !== img.height) ? "all" : ch);
       touched = true;
-      this.lastCopyMs = performance.now() - t0;
-      this.frameCopyMs += this.lastCopyMs;
+      this.lastCopyMs = performance.now() - t0;   // 拷 + 缩小图（探针量的口径）
+      this.frameCopyMs += this.lastCopyMs - (this.frameMipsMs - m0);
       e.ver = cur.version;
     }
     return touched;
@@ -269,6 +279,7 @@ export class LiveTextures {
     gl.uniform1i(this.uSrc, 0);
     this.lastCopyRuns = this.drawRuns(runs, w, h);
     if (this.mipMode === "defer") e.mipsStale = true;
+    else if (this.mipMode === "driver") { const t0 = performance.now(); gl.bindTexture(gl.TEXTURE_2D, e.disp); gl.generateMipmap(gl.TEXTURE_2D); this.frameMipsMs += performance.now() - t0; }
     else this.mips(e.disp!, e.w, e.h, ch);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.bindVertexArray(null);
@@ -281,7 +292,7 @@ export class LiveTextures {
    * 画第 l 级时显示图只开着第 l − 1 级（BASE = MAX = l − 1：读的和写的不是同一级，不算读写打架）；做完恢复成整套。
    */
   private mips(disp: WebGLTexture, w: number, h: number, ch: ChangedCells | "all"): void {
-    const gl = this.gl, n = levelsOf(w, h);
+    const gl = this.gl, n = levelsOf(w, h), t0 = performance.now();
     this.ensureProgram();
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
     for (const cap of [gl.BLEND, gl.DEPTH_TEST, gl.SCISSOR_TEST, gl.CULL_FACE, gl.STENCIL_TEST, gl.RASTERIZER_DISCARD]) gl.disable(cap);
@@ -307,6 +318,40 @@ export class LiveTextures {
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this.frameMipsMs += performance.now() - t0;
+  }
+
+  /**
+   * 核对（读数角标「核对」开着时；统筹 11-11）：每张活的图的显示图每一级读回 → 按现在的做法整张重拷（同一张合成图）→ 再读回，逐字节比。
+   * 整张那份留下来当现在的显示图（对不上时它才是对的）。读回会等显卡做完：只在核对那一帧做。动了显卡：调用的人 resetState() 一次。
+   */
+  verify(): { w: number; h: number; levels: { level: number; diff: number; box: readonly [number, number, number, number] | null }[] }[] {
+    const out: ReturnType<LiveTextures["verify"]> = [];
+    for (const [img, e] of this.entries) {
+      const cur = img.current();
+      if (!cur || !e.disp || e.w !== img.width || e.h !== img.height) continue;
+      const before = this.readLevels(e.disp, e.w, e.h);
+      const saved = this.lastCopyCells, savedRuns = this.lastCopyRuns, m0 = this.frameMipsMs;
+      this.copy(e, cur.gpuImage as WebGLTexture, e.w, e.h, "all");
+      this.lastCopyCells = saved; this.lastCopyRuns = savedRuns; this.frameMipsMs = m0;   // 核对那一下不算进这一帧的读数
+      e.ver = cur.version;
+      const after = this.readLevels(e.disp, e.w, e.h);
+      out.push({ w: e.w, h: e.h, levels: before.map((a, l) => ({ level: l, ...diffBox(a.px, after[l].px, a.w) })) });
+    }
+    return out;
+  }
+  private readLevels(disp: WebGLTexture, w: number, h: number): { w: number; h: number; px: Uint8Array }[] {
+    const gl = this.gl, n = levelsOf(w, h), out: { w: number; h: number; px: Uint8Array }[] = [];
+    this.ensureProgram();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+    for (let l = 0; l < n; l++) {
+      const lw = Math.max(1, w >> l), lh = Math.max(1, h >> l), px = new Uint8Array(lw * lh * 4);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, disp, l);
+      gl.readPixels(0, 0, lw, lh, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      out.push({ w: lw, h: lh, px });
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return out;
   }
 }
 

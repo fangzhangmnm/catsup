@@ -587,6 +587,8 @@ html.windows-hidden .float-win, html.windows-hidden .board, html.windows-hidden 
 .meter-badge b { grid-column: 1 / -1; font-size: 12px; }
 .meter-badge .meter-head { color: var(--muted); }
 .meter-badge .meter-foot { grid-column: 1 / -1; text-align: left !important; margin-top: 2px; }
+.meter-badge .meter-note { color: var(--muted); }
+.meter-badge.meter-alert { border-color: var(--danger, #c33); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger, #c33) 40%, transparent); }   /* 核对对不上：亮一下（1.5 秒） */
 .left-dial-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .left-dial-label { color: var(--muted); line-height: 0; user-select: none; }
 /* 自己画的竖滑条（ui/vslider.ts）：一根细轨 + 墨色填充 + 圆钮；--p = 0..1（下 → 上） */

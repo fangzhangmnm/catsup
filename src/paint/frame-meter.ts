@@ -4,14 +4,14 @@
 // 段（和统筹 11-11 列的那几段一一对应；界面上的字在 METER_LABELS）：
 //   input 收点和滤抖（SpaceStroke.feed → StrokeCore.extend）· rays 打射线（SpacePathPlacer.place）· walk 走步取笔尖（StrokeCore.forEachTip，减掉找面）·
 //   reach 找面（tipReach）· layer 画薄层（SpaceLayer.update，CPU 这边交给显卡的时间）· compose 内核合成（PaintBoards.prepare 里合成那一段）·
-//   copy 拷到显示图和做缩小图（渲染器的活的图那一段）· scene 三维画场景（渲染一帧减掉 copy）。
-export const METER_SEGS = ["input", "rays", "walk", "reach", "layer", "compose", "copy", "scene"] as const;
+//   copy 拷到显示图 · mips 做缩小图（渲染器的活的图那一段，两段分开记：缩小图每级一趟，真机上它占多少要一眼看得见；统筹 11-11）· scene 三维画场景（渲染一帧减掉 copy 和 mips）。
+export const METER_SEGS = ["input", "rays", "walk", "reach", "layer", "compose", "copy", "mips", "scene"] as const;
 export type MeterSeg = (typeof METER_SEGS)[number];
 export const METER_LABELS: Readonly<Record<MeterSeg, string>> = {
-  input: "收点和滤抖", rays: "打射线", walk: "走步取笔尖", reach: "找面", layer: "画薄层", compose: "内核合成", copy: "拷到显示图和做缩小图", scene: "三维画场景",
+  input: "收点和滤抖", rays: "打射线", walk: "走步取笔尖", reach: "找面", layer: "画薄层", compose: "内核合成", copy: "拷到显示图", mips: "做缩小图", scene: "三维画场景",
 };
 export type MeterFrame = Record<MeterSeg, number>;
-const zero = (): MeterFrame => ({ input: 0, rays: 0, walk: 0, reach: 0, layer: 0, compose: 0, copy: 0, scene: 0 });
+const zero = (): MeterFrame => ({ input: 0, rays: 0, walk: 0, reach: 0, layer: 0, compose: 0, copy: 0, mips: 0, scene: 0 });
 
 export const paintMeter = {
   /** 开关（画画工作台工具条上的「读数」；只在这一次打开里记）。 */
