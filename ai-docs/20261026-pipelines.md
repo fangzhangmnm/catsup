@@ -672,3 +672,23 @@ SpaceStroke（paint/space-stroke.ts；目标名单 + 相机两个函数 + 内核
 - 改前 → 改后：实例方块从「整块画布多边形的格子范围」改成 tipUvBox 之后，同一笔（836 颗）的范围 670×336 → 468×134；每帧上传的从「到现在的全部实例」改成「这一帧的」；拷定型层从整张改成这一笔的范围。
 - **还随整个模型 / 整笔涨的点**：每帧从头数一遍笔尖位置（内核 StrokeCore.forEachTip 没有「从第几颗起」的口）；落笔建紧凑表随画板格数（2048 见方 178 ms）；内核合成每帧整张合成（随画板大小，不随笔画）。
 - **换手的规矩**（统筹 11-11）：共用一个显卡画面的三方（three、画画内核、三维的离屏接口），**进门的人自己把要用的状态全设好，不假设别人留下了什么**；three 因为有状态缓存，别人动过之后要叫它作废（离屏接口每个动作结尾、画板合成之后各 `renderer.resetState()` 一次）。画画内核合成之后会留着第 0 个贴图槽和顶点缓冲的绑定——照这条规矩是允许的：**不许假设第 0 个贴图槽是空的**。离屏接口的进门 = `offscreen-gpu-gl.ts enter()`（开关、颜色写、上传 / 读回缓冲和开关；画的时候贴图槽上的采样器解开）；探针 `probe-space-rules` ⑤′ 把状态弄脏再画、逐字节对干净时画的。
+
+## 追记 2026-11-11（贴图主线 1-2½，Claude Opus 5.5，等 Fable 看过才合）：贴图坐标进文件
+
+```
+存：documentFromScene → 先查「内核里有一列、贴图坐标表里没有那一行」= 内部出错、抛（不悄悄丢）
+    → definitionToDoc（网格体）→ meshDocFromKernel(内核, 表的每一行)：每一套从内核里同 GUID 的列取，和 loopVert 同序，这一套没值的面写 NaN
+    → encodeMeshItem：有 uvSets = 盖 CATSUP_mesh 2.0 + uvSets[{ guid, name, width, height, pxPerM, loopUv: bufferView }]；没有 = 照旧盖 1.2（逐字节和以前一样）
+读：decodeMeshItem → migrateExtension（2.x 以上 = 拒开；1.x → 2.0 空迁移）→ readUvSets 收口（坏的部分按没有处理、记进 readNotes.uvDropped）：
+      整个 uvSets 不是列表 / 一项不是对象 / 一套的身份号、宽高、密度、loopUv 不对 → 这一整套不认；同一个网格体里重号 → 这几套都不认；
+      一张面一半有数一半 NaN、无穷大、落在画布外面 → 这张面在这一套上整面写成 NaN
+    → readDocument 末尾 paintReadChecks：别的定义借用单品的画 → 那一格当没有材质；layout 指不到 → 孤儿；走画的面没有位置 → 记一笔
+    → sceneFromDocument：表的行 + kernelFromMeshDoc 每一套建一列、整面有值才给（读进来的一定过 paintIssues 自检）
+    → Session.noteFormat → formatNotesSay：每一条一个通知（哪个物件、哪一套、几张面、为什么；坏数据那几条说明「再存盘会把这些坏的部分去掉」）
+比内容（粘贴对账）：canonMesh 每张面的角上的数跟着面一起转（从最小下标起）、按面排序；套按身份号排
+```
+
+- 碰多少东西：存 / 读都随「角数 × 套数」涨（一遍扫），不随画板大小涨；收口那一遍同样一遍扫。
+- 实测（node）：`uvPainted` 样本 11 KB（12 张面、一套 1024×256、一张两层的画 2.3 KB），来回一趟和再存都逐字节一样。
+- 拿旧版本真代码读新文件：`node scripts/old-reader-check.mjs [--n 200] [--seed 1] [提交…]`（默认 v0.18.50 = 53878ec、v0.19.18 = 609bff1；各读 17 份 golden + 200 份随机）。
+- **还随整个模型涨的点**：没有新的（贴图坐标跟着网格体本来就整份存）。

@@ -43,8 +43,8 @@ export declare const FORMAT: {
     };
     /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
     readonly CATSUP_mesh: {
-        readonly major: 1;
-        readonly minor: 2;
+        readonly major: 2;
+        readonly minor: 0;
         readonly patch: 0;
     };
     readonly CATSUP_shelf: {
@@ -60,6 +60,8 @@ export declare const FORMAT: {
 };
 export type CatsupExtension = keyof typeof FORMAT;
 export declare const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[];
+/** 不带贴图坐标的网格体照旧盖的拍子（「只写当前拍」的例外，见头注释 1-2½ 那一节）：和 2.0 之前写出来的逐字节一样。 */
+export declare const MESH_STAMP_NO_UV: Stamp;
 /** 各子结构的 major（老名字，读写两端的 too-new 判定与 STEPS 索引都用它）。 */
 export declare const EXTENSION_VERSIONS: Readonly<Record<CatsupExtension, number>>;
 /** 写入器盖拍子：`version` 必写；`minor` / `patch` 是可选键（缺 = 0），为 0 时不写——省字节（§3.2「抠」），字节照样确定。 */
@@ -98,6 +100,38 @@ export interface FormatReadNotes {
     texturesTooNew?: Stamp; /** 材质的 channels 指着贴图表里没有的 GUID：那一格当空的（不猜、不造）。 */
     danglingTextureRefs?: number; /** 贴图表里有本版不认识的 content 种类（整行原样带回、显示成灰色占位）。 */
     unknownTextureKinds?: number;
+    /** 贴图坐标坏了、这次打开按「没有」处理的地方（1-2½，契约第五节：贴图坐标是模型的附属数据，坏了模型照开）：哪个定义、哪一套（整套不认、连身份号都坏了 = null）、几张面、为什么。再存盘会把它们去掉。 */
+    uvDropped?: UvDropNote[];
+    /** 走画的面在那一套上没有位置（照材质的底色显示）：哪个定义、哪一套、几张面。 */
+    paintUnplaced?: {
+        def: {
+            guid: string;
+            name: string;
+        };
+        uvSet: {
+            guid: string;
+            name: string;
+        };
+        faces: number;
+    }[];
+    /** 接了单品的画的材质被别的定义的槽表引用：那一格这次当没有材质（几格）。再存盘会去掉这些引用。 */
+    foreignPaintSlots?: number;
+    /** 贴图的 layout 指向不存在的定义或那一套：这张贴图当孤儿留着（几张）。 */
+    orphanPaintTextures?: number;
+}
+/** 贴图坐标坏了的一处（为什么：整个 uvSets 不是列表 / 这一套的身份号、宽高、密度、角上的数那一段不对 / 几套同一个身份号 / 面的角一半有数一半没有、不是有限数、落在画布外面）。 */
+export type UvDropWhy = "not-a-list" | "not-an-object" | "bad-guid" | "bad-size" | "bad-density" | "no-loopUv" | "bad-length" | "duplicate-guid" | "partial-corners" | "non-finite-corners" | "off-canvas-corners";
+export interface UvDropNote {
+    readonly def: {
+        readonly guid: string;
+        readonly name: string;
+    };
+    readonly uvSet: {
+        readonly guid: string;
+        readonly name: string;
+    } | null;
+    readonly faces: number;
+    readonly why: UvDropWhy;
 }
 export declare const emptyReadNotes: () => FormatReadNotes;
 export type MigrationStep = (json: Record<string, unknown>, ctx?: MigrationCtx) => Record<string, unknown>;
