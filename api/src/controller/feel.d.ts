@@ -76,3 +76,7 @@ export declare const XG_UNIFORM_OFFSET_PX = 34, XG_ARROW_PX = 100, XG_ARROW_STAR
 export declare const VIEW_GIZMO_DRAG_SLOP_PX = 6;
 /** 按住修饰键多久不按别的键 = 状态行露出「这一层按住它是什么」（接线清单第 5 条；比长按短：是看一眼，不是动作）。毫秒。 */
 export declare const MOD_PEEK_MS = 450;
+/** 光标射线和锁着的面的夹角余弦不大于它 = 视线贴着面：不用交点、退回投影（≈ 2.9°；和硬表面 editor.ts lockToPlane 的 0.05 同一个数）。无量纲。 */
+export declare const LOCK_GRAZE_COS = 0.05;
+/** 锁面拖动一下最远走多少：几个画面高（在抓住的点那个深度、垂直于按下那条射线量）。 */
+export declare const LOCK_DRAG_MAX_SCREENS = 10;

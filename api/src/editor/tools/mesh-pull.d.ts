@@ -18,6 +18,9 @@ export declare class MeshPullTool implements ToolHandler {
     private nW;
     private alongScale;
     private grabW;
+    private r0;
+    /** 这一帧锁面拖动有没有退回投影 / 夹住（读数后面说一句）。 */
+    private lockNote;
     private start;
     private cur;
     /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
@@ -63,6 +66,8 @@ export declare class MeshPullTool implements ToolHandler {
     /** 右键 = 原地留下（Blender E 然后右键）：挤出 0——几何长出来叠在原地，新长出来的成为选区，接着 G 挪。 */
     commitInPlace(ctx: ToolCtx): void;
     private commit;
+    /** 锁面拖动一下最远走多少（同移动）。 */
+    private maxLen;
     private what;
     /** 屏幕点 → 过轴心、垂直于视线的平面上的点（世界）。 */
     private onPlane;
