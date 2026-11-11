@@ -673,6 +673,22 @@ SpaceStroke（paint/space-stroke.ts；目标名单 + 相机两个函数 + 内核
 - **还随整个模型 / 整笔涨的点**：每帧从头数一遍笔尖位置（内核 StrokeCore.forEachTip 没有「从第几颗起」的口）；落笔建紧凑表随画板格数（2048 见方 178 ms）；内核合成每帧整张合成（随画板大小，不随笔画）。
 - **换手的规矩**（统筹 11-11）：共用一个显卡画面的三方（three、画画内核、三维的离屏接口），**进门的人自己把要用的状态全设好，不假设别人留下了什么**；three 因为有状态缓存，别人动过之后要叫它作废（离屏接口每个动作结尾、画板合成之后各 `renderer.resetState()` 一次）。画画内核合成之后会留着第 0 个贴图槽和顶点缓冲的绑定——照这条规矩是允许的：**不许假设第 0 个贴图槽是空的**。离屏接口的进门 = `offscreen-gpu-gl.ts enter()`（开关、颜色写、上传 / 读回缓冲和开关；画的时候贴图槽上的采样器解开）；探针 `probe-space-rules` ⑤′ 把状态弄脏再画、逐字节对干净时画的。
 
+## 追记 2026-11-11（施工单十五，Claude Opus 5.5）：开始画——选画布大小、连成片、留格跟着画布
+
+```
+上方正中主按钮「开始画…」（app/primary-button.ts；改模型的行先问输入闸）
+  → 面板（canvas-size-picker.ts，openRowsSheet）：五档各按「连成片 + 留格」真铺一遍（layoutFaces，只算不改）→ 一格多大；open-memory.ts → 打开占多少显存
+     物件已有画、选了没进画的面：多几行「加进已有的画」（layoutAppend 照补面的铺法试一遍，只算不改）
+  → 选了一行：新开 = runAction("mesh.startPaint", { canvas, arrange: "patches" }) → applyStartPaint：layoutFaces(base = canvas, gap = gapForCanvas(canvas), style)
+               加进 = runAction("mesh.paintAddFaces", { texture }) → meshPaintFaces → 画的维护那一步 layoutAppend(gap = gapForCanvas(那张画布的宽))
+layoutFaces(style = patches)：patchesOf（种子按面积；沿公共边先进先出；每个三角形和 e × t 的夹角 < 45°；压平不叠 = 分离轴 + 格子哈希）
+  → 每个密度：每片 flattenAll（和一张面一块同一串算式）→ 按包围盒一行一行排（pack）→ 二分找 base 见方里放得下的最大密度
+```
+
+- 碰多少东西：分片一次 O(面 + 边)（叠没叠用格子哈希，只比附近的三角形）；每个密度 O(角数)；二分 ~log(密度) 次。面板五档 = 五次（大模型上一行一行填，不挡面板）。
+- 实测（软件显卡这台电脑，2021 的 7835 张面）：面板五档填完肉眼一两秒；数在施工单十五的施工记录里。
+- **还随整个模型涨的点**：开始画那一下的铺法随面数（只在开始画 / 换大小时做一次，不在落笔路径上）。
+
 ## 追记 2026-11-11（贴图主线 1-4c，Claude Opus 5.5，小弟自己合）：画画的准备 + 每格的表定长
 
 1-4b 那一条（上一节）改了三处，别的不变：
