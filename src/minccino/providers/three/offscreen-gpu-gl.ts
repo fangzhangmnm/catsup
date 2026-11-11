@@ -1,5 +1,5 @@
 // providers/three/offscreen-gpu-gl.ts —— 画进离屏图的那个小显卡接口的真显卡版（契约 contract/offscreen-gpu.ts；贴图主线 1-4b）。created 2026-11-11 by Claude Opus 5.5
-// 原始 WebGL2（和 live-image.ts 同一种写法；不经 three 的对象）。离屏图 = RGBA8 贴图 + 帧缓冲；数据图 = R32F 贴图（最近邻、夹边，texelFetch 取）。
+// 原始 WebGL2（和 live-image.ts 同一种写法；不经 three 的对象）。离屏图 = RGBA8 贴图 + 帧缓冲；数据图 = R32F / RGBA16UI 贴图（最近邻、夹边，texelFetch 取）。
 // 画：单位方块（两个三角形）× 实例（每实例四个数，divisor 1），drawArraysInstanced；取最大 = blendEquation(MAX)，预乘叠加 = FUNC_ADD + (ONE, ONE_MINUS_SRC_ALPHA)。
 // 往 8 位的图里写 = 显卡自己四舍五入（和软件版每次写入四舍五入同一种次序）。
 // 换手的规矩（统筹 11-11 定的一句话）：共用一个显卡画面的三方（three、画画内核、这里），**进门的人自己把要用的状态全设好，不假设别人留下了什么**；
@@ -21,7 +21,10 @@ export class GlOffscreenGpu implements OffscreenGpu {
   /** 最近一次 draw 花了多少毫秒（CPU 时间；探针量）。 */
   lastDrawMs = 0;
 
-  constructor(gl: WebGL2RenderingContext, touched: () => void) { this.gl = gl; this.touched = touched; }
+  /** 每边最多多少格（MAX_TEXTURE_SIZE；契约 maxSize）。 */
+  readonly maxSize: number;
+  constructor(gl: WebGL2RenderingContext, touched: () => void) { this.gl = gl; this.touched = touched; this.maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number; }
+  private fits(w: number, h: number): void { if (!(w >= 1 && h >= 1 && w <= this.maxSize && h <= this.maxSize)) throw new Error(`OffscreenGpu: ${w}x${h} is outside 1..${this.maxSize} per side (MAX_TEXTURE_SIZE)`); }
 
   register(p: OffscreenProgram): void {
     if (this.programs.has(p.name)) throw new Error(`OffscreenGpu: program ${p.name} registered twice`);
@@ -42,6 +45,7 @@ export class GlOffscreenGpu implements OffscreenGpu {
   }
 
   image(w: number, h: number): OffscreenImage {
+    this.fits(w, h);
     const gl = this.gl, tex = gl.createTexture()!, fbo = gl.createFramebuffer()!;
     this.enter();
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -55,16 +59,17 @@ export class GlOffscreenGpu implements OffscreenGpu {
     return im;
   }
 
-  data(w: number, h: number, values: Float32Array | Uint16Array, format: "r32f" | "rg16ui" = "r32f"): OffscreenData {
-    const u16 = format === "rg16ui";
-    if (values.length !== w * h * (u16 ? 2 : 1)) throw new Error(`OffscreenGpu.data: ${values.length} values for ${w}x${h} ${format}`);
+  data(w: number, h: number, values: Float32Array | Uint16Array, format: "r32f" | "rgba16ui" = "r32f"): OffscreenData {
+    this.fits(w, h);
+    const u16 = format === "rgba16ui";
+    if (values.length !== w * h * (u16 ? 4 : 1)) throw new Error(`OffscreenGpu.data: ${values.length} values for ${w}x${h} ${format}`);
     if (u16 !== (values instanceof Uint16Array)) throw new Error(`OffscreenGpu.data: ${format} needs ${u16 ? "Uint16Array" : "Float32Array"}`);
     const gl = this.gl, tex = gl.createTexture()!;
     this.enter();
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, u16 ? gl.RG16UI : gl.R32F, w, h);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, u16 ? gl.RGBA16UI : gl.R32F, w, h);
     this.params();
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, u16 ? gl.RG_INTEGER : gl.RED, u16 ? gl.UNSIGNED_SHORT : gl.FLOAT, values);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, u16 ? gl.RGBA_INTEGER : gl.RED, u16 ? gl.UNSIGNED_SHORT : gl.FLOAT, values);
     this.restore();
     const d: GlData = { kind: "offscreen-data", w, h, format, tex };
     return d;

@@ -50,3 +50,17 @@ export function gridMesh(n: number, size: number, h: (x: number, y: number) => n
   for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) m.addFace([id[i][j], id[i + 1][j], id[i + 1][j + 1], id[i][j + 1]], -1, FRESH);
   return m;
 }
+
+/** 细分的正方体（边长 size，每面 n × n 个四边形，共 6n² 张面，棱上的点共用、面朝外）：规模样本用（1-4c；n = 4 / 8 / 16 / 32 / 64 = 96 / 384 / 1536 / 6144 / 24576 张面）。 */
+export function boxMesh(n: number, size = 1): MeshKernel {
+  const m = new MeshKernel(), ids = new Map<number, number>(), K = n + 1, h = size / 2;
+  const vid = (i: number, j: number, k: number): number => { const key = (i * K + j) * K + k; let v = ids.get(key); if (v === undefined) { v = m.addVertex(P(-h + (size * i) / n, -h + (size * j) / n, -h + (size * k) / n)); ids.set(key, v); } return v; };
+  // 每一面：固定一个轴在 0 或 n，另两个轴 (a, b) 走格子；角的顺序让法向朝外（a × b 朝外；在 0 那一面反过来）
+  const sides: [number, number, number][] = [[0, 1, 2], [1, 2, 0], [2, 0, 1]];
+  for (const [ax, a, b] of sides) for (const at of [0, n]) for (let p = 0; p < n; p++) for (let q = 0; q < n; q++) {
+    const c = (u: number, v: number): number => { const t = [0, 0, 0]; t[ax] = at; t[a] = u; t[b] = v; return vid(t[0], t[1], t[2]); };
+    const quad = [c(p, q), c(p + 1, q), c(p + 1, q + 1), c(p, q + 1)];
+    m.addFace(at === n ? quad : quad.reverse(), -1, FRESH);
+  }
+  return m;
+}

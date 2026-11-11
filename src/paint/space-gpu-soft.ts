@@ -11,18 +11,27 @@ const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255);
 
 export class SoftSpaceGpu implements SpaceGpu {
   private readonly programs = new Map<string, SpaceProgram>();
+  /** 每边最多多少格（契约 maxSize；测试可以调小去顶容量）。 */
+  readonly maxSize: number;
+  /** 还没释放的离屏图 + 数据图（测试查缓存放没放）。 */
+  live = 0;
+  private readonly gone = new WeakSet<object>();
+  constructor(o: { readonly maxSize?: number } = {}) { this.maxSize = o.maxSize ?? 16384; }
+  private fits(w: number, h: number): void { if (!(w >= 1 && h >= 1 && w <= this.maxSize && h <= this.maxSize)) throw new Error(`SpaceGpu: ${w}x${h} is outside 1..${this.maxSize} per side`); }
 
   register(p: SpaceProgram): void {
     if (this.programs.has(p.name)) throw new Error(`SpaceGpu: program ${p.name} registered twice`);
     if (typeof p.cpu !== "function") throw new Error(`SpaceGpu: program ${p.name} has no CPU version (programs that write into textures come in pairs)`);
     this.programs.set(p.name, p);
   }
-  image(w: number, h: number): SpaceImage { const im: SoftImage = { kind: "offscreen-image", w, h, px: new Uint8ClampedArray(w * h * 4) }; return im; }
-  data(w: number, h: number, values: Float32Array | Uint16Array, format: "r32f" | "rg16ui" = "r32f"): SpaceData {
-    const per = format === "rg16ui" ? 2 : 1;
+  image(w: number, h: number): SpaceImage { this.fits(w, h); const im: SoftImage = { kind: "offscreen-image", w, h, px: new Uint8ClampedArray(w * h * 4) }; this.live++; return im; }
+  data(w: number, h: number, values: Float32Array | Uint16Array, format: "r32f" | "rgba16ui" = "r32f"): SpaceData {
+    this.fits(w, h);
+    const per = format === "rgba16ui" ? 4 : 1;
     if (values.length !== w * h * per) throw new Error(`SpaceGpu.data: ${values.length} values for ${w}x${h} ${format}`);
-    if ((format === "rg16ui") !== (values instanceof Uint16Array)) throw new Error(`SpaceGpu.data: ${format} needs ${format === "rg16ui" ? "Uint16Array" : "Float32Array"}`);
+    if ((format === "rgba16ui") !== (values instanceof Uint16Array)) throw new Error(`SpaceGpu.data: ${format} needs ${format === "rgba16ui" ? "Uint16Array" : "Float32Array"}`);
     const d: SoftData = { kind: "offscreen-data", w, h, format, v: values.slice() };
+    this.live++;
     return d;
   }
   draw(d: SpaceDraw): void {
@@ -35,7 +44,7 @@ export class SoftSpaceGpu implements SpaceGpu {
     const datas = d.data ?? {}, max = d.accum === "max";
     const ctx: SpaceCpuCtx = {
       instances: d.instances, count: d.count, uniforms: d.uniforms ?? {},
-      data: (name, x, y) => { const dd = datas[name] as SoftData | undefined; if (!dd) throw new Error(`SpaceGpu: data ${name} not bound`); return x < 0 || y < 0 || x >= dd.w || y >= dd.h ? 0 : dd.v[(y * dd.w + x) * (dd.format === "rg16ui" ? 2 : 1)]; },
+      data: (name, x, y) => { const dd = datas[name] as SoftData | undefined; if (!dd) throw new Error(`SpaceGpu: data ${name} not bound`); return x < 0 || y < 0 || x >= dd.w || y >= dd.h ? 0 : dd.v[(y * dd.w + x) * (dd.format === "rgba16ui" ? 4 : 1)]; },
       write: (x, y, r, g, b, a) => {
         if (x < sx0 || y < sy0 || x >= sx1 || y >= sy1) return;
         const o = (y * W + x) * 4;
@@ -54,7 +63,7 @@ export class SoftSpaceGpu implements SpaceGpu {
     for (let y = y0; y < y1; y++) d.set(s.subarray((y * src.w + x0) * 4, (y * src.w + x1) * 4), (y * src.w + x0) * 4);
   }
   read(img: SpaceImage): Uint8Array { return Uint8Array.from((img as SoftImage).px); }
-  release(_x: SpaceImage | SpaceData): void { /* 软件版：交给垃圾回收 */ }
+  release(x: SpaceImage | SpaceData): void { if (!this.gone.has(x)) { this.gone.add(x); this.live--; } /* 字节交给垃圾回收 */ }
   /** 软件版独有：离屏图的像素（交给画画内核的软件显卡当薄层用）。 */
   pixels(img: SpaceImage): Uint8ClampedArray { return (img as SoftImage).px; }
 }

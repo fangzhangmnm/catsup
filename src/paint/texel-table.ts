@@ -5,6 +5,8 @@
 //   ① 归属的单位 = 画布多边形：一张面在画布上的多边形。贴图坐标完全相同的面（不管环从哪开始、朝哪个方向）并成同一个。每一格归最近的画布多边形
 //      （在里面 = 0，一样近归编号小的，超过间隔的一半 = 没人要）。只看贴图坐标：挪点不变。编号 = 按面的编号从小到大第一次出现的先后。
 //   ② 取样点：格子中心在它那块多边形里面（含边上）→ 就是中心；在外面（块边上多归的那几格）→ 中心在这块多边形上最近的那一点。也只看贴图坐标。
+//      1-4c（统筹 11-11 裁定）：在外面的那几格，取样点量化到 1/1024 格——中心 + 整数 / SAMPLE_Q 格（四舍五入）。这是定义本身：标准答案、软件版、显卡版、
+//      落点都用量化后的这一点（显卡的每格表里存的就是这两个整数，32 位浮点里正好精确，画布宽高到 8192 都精确）。离真正的最近点每个轴最多半份 = 1/2048 格。
 //   ③ 一格在某一张面上的空间位置 = 这张面自己显示用的那套三角形（MeshKernel.faceTriangles）里，贴图坐标上离取样点最近的那个（在里面 = 0，一样近取编号小的），
 //      用它的公式在取样点上算。镜像的两半、复制出来的面各用各的三角形。取样点压在两个三角形的公共边 / 公共点上时哪个算出来都一样；在多边形的边上时和怎么切无关。
 // · 花费：每块多边形只扫它的包围盒（向外扩间隔的一半），按行扫——随所有块的面积涨，不随画布涨（只有两张 宽 × 高 的表要清零）。取样点现算（多边形的几个角）。
@@ -121,8 +123,14 @@ function polyKey(r: ArrayLike<number>): string {
   return best;
 }
 
-/** 建表。gap = 铺的时候块之间留的格数（没人要的界线 = 它的一半）。 */
+/** 取样点偏移的量化：1/SAMPLE_Q 格（1-4c）。 */
+export const SAMPLE_Q = 1024;
+/** 取样点离格子中心最多几格（每格的表里偏移是 16 位、加 32768 存：−32768 … 32767 份）。取样点离中心不超过间隔的一半，所以 gap 最多 MAX_GAP。 */
+export const MAX_GAP = 63;
+
+/** 建表。gap = 铺的时候块之间留的格数（没人要的界线 = 它的一半；最多 MAX_GAP，超了 = 抛）。 */
 export function buildTexelTable(width: number, height: number, faces: readonly PaintFace[], gap = 4): TexelTable {
+  if (!(gap >= 0 && gap <= MAX_GAP)) throw new Error(`buildTexelTable: gap ${gap} out of range 0..${MAX_GAP} (sample offsets are stored as 16-bit 1/${SAMPLE_Q} cell units)`);
   const W = Math.max(0, Math.floor(width)), H = Math.max(0, Math.floor(height)), R = gap / 2;
   const idx = new Map<string, number>(), polys: Float64Array[] = [], polyFaces: number[][] = [], fp = new Map<number, FacePaint>();
   for (const pf of [...faces].sort((a, b) => a.face - b.face)) {
@@ -167,13 +175,20 @@ export function buildTexelTable(width: number, height: number, faces: readonly P
   return { width: W, height: H, gap, polys, polyFaces, owner, faces: fp, overlapCells };
 }
 
-/** 一格的取样点（②）：中心在它那块多边形里（含边上）= 中心；在外面 = 多边形上离中心最近的那一点。没人要的格子 = null。 */
-export function samplePoint(t: TexelTable, x: number, y: number): [number, number] | null {
+/** 一格的取样点离格子中心的偏移（②，量化过的）：以 1/SAMPLE_Q 格为单位的两个整数。中心在它那块多边形里（含边上）= [0, 0]；在外面 = 多边形上离中心最近的那一点，四舍五入到份。没人要的格子 = null。 */
+export function sampleOffset(t: TexelTable, x: number, y: number): [number, number] | null {
   if (x < 0 || y < 0 || x >= t.width || y >= t.height) return null;
   const p = t.owner[y * t.width + x];
   if (p < 0) return null;
   const r = t.polys[p], cx = x + 0.5, cy = y + 0.5;
-  return inPoly(r, cx, cy) ? [cx, cy] : nearestOnPoly(r, cx, cy);
+  if (inPoly(r, cx, cy)) return [0, 0];
+  const q = nearestOnPoly(r, cx, cy);
+  return [Math.round((q[0] - cx) * SAMPLE_Q) || 0, Math.round((q[1] - cy) * SAMPLE_Q) || 0];   // || 0：不要 −0
+}
+/** 一格的取样点（②）：中心 + 量化过的偏移。中心在多边形里 = 中心；在外面 = 离多边形上最近那一点不到 1/2048 格（每个轴）。没人要的格子 = null。 */
+export function samplePoint(t: TexelTable, x: number, y: number): [number, number] | null {
+  const o = sampleOffset(t, x, y);
+  return o && [x + 0.5 + o[0] / SAMPLE_Q, y + 0.5 + o[1] / SAMPLE_Q];
 }
 /** 画布上一点 (sx, sy) 在某张面上的空间位置（③）：这张面自己的三角形里贴图坐标上离它最近的那个（一样近取编号小的），用它的公式算。面不走这张画 = null。 */
 export function positionOnFace(t: TexelTable, face: number, sx: number, sy: number): { pos: Pt3; tri: number } | null {

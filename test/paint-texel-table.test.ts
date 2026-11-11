@@ -5,7 +5,7 @@ import { FRESH } from "../src/mesh/corner-columns.ts";
 import { addBox, extrudeFaces } from "../src/mesh/ops/index.ts";
 import { symmetrize } from "../src/mesh/mirror.ts";
 import { layoutFaces } from "../src/paint/layout.ts";
-import { buildTexelTable, cellPosition, distToPoly, inPoly, nearestOnPoly, paintFaces, positionAt, positionOnFace, samplePoint, formulaOf, type PaintFace, type TexelTable } from "../src/paint/texel-table.ts";
+import { buildTexelTable, cellPosition, distToPoly, inPoly, nearestOnPoly, paintFaces, positionAt, positionOnFace, samplePoint, sampleOffset, SAMPLE_Q, MAX_GAP, formulaOf, type PaintFace, type TexelTable } from "../src/paint/texel-table.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
@@ -51,17 +51,29 @@ describe("格子归属表、取样点、一格在面上的位置（1-3a 第三�
       assert(inside > 1000 && border > 100, `里面 ${inside} 格、块边上 ${border} 格`);
     }
   });
-  it("② 取样点：中心在多边形里 = 中心；在外面 = 多边形上离中心最近的那一点（在边上、距离 = 中心到多边形的距离）", () => {
-    const { t } = painted(4);
+  it("② 取样点：中心在多边形里 = 中心；在外面 = 多边形上离中心最近的那一点、量化到 1/1024 格（1-4c：中心 + 整数 / 1024，每个轴离最近点不超过半份）", () => {
+    const { t } = painted(4), half = 0.5 / SAMPLE_Q;
     let n = 0;
     for (let y = 0; y < t.height; y++) for (let x = 0; x < t.width; x++) {
       const s = samplePoint(t, x, y);
       if (!s) continue;
-      const r = t.polys[t.owner[y * t.width + x]], cx = x + 0.5, cy = y + 0.5;
-      if (inPoly(r, cx, cy)) { eq(`${s}`, `${cx},${cy}`); continue; }
-      const q = nearestOnPoly(r, cx, cy); eq(`${s}`, `${q}`); assert(Math.abs(Math.hypot(s[0] - cx, s[1] - cy) - distToPoly(r, cx, cy)) < 1e-12, "最近"); n++;
+      const r = t.polys[t.owner[y * t.width + x]], cx = x + 0.5, cy = y + 0.5, o = sampleOffset(t, x, y)!;
+      eq(`${s}`, `${cx + o[0] / SAMPLE_Q},${cy + o[1] / SAMPLE_Q}`, "取样点 = 中心 + 整数份");
+      assert(Number.isInteger(o[0]) && Number.isInteger(o[1]), "偏移是整数份");
+      if (inPoly(r, cx, cy)) { eq(`${o}`, "0,0"); continue; }
+      const q = nearestOnPoly(r, cx, cy);
+      assert(Math.abs(s[0] - q[0]) <= half && Math.abs(s[1] - q[1]) <= half, `格 (${x}, ${y})：离最近点 (${s[0] - q[0]}, ${s[1] - q[1]})，每个轴只许半份`);
+      assert(Math.abs(Math.hypot(s[0] - cx, s[1] - cy) - distToPoly(r, cx, cy)) <= Math.SQRT2 * half + 1e-12, "最近（差不超过量化挪开的那一点）"); n++;
     }
     assert(n > 100, `块边上的格子 ${n}`);
+  });
+  it("② 间隔超过 MAX_GAP（取样点偏移放不进 16 位）= 建表就抛，不静默算错", () => {
+    const { t } = painted(4);
+    const faces = [...t.faces.values()].map((f) => ({ face: f.face, ring: t.polys[f.poly], tris: f.tris }));
+    buildTexelTable(t.width, t.height, faces, MAX_GAP);
+    let threw = "";
+    try { buildTexelTable(t.width, t.height, faces, MAX_GAP + 1); } catch (e) { threw = String(e); }
+    assert(/gap 64 out of range/.test(threw), `gap ${MAX_GAP + 1} 要抛：${threw}`);
   });
   it("③ 往返：一格在它那张面上的位置，用算它的那个三角形三个角重心插值反算贴图坐标 = 取样点（≤ 千分之一格）", () => {
     const { t } = painted(5);
@@ -91,17 +103,20 @@ describe("格子归属表、取样点、一格在面上的位置（1-3a 第三�
     }
     assert(n > 20, `查了 ${n} 个点`); assert(t.faces.has(twisted), "扭过的四边形在里面");
   });
-  it("③ 取样点在多边形的边上时，结果和怎么切无关：扭过的四边形换另一条对角线，块边上那些格子的位置逐个相同", () => {
+  it("③ 取样点在多边形的边上时，结果和怎么切无关：扭过的四边形换另一条对角线，块边上那些格子的位置只差量化挪开的那一点（1-4c）", () => {
     const { k, t, twisted } = painted(7), fp = t.faces.get(twisted)!, vs = k.faceVerts(twisted), uv = k.cornerValues(twisted, UV)!;
     const tri = (a: number, b: number, c: number, i: number): PaintFace["tris"][number] => ({ face: twisted, tri: i, uv: [uv[2 * a], uv[2 * a + 1], uv[2 * b], uv[2 * b + 1], uv[2 * c], uv[2 * c + 1]], pos: [k.pt(vs[a]), k.pt(vs[b]), k.pt(vs[c])] });
     const usesDiag02 = k.faceTriangles(twisted).some((tr) => tr.includes(0) && tr.includes(2));   // 现在切的是 0–2 那条对角线吗（按顶点下标认，角的起点转了也认得出）
     const other = usesDiag02 ? [tri(0, 1, 3, 0), tri(1, 2, 3, 1)] : [tri(0, 1, 2, 0), tri(0, 2, 3, 1)];
     const alt = buildTexelTable(t.width, t.height, [{ face: twisted, ring: Float64Array.from(uv), tris: other }], t.gap);
+    // 1-4c：取样点量化过，离边上的那一点最多 δ = √2 / 2048 格；在边上两种切法逐位相同，挪开 δ 之后两边各自的公式（外推也算）最多各偏 |J|·2δ → 只许 4δ·max|J|
+    const J = (q: { formula: { du: Pt3; dv: Pt3 } }): number => Math.hypot(q.formula.du.x, q.formula.du.y, q.formula.du.z, q.formula.dv.x, q.formula.dv.y, q.formula.dv.z);
+    const maxJ = Math.max(...fp.tris.map(J), ...alt.faces.get(twisted)!.tris.map(J)), tol = 4 * (Math.SQRT2 * 0.5 / SAMPLE_Q) * maxJ + 1e-12;
     let n = 0, diffInside = 0;
     for (let y = 0; y < t.height; y++) for (let x = 0; x < t.width; x++) {
       if (t.owner[y * t.width + x] !== fp.poly) continue;
       const s = samplePoint(t, x, y)!, a = positionOnFace(t, twisted, s[0], s[1])!.pos, b = positionOnFace(alt, twisted, s[0], s[1])!.pos;
-      if (!inPoly(t.polys[fp.poly], x + 0.5, y + 0.5) || distToPoly(t.polys[fp.poly], x + 0.5, y + 0.5) > 0) { assert(dist3(a, b) < 1e-7, `块边上的格 (${x}, ${y}) 两种切法差 ${dist3(a, b)}`); n++; }
+      if (!inPoly(t.polys[fp.poly], x + 0.5, y + 0.5) || distToPoly(t.polys[fp.poly], x + 0.5, y + 0.5) > 0) { assert(dist3(a, b) <= tol, `块边上的格 (${x}, ${y}) 两种切法差 ${dist3(a, b)}（只许 ${tol}）`); n++; }
       else if (dist3(a, b) > 1e-7) diffInside++;
     }
     assert(n > 20, `块边上查了 ${n} 格`); assert(diffInside > 0, "里面的格子两种切法确实不同（扭过的面）");

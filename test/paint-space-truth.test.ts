@@ -6,7 +6,7 @@ import { buildTargetGeo, type TargetGeo } from "../src/paint/space-target.ts";
 import { sphereTriDist, tipReach } from "../src/paint/tip-reach.ts";
 import { strokeTruth, tipCellsInPoly } from "../src/paint/tip-truth.ts";
 import { SpaceStroke } from "../src/paint/space-stroke.ts";
-import { positionOnFace, samplePoint } from "../src/paint/texel-table.ts";
+import { positionOnFace, samplePoint, SAMPLE_Q } from "../src/paint/texel-table.ts";
 import { stampFalloff } from "../src/paint/kernel/src/backend/gl/stamp-falloff.ts";
 import { P, RAW, brush, gridMesh, laidOut, pinhole, rng, targetOf } from "./paint-space-kit.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
@@ -117,7 +117,7 @@ describe("标准答案（1-4a 测试 11：铺法换掉，结果不变）", () =>
 });
 
 describe("标准答案（1-4a 审后补：块边上多归的格子）", () => {
-  it("一笔沿着 90° 折缝画（两张面各成一块）：中心在块外面的格子 = 块边上离格子中心最近的那一点、按定义直接算的值", () => {
+  it("一笔沿着 90° 折缝画（两张面各成一块）：中心在块外面的格子 = 块边上离格子中心最近的那一点按定义直接算的值（只差取样点量化的那一点，1-4c）", () => {
     const m = new MeshKernel(), v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0), P(1, 0, -1), P(1, 1, -1)].map((p) => m.addVertex(p));
     const A = m.addFace([v[0], v[1], v[2], v[3]], -1, FRESH), B = m.addFace([v[2], v[1], v[4], v[5]], -1, FRESH);
     const uv = laidOut(m, "uv", m.faces(), { density: 40 }), g = buildTargetGeo(targetOf(m, uv)), t = g.table, hardness = 0.3;
@@ -137,15 +137,20 @@ describe("标准答案（1-4a 审后补：块边上多归的格子）", () => {
     const startOf = (p: Pt3): number => { let b = -1, bd = Infinity; for (let k = 0; k < g.grid.face.length; k++) { const d = sphereTriDist(p.x, p.y, p.z, g.wpos, 9 * k); if (d < bd) { bd = d; b = k; } } return b; };
     const cells = strokeTruth([g], tips.map((tip) => ({ tip, reach: tipReach([g], tip, [{ ti: 0, tri: startOf(tip) }]) })), hardness, "max").get(0) ?? new Map<number, number>();
     const direct = (p: Pt3): number => { let val = 0; for (const tp of tips) { const d = Math.hypot(p.x - tp.x, p.y - tp.y, p.z - tp.z); if (d < tp.r) val = Math.max(val, stampFalloff(d, tp.r, hardness * tp.r) * tp.alpha); } return val; };
+    // 1-4c：定义里的取样点量化到 1/1024 格（中心 + 整数份），这里按真正的最近点直接算 → 只许差「挪开的那一点 × 浓度随位置变的最陡斜率」：
+    //   挪开最多 δ = √2 / 2048 格；浓度对世界距离的斜率最多 浓度 × smoothstep 的最大斜率 1.5 ÷ 过渡带宽 (r − 硬芯)；世界距离对画布的斜率最多 |J|（这张面的 du、dv，Frobenius 范数 ≥ 算子范数）。
+    //   取最近距离、取最大浓度都不放大斜率。
+    const tipMax = tips.reduce((m, tp) => Math.max(m, (tp.alpha * 1.5) / (tp.r - hardness * tp.r)), 0), delta = Math.SQRT2 * 0.5 / SAMPLE_Q;
     let outside = 0, inked = 0;
     for (const f of [A, B]) {
       const poly = t.faces.get(f)!.poly, ring = t.polys[poly], W = toWorld(f);
+      const o = W(0, 0), du = W(1, 0), dv = W(0, 1), Jf = Math.hypot(du.x - o.x, du.y - o.y, du.z - o.z, dv.x - o.x, dv.y - o.y, dv.z - o.z), tol = tipMax * Jf * delta + 1e-12;
       for (let c = 0; c < t.owner.length; c++) {
         if (t.owner[c] !== poly) continue;
         const x = (c % t.width) + 0.5, y = Math.floor(c / t.width) + 0.5;
         if (inside(ring, x, y)) continue;
         const [sx, sy] = nearest(ring, x, y), want = direct(W(sx, sy)), have = cells.get(c) ?? 0;
-        assert(Math.abs(have - want) <= 1e-9, `面 ${f} 格子 (${x - 0.5}, ${y - 0.5})：${have} vs 定义 ${want}`);
+        assert(Math.abs(have - want) <= tol, `面 ${f} 格子 (${x - 0.5}, ${y - 0.5})：${have} vs 按真正最近点算的 ${want}（只许差 ${tol}）`);
         outside++; if (have > 0) inked++;
       }
     }

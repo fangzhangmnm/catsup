@@ -8,18 +8,29 @@
 // 淡彩（max）直接写预乘的 (c·v, v)、每通道取最大（同一笔颜色是常数：max(c·v) = c·max(v)，不用单独上色那一遍）；叠色（over）写 (c·v, v)、预乘叠加。
 // 定型的笔尖只画一次，攒在定型层上；每帧：定型层拷到当帧那张，再画还会变的尾巴（每帧的活只随新定型的 + 尾巴涨）。
 // 位置一律先减去这一笔落笔的那一点再上传（数据图里不放半精度）。
+// 每格的表（1-4c，统筹 11-11 裁定）：定长，每格 8 字节（cellTable）；只跟贴图坐标有关，进工作台时建好、缓存在 space-prep.ts，落笔借来用（cells）。
+// 容量（每个都是「到了就抛 PaintLimitError、提示行说人话」，不静默画错）：多边形块数 ≤ MAX_POLYS、每张面三角形 ≤ MAX_TRIS、一颗笔尖下同一块的面 ≤ MAX_FACES、
+//   每张数据图 ≤ min(DATA_W × 显卡每边上限, 2^24) 个数（2^24 = 32 位浮点里的编号还精确）、每张图每边 ≤ 显卡上限。清单和行为见施工记录「容量清单」。
 import type { SpaceAccum, SpaceData, SpaceGpu, SpaceImage, SpaceProgram } from "./space-gpu.ts";
 import type { TargetGeo } from "./space-target.ts";
 import { tipCellsInPoly, type InkTip } from "./tip-truth.ts";
 import type { Reach } from "./tip-reach.ts";
-import { samplePoint } from "./texel-table.ts";
+import { sampleOffset, SAMPLE_Q, type TexelTable } from "./texel-table.ts";
+import { PaintLimitError } from "./paint-limit.ts";
 import { STAMP_FALLOFF_GLSL } from "./kernel/src/backend/gl/stamp-falloff.ts";
 import type { Pt3 } from "../kernel/geom.ts";
 
 /** 数据图一行几个数（一维的表按这个宽度折成二维）。 */
 export const DATA_W = 2048;
-/** 一块画布多边形下挂的面最多几张、一张面最多几个三角形（着色器里那两圈的上限；超了 = 抛，施工单「停下来报」那一条）。 */
-export const MAX_FACES = 8, MAX_TRIS = 64;
+/**
+ * 一颗笔尖下、同一块画布多边形挂的面最多几张；一张面最多几个三角形（着色器里那两圈循环的上界，循环带 break：面小的时候不花钱）。超了 = 抛 PaintLimitError。
+ * MAX_TRIS = 1024（统筹 11-11：64 会把默认的 72 段圆面挡在外面；1024 挡住的只剩极端的大面。以后真有人撞上：把一张大面分几批画、每批只让取样点落在自己那批三角形里的格子写——现在不做）。
+ */
+export const MAX_FACES = 8, MAX_TRIS = 1024;
+/** 画布多边形最多几块：着色器里拿来比的编号走 32 位浮点的实例表，2^24 以内才精确（每格的表本身能放到 2^32 − 2）。 */
+export const MAX_POLYS = 2 ** 24 - 1;
+/** 一张数据图最多几个数：32 位浮点里存的编号（三角形号、面单子里的位置）2^24 以内才精确。 */
+export const MAX_DATA = 2 ** 24;
 const TRI_STRIDE = 15, TIP_STRIDE = 8;
 
 const VS = `#version 300 es
@@ -33,8 +44,8 @@ void main() { v_item = u_first + gl_InstanceID; vec2 p = a_inst.xy + a_quad * a_
 const FS = `#version 300 es
 precision highp float; precision highp int; precision highp sampler2D;
 flat in int v_item;
-uniform sampler2D u_inst, u_tips, u_flist, u_faces, u_tris, u_samp;
-uniform highp usampler2D u_cell;   // 每格：R = 画布多边形编号 + 1（0 = 没人要），G = 块边格子在取样点表里的号 + 1（0 = 用格子中心）
+uniform sampler2D u_inst, u_tips, u_flist, u_faces, u_tris;
+uniform highp usampler2D u_cell;   // 每格 8 字节（cellTable）：R, G = 画布多边形编号 + 1 的低、高 16 位（0 = 没人要）；B, A = 取样点离格子中心的偏移（1/${SAMPLE_Q} 格，加 32768）
 uniform vec2 u_size;
 uniform float u_hardness;
 uniform vec3 u_color;
@@ -57,10 +68,9 @@ float distToTri(vec2 p, vec2 a, vec2 b, vec2 c) {
 void main() {
   int x = int(gl_FragCoord.x), y = int(gl_FragCoord.y);
   int it = 4 * v_item, tip = int(at(u_inst, it)), poly = int(at(u_inst, it + 1)), fs = int(at(u_inst, it + 2)), fn = int(at(u_inst, it + 3));
-  uvec2 cv = texelFetch(u_cell, ivec2(x, y), 0).rg;   // 每格的紧凑表和画布一样大：按格子坐标取（不是一维折行的那种）
-  if (int(cv.r) - 1 != poly) discard;
-  int si = int(cv.g) - 1;
-  vec2 s = si < 0 ? vec2(float(x) + 0.5, float(y) + 0.5) : vec2(at(u_samp, 2 * si), at(u_samp, 2 * si + 1));
+  uvec4 cv = texelFetch(u_cell, ivec2(x, y), 0);   // 每格的表和画布一样大：按格子坐标取（不是一维折行的那种）
+  if (int(cv.r | (cv.g << 16u)) - 1 != poly) discard;
+  vec2 s = vec2(float(x) + 0.5 + (float(cv.b) - 32768.0) / ${SAMPLE_Q}.0, float(y) + 0.5 + (float(cv.a) - 32768.0) / ${SAMPLE_Q}.0);   // 中心 + 整数 / 1024：32 位浮点里正好精确（和 samplePoint 逐位一样）
   int tb = ${TIP_STRIDE} * tip;
   vec3 tc = vec3(at(u_tips, tb), at(u_tips, tb + 1), at(u_tips, tb + 2));
   float r = at(u_tips, tb + 3), al = at(u_tips, tb + 4), best = 1e30;
@@ -132,8 +142,10 @@ export const SPACE_TIP: SpaceProgram = {
   },
 };
 
-/** 一维的数折成 DATA_W 宽的数据图。 */
-function pack(gpu: SpaceGpu, values: ArrayLike<number>): SpaceData {
+/** 一维的数折成 DATA_W 宽的数据图。放不下（行数超过显卡每边上限，或超过 MAX_DATA）= 抛 PaintLimitError；what = 这是哪张表（报错用）。 */
+function pack(gpu: SpaceGpu, values: ArrayLike<number>, what: string): SpaceData {
+  const cap = Math.min(DATA_W * gpu.maxSize, MAX_DATA);
+  if (values.length > cap) throw new PaintLimitError(`SpaceLayer: ${what} needs ${values.length} values (> ${cap} = min(${DATA_W} x ${gpu.maxSize}, 2^24))`, "这一笔画不了：这个物件太大，笔的数据表放不下（面太多，或者这一笔太长）");
   const h = Math.max(1, Math.ceil(values.length / DATA_W)), a = new Float32Array(DATA_W * h);
   a.set(values as ArrayLike<number>);
   return gpu.data(DATA_W, h, a);
@@ -146,6 +158,38 @@ export interface SpaceLayerOpts {
   readonly accum: SpaceAccum;
   /** 落笔的那一点（世界）：所有位置先减去它再上传。 */
   readonly origin: Pt3;
+  /** 现成的每格的表（space-prep.ts 缓存的，借来用、dispose 不放）。不给 = 自己建、自己放（测试）。 */
+  readonly cells?: SpaceData;
+}
+
+/**
+ * 每格的表（1-4c）：每格 4 个 16 位无符号整数 = 8 字节，显卡上是 RGBA16UI。
+ *   [0] [1] = 画布多边形编号 + 1 的低、高 16 位（0 = 没人要）；[2] [3] = 取样点离格子中心的偏移 x、y（texel-table.ts sampleOffset，1/1024 格为单位）+ 32768（32768 = 中心）。
+ * 容量：编号 + 1 ≤ 2^32 − 1（再受 MAX_POLYS 限）；偏移 −32768 … 32767 份 ≈ ±32 格（取样点离中心不超过间隔的一半，buildTexelTable 把 gap 限在 63 以内）。
+ * 大小：1024² = 8 MB，2048² = 32 MB。只跟贴图坐标有关（归属表 + 多边形）。
+ */
+export function cellTable(t: TexelTable): Uint16Array {
+  if (t.polys.length > MAX_POLYS) throw new PaintLimitError(`cellTable: ${t.polys.length} canvas polygons (> ${MAX_POLYS})`, `这个物件画不了：画布上的块太多（${t.polys.length} 块，最多 ${MAX_POLYS} 块）`);
+  const W = t.width, H = t.height, out = new Uint16Array(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const c = y * W + x, o = t.owner[c];
+    if (o < 0) continue;
+    const s = sampleOffset(t, x, y)!;
+    packCell(out, c, o + 1, s[0], s[1]);
+  }
+  return out;
+}
+/** 往每格的表里写一格（容量在这里查：编号 + 1 在 1 … 2^32 − 1、偏移在 −32768 … 32767；超了 = 抛）。 */
+export function packCell(out: Uint16Array, c: number, idPlus1: number, ox: number, oy: number): void {
+  if (!(Number.isInteger(idPlus1) && idPlus1 >= 1 && idPlus1 <= 0xffffffff)) throw new Error(`packCell: polygon id + 1 = ${idPlus1} outside 1..2^32-1`);
+  if (!(Number.isInteger(ox) && Number.isInteger(oy) && ox >= -32768 && ox <= 32767 && oy >= -32768 && oy <= 32767)) throw new Error(`packCell: sample offset (${ox}, ${oy}) outside -32768..32767 (1/${SAMPLE_Q} cell units)`);
+  const b = 4 * c;
+  out[b] = idPlus1 & 0xffff; out[b + 1] = idPlus1 >>> 16; out[b + 2] = ox + 32768; out[b + 3] = oy + 32768;
+}
+/** 每格的表传到显卡上（画布每边超过显卡上限 = 抛 PaintLimitError）。 */
+export function uploadCellTable(gpu: SpaceGpu, t: TexelTable): SpaceData {
+  if (t.width > gpu.maxSize || t.height > gpu.maxSize) throw new PaintLimitError(`cellTable: canvas ${t.width}x${t.height} exceeds GPU max ${gpu.maxSize}`, `这张画画不了：画布（${t.width} × ${t.height}）比这台设备的显卡能放的（每边 ${gpu.maxSize}）大`);
+  return gpu.data(t.width, t.height, cellTable(t), "rgba16ui");
 }
 
 /** 一笔在一张贴图（名单里的一项）上的薄层：定型层 + 当帧那张。 */
@@ -159,6 +203,8 @@ export class SpaceLayer {
   private readonly job: Job;
   private readonly jobId: number;
   private readonly fixed: Record<string, SpaceData>;
+  /** 每格的表是不是自己建的（自己建的 dispose 时放；借来的不放）。 */
+  private readonly ownCells: boolean;
   /** 每块画布多边形：格子范围 + 它的面在面表里的槽号。 */
   private readonly polyRect = new Map<number, readonly [number, number, number, number]>();
   private readonly faceSlot = new Map<number, number>();
@@ -174,24 +220,12 @@ export class SpaceLayer {
     this.jobId = nextJob++;
     this.job = { g, items: [], hardness: o.hardness, color: o.color };
     jobs.set(this.jobId, this.job);
-    // 每格的紧凑表（统筹 11-11「轻量」）：R = 画布多边形编号 + 1，G = 块边格子在取样点表里的号 + 1（取样点和格子中心不一样的只有块边上那一圈；表里是精确的 32 位浮点）
-    if (t.polys.length > 65534) throw new Error(`SpaceLayer: ${t.polys.length} canvas polygons (> 65534)`);
-    const cell = new Uint16Array(W * H * 2), samp: number[] = [];
-    for (let c = 0; c < W * H; c++) {
-      const o = t.owner[c];
-      if (o < 0) continue;
-      cell[2 * c] = o + 1;
-      const x = c % W, y = Math.floor(c / W), s = samplePoint(t, x, y)!;
-      if (s[0] === x + 0.5 && s[1] === y + 0.5) continue;
-      samp.push(s[0], s[1]);
-      if (samp.length / 2 > 65535) throw new Error("SpaceLayer: too many block-edge cells (> 65535)");
-      cell[2 * c + 1] = samp.length / 2;
-    }
+    if (o.cells && (o.cells.w !== W || o.cells.h !== H || o.cells.format !== "rgba16ui")) throw new Error(`SpaceLayer: borrowed cell table ${o.cells.w}x${o.cells.h} ${o.cells.format} does not match canvas ${W}x${H}`);
     // 每张面的三角形（贴图坐标三个角 + 世界里的公式，减去落笔点）
     const faces: number[] = [], tris: number[] = [];
     const R = (v: Pt3): Pt3 => ({ x: X[0] * v.x + X[1] * v.y + X[2] * v.z, y: X[4] * v.x + X[5] * v.y + X[6] * v.z, z: X[8] * v.x + X[9] * v.y + X[10] * v.z });
     for (const [f, fp] of t.faces) {
-      if (fp.tris.length > MAX_TRIS) throw new Error(`SpaceLayer: face ${f} has ${fp.tris.length} triangles (> ${MAX_TRIS})`);
+      if (fp.tris.length > MAX_TRIS) throw new PaintLimitError(`SpaceLayer: face ${f} has ${fp.tris.length} triangles (> ${MAX_TRIS})`, `这张面太大了，画不了（面 ${f}：切出来 ${fp.tris.length} 个三角形，笔每张面最多 ${MAX_TRIS} 个）；把它切成几块就能画`);
       this.faceSlot.set(f, faces.length / 2);
       faces.push(tris.length / TRI_STRIDE, fp.tris.length);
       const inv: TriInv[] = [];
@@ -211,7 +245,9 @@ export class SpaceLayer {
       const x0 = Math.max(0, Math.floor(mx - Rg - 0.5)), x1 = Math.min(W - 1, Math.ceil(Mx + Rg - 0.5)), y0 = Math.max(0, Math.floor(my - Rg - 0.5)), y1 = Math.min(H - 1, Math.ceil(My + Rg - 0.5));
       this.polyRect.set(p, [x0, y0, x1 - x0 + 1, y1 - y0 + 1]);
     });
-    this.fixed = { u_cell: gpu.data(W, H, cell, "rg16ui"), u_samp: pack(gpu, samp.length ? samp : [0, 0]), u_faces: pack(gpu, faces), u_tris: pack(gpu, tris) };
+    this.ownCells = !o.cells;
+    this.fixed = { u_faces: pack(gpu, faces, "face table"), u_tris: pack(gpu, tris, "triangle table") };
+    this.fixed.u_cell = o.cells ?? uploadCellTable(gpu, t);
   }
 
   /** 报给内核的范围（这一笔到现在碰过的所有实例方块的并）；什么都没碰 = null。 */
@@ -232,7 +268,7 @@ export class SpaceLayer {
           const pr = this.polyRect.get(poly);
           if (!pr) continue;
           const fs = [...new Set(trisList.map((k) => this.g.grid.face[k]))].sort((a, b) => a - b).filter((f) => this.faceSlot.has(f));
-          if (fs.length > MAX_FACES) throw new Error(`SpaceLayer: canvas polygon ${poly} has ${fs.length} faces under one tip (> ${MAX_FACES})`);
+          if (fs.length > MAX_FACES) throw new PaintLimitError(`SpaceLayer: canvas polygon ${poly} has ${fs.length} faces under one tip (> ${MAX_FACES})`, `这一笔画不了：笔下有 ${fs.length} 张面共用画布上同一块地方（最多 ${MAX_FACES} 张）`);
           const rect = this.tipRect(tips[i].tip, fs, pr);
           if (rect) out.push({ tip: tips[i].tip, tipIdx: i, poly, tris: trisList, faces: fs, rect });
         }
@@ -254,7 +290,7 @@ export class SpaceLayer {
   resetFrozen(): void {
     this.gpu.draw({ program: SPACE_TIP.name, target: this.frozen, clear: true, accum: this.o.accum, instances: new Float32Array(0), count: 0, data: this.fixed, uniforms: { u_size: [this.frozen.w, this.frozen.h], u_first: 0, u_hardness: this.o.hardness, u_color: [...this.o.color], u_job: this.jobId } });
   }
-  dispose(): void { jobs.delete(this.jobId); for (const d of Object.values(this.fixed)) this.gpu.release(d); this.gpu.release(this.frozen); this.gpu.release(this.frame); }
+  dispose(): void { jobs.delete(this.jobId); for (const [k, d] of Object.entries(this.fixed)) if (k !== "u_cell" || this.ownCells) this.gpu.release(d); this.gpu.release(this.frozen); this.gpu.release(this.frame); }
 
   /** 这颗笔尖在这块多边形上的实例方块（格子）：贴图上的外接框往外放块边那一圈（取样点离格子中心最多 gap/2）再多一格，夹进多边形的格子范围；夹完是空的 = null（画不到）。 */
   private tipRect(tip: InkTip, faces: readonly number[], pr: readonly [number, number, number, number]): [number, number, number, number] | null {
@@ -279,7 +315,7 @@ export class SpaceLayer {
       inst.push(it.tipIdx, it.poly, flist.length, it.faces.length);
       for (const f of it.faces) flist.push(this.faceSlot.get(f)!);
     }
-    return { u_inst: pack(this.gpu, inst), u_flist: pack(this.gpu, flist), u_tips: pack(this.gpu, tipv) };
+    return { u_inst: pack(this.gpu, inst, "instance table"), u_flist: pack(this.gpu, flist, "face list"), u_tips: pack(this.gpu, tipv, "tip table") };
   }
 
   private draw(target: SpaceImage, first: number, items: readonly Item[], data: Record<string, SpaceData>, clear: boolean): void {
