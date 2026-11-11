@@ -24,6 +24,8 @@ import type { SnapKind } from "../solver.ts";
 import type { ViewState } from "../view-state.ts";
 import { type Grip, MeshHandles } from "./mesh-handles.ts";
 import { meshSnapTarget } from "./mesh-snap.ts";
+import { dragDelta, dragMaxLen } from "../../controller/lock-drag.ts";
+import { grabPointOn } from "./mesh-grab.ts";
 
 type Target = { faces: number[]; edges: number[]; verts: number[] };
 
@@ -41,7 +43,10 @@ export class MeshPullTool implements ToolHandler {
   private pivotW: Pt3 | null = null;
   private nW: Pt3 | null = null;     // 量拖动量的方向（世界、单位长）：面 = 法向平均；边 / 点 = 各点「垂直」方向的平均；抵消了 = null（屏幕竖直兜底）
   private alongScale = 1;            // 边 / 点：世界长度 / 本地长度（组件被缩放过时）
-  private grabW: Pt3 | null = null;
+  private grabW: Pt3 | null = null;   // 抓住的点 P0（W-13）
+  private r0: { origin: Pt3; dir: Pt3 } | null = null;   // 按下时光标的射线（W-13）
+  /** 这一帧锁面拖动有没有退回投影 / 夹住（读数后面说一句）。 */
+  private lockNote = "";
   private start: { x: number; y: number } | null = null;
   private cur: { x: number; y: number } | null = null;
 
@@ -105,7 +110,8 @@ export class MeshPullTool implements ToolHandler {
       const w = len3(n) > 1e-9 ? applyDir(X, normalize3(n)) : null;
       this.nW = w && len3(w) > 1e-12 ? normalize3(w) : null; this.alongScale = w ? len3(w) || 1 : len3(applyDir(X, { x: 0, y: 0, z: 1 })) || 1;
     }
-    this.grabW = this.onPlane(ctx, ev.x, ev.y) ?? this.pivotW;
+    this.r0 = ctx.frame().ray(ev.x, ev.y, ctx.vp());   // W-13：按下时光标的射线 + 抓住的点 P0（同移动，controller/lock-drag.ts）
+    this.grabW = grabPointOn(ctx, ev.x, ev.y, vs) ?? this.onPlane(ctx, ev.x, ev.y) ?? this.pivotW;
     this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y };
     ctx.setAnchor(this.grabW); ctx.setCursor(this.grabW);
     const how = grip ? (grip.id === "mc" ? (t.faces.length ? "手柄中心：屏幕平面随手拖" : "手柄中心：沿各自的垂直方向") : `手柄：${grip.say}`) : t.faces.length ? "沿法向拖" : "屏幕平面随手拖";
@@ -127,7 +133,7 @@ export class MeshPullTool implements ToolHandler {
     const t = this.t, mv = this.motion(ctx);
     if (!t || !mv) return "";
     preview(this.opFor(ctx, t, mv.along !== undefined ? { along: mv.along / this.alongScale } : { offset: applyDir(invert(ctx.ctxXform()), mv.off) }));
-    return `挤出 ${fmtLen(mv.along !== undefined ? Math.abs(mv.along) : len3(mv.off))}`;
+    return `挤出 ${fmtLen(mv.along !== undefined ? Math.abs(mv.along) : len3(mv.off))}${this.lockNote}`;
   }
 
   /** 当前拖动 → 世界位移（off：面、或锁了轴 / 面）或沿各点垂直方向的世界长度（along：边 / 点、没锁）。 */
@@ -136,14 +142,18 @@ export class MeshPullTool implements ToolHandler {
     if (!pivot || !grab || !s0 || !s1 || !t) return null;
     // 锁：键盘锁轴 / 锁面 > 这一下按着的手柄箭头 > 不锁；吸附 = 抓住的点落到目标上（再按方向约束投影）
     const kAx = ctx.axisLockDir(), kPn = ctx.planeLockNormal(), keyed = !!(kAx || kPn), ax = keyed ? kAx : this.grip?.axis ?? null, pn = keyed ? kPn : this.grip?.plane ?? null;
-    const now = this.onPlane(ctx, s1.x, s1.y) ?? grab, d = this.snapT && this.handleW ? sub3(this.snapT.p, this.handleW) : sub3(now, grab), typed = ctx.typed();
+    const snap = !!(this.snapT && this.handleW), typed = ctx.typed();
+    // W-13：没吸附 = 两条光标射线 → 位移（锁面交「过 P0、法向 n 的平面」，抓住的点跟手；锁轴 = FM18 投影；不锁 = 过 P0 正对按下那条射线的平面）
+    const dr = snap ? null : dragDelta(this.r0!, ctx.frame().ray(s1.x, s1.y, ctx.vp()), grab, { axis: ax, plane: pn }, this.maxLen(ctx, grab));
+    const d = snap ? sub3(this.snapT!.p, this.handleW!) : dr!.d;
+    this.lockNote = dr?.graze ? "（视线快贴着锁着的面：按投影走）" : dr?.clamped ? "（离得太远：夹住了）" : "";
     if (typed !== null) {   // 打了数：锁着轴 = 沿轴这么长；面 = 沿法向；边 / 点 = 沿各自垂直方向
       if (ax) return { off: scale3(ax, typed) };
       if (t.faces.length) return { off: scale3(this.nW ?? { x: 0, y: 0, z: 1 }, typed) };
       return { along: typed };
     }
-    if (ax) return { off: scale3(ax, dot3(d, ax)) };
-    if (pn) return { off: sub3(d, scale3(pn, dot3(d, pn))) };
+    if (ax) return { off: snap ? scale3(ax, dot3(d, ax)) : d };   // 没吸附时 dragDelta 已经按锁算好
+    if (pn) return { off: snap ? sub3(d, scale3(pn, dot3(d, pn))) : d };
     // 面：默认沿法向，拖手柄中心 = 屏幕平面随手拖；边 / 点：默认屏幕平面随手拖（Blender 手感，user 10-28 晚），拖手柄中心 = 沿各自的垂直方向。
     const flip = this.grip?.id === "mc", free = t.faces.length ? flip : !flip;
     if (free) return { off: d };
@@ -153,13 +163,13 @@ export class MeshPullTool implements ToolHandler {
   }
   /** 沿 nW 拖了多少（世界长度）：nW 在屏幕上的投影够长 = 拖动在它上面的分量；正对着 / 抵消了 = 屏幕往上 = 正。 */
   private amountAlong(ctx: ToolCtx, s0: { x: number; y: number }, s1: { x: number; y: number }): number {
-    const pivot = this.pivotW!, grab = this.grabW!, ds = { x: s1.x - s0.x, y: s1.y - s0.y };
+    const pivot = this.pivotW!, ds = { x: s1.x - s0.x, y: s1.y - s0.y };
     if (this.nW) {
       const vp = ctx.vp(), fr = ctx.frame(), a = fr.project?.(pivot, vp), b = fr.project?.(add3(pivot, this.nW), vp);   // 方向上 1 m 在屏幕上多长
       if (a && b) { const u = { x: b.x - a.x, y: b.y - a.y }, uu = u.x * u.x + u.y * u.y; if (Math.sqrt(uu) >= 8) return (ds.x * u.x + ds.y * u.y) / uu; }
     }
-    const up = this.onPlane(ctx, s0.x, s0.y - 1);   // 屏幕往上 1 px = 世界多长
-    return -ds.y * (up ? len3(sub3(up, grab)) : 0);
+    const up = this.onPlane(ctx, s0.x, s0.y - 1), here = this.onPlane(ctx, s0.x, s0.y);   // 屏幕往上 1 px = 世界多长（两点都在过轴心的相机平面上；抓住的点 P0 不一定在那上面，W-13）
+    return -ds.y * (up && here ? len3(sub3(up, here)) : 0);
   }
 
   /** 右键 = 原地留下（Blender E 然后右键）：挤出 0——几何长出来叠在原地，新长出来的成为选区，接着 G 挪。 */
@@ -196,6 +206,11 @@ export class MeshPullTool implements ToolHandler {
     ctx.hint(`挤出了 ${what}（${fmtLen(amount)}）；新长出来的留在选区里，接着可以移动 / 缩放`);
   }
 
+  /** 锁面拖动一下最远走多少（同移动）。 */
+  private maxLen(ctx: ToolCtx, p0: Pt3): number {
+    const vp = ctx.vp(), ps = ctx.frame().project?.(p0, vp);
+    return ps ? dragMaxLen(this.r0!, ctx.frame().ray(ps.x, 0, vp), ctx.frame().ray(ps.x, vp.h, vp), p0) : Infinity;
+  }
   private what(): string { const t = this.t; return !t ? "" : t.faces.length ? `${t.faces.length} 张面` : t.edges.length ? `${t.edges.length} 条边` : `${t.verts.length} 个点`; }
   /** 屏幕点 → 过轴心、垂直于视线的平面上的点（世界）。 */
   private onPlane(ctx: ToolCtx, x: number, y: number): Pt3 | null {

@@ -17,6 +17,7 @@ export declare class MeshTransformTool implements ToolHandler {
     private base;
     private pivotW;
     private grabW;
+    private r0;
     private start;
     private cur;
     private shift;
@@ -88,6 +89,8 @@ export declare class MeshTransformTool implements ToolHandler {
     private movingNow;
     private softWeightsNow;
     private commit;
+    /** 锁面拖动一下最远走多少（画面上缘 / 下缘、和 P0 同一列的两条射线；controller/lock-drag.ts dragMaxLen）。 */
+    private maxLen;
     private verb;
     /** 屏幕点 → 过轴心、垂直于视线的平面上的点（世界）。不用 pick.ts cameraPlane：那个是「最朝向镜头的轴平面」（SU 画图用），等轴视角下是地面，锁 Z 就挪不动了。 */
     private onPlane;
