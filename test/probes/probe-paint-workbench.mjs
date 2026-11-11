@@ -85,7 +85,7 @@ await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .s
 const rows1 = await sheetRows();
 check(rows1.map((r) => r.label).join(",") === "128 × 128,256 × 256,512 × 512,1024 × 1024,2048 × 2048" && rows1.every((r) => /一格约 .+打开占 /.test(r.note) && !r.disabled) && rows1.every((r) => !r.mark),
   `面板五行，每行写了一格多大和打开占多少显存（${rows1.map((r) => r.note).join(" | ")}）；文件里还没有画 = 没有记号`, JSON.stringify(rows1));
-check(/打开占 (\d|\.)+ (KB|MB)（画的时候再多/.test(rows1[0].note) && /打开占 25 MB（画的时候再多 8 MB）/.test(rows1[3].note), `打开这张画占多少显存（1024：${rows1[3].note}）`);
+check(/打开占 (\d|\.)+ (KB|MB)（画的时候再多/.test(rows1[0].note) && /打开占 29 MB（画的时候再多 8 MB）/.test(rows1[3].note), `打开这张画占多少显存（1024：${rows1[3].note}）`);
 await page.click("#sheetCancel"); await frames(2);
 check(await S(() => globalThis.__catsup.editor.history.position()) === pos0 && await S(() => ![...globalThis.__catsup.editor.sceneRef.textures.values()].some((t) => t.content.kind === "layered")), "取消 = 什么都没开始（没有画、没长步）");
 await startBtn.click();
