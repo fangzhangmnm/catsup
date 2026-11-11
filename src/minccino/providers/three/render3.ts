@@ -225,14 +225,18 @@ const TEX_FRAG = /* glsl */`
   varying vec2 vUv;
   varying vec3 vColor;
   varying vec3 vNormal;
+  // 贴图按 sRGB 存（过滤 / 缩小图在线性里做），采样出来是线性的；纯色面的颜色是 sRGB 的值、直接出——所以贴图采样之后先编码回 sRGB，再和纯色面走同一段明暗。
+  // 以前直接把线性值写出去 = 导入的图比它的字节暗（128 显示成 55）；W-14（2026-11-11，Claude Opus 5.5）修。
+  vec3 toSrgb(vec3 l) { return mix(l * 12.92, 1.055 * pow(max(l, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), l)); }
   void main() {
     float k = uUnlit ? 1.0 : 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));
-    vec3 c = texture2D(uMap, vUv).rgb * vColor;
+    vec3 t = toSrgb(texture2D(uMap, vUv).rgb);
+    vec3 c = t * vColor;
     #ifdef SEL
-    c = texture2D(uMap, vUv).rgb * uMark;   // 标记：贴图 × 状态色（和以前的贴图高亮同值）
+    c = t * uMark;   // 标记：贴图 × 状态色（和以前的贴图高亮同一个式子）
     #endif
     #ifdef DIM
-    c = texture2D(uMap, vUv).rgb * uMark;   // 淡出：贴图 × 淡出色（= 以前烤进顶点色的那个值）
+    c = t * uMark;   // 淡出：贴图 × 淡出色（= 以前烤进顶点色的那个值）
     #endif
     gl_FragColor = vec4(c * k, 1.0);
   }`;
