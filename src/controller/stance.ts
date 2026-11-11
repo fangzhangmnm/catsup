@@ -168,10 +168,18 @@ const VERIFY: Partial<Record<Tool, Stance>> = {
   select: GEOMETRY.select!, transform: GEOMETRY.transform!, move: GEOMETRY.move!, rotate: GEOMETRY.rotate!, tape: GEOMETRY.tape!, protractor: GEOMETRY.protractor!, compass: GEOMETRY.compass!, axes: GEOMETRY.axes!,
 };
 
+/** 画画工作台（贴图主线 1-7）：笔 / 橡皮按住刮 = 一笔（点一下 = 一个点），不选中、不吸附；吸管点一下 = 取色。工具不碰几何（宿主的画画控制器接手）。 */
+const PAINT_STROKE = { grab: "scrub" as const, tap: "apply" as const, emptyDrag: "none" as const, direction: "none" as const, snap: "none" as const, shift: "—", ctrl: "—", alt: "—", center: "none" as const, lock: null, grammar: "direct" as const, after: "none" as const, charge: false, intent: false };
+const PAINT: Partial<Record<Tool, Stance>> = {
+  paintPen: S({ ...PAINT_STROKE }),
+  paintEraser: S({ ...PAINT_STROKE }),
+  eyedrop: S({ ...PAINT_STROKE, grab: "none", tap: "apply" }),
+};
+
 /** 物体工作台（选物体 / 摆放）：和硬表面同一份选择 / 移动 / 旋转 / 缩放的立场。 */
 const OBJECT: Partial<Record<Tool, Stance>> = { select: GEOMETRY.select!, move: GEOMETRY.move!, rotate: GEOMETRY.rotate!, scale: GEOMETRY.scale!, transform: GEOMETRY.transform! };
 
-export const STANCE: Readonly<Record<ModeId, Partial<Record<Tool, Stance>>>> = { geometry: GEOMETRY, surface: SURFACE, freeform: FREEFORM, verify: VERIFY, object: OBJECT };
+export const STANCE: Readonly<Record<ModeId, Partial<Record<Tool, Stance>>>> = { geometry: GEOMETRY, surface: SURFACE, freeform: FREEFORM, verify: VERIFY, object: OBJECT, paint: PAINT };
 
 /** 这把工具在这个工作台的立场（没有 = 守卫测试会红；运行时返回 undefined 让调用方自己兜底）。 */
 export function stanceOf(mode: ModeId, tool: Tool): Stance | undefined { return STANCE[mode]?.[tool]; }

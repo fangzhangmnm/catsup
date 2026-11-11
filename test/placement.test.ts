@@ -8,8 +8,8 @@ import { ERASERS, TOOLS } from "../src/editor/tool-ids.ts";
 import { allActions } from "../src/editor/commands/registry.ts";
 import { FAMILIES } from "../src/editor/commands/index.ts";
 import { GeometryMode } from "../src/editor/modes/geometry.ts";
-import { FreeformMode } from "../src/editor/modes/freeform.ts";
-import { VerifyMode } from "../src/editor/modes/verify.ts";
+import { workbenches } from "../src/editor/modes/index.ts";
+import type { Mode } from "../src/editor/mode.ts";
 
 const fs = (await import("node:fs" as string)) as { readFileSync(p: string, enc: string): string; existsSync(p: string): boolean }, url = (await import("node:url" as string)) as { fileURLToPath(u: URL): string };
 const path = (p: string): string => url.fileURLToPath(new URL(p, import.meta.url));
@@ -26,7 +26,7 @@ describe("放置表（controller/placement.ts）", () => {
     for (const g of RAIL_GROUPS) assert(g.budget >= 1 && g.budget >= Math.min(g.pinned.length, 1), `组 ${g.id} 预算`);
   });
   it("定死一列的工作台：列里的工具 = 那个工作台的工具（只有键盘入口的沿法线除外），不重复；改名只改那个工作台有的工具", () => {
-    const modes = { freeform: new FreeformMode(), verify: new VerifyMode() } as const;
+    const modes = Object.fromEntries(workbenches().map((m) => [m.id, m])) as Record<string, Mode>;   // 全部工作台（1-7 起从 modes/index.ts 拿）
     for (const [id, list] of Object.entries(RAIL_FIXED)) {
       const m = modes[id as keyof typeof modes]; assert(!!m, `${id} 没有对应的工作台`);
       const has = new Set<string>(m.tools);

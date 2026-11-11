@@ -4,13 +4,11 @@
 import { describe, it, assert, eq } from "./runner.mjs";
 import { STANCE, BOOLEAN_DEFAULT, SNAP_BASE, stanceOf } from "../src/controller/stance.ts";
 import { GeometryMode } from "../src/editor/modes/geometry.ts";
-import { SurfaceMode } from "../src/editor/modes/surface.ts";
-import { FreeformMode } from "../src/editor/modes/freeform.ts";
-import { VerifyMode } from "../src/editor/modes/verify.ts";
+import { workbenches } from "../src/editor/modes/index.ts";
 import type { Mode } from "../src/editor/mode.ts";
 const fs = (await import("node:fs" as string)) as { readdirSync(u: URL): string[]; readFileSync(u: URL, enc: "utf8"): string };
 
-const modes: Mode[] = [new GeometryMode(), new SurfaceMode(), new FreeformMode(), new VerifyMode()];
+const modes: readonly Mode[] = workbenches();   // 全部工作台（编辑器用的同一份；1-7 起从 modes/index.ts 拿）
 
 describe("立场表：每把工具每个工作台一行，和手势模块一致", () => {
   it("每个工作台的每把工具都有一行", () => {

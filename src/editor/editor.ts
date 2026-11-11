@@ -35,7 +35,7 @@ import { type Selection, type BrepSelection, type SelMode, circleSegmentsOnPlane
 import { type ArcGesture, arcOp, buildArc } from "./arc-build.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
-import type { BodyPlacePhase, EditorCore, ToolCtx, ToolHandler, CopyPayload } from "./tool-handler.ts";
+import type { BodyPlacePhase, EditorCore, ToolCtx, ToolHandler, CopyPayload, PaintPointer } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
 import { type GridSettings, type UnitSystem, AXIS_TICK_MIN_PX, UNIT_LABEL_MIN_PX, displayLadder, gridFrame, snapLabel, snapLevels } from "./grid-settings.ts";
 import { GridState } from "./grid-state.ts";
@@ -89,10 +89,7 @@ import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, det3, fra
 export { TOOLS, type Tool } from "./tool-ids.ts";
 import { isReadOnlyTool, type Tool } from "./tool-ids.ts";
 import type { Mode, ModeId } from "./mode.ts";
-import { GeometryMode } from "./modes/geometry.ts";
-import { SurfaceMode } from "./modes/surface.ts";
-import { FreeformMode } from "./modes/freeform.ts";
-import { VerifyMode } from "./modes/verify.ts";
+import { workbenches } from "./modes/index.ts";   // 全部工作台（加一个 = modes/index.ts 一行）
 import { KINDS } from "../scene/kinds.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
@@ -154,7 +151,7 @@ export interface EditorHost {
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
   /** 套索轨迹（canvas 本地 CSS px；null = 收起；缺 = 宿主不画套索）。 */
   lasso?(pts: readonly { x: number; y: number }[] | null): void;
-  /** 放人（ToolCtx.placeBody 的另一头；缺 = 宿主没有步行）。 */ placeBody?(phase: BodyPlacePhase, x: number, y: number): void;
+  /** 放人（ToolCtx.placeBody 的另一头；缺 = 宿主没有步行）。 */ placeBody?(phase: BodyPlacePhase, x: number, y: number): void; /** 画画（ToolCtx.paint 的另一头；缺 = 宿主没有画画）。 */ paint?(ev: PaintPointer): void;
   /** 软选择的半径圈（画布本地 CSS px；null = 收）。 */
   softRing?(c: { x: number; y: number; r: number } | null): void;
   /** 扩 / 缩选区的拖动条（画布本地 CSS px；null = 收）。 */
@@ -272,7 +269,7 @@ export class Editor {
   private snapInfo: Snap3 | null = null;
   // 工具模块（tool-handler.ts 接缝；架构重构 2026-10-21）：有模块的工具走这里，其余仍在本文件的 case 里（Opus 票 3 逐个搬）
   /** 编辑模式（0.13 刀 ① / 刀 ③）：几何 / 表面；工具集 + 手势模块表住模式里；左上下拉框切（user「切换编辑模式还是左上下拉框」）。 */
-  private readonly modeList: readonly Mode[] = [new GeometryMode(), new SurfaceMode(), new FreeformMode(), new VerifyMode()];
+  private readonly modeList: readonly Mode[] = workbenches();
   private mode: Mode = this.modeList[0];
   get modeId(): ModeId { return this.mode.id; }
   /** 左上下拉框里的工作台 = 管活动池这种身体的那些（SU 体：硬表面建模 / 表面；网格体：自由建模）。 */
@@ -3939,7 +3936,7 @@ export class Editor {
       movablePoolPicks: (say) => this.movablePoolPicks(say),
       targetBounds: () => this.targetBounds(),
       marquee: (r) => this.host.marquee(r),
-      lasso: (pts) => this.host.lasso?.(pts), placeBody: (p, x, y) => this.host.placeBody?.(p, x, y),
+      lasso: (pts) => this.host.lasso?.(pts), placeBody: (p, x, y) => this.host.placeBody?.(p, x, y), paint: (ev) => this.host.paint?.(ev),
       softRing: (c) => this.host.softRing?.(c),
       selGrowBar: (at) => this.host.selGrowBar?.(at),
       hitInSelection: (h) => this.hitInSelection(h),
