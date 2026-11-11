@@ -18,6 +18,8 @@
 //   本类只剩 shader 源 + 实例打包 + 两个 draw spec。
 
 import type { Gl2Port, PooledFBO } from "../../common/gl2-port.ts";
+import { STAMP_FALLOFF_GLSL } from "./stamp-falloff.ts";
+export { STAMP_FALLOFF_GLSL } from "./stamp-falloff.ts";   // 笔尖边缘的曲线（三维的空间层要用；全仓一份）
 
 // 一个 stamp：doc 坐标中心 + 直径 + 该 dab 的 α（= _stampParams.stampAlpha）。
 export interface Stamp { x: number; y: number; size: number; alpha: number; }
@@ -66,6 +68,7 @@ uniform bool u_buildup;
 uniform float u_aspect;       // 椭圆纵横比（1=圆）
 uniform float u_rotation;     // 椭圆旋转弧度（0=不旋）
 out vec4 o;
+${STAMP_FALLOFF_GLSL}
 void main() {
   // 旋转(-rotation)+1/aspect 逆变换（匹配 _washMaxInto:854-856）；圆=退化(c=1,s=0,ia=1)。
   float c = cos(u_rotation), s = sin(u_rotation);
@@ -73,12 +76,8 @@ void main() {
   float dxR = c * v_local.x + s * v_local.y;
   float dyR = (-s * v_local.x + c * v_local.y) * ia;
   float dist = length(vec2(dxR, dyR));
-  float innerR = u_hardness * v_radius;
-  float decayLen = v_radius - innerR;
-  float shapeA;
   if (dist >= v_radius) { discard; }
-  if (decayLen <= 0.0 || dist <= innerR) shapeA = 1.0;
-  else { float u = (dist - innerR) / decayLen; shapeA = 1.0 - u*u*(3.0 - 2.0*u); }
+  float shapeA = stampFalloff(dist, v_radius, u_hardness * v_radius);   // stamp-falloff.ts（全仓一份）
   float dabA = v_alpha * shapeA;
   if (u_buildup) o = vec4(u_color * dabA, dabA);   // premult, over
   else           o = vec4(0.0, 0.0, 0.0, dabA);    // wash: 累积 α (MAX)
@@ -132,8 +131,15 @@ export class GLStampRasterizer {
       },
     }, data, n);
     if (shape.buildup) return accum;   // 已是 premult colored
+    return this.colorize(accum, shape.color, ow, oh, scissor);   // 2) wash 上色
+  }
 
-    // 2) wash 上色 pass：accum.a → premult(color,a) 到另一张 FBO。同样先全屏清、再 scissor 限着色。
+  /**
+   * 淡彩最后上色的那一遍（stamp-color）：累积的 α → premult(color, α) 到另一张 FBO（先全屏清、再 scissor 限着色）；accum 归还，返回新的那张（caller returnFBO）。
+   * 2026-11-10（贴图主线 0-5）公开：三维的空间层自己累积完淡彩之后用同一遍上色。
+   */
+  colorize(accum: PooledFBO, color: [number, number, number], ow: number, oh: number, scissor?: { x: number; y: number; w: number; h: number } | null): PooledFBO {
+    const port = this._glctx;
     const out = port.borrowFBO(ow, oh, "u8");
     port.program("stamp-color", COLOR_VERT, COLOR_FRAG);
     port.draw({
@@ -141,7 +147,7 @@ export class GLStampRasterizer {
       target: out,
       clear: [0, 0, 0, 0],
       scissor: scissor ?? undefined,
-      uniforms: { u_color: shape.color },
+      uniforms: { u_color: color },
       textures: { u_accum: accum },
     });
     port.returnFBO(accum);

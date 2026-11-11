@@ -33,6 +33,7 @@ import type { Selection } from "./selection.ts";
 import { LayerPixels, disposePixelsSnapshot } from "./tiles/tile-layer.ts";
 import { TILE_SIZE } from "../common/tile-geometry.ts";
 import type { RegionStroke } from "./gl/region-stroke.ts";   // preview="region" 的 GPU 驻留写靶（2026-09-18）
+import type { HostOverlayInput } from "./gl/gl-room.ts";      // preview="host" 的宿主薄层（2026-11-10 贴图主线 0-5）
 
 export type StampCollect = NonNullable<ReturnType<BrushEngine["collectStamps"]>>;
 
@@ -49,7 +50,10 @@ export interface StrokeEngine {
 }
 
 /** 预览宿（census §3.4；见文件头）。 */
-export type StrokePreview = "overlay" | "livesync" | "shadow" | "region";   // region（2026-09-18）：GPU 驻留 RegionStroke（手指 / 模糊 / 锐化）
+export type StrokePreview = "overlay" | "livesync" | "shadow" | "region" | "host";   // region（2026-09-18）：GPU 驻留 RegionStroke（手指 / 模糊 / 锐化）；host（2026-11-10）：宿主（三维）画好的薄层
+
+/** host 方式下宿主每帧交上来的一张（每个图层最多一张）：浓度、橡皮、混合方式由宿主给；锁透明和选区由档口补。 */
+export type HostLayerInput = Omit<HostOverlayInput, "kind" | "lockAlpha" | "selMask">;
 
 export interface StrokeSessionDeps {
   /** wp2.begin —— 单令牌墙的开口（第二个 begin → throw） */
@@ -73,6 +77,10 @@ export interface StrokeSessionDeps {
   setRegions(regions: readonly RegionStroke[]): void;
   /** board.commitRegionStroke —— = bakeStamps 写回链（GPU merge→readPixels→applyRegionDiff→收养），在令牌内；false = 没落层 */
   commitRegion(region: RegionStroke): boolean;
+  /** preview="host"（贴图主线 0-5）：宿主画好的薄层交给显示那一侧（每叶最多一张）；[] = 关。不给 = 这个档口不支持 host 方式（开的时候响亮拒绝）。 */
+  setHostOverlays?(list: readonly HostOverlayInput[]): void;
+  /** preview="host"：落一张（= 落二维笔尖的那条写回链 bakeStamps），在令牌内；false = 没落层。 */
+  commitHost?(ov: HostOverlayInput): boolean;
 }
 
 // begin 期策略（engine-registry PIXEL_STROKE_SPECS 的子集：session 只关心事务面）
@@ -187,6 +195,8 @@ export class StrokeSession {
   private readonly deps: StrokeSessionDeps;
   private _shadows: StrokeShadow[] = [];
   private _regions: RegionStroke[] = [];   // preview="region"：GPU 驻留写靶（单叶 1 个；组液化 N 个，2026-09-19）
+  private readonly _host: boolean;          // preview="host"（2026-11-10）
+  private _hostLayers: HostOverlayInput[] = [];
   private _open = true;
 
   constructor(deps: StrokeSessionDeps, engine: StrokeEngine, layers: readonly ViewLeaf[], spec: StrokeSessionSpec, preview: StrokePreview) {
@@ -196,6 +206,8 @@ export class StrokeSession {
     this.layers = layers;
     this.finalize = spec.finalize;
     this.inPlace = preview === "livesync";
+    this._host = preview === "host";
+    if (this._host && (!deps.setHostOverlays || !deps.commitHost)) throw new Error("StrokeSession: preview \"host\" needs deps.setHostOverlays and deps.commitHost");   // 先于开令牌
     this.token = deps.begin(spec.historyType);
     if (preview === "region") {
       // GPU 驻留写靶（2026-09-18 区域程序；2026-09-19 多叶）：每叶一个 RegionStroke，各自的 W 就是预览 overlay（replace）；
@@ -230,6 +242,25 @@ export class StrokeSession {
     eng.stampPixels?.(pts, pressure);
   }
 
+  /**
+   * host 方式（贴图主线 0-5）：宿主每帧把自己画好的薄层交上来（每个图层最多一张、必须是这一笔的图层）。档口补上锁透明（图层的）和选区（现在的选区），转给显示那一侧。
+   * 抬笔时逐张落层；取消 = 撤掉显示、零痕迹。
+   */
+  setHostLayers(list: readonly HostLayerInput[]): void {
+    if (!this._host) throw new Error("StrokeSession.setHostLayers: only for preview \"host\"");
+    if (!this._open) throw new Error("StrokeSession.setHostLayers: session is closed");
+    const seen = new Set<number>(), sel = this.deps.getSelection(), m = sel ? (sel as unknown as { bboxMask(): { data: Uint8Array; x: number; y: number; w: number; h: number } }).bboxMask() : null;
+    const selMask = m ? { data: m.data, ox: m.x, oy: m.y, ow: m.w, oh: m.h } : null;
+    this._hostLayers = list.map((h) => {
+      const layer = this.layers.find((l) => l.id === h.layerId);
+      if (!layer) throw new Error(`StrokeSession.setHostLayers: layer ${h.layerId} is not a target of this stroke`);
+      if (seen.has(h.layerId)) throw new Error(`StrokeSession.setHostLayers: more than one overlay for layer ${h.layerId}`);
+      seen.add(h.layerId);
+      return { ...h, kind: "host" as const, lockAlpha: layer.lockAlpha, selMask };
+    });
+    this.deps.setHostOverlays!(this._hostLayers);
+  }
+
   /** 引擎累积的 dirty bbox（board.markDocDirty 用）；无 → null */
   flushDirty() { return this.engine.flushDirty(); }
 
@@ -255,14 +286,35 @@ export class StrokeSession {
     if (this._regions.length) {
       const regions = this._regions;
       this._regions = [];
-      let failed = 0;
+      // 落层那一步自己抛（不是返回 false）同样：先取消令牌（已落的叶跟着回滚）再抛原错误——以前抛了令牌开着，下一笔被单令牌墙挡住（2026-11-10 0-5 审后补，统筹定）。
+      let failed = 0, thrown: unknown = null;
       try { for (const r of regions) if (!this.deps.commitRegion(r)) failed++; }
+      catch (e) { thrown = e; }
       finally { this.deps.setRegions([]); for (const r of regions) r.dispose(); }
-      if (failed) {
+      if (failed || thrown) {
         // bakeStamps 返 false = 该叶什么都没写（GL 丢失 / 驻留不齐）：整笔令牌取消、响亮——不静默丢一笔 / 不落半组（家规：错误路径不许吞）
         this.token.cancel();
         this.deps.invalidate();
+        if (thrown) throw thrown;
         throw new Error(`REGION_COMMIT_FAILED (${failed}/${regions.length} leaves did not land; stroke dropped, token cancelled)`);
+      }
+      gpuCommitted = true;
+    }
+    if (this._host) {
+      // host（2026-11-10）：逐张落层（写回链同二维笔尖）；有一张没落成 = 整笔取消令牌、响亮（同区域笔：不落半笔）
+      const list = this._hostLayers;
+      this._hostLayers = [];
+      //   落层那一步自己抛（不是返回 false）也一样：先取消令牌（已落的那几张跟着回滚），再把原错误抛出去——不留一个开着的令牌挡住下一笔。
+      let failed = 0, thrown: unknown = null;
+      //   空的（范围宽或高不大于零，同 gl-room overlayEmpty 的 host 判据）没东西可落，跳过，不算没落成。
+      try { for (const ov of list) if (ov.bw > 0 && ov.bh > 0 && !this.deps.commitHost!(ov)) failed++; }
+      catch (e) { thrown = e; }
+      finally { this.deps.setHostOverlays!([]); }
+      if (failed || thrown) {
+        this.token.cancel();
+        this.deps.invalidate();
+        if (thrown) throw thrown;
+        throw new Error(`HOST_COMMIT_FAILED (${failed}/${list.length} layers did not land; stroke dropped, token cancelled)`);
       }
       gpuCommitted = true;
     }
@@ -298,6 +350,7 @@ export class StrokeSession {
     this.engine.cancelStroke();   // shape pixelMode 会 preSnap-restore 到替身——无害（替身随即丢弃）
     if (this._regions.length) { const rs = this._regions; this._regions = []; this.deps.setRegions([]); for (const r of rs) r.dispose(); }   // 真层从未被写 → 零回滚
     if (this._shadows.length) this.deps.setShadows([]);
+    if (this._host) { this._hostLayers = []; this.deps.setHostOverlays!([]); }   // 真层从未被写 → 撤掉显示即零痕迹
     this.token.cancel();
     this._disposeShadows();
     this.deps.invalidate();

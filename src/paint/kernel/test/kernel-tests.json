@@ -5,7 +5,8 @@
     "src/common"
   ],
   "kernelFiles": [
-    "src/shell/browser-gl2-port.ts"
+    "src/shell/browser-gl2-port.ts",
+    "src/shell/gl-board.ts"
   ],
   "excludeDirs": [
     "src/backend/timelapse"
@@ -66,6 +67,8 @@
     "test/gl-group-clip.test.mjs",
     "test/gpu-tile-pool.test.mjs",
     "test/history.test.mjs",
+    "test/host-overlay.test.mjs",
+    "test/hosted-steps.test.mjs",
     "test/layer-cap-budget.test.mjs",
     "test/layer-ops-undo-fuzz.test.mjs",
     "test/layer-tiles.test.mjs",
@@ -89,6 +92,8 @@
     "test/selection-preview.test.mjs",
     "test/settle-hold.test.ts",
     "test/soft-gl2-port.test.mjs",
+    "test/stroke-core-golden.test.mjs",
+    "test/stroke-core.test.mjs",
     "test/stroke-session-region.test.mjs",
     "test/stroke-smoother.test.mjs",
     "test/tile-bridge.test.mjs",

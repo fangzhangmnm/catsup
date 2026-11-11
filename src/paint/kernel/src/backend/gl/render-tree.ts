@@ -77,6 +77,19 @@ export class RenderTree {
     floats: FloatInput[], stampOverlays: readonly OverlayInput[], surrogates: readonly SurrogateInput[],
     liveSyncLeafId: number | null, screenGrid: ScreenGridBg | null = null,
   ): void {
+    this.compositeFrame(nodes, docW, docH, bg, floats, stampOverlays, surrogates, liveSyncLeafId);   // 前一半：合成整幅画到离屏图
+    this._present(docW, docH, affine6, canvasW, canvasH, scale, voidRgb, screenGrid);               // 后一半：画到屏幕
+  }
+
+  /**
+   * 只合成、不上屏（2026-11-10 贴图主线 0-5：三维要合成好的那张图贴到模型上）：合成整幅画到一张离屏图并返回。renderFrame = 这一半 + 画到屏幕（同一段代码）。
+   * 返回的那张图**归内核**：下一次合成之前有效；宿主不许归还它、不许改它的采样设置。bg 给不透明的颜色 = 交出去的图不透明（三维放材质自己的底色）。
+   */
+  compositeFrame(
+    nodes: DocNode[], docW: number, docH: number, bg: Background | undefined,
+    floats: FloatInput[], stampOverlays: readonly OverlayInput[], surrogates: readonly SurrogateInput[],
+    liveSyncLeafId: number | null,
+  ): PooledFBO {
     const room = this._room;
     this.frameStats.segBuilds = 0; this.frameStats.segHits = 0; this.frameStats.cachingDegraded = false;
     // doc 尺寸变：FBO 池全清（旧尺寸永不再命中）+ 段/display/叶记录作废（index 尺寸不符会逐个重建，主动清更干净）。
@@ -110,11 +123,8 @@ export class RenderTree {
     const plan = buildPlan(planNodes, updated, bgKind);
     const sig = this._planSig(plan, docW, docH, bg);
 
-    // 快路径：无 dirty 无动态、display 有效且签名没变 → 只 present（pan/zoom 帧）。
-    if (!this._dirty && updated.size === 0 && this._display && this._displaySig === sig) {
-      this._present(docW, docH, affine6, canvasW, canvasH, scale, voidRgb, screenGrid);
-      return;
-    }
+    // 快路径：无 dirty 无动态、display 有效且签名没变 → 不重合成（pan/zoom 帧只 present）。
+    if (!this._dirty && updated.size === 0 && this._display && this._displaySig === sig) return this._display;
 
     if (this._dirty) {
       this._invalidateSegs();                        // undo/redo/commit → 重算树（spec:134）
@@ -195,7 +205,7 @@ export class RenderTree {
     if (this._display) room.glctx.returnFBO(this._display);
     this._display = fresh;
     this._displaySig = sig;
-    this._present(docW, docH, affine6, canvasW, canvasH, scale, voidRgb, screenGrid);
+    return fresh;
   }
 
   // ---- 内部：签名 / 段有效性 ----

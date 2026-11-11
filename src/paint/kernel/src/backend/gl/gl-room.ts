@@ -65,7 +65,17 @@ export interface FillOverlayInput {
   lockAlpha: boolean;
   selMask: { data: Uint8Array; ox: number; oy: number; ow: number; oh: number };
 }
-export type OverlayInput = StampOverlayInput | FillOverlayInput | RegionOverlayInput;
+// 2026-11-10（贴图主线 0-5）：第四种薄层 = 宿主（三维）已经画好的这一笔。三维的空间层把每颗笔尖画到贴图的格子上，交上来的就是一张和画布一样大的薄层；
+//   后面按浓度、混合方式、橡皮、锁透明、选区盖到图层上，和二维笔尖是同一段（_addOverlay 的后半段只有一份）。
+export interface HostOverlayInput {
+  kind: "host";
+  /** 宿主画好的这一笔。和画布一样大，预乘，第 0 行 = 画布第 0 行。宿主借的、宿主还；内核只读，不归还，不改它的采样设置。 */
+  tex: PooledFBO;
+  bx: number; by: number; bw: number; bh: number;   // 这一笔碰到的范围（画布像素）；落层时只读回这一块
+  layerId: number; opacity: number; erase: boolean; blendMode: string; lockAlpha: boolean;
+  selMask: { data: Uint8Array; ox: number; oy: number; ow: number; oh: number } | null;
+}
+export type OverlayInput = StampOverlayInput | FillOverlayInput | RegionOverlayInput | HostOverlayInput;
 type OverlayEntry = { tex: Gl2TexSource; layerId: number; opacity: number; erase: boolean; blendMode: string; ox: number; oy: number; ow: number; oh: number; lockAlpha: boolean; selMask: { tex: Gl2Texture; ox: number; oy: number; ow: number; oh: number } | null; replace: boolean };   // region（2026-09-18）：W 当 overlay，replace 合成
 
 // overlay 空判据（kind-aware——fill 没有 stamps，旧 stamps.length 守卫会把 fill 静默早退成 false）。
@@ -398,11 +408,22 @@ export class GlRoom {
       this._overlays.set(ov.layerId, { tex: this._fillTex, layerId: ov.layerId, opacity: 1, erase: false, blendMode: "source-over", ox: ov.bx, oy: ov.by, ow: ov.bw, oh: ov.bh, lockAlpha: ov.lockAlpha, selMask, replace: false });
       return;
     }
+    if ("kind" in ov && ov.kind === "host") {   // 宿主画好的（0-5）：宿主借的图，内核只读、不归还
+      this._addPremulOverlay(ov.tex, false, ov, docW, docH);
+      return;
+    }
     // 整屏 doc FBO + scissor（池每帧同尺寸命中零 malloc)；着色靠 scissor 限回 stamp bbox。
     const fboP = this.rasterizer.rasterize(ov.stamps, ov.shape, 0, 0, docW, docH, { x: ov.bx, y: ov.by, w: ov.bw, h: ov.bh });
+    this._addPremulOverlay(fboP, true, ov, docW, docH);
+  }
+  /**
+   * 二维笔尖和宿主薄层共用的后半段（只有这一份，守卫钉）：一张和画布一样大的预乘薄层 → 转直值 → 带上选区 → 登记。
+   * owned = 这张预乘图是内核自己借的（二维笔尖：转完就还）；宿主的图 owned = false（只读、不归还）。
+   */
+  private _addPremulOverlay(fboP: PooledFBO, owned: boolean, ov: StampOverlayInput | HostOverlayInput, docW: number, docH: number): void {
     const fboS = this.glctx.borrowFBO(docW, docH, "u8");
-    this.comp.presentTo(fboP, fboS, docW, docH, true);   // 栅格器预乘 → straight
-    this.glctx.returnFBO(fboP);
+    this.comp.presentTo(fboP, fboS, docW, docH, true);   // 预乘 → straight
+    if (owned) this.glctx.returnFBO(fboP);
     this._overlayOwnedFBOs.push(fboS);
     const selMask = ov.selMask ? this._uploadSelMask(ov.selMask) : null;
     this._overlays.set(ov.layerId, { tex: fboS, layerId: ov.layerId, opacity: ov.opacity, erase: ov.erase, blendMode: ov.blendMode, ox: 0, oy: 0, ow: docW, oh: docH, lockAlpha: ov.lockAlpha, selMask, replace: false });

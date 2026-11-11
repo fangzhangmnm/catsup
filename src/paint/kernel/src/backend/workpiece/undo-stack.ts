@@ -58,7 +58,27 @@ export interface StackWorkpieceHooks {
   afterApply(step: UndoStep, dir: "undo" | "redo"): void;
 }
 
-export class UndoStack {
+/**
+ * Workpiece 用的那一面（UndoStack 和 HostedSteps 共有）：独占绑定、收一步、报「现在停在哪一步」、清空。
+ * 2026-11-10（贴图主线 0-2，Claude Opus 5.5）：步可以存在内核自己的栈里（UndoStack），也可以交给宿主的栈去存（hosted-steps.ts HostedSteps）。
+ */
+export interface StepSink {
+  _bindWorkpiece(hooks: StackWorkpieceHooks): void;
+  push(step: UndoStepInput): void;
+  cursorStepId(): number;
+  clear(): void;
+}
+
+/**
+ * 翻一步（全仓只有这一处，守卫钉）：undo = entries 倒序 swapRecord，redo = 正序再调一次（swap 自反）。只翻数据；游标、hint、通知归调用的栈。
+ * swapRecord 抛 = 状态不可信，原样传播（不可恢复协议在 History）。
+ */
+export function applyStep(step: UndoStep, dir: "undo" | "redo"): void {
+  if (dir === "undo") for (let i = step.entries.length - 1; i >= 0; i--) { const e = step.entries[i]; e.data = e.c.swapRecord(e.data); }
+  else for (const e of step.entries) e.data = e.c.swapRecord(e.data);
+}
+
+export class UndoStack implements StepSink {
   private _steps: UndoStep[] = [];
   private _cursor = -1;              // 最后一个「已应用」step 的下标；-1 = 栈底
   private _baseId = 0;               // 栈底位置的身份：0 = 初始态；驱逐后 = 最后被驱逐步的 id
@@ -90,10 +110,7 @@ export class UndoStack {
     if (!this.canUndo()) return false;
     this._hooks?.beforeApply();
     const step = this._steps[this._cursor];
-    for (let i = step.entries.length - 1; i >= 0; i--) {
-      const e = step.entries[i];
-      e.data = e.c.swapRecord(e.data);
-    }
+    applyStep(step, "undo");
     this._cursor--;
     step.hint?.("undo");
     this._opts.onApplied?.(step, "undo");
@@ -106,9 +123,7 @@ export class UndoStack {
     if (!this.canRedo()) return false;
     this._hooks?.beforeApply();
     const step = this._steps[this._cursor + 1];
-    for (const e of step.entries) {
-      e.data = e.c.swapRecord(e.data);
-    }
+    applyStep(step, "redo");
     this._cursor++;
     step.hint?.("redo");
     this._opts.onApplied?.(step, "redo");

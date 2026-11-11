@@ -14,6 +14,7 @@
 // per-tenant 合成注入 + GPU tile arena 归 Port 记账排 C7 后棒（handoff §1 C7 行）。
 
 import { History } from "./workpiece/history.ts";
+import { HostedSteps, type StepHost } from "./workpiece/hosted-steps.ts";
 import type { WriteToken } from "./workpiece/workpiece.ts";
 import { getFilterKernel } from "./filters/index.ts";
 import type { FilterKernel, FilterParams } from "./filters/kernel.ts";
@@ -72,6 +73,9 @@ export interface BackendInject {
    *  缺省回落 doc-render 全局接缝（壳单租户期语义不变）；多 backend 并存各持己面不串。 */
   compositorBytes?: DocCompositorBytesFn;
   hooks?: BackendShellHooks;
+  /** 给了 = 封好的步交给宿主的撤销栈去存（贴图主线 0-2：三维把画画和建模接成一条撤销线）——宿主走到哪一步调 `history.flip(step)`；
+   *  这时 undo / redo / canUndo 抛（归宿主管），onHistChange 不发。不给 = 和以前一模一样（内核自带的栈）。 */
+  stepHost?: StepHost;
 }
 
 export interface BackendOpenResult {
@@ -159,10 +163,12 @@ export class WeebPaintBackend implements WeebPaintBackendInterface {
       onUnrecoverable: (e) => { hooks?.onUnrecoverable?.(e); this._emit(); },
       onChange: () => { this._histRev++; hooks?.onHistChange?.(this._history.canUndo(), this._history.canRedo()); this._emit(); },
       onApplied: (info) => { hooks?.onApplied?.(info); },   // 屏显刷新是壳的事（headless 无耗）
+      // 步归宿主管（0-2）：「真落了一步」照样从步的变化数（strokeEnd / filterCommit 要）；能不能撤销归宿主，不发 onHistChange
+      ...(inject.stepHost ? { hosted: new HostedSteps(inject.stepHost, { onChange: () => { this._histRev++; this._emit(); } }) } : {}),
     });
     // born 出生形：1×1 脚手架树——仅存在于本构造函数内（load 立即换根），外界不可观测。
     this._wp2 = new PaintingWorkpiece({
-      undo: this._history.stack,
+      undo: this._history.steps,
       tree: { width: 1, height: 1, maxLeaves: (): number => this._view.maxLayers },
       persp: inject.persp,
     });

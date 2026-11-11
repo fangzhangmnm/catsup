@@ -26,6 +26,7 @@
 import type { Gl2Port } from "../../common/gl2-port.ts";
 import { COMPOSITE_VERT } from "./blend-glsl.ts";
 import { WARP_FUNCS } from "./gl-compositor.ts";
+import { STAMP_FALLOFF_GLSL } from "./stamp-falloff.ts";
 
 export const REGION_PROGRAM_IDS = [
   "region-load", "region-crop", "smudge-mask", "smudge-absorb",
@@ -161,6 +162,7 @@ uniform int u_hasSel;
 uniform sampler2D u_sel;  // r8 gray8（选区 bbox 平面）
 uniform vec2 u_selOrigin;
 uniform vec2 u_selSize;
+${STAMP_FALLOFF_GLSL}
 void main(){
   ivec2 q = ivec2(floor(v_uv * u_size));
   ivec2 p = ivec2(u_origin) + q;
@@ -168,9 +170,7 @@ void main(){
   float ddx = float(p.x) + 0.5 - u_center.x, ddy = float(p.y) + 0.5 - u_center.y;
   float dist = sqrt(ddx * ddx + ddy * ddy);
   if (dist >= u_r) { o = vec4(0.0, 0.0, 0.0, 1.0); return; }
-  float m = 1.0;
-  float decay = u_r - u_innerR;
-  if (decay > 0.0 && dist > u_innerR) { float u = (dist - u_innerR) / decay; m = 1.0 - u * u * (3.0 - 2.0 * u); }
+  float m = stampFalloff(dist, u_r, u_innerR);   // stamp-falloff.ts（全仓一份）
   if (u_hasSel == 1) {
     ivec2 sp = p - ivec2(u_selOrigin);
     if (sp.x < 0 || sp.y < 0 || sp.x >= int(u_selSize.x) || sp.y >= int(u_selSize.y)) m = 0.0;
@@ -362,13 +362,13 @@ uniform int u_hasSel;
 uniform sampler2D u_sel;
 uniform vec2 u_selOrigin;
 uniform vec2 u_selSize;
+${STAMP_FALLOFF_GLSL}
 void main(){
   ivec2 p = ivec2(floor(v_uv * u_docSize));
   float ddx = float(p.x) + 0.5 - u_center.x, ddy = float(p.y) + 0.5 - u_center.y;
   float dist = sqrt(ddx * ddx + ddy * ddy);
   if (dist > u_R) discard;
-  float stampA = 1.0;
-  if (dist > u_innerR) { float u = (dist - u_innerR) / (u_R - u_innerR); stampA = 1.0 - u * u * (3.0 - 2.0 * u); }
+  float stampA = stampFalloff(dist, u_R, u_innerR);   // stamp-falloff.ts（全仓一份；u_R == u_innerR 时以前除以零、现在按 1）
   float a = stampA * u_flow;
   if (u_hasSel == 1) {
     ivec2 sp = p - ivec2(u_selOrigin);

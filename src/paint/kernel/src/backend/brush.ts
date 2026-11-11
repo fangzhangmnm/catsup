@@ -35,58 +35,42 @@
 //     抬笔 finish() 收尾把直线桥换成动量弧尾、钉终点。
 
 import { makePressureShaper, type PressureShaper } from "../common/pressure-curve.ts";
-import { StrokeSmoother, PressureLPF } from "./stroke-smoother.ts";
+import { PressureLPF } from "./stroke-smoother.ts";
+import { StrokeCore, stepFor, stampParamsOf, type StampParams } from "./stroke-core.ts";
 import type { ViewLeaf } from "./workpiece/painting-view.ts";
 import type { ResolvedBrush } from "../common/resolved-brush.ts";
 import type { Stamp, StrokeShape } from "./gl/gl-stamp.ts";
 
 interface RgbColor { r: number; g: number; b: number; }
 
-interface StampParams { size: number; stampAlpha: number; }
-
-// frozen/tail 沿平滑中心线撒点的游标
-interface Walk {
-  ci: number;
-  started: boolean;
-  accumDist: number;
-  lastP: number;
-  strokeDist: number;
-}
-
 type Rect = [number, number, number, number];
 
 // 进行中描边的全部可变态（begin 建、extend/end 改、end 清）
+// 2026-11-10（贴图主线 0-6）：缓冲笔（brush / erase）的手感——滤抖、压感平滑、停顿、走步、每颗笔尖多大多浓、起收笔渐细、收笔量总长——拆进 stroke-core.ts
+//   StrokeCore（不认识图层、不管几维）；这里只剩图层那一半（包围盒、合成参数）和像素笔直接落层那条路。拆前拆后逐位相同（test/stroke-core-golden.test.mjs）。
 interface StrokeState {
   layer: ViewLeaf;
   settings: ResolvedBrush;
-  pShape: PressureShaper;   // 2026-09-05 压感整形（pressureCurve LUT 或 p^gamma），begin 时烤一次
+  pShape: PressureShaper;   // 2026-09-05 压感整形（pressureCurve LUT 或 p^gamma），begin 时烤一次（缓冲笔 = core.pShape 同一份）
   mode: string;
   buffered: boolean;
+  // ---- 像素笔（immediate）那条路 ----
   lastX: number;
   lastY: number;
   lastP: number;
-  pLPF: PressureLPF;
+  pLPF: PressureLPF | null;
   accumDist: number;
   strokeDist: number;
   dirty: Rect | null;
   isBuildup: boolean;
-  _taperTotal: number | null;
-  sm: StrokeSmoother | null;
-  frozenWalk: Walk;   // endStroke 出端 taper 干走（GL 模式停在 ci=0，dry-walk 从 0 走全程算总笔长）
+  // ---- 缓冲笔：一笔的手感 ----
+  core: StrokeCore | null;
 }
 
 // 引擎默认参数袋 DEFAULT_CONFIG（= ResolvedBrush 的 base）已下沉 current-brush-config.ts（纯数据契约）；
 // dead class BrushSettings（旧可变单例）随之删除——当前笔早已收敛成不可变 ResolvedBrush（见 ai-docs/CONTEXT [[当前笔]]）。
 
-// signed_lerp：coeff ∈ [−1, 1]，p ∈ [0, 1]，返回 ∈ [amp, 1] where amp = 1 − |coeff|。
-//   coeff ≥ 0：amp + (1 − amp) × p  →  p=0 → amp，p=1 → 1
-//   coeff < 0：1 + (amp − 1) × p    →  p=0 → 1，  p=1 → amp
-//   coeff = 0：永远 1（不响应压感）
-function signedLerp(coeff: number, p: number) {
-  const amp = 1 - Math.abs(coeff);
-  return coeff >= 0 ? amp + (1 - amp) * p
-                    : 1 + (amp - 1) * p;
-}
+// signed_lerp 搬去 stroke-core.ts（和走步、笔尖参数一起）。
 
 export class BrushEngine {
   _stroke: StrokeState | null;
@@ -95,43 +79,30 @@ export class BrushEngine {
   }
 
   // step = size_eff × spacing；低压感 size 小 → step 小，不会出豆豆链
-  _stepFor(s: ResolvedBrush, pressure: number, shape: PressureShaper) {
-    const p = Math.max(0, Math.min(1, pressure));
-    const pCurve = shape(p);
-    const sizeMul = signedLerp(s.sizeCoeff || 0, pCurve);
-    const effSize = s.size * sizeMul;
-    return Math.max(0.5, effSize * s.spacing);
-  }
+  _stepFor(s: ResolvedBrush, pressure: number, shape: PressureShaper) { return stepFor(s, pressure, shape); }   // 像素笔那条路用（stroke-core.ts，unit 1）
 
   // smooth: { tau(ms), deadzone(doc px) }。t = 起手事件时间戳(ms)。详 ai-docs/20260613-brush-procreate-smoothing.md。
   //   tau=0 & deadzone=0 → 不平滑（直通 raw）。
   beginStroke(layer: ViewLeaf, settings: ResolvedBrush, x: number, y: number, pressure: number, mode: string = "brush", smooth: { tau?: number; deadzone?: number; tailBow?: number } = {}, t: number | null = null) {
     const isBuildup = (settings.compositeMode || "wash") === "buildup";
-    // buffered = 走 frozen/tail 平滑（进 buffer）；pixel = immediate（直接进 layer）
+    // buffered = 一笔的手感交给 StrokeCore（平滑中心线 + 走步，收集时画）；pixel = immediate（直接进 layer）
     const buffered = !settings.pixelMode;
-    const pLPF0 = pressure;
+    // --- v243 Procreate EMA + 死区 + 贴笔尖（详 ai-docs/20260613-brush-procreate-smoothing.md）——在 StrokeCore 里 ---
+    const core = buffered ? new StrokeCore(settings, x, y, pressure, smooth, t) : null;
     this._stroke = {
       layer, settings, mode,
-      pShape: makePressureShaper(settings),
+      pShape: core ? core.pShape : makePressureShaper(settings),
       buffered,
-      lastX: x, lastY: y, lastP: pLPF0,
-      // 压感 LPF（backend 手感数学，C5）：事件钟，起点锚在 down 事件的 t
-      pLPF: new PressureLPF(settings.pressureLPF || 0, pLPF0, t),
+      lastX: x, lastY: y, lastP: pressure,
+      // 压感 LPF（backend 手感数学，C5）：事件钟，起点锚在 down 事件的 t（缓冲笔的那一份在 StrokeCore 里）
+      pLPF: buffered ? null : new PressureLPF(settings.pressureLPF || 0, pressure, t),
       accumDist: 0,
       strokeDist: 0,
       dirty: null,
       isBuildup,
-      _taperTotal: null,                        // endStroke 时填总笔长，给出端 taper 用（live 为 null=不 taper）
-      // --- v243 Procreate EMA + 死区 + 贴笔尖（详 ai-docs/20260613-brush-procreate-smoothing.md）---
-      sm: buffered ? new StrokeSmoother(smooth) : null,
-      // frozen 撒点游标：GL 模式 collectStamps 用 fresh walk，此游标只供 endStroke taper dry-walk 从 ci=0 走全程。
-      frozenWalk: { ci: 0, started: false, accumDist: 0, lastP: pLPF0, strokeDist: 0 },
+      core,
     };
-    if (buffered) {
-      this._stroke.sm!.push(x, y, pressure, t);   // 第一颗由 tail / endStroke 渲染，begin 不烤
-    } else {
-      this._stampOne(x, y, pressure);
-    }
+    if (!buffered) this._stampOne(x, y, pressure);   // 缓冲笔的第一颗由收集 / endStroke 渲染，begin 不烤
   }
 
   extendStroke(x: number, y: number, pressure: number, t: number | null = null) {
@@ -140,14 +111,10 @@ export class BrushEngine {
     // NaN/inf 护栏：甩太快 / 坏事件可能传入非有限坐标 → 跳过
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     // 压感 LPF：dt 取事件 t 差（与位置平滑同一口钟；壁钟已拔除——backend/stroke-smoother.ts）
-    // 2026-09-06 起笔静止期不积压感（user「大笔刷 flat 顿一下会产生墨点」；考古 ai-docs/20260604-stroke-smoother-time-gate.md：
-    //   弧长看不见顿）：压感 LPF 走时间、taper-in 走弧长——落笔顿住时 LPF 已涨到按压力、strokeDist 仍为 0，起步后
-    //   taper 在半个笔宽内放开 → 满压粗头。修法：死区锚没离开落笔点前 LPF 只对钟不积压感，起步时从落笔压感起追，
-    //   与不顿的起笔完全同形（顿多久都等于没顿）。pixel（immediate）路径无 smoother，不动。
-    const dwell = st.buffered && st.sm != null && !st.sm.wouldMove(x, y);
-    const pEff = dwell ? st.pLPF.rebase(t) : st.pLPF.step(pressure, t);
-    if (st.buffered) this._extendBuffered(x, y, pEff, t);
-    else this._extendImmediate(x, y, pEff);
+    // 2026-09-06 起笔静止期不积压感（墨点案；考古 ai-docs/20260604-stroke-smoother-time-gate.md）：缓冲笔在 StrokeCore.extend 里；
+    //   pixel（immediate）路径无 smoother，不动。
+    if (st.core) { st.core.extend(x, y, pressure, t); return; }
+    this._extendImmediate(x, y, st.pLPF!.step(pressure, t));
   }
 
   // pixel：raw 点直接沿段等距撒进 layer（无 frozen/tail，无法重画）
@@ -176,49 +143,7 @@ export class BrushEngine {
     st.lastX = x; st.lastY = y; st.lastP = pEff;
   }
 
-  // brush / erase：raw 进 smoother，把新冻结的中心线段烤进 frozen buffer。
-  // tail 不在这里画（每帧 getLiveOverlay 时画）。
-  // buffered（brush/erase）描边推进：raw 进 smoother + 更新中心线 C。GL board 唯一路径下 live overlay/commit
-  //   都走 collectStamps（fresh walk 读 sm.C，不碰 frozenWalk）→ 这里不再烤 CPU frozen buffer（已归档）。
-  _extendBuffered(x: number, y: number, pEff: number, t: number | null = null) {
-    const st = this._stroke!;
-    st.sm!.push(x, y, pEff, t);
-    st.sm!.update();   // collectStamps 读 sm.C → 必须更新
-  }
-
-  // 沿平滑中心线 C 从 walk 游标走到 endIdx 顶点，等距撒点，每颗调 emit(x,y,p,strokeDist)。
-  // 起点补一颗（continuous walk 否则缺起点）。修改 walk 游标（frozen 用真游标 / tail 用拷贝）。
-  _walkStamps(walk: Walk, endIdx: number, emit: (x: number, y: number, p: number, strokeDist: number) => void) {
-    const st = this._stroke!;
-    const sm = st.sm!;
-    if (!walk.started && sm.count > 0) {
-      walk.started = true;
-      emit(sm.cx[0], sm.cy[0], sm.cp[0], walk.strokeDist);
-    }
-    while (walk.ci < endIdx) {
-      const i = walk.ci;
-      const x0 = sm.cx[i], y0 = sm.cy[i], p0 = sm.cp[i];
-      const x1 = sm.cx[i + 1], y1 = sm.cy[i + 1], p1 = sm.cp[i + 1];
-      const dx = x1 - x0, dy = y1 - y0;
-      const L = Math.hypot(dx, dy);
-      if (L > 0) {
-        let pos = 0;
-        while (true) {
-          const curP = p0 + (p1 - p0) * (pos / L);
-          const step = this._stepFor(st.settings, curP, st.pShape);
-          if (walk.accumDist + (L - pos) < step) break;
-          pos += step - walk.accumDist;
-          walk.strokeDist += step;
-          const t = pos / L;
-          emit(x0 + dx * t, y0 + dy * t, p0 + (p1 - p0) * t, walk.strokeDist);
-          walk.accumDist = 0;
-        }
-        walk.accumDist += L - pos;
-      }
-      walk.lastP = p1;
-      walk.ci = i + 1;
-    }
-  }
+  // 缓冲笔的推进（raw 进平滑器 + 更新中心线）和沿中心线走步都在 StrokeCore（stroke-core.ts walkPath = 缓冲笔走步循环的唯一一处）。
 
   // 抬笔（S8）：smoother finish + 出端 taper 量算 → 返回最终 collectStamps（含 final tail + taper）。
   //   落层由调用方走 board.commitBrushStroke（GPU merge = live 同一 shader，SSOT）；本引擎不再自己合成
@@ -227,17 +152,9 @@ export class BrushEngine {
   endStroke(): ReturnType<BrushEngine["collectStamps"]> {
     const st = this._stroke;
     let out: ReturnType<BrushEngine["collectStamps"]> = null;
-    if (st && st.buffered) {
-      st.sm!.update();
-      st.sm!.finish();                    // 抬笔收尾：把直线桥换成带动量的弧尾、钉终点（画到头）
-      const last = st.sm!.count - 1;
-      // 出端 taper 需总笔长 → frozenWalk 从 ci=0 干走一遍量 total（不烤），再设 _taperTotal 给 collectStamps。
-      if (last >= 0 && st.settings.taperOut > 0) {
-        const dry = { ci: st.frozenWalk.ci, started: st.frozenWalk.started, accumDist: st.frozenWalk.accumDist, lastP: st.frozenWalk.lastP, strokeDist: st.frozenWalk.strokeDist };
-        this._walkStamps(dry, last, () => {});
-        st._taperTotal = dry.strokeDist;
-      }
-      out = this.collectStamps();   // 含 final tail + taper（_taperTotal 已设）
+    if (st && st.core) {
+      st.core.finish();             // 抬笔收尾（弧尾、钉终点）+ 有收笔渐细就量总长
+      out = this.collectStamps();   // 含 final tail + taper
     }
     this._stroke = null;
     return out;
@@ -305,13 +222,9 @@ export class BrushEngine {
   //   有值则自动含出端 taper。pixelMode/未描边 → null（caller 回退）。color 给 0..1；erase 由 caller 用 mode 处理。
   collectStamps(): { stamps: Stamp[]; shape: StrokeShape; layer: ViewLeaf; mode: string; opacity: number; blendMode: string; bx: number; by: number; bw: number; bh: number } | null {
     const st = this._stroke;
-    if (!st || !st.buffered || !st.sm || st.settings.pixelMode) return null;
+    if (!st || !st.buffered || !st.core || st.settings.pixelMode) return null;
     const out: Stamp[] = [];
-    const walk: Walk = { ci: 0, started: false, accumDist: 0, lastP: 0, strokeDist: 0 };
-    this._walkStamps(walk, st.sm.count - 1, (x, y, p, sd) => {
-      const params = this._stampParams(p, sd);
-      if (params) out.push({ x, y, size: params.size, alpha: params.stampAlpha });
-    });
+    st.core.forEachTip((_seg, x, y, _z, size, alpha) => { out.push({ x, y, size, alpha }); });   // 二维：直接拼笔尖对象（不经过中间数组）
     // stamp 包围盒（doc 坐标，+1px falloff 余量，clamp 到 doc）——live overlay + commit 共用。
     const docW = st.layer.docW, docH = st.layer.docH;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -348,29 +261,7 @@ export class BrushEngine {
   // strokeDist 决定 anti-spike taper 包络（frozen / tail walk 各传自己的）。
   _stampParams(pressure: number, strokeDist: number): StampParams | null {
     const st = this._stroke!;
-    const s = st.settings;
-    const taperFloor = s.taperFloor;   // v415 起是 ResolvedBrush 的显式字段（per-brush 可调，不再恒 0.4）
-    let p = Math.max(0, Math.min(1, pressure));
-    // 入端 taper：起手 fade-in（也兼顾 Apple Pencil 落笔 spike → 萝卜尖）
-    if (s.taperIn > 0) {
-      const t = Math.min(1, strokeDist / (s.size * s.taperIn));
-      p *= taperFloor + (1 - taperFloor) * t;
-    }
-    // 出端 taper：末端 fade-out。需总笔长 → 只在 endStroke 时 st._taperTotal 有值（live 不 taper）
-    if (s.taperOut > 0 && st._taperTotal != null) {
-      const distFromEnd = st._taperTotal - strokeDist;
-      const taperLen = s.size * s.taperOut;
-      if (distFromEnd < taperLen) {
-        const t = Math.max(0, distFromEnd / taperLen);
-        p *= taperFloor + (1 - taperFloor) * t;
-      }
-    }
-    const pCurve = st.pShape(p);   // pressureCurve LUT 或 p^gamma（common/pressure-curve.ts）
-    const size = Math.max(0.5, s.size * signedLerp(s.sizeCoeff || 0, pCurve));
-    const effFlow = Math.max(0, Math.min(1, s.flow * signedLerp(s.flowCoeff || 0, pCurve)));
-    const stampAlpha = effFlow * signedLerp(s.opaCoeff || 0, pCurve);
-    if (stampAlpha < 0.001) return null;
-    return { size, stampAlpha };
+    return stampParamsOf(st.settings, st.pShape, pressure, strokeDist, st.core?.taperTotal ?? null);   // stroke-core.ts（像素笔那条路 + 形状笔补颗用）
   }
 
   // immediate 路径（pixel）：算 params + 直接进 layer。

@@ -15,6 +15,8 @@
 import type { BlendMode } from "../common/blend-modes.ts";
 import { blendChannel } from "../common/blend-modes.ts";
 import { mixPremultIntoExact, type MixSpace } from "./algorithms/color-mix.ts";
+import { stampFalloff } from "./gl/stamp-falloff.ts";
+export { stampFalloff } from "./gl/stamp-falloff.ts";   // 软件显卡里笔尖边缘的那条曲线（三维在 CPU 上算标准答案用；全仓一份）
 
 // ---- CPU 程序的执行环境（soft-gl2-port 组好递入）----
 // 纹理已解析成统一读面；目标写入（含 blend/量化）由 soft-gl2-port 的 write 回调收口。
@@ -236,12 +238,8 @@ const stampAccum: CpuDraw = (c) => {
         const dxR = cosR * lx + sinR * ly;
         const dyR = (-sinR * lx + cosR * ly) * ia;
         const dist = Math.sqrt(dxR * dxR + dyR * dyR);
-        const innerR = hardness * radius;
-        const decayLen = radius - innerR;
         if (dist >= radius) continue;   // discard
-        let shapeA: number;
-        if (decayLen <= 0 || dist <= innerR) shapeA = 1;
-        else { const u = (dist - innerR) / decayLen; shapeA = 1 - u * u * (3 - 2 * u); }
+        const shapeA = stampFalloff(dist, radius, hardness * radius);   // stamp-falloff.ts（全仓一份）
         const dabA = alpha * shapeA;
         if (buildup === 1) { out[0] = color[0] * dabA; out[1] = color[1] * dabA; out[2] = color[2] * dabA; out[3] = dabA; }
         else { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = dabA; }
@@ -482,9 +480,7 @@ const smudgeMask: CpuDraw = (c) => {
     const ddx = X + 0.5 - cx, ddy = Y + 0.5 - cy;
     const dist = Math.sqrt(ddx * ddx + ddy * ddy);
     if (dist >= r) return true;
-    let m = 1;
-    const decay = r - innerR;
-    if (decay > 0 && dist > innerR) { const u = (dist - innerR) / decay; m = 1 - u * u * (3 - 2 * u); }
+    let m = stampFalloff(dist, r, innerR);   // stamp-falloff.ts（全仓一份）
     if (hasSel === 1) {
       const sx = X - sox, sy = Y - soy;
       if (sx < 0 || sy < 0 || sx >= ssw || sy >= ssh || !sel) m = 0;
@@ -681,8 +677,7 @@ const washCoverage: CpuDraw = (c) => {
     const ddx = px + 0.5 - cx, ddy = py + 0.5 - cy;
     const dist = Math.sqrt(ddx * ddx + ddy * ddy);
     if (dist > R) return false;
-    let stampA = 1;
-    if (dist > innerR) { const u = (dist - innerR) / (R - innerR); stampA = 1 - u * u * (3 - 2 * u); }
+    const stampA = stampFalloff(dist, R, innerR);   // stamp-falloff.ts（全仓一份）
     let a = stampA * flow;
     if (hasSel === 1) {
       const sx = px - sox, sy = py - soy;

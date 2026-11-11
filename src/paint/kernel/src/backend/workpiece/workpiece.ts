@@ -17,7 +17,7 @@
 // 写照走令牌但 commit 时 record 即弃、只发信号 + silentDirty；升 recorded = 注册表改一个字段。
 // 无 undo 的 workpiece（ctor 不传 undo）：写面纪律统一，recorded record 同样即弃、touched 即 dirty。
 
-import type { UndoStack, UndoStep, RecordData, WorkpieceComponent } from "./undo-stack.ts";
+import type { StepSink, UndoStep, RecordData, WorkpieceComponent } from "./undo-stack.ts";
 
 /** 注册进 workpiece 的组件还须带 collector 面（token 协作；ADR-0008 §1）。 */
 export interface CollectorComponent extends WorkpieceComponent {
@@ -28,8 +28,8 @@ export interface CollectorComponent extends WorkpieceComponent {
 export type UndoPolicy = "recorded" | "silent";
 
 export interface WorkpieceOpts {
-  /** 不传 = 该 workpiece 无 undo（写照走令牌，record 即弃）。 */
-  undo?: UndoStack;
+  /** 不传 = 该 workpiece 无 undo（写照走令牌，record 即弃）。UndoStack（内核自带的栈）或 HostedSteps（步交给宿主的栈；贴图主线 0-2）。 */
+  undo?: StepSink;
   /** FR 兜底报警：令牌未 commit/cancel 就被 GC（泄漏 bug）。默认 console.error。 */
   onTokenLeak?: (label?: string) => void;
 }
@@ -43,7 +43,7 @@ export class WriteRefusedError extends Error {
 }
 
 export class Workpiece {
-  private _undo: UndoStack | null;
+  private _undo: StepSink | null;
   private _registry: { c: CollectorComponent; policy: UndoPolicy }[] = [];
   private _tokenRef: WeakRef<WriteToken> | null = null;   // 弱持有：泄漏令牌可被 GC → FR 才有戏唱
   private _tokenOpen = false;                             // 强事实：open 令牌存在（含已被 GC 的泄漏者）
