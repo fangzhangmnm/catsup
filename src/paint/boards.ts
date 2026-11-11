@@ -89,6 +89,7 @@ export class PaintBoards {
       get width() { return board.width; },
       get height() { return board.height; },
       current: () => entry.prepared,   // 只读准备好的结果（合成在 prepare 里）
+      changedSince: (since) => board.changedSince(since),   // 合成图的变化史（board.ts）：显示那一侧只拷变了的那一块（1-4d 第 6 条）
     };
     this.entries.set(texture, entry);
     if (this.entries.size === 1) this.o.active?.(true);

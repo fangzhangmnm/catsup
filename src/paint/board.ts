@@ -32,6 +32,15 @@ export interface PaintBoardOpts {
   readonly log?: (msg: string) => void;
 }
 
+/** 画布上一块（格子；[x, x + w) × [y, y + h)）。 */
+export interface ChangedRect { readonly x: number; readonly y: number; readonly w: number; readonly h: number }
+/** 变化史留几个版本（渲染器一般每帧都拷；隔得再久就按整张）。 */
+const HISTORY = 32;
+/** 两片薄层是不是同一片、叠法一样（不看方框）。 */
+function sameOverlay(a: HostOverlayInput, b: HostOverlayInput): boolean {
+  return a.tex === b.tex && a.layerId === b.layerId && a.opacity === b.opacity && !!a.erase === !!b.erase && a.blendMode === b.blendMode && !!a.lockAlpha === !!b.lockAlpha && a.selMask === b.selMask;
+}
+
 export class PaintBoard {
   readonly wp: PaintingWorkpiece;
   private readonly gl: GLBoard;
@@ -48,6 +57,16 @@ export class PaintBoard {
   private hostOverlays: readonly HostOverlayInput[] = [];
   private overlayVer = 0;
   private disposed = false;
+  /**
+   * 合成图的变化史（1-4d 第 6 条：显示那一侧只拷变了的那一块）：每个版本比上一个版本变了哪一块（"all" = 说不清、按整张算），留最近 HISTORY 个。
+   * 谁能说「只变了这一块」：只有薄层的内容（overlayChanged(块)，块由画薄层的那一边按它真画过的格子报）。别的一切——落定的内容变了（抬笔落层、撤销、装载、改大小、换底色、画面恢复）、
+   * 薄层换了一片、内核的档口叫 invalidate、overlayChanged() 不带块——都按整张。薄层的方框只是长大（同一片、同样的叠法）不算变：方框外面那片从没写过、是透明的。
+   */
+  private history: { version: number; change: ChangedRect | "all" }[] = [];
+  /** 上一次合成之后攒下的薄层变化（[x0, y0, x1, y1)；"none" = 没报过；"all" = 按整张）。 */
+  private pending: [number, number, number, number] | "none" | "all" = "none";
+  /** 上一次合成时落定内容的键（变了 = 整张）。 */
+  private lastCommitted: string | null = null;
 
   constructor(o: PaintBoardOpts) {
     if (!(o.width >= 1 && o.height >= 1)) throw new Error(`PaintBoard: bad size ${o.width}x${o.height}`);
@@ -68,8 +87,35 @@ export class PaintBoard {
   layerCount(): number { let n = 0; const walk = (ns: readonly TreeNode[]): void => { for (const x of ns) { if (isGroupNode(x)) walk(x.children); else n++; } }; walk(this.tree().nodes); return n; }
   /** 三维画好的薄层包成内核的纹理对象（外面的图进内核的唯一一道门，画画仓 v0.14.75）：真显卡 = { gl: WebGLTexture }，软件版 = { pixels }。 */
   wrapLayer(src: ExternalImage): ExternalTexture { return this.port.wrapExternal(src); }
-  /** 薄层的内容变了（三维每帧重画了尾巴）：下一次合成要重来。 */
-  overlayChanged(): void { this.overlayVer++; }
+  /**
+   * 薄层的内容变了（三维每帧重画了尾巴）：下一次合成要重来。rect = 只在这一块里变了（画布格子）；不给 = 不知道哪里变了（按整张）；null = 什么都没变（不重合成）。
+   */
+  overlayChanged(rect?: ChangedRect | null): void {
+    if (rect === null) return;
+    this.overlayVer++;
+    if (rect === undefined || this.pending === "all") { this.pending = "all"; return; }
+    if (rect.w <= 0 || rect.h <= 0) return;
+    const b: [number, number, number, number] = [rect.x, rect.y, rect.x + rect.w, rect.y + rect.h];
+    this.pending = this.pending === "none" ? b : [Math.min(this.pending[0], b[0]), Math.min(this.pending[1], b[1]), Math.max(this.pending[2], b[2]), Math.max(this.pending[3], b[3])];
+  }
+  /**
+   * 从版本 since 到现在的合成图变了哪一块（画布格子；没变 = w = 0）。中间有「说不清」的、或者 since 太老不在变化史里了 = "all"。
+   * 显示那一侧（渲染器的显示图）按它只拷这一块；存盘用的合成图从不用它（composeBytes 永远整张重合）。
+   */
+  changedSince(since: number): ChangedRect | "all" {
+    if (since === this.shown) return { x: 0, y: 0, w: 0, h: 0 };
+    if (since > this.shown || since < 0) return "all";
+    let box: [number, number, number, number] | null = null, seen = 0;
+    for (const h of this.history) {
+      if (h.version <= since) continue;
+      seen++;
+      if (h.change === "all") return "all";
+      const c = h.change;
+      if (c.w > 0 && c.h > 0) box = box ? [Math.min(box[0], c.x), Math.min(box[1], c.y), Math.max(box[2], c.x + c.w), Math.max(box[3], c.y + c.h)] : [c.x, c.y, c.x + c.w, c.y + c.h];
+    }
+    if (seen !== this.shown - since) return "all";   // 中间有的版本已经不在变化史里了
+    return box ? { x: box[0], y: box[1], w: box[2] - box[0], h: box[3] - box[1] } : { x: 0, y: 0, w: 0, h: 0 };
+  }
 
   /**
    * 一笔的档口（内核 0-5 的 host 方式；一次手势 = 一个令牌 = 一步）：宿主每帧 setHostLayers 交薄层（真显卡 / 软件版各自经 wrapExternal 包进来的那张），
@@ -85,12 +131,18 @@ export class PaintBoard {
       tokenBeforeImage: (lid) => this.wp.layerTiles.tokenBeforeImage(lid),
       getSelection: () => null,
       commitStamps: () => false,
-      invalidate: () => { this.overlayVer++; },
+      invalidate: () => { this.overlayVer++; this.pending = "all"; },
       setShadows: () => {},
       openRegion: () => { throw new Error("PaintBoard: no region strokes on a 3D board"); },
       setRegions: () => {},
       commitRegion: () => false,
-      setHostOverlays: (list) => { this.hostOverlays = list.slice(); this.overlayVer++; },
+      setHostOverlays: (list) => {
+        const prev = this.hostOverlays;
+        if (prev.length === list.length && prev.every((p, i) => sameOverlay(p, list[i]) && p.bx === list[i].bx && p.by === list[i].by && p.bw === list[i].bw && p.bh === list[i].bh)) return;   // 一样 = 不算变
+        const grownOnly = prev.length === list.length && prev.every((p, i) => sameOverlay(p, list[i]) && list[i].bx <= p.bx && list[i].by <= p.by && list[i].bx + list[i].bw >= p.bx + p.bw && list[i].by + list[i].bh >= p.by + p.bh);
+        this.hostOverlays = list.slice(); this.overlayVer++;
+        if (!grownOnly) this.pending = "all";   // 换了一片 / 叠法变了 / 方框缩了 = 整张；只是方框长大 = 不算变（外面那片是透明的）
+      },
       commitHost: (ov) => this.gl.commitBrushStroke(ov.layerId, leaf.pixels, ov, this.width, this.height, (px, x, y, w, h) => leaf.applyRegionDiff(x, y, w, h, px)),
     };
     const engine = { extendStroke() {}, endStroke() { return null; }, cancelStroke() {}, flushDirty() { return null; } };
@@ -140,7 +192,13 @@ export class PaintBoard {
     const fbo = this.gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg, [], this.hostOverlays);
     if (!fbo) { this.last = null; return null; }
     this.last = { fbo, key };
-    return { fbo, version: ++this.shown };
+    const committed = this.committedKey();
+    const change: ChangedRect | "all" = committed !== this.lastCommitted || this.pending === "all" ? "all"
+      : this.pending === "none" ? { x: 0, y: 0, w: 0, h: 0 } : { x: this.pending[0], y: this.pending[1], w: this.pending[2] - this.pending[0], h: this.pending[3] - this.pending[1] };
+    this.lastCommitted = committed; this.pending = "none";
+    this.history.push({ version: ++this.shown, change });
+    if (this.history.length > HISTORY) this.history.shift();
+    return { fbo, version: this.shown };
   }
 
   /**

@@ -143,7 +143,7 @@ export class SpacePaintStroke {
     const t2 = performance.now();
     const r = this.layer.range();
     if (r) this.session!.setHostLayers([{ tex: this.ext!, bx: r.x, by: r.y, bw: r.w, bh: r.h, layerId: this.layerId, opacity: 1, erase: !!this.o.erase, blendMode: "source-over" }]);
-    this.board.overlayChanged();
+    this.board.overlayChanged(this.layer.takeChanged());   // 只报当帧那张真变过的格子（1-4d 第 6 条：显示那一侧只拷这一块）；这一帧什么都没画 = null = 不重合成
     this.lastFrame = { fresh: tips.length, frozen: frozenHere, tipsMs: t1 - t0, layerMs: t2 - t1, hostMs: performance.now() - t2 };
   }
   private finish(): void {
