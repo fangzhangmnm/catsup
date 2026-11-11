@@ -7,6 +7,8 @@
 
 import { mountSelectField, type SelectField } from "./ui/select-field.ts";
 import { ERASERS, BRUSHES, isReadOnlyTool, isPaintTool } from "../editor/tool-ids.ts";
+import { mountPaintMeterBadge, type PaintMeterBadge } from "./paint-meter-badge.ts";
+import { paintMeter } from "../paint/frame-meter.ts";
 import { inputGate, installInputDom } from "./input-dom.ts";
 import { planeLockLabel } from "../editor/locks.ts";
 import { snapSwitchLook, snapSwitchSay } from "../editor/grid-state.ts";
@@ -905,6 +907,8 @@ function deleteAction(): { id: string; label: string; icon?: string; title?: str
   return [{ id: "deleteSel", label: "删除", icon: "trash-can", title: "删除选中的（Delete / X，一步撤销）", onClick: () => { editor.deleteSelection(); syncUi(); } }];
 }
 function toolActions(tool: string): { id: string; label: string; title?: string; disabled?: boolean; active?: boolean; onClick(el?: HTMLElement): void }[] {
+    // 画画工作台的「读数」（贴图主线 1-4d 第 1 条）：每帧各段各花几毫秒的小角标；只在这一次打开里记
+    if (isPaintTool(tool)) return [{ id: "paintMeter", label: "读数", active: paintMeter.on, title: "每帧读数：这一帧各段（收点 / 打射线 / 走步 / 找面 / 画薄层 / 合成 / 拷贝 / 画场景）各花几毫秒、最近一秒掉了几帧（只在这一次打开里记）", onClick: () => { meterBadge?.toggle(); meterBadge?.sync(true); editor.draw(); } }];
     // 压平（W-5 2026-11-10 Opus；白模第一批第 2 条：iPad 上不用键盘、不用进手势就能「S X 0」）：缩放工具、没在做手势、右键「压平 ›」这会儿有东西（= 自由建模 + 选了点；放置表管工作台，这里不判 modeId）= 右下角「压平…」，弹的是那同一份
     if (tool === "scale" && !editor.isGestureActive() && submenuItems(hud, "压平").length) return [{ id: "flattenMenu", label: "压平…", title: "把选中的点沿一个方向压平：X / Y / Z / 这圈的朝向，镜像开着时还能压到镜像面（和右键「压平」同一份；一步撤销）", onClick: (el) => { if (el) openSubmenuAt(hud, el, "压平"); } }];
     // 画画工作台的「开始画…」/「把这几张面加进来」不在这里：上方正中的主按钮（施工单十五第三节；user「马后炮是高级配置，而不是核心工作流步骤」）
@@ -1008,6 +1012,7 @@ function syncNight(): void { document.body.classList.toggle("ui-night", isDarkPa
 function syncUi(): void {
   syncNight();
   primary.sync();   // 上方正中的主按钮跟着工具 / 选区 / 场景换
+  meterBadge?.sync(isPaintTool(editor.tool));   // 每帧读数的角标：开着 ∧ 拿着画画的工具才露（1-4d）
   renderSnapWidget();
   renderLockRows();
   refreshMachineBoard();   // 指令板上的数跟着模型变
@@ -2542,6 +2547,10 @@ const paintColorSheet = mountPaintColorSheet({ root: $("paintColorSheet"), grid:
 inputGate.face({ kind: "face", label: "画笔颜色", rank: 502, root: "#paintColorSheet", up: () => paintColorSheet.isOpen(), esc: () => { paintColorSheet.close(); return true; } });
 paintColor.subscribe(() => syncUi());
 // eslint-disable-next-line no-var
+// 每帧读数的小角标（1-4d 第 1 条）：编辑器画完一帧交给它；关着什么都不做
+// eslint-disable-next-line no-var
+var meterBadge: PaintMeterBadge | null = mountPaintMeterBadge({ sceneMs: () => editor.renderer3.lastMeasurement?.frameMs ?? 0, copyMs: () => (editor.renderer3 as unknown as { liveStats?(): { frameCopyMs: number } }).liveStats?.().frameCopyMs ?? 0 });
+editor.afterRender = () => meterBadge?.frame();
 var paintWb: PaintWorkbench | null = new PaintWorkbench({ editor, boards: paintBoards, strokeDeps: (chain) => paintStrokeDeps(chain), gate: (t) => paintStrokeGate(t), color: paintColor, prep: paintPrep, flashStart: () => { primary.sync(); primary.flash("paint"); }, hint: (t) => { hintEl.textContent = t; } });
 function paintStrokeGate(texture: string): "warming" | "view-only" | null {
   const st = paintBoards.stateOf(editor.sceneRef, texture);

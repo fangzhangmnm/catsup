@@ -588,6 +588,14 @@ html.windows-hidden .float-win, html.windows-hidden .board, html.windows-hidden 
 .left-dial { position: fixed; z-index: 6; left: calc(76px + var(--safe-left, 0px)); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 4px; width: 40px; box-sizing: border-box;
   background: color-mix(in srgb, var(--panel) 80%, transparent); -webkit-backdrop-filter: blur(16px) saturate(180%); backdrop-filter: blur(16px) saturate(180%); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.12); }   /* 左栏 dial = WeebPaint .left-sidebar 那张卡片（left-dial.ts；2026-10-29 Opus） */
 .left-dial[hidden], .left-dial-slot[hidden] { display: none; }
+/* 每帧读数的小角标（app/paint-meter-badge.ts；1-4d）：左柱右边、左上那排下面；不接指针，三列 = 段 · 平均 · 最慢 */
+.meter-badge { position: fixed; z-index: 6; left: calc(76px + var(--safe-left, 0px)); top: calc(60px + var(--safe-top, 0px)); pointer-events: none; display: grid; grid-template-columns: auto auto auto; column-gap: 10px; row-gap: 1px;
+  padding: 6px 8px; font-size: 11px; line-height: 1.3; font-variant-numeric: tabular-nums; color: var(--hud-text, #333); background: color-mix(in srgb, var(--panel, #fff) 86%, transparent); border: 1px solid var(--line); border-radius: 8px; }
+.meter-badge[hidden] { display: none; }
+.meter-badge > span:nth-child(3n+1) { text-align: left; } .meter-badge > span:not(:nth-child(3n+1)) { text-align: right; }
+.meter-badge b { grid-column: 1 / -1; font-size: 12px; }
+.meter-badge .meter-head { color: var(--muted); }
+.meter-badge .meter-foot { grid-column: 1 / -1; text-align: left !important; margin-top: 2px; }
 .left-dial-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .left-dial-label { color: var(--muted); line-height: 0; user-select: none; }
 /* 自己画的竖滑条（ui/vslider.ts）：一根细轨 + 墨色填充 + 圆钮；--p = 0..1（下 → 上） */
