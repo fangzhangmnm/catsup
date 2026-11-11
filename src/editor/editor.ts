@@ -272,7 +272,7 @@ export class Editor {
   private mode: Mode = this.modeList[0];
   get modeId(): ModeId { return this.mode.id; }
   /** 左上下拉框里的工作台 = 管活动池这种身体的那些（SU 体：硬表面建模 / 表面；网格体：自由建模）。 */
-  modes(): readonly { id: ModeId; label: string }[] { const kind = this.activeKind(); return this.modeList.filter((m) => (m.kinds as readonly BodyKind[]).includes(kind)).map((m) => ({ id: m.id, label: m.label })); }
+  modes(): readonly { id: ModeId; label: string }[] { const kind = this.activeKind(), at = (id: string): number => { const i = (KINDS[kind]?.modes as readonly string[] | undefined)?.indexOf(id) ?? -1; return i < 0 ? 99 : i; }; return this.modeList.filter((m) => (m.kinds as readonly BodyKind[]).includes(kind)).sort((a, b) => at(a.id) - at(b.id)).map((m) => ({ id: m.id, label: m.label })); }   // 按这种身体登记的先后（网格体 = 自由建模在前；W-12）
   /** 当前模式有哪些工具（左柱按它排）。 */
   modeTools(): readonly Tool[] { return this.mode.tools; }
   /** 某工具的手势模块（上下文条要碰工具自己的状态，如吸色锁定）。 */
@@ -534,7 +534,7 @@ export class Editor {
   private syncModeToKind(): void {
     const kind = this.activeKind();
     if ((this.mode.kinds as readonly BodyKind[]).includes(kind)) return;
-    const next = this.modeList.find((m) => (m.kinds as readonly BodyKind[]).includes(kind));
+    const next = this.modeList.find((m) => m.id === KINDS[kind]?.modes[0]) ?? this.modeList.find((m) => (m.kinds as readonly BodyKind[]).includes(kind));   // 先挑这种身体登记的第一个工作台（网格体 = 自由建模；表面也收网格体之后不能按列表先后挑，W-12）
     if (!next) return;
     this.cancelGesture();
     this.mode.leave?.(this.toolCtx);
@@ -2574,20 +2574,20 @@ export class Editor {
     return this.scene.materials.length - 1;
   }
   /** 给活动池里的这些面涂当前材质（op）。 */
-  paintFaces(faces: readonly FaceId[], sides?: readonly (0 | 1)[]): void {
+  paintFaces(faces: readonly FaceId[], sides?: readonly (0 | 1)[]): boolean {
     return this.step((pass) => {
-    const k = this.kernel;
-    const idx = faces.map((f, i) => i).filter((i) => k.face(faces[i]));
-    if (!idx.length) return;
+    if (this.activeKind() === "mesh") { const def = this.activePool().def, m = this.scene.mesh(def).kernel, fs = faces.filter((f) => m.hasF(f)); if (!fs.length) return false; this.commitIn(pass, { op: "meshPaintFaces", def, faces: [...fs], material: this.materialIndexForPick(pass) }); return !this.stepFailed; }   // 网格体（W-12）：一张面只有一侧，走 meshPaintFaces（换成别的定义的画在指令里拒）
+    const k = this.kernel, idx = faces.map((f, i) => i).filter((i) => k.face(faces[i]));
+    if (!idx.length) return false;
     const keys = idx.map((i) => faceKey(k, faces[i]));
     const material = this.materialIndexForPick(pass);
-    this.commitIn(pass, { op: "paintFaces", at: this.activePool(), faces: keys, material, ...(sides ? { sides: idx.map((i) => sides[i] ?? 0) } : {}) });   // DT8：sides = 每张面涂哪一侧；不给 = 两侧
+    this.commitIn(pass, { op: "paintFaces", at: this.activePool(), faces: keys, material, ...(sides ? { sides: idx.map((i) => sides[i] ?? 0) } : {}) }); return !this.stepFailed;   // 涂上了吗（被拒 = false，提示行留着拒绝的原因）· DT8：sides = 每张面涂哪一侧；不给 = 两侧
     });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   /** 吸色：把这张面这一侧的材质设成油漆桶当前「蘸的」（没材质 = 默认正面；默认背面 = 那一格）。 */
   pickMaterialOf(face: FaceId, side: 0 | 1 = 0): void {
-    const k = this.kernel;
-    const m = this.scene.materialOfSlot(this.scene.defOfContext(this.ctx), k.faceMaterialOf(face, side));
+    const def = this.scene.defOfContext(this.ctx), slot = this.activeKind() === "mesh" ? this.scene.mesh(def).kernel.faceMat[face] : this.kernel.faceMaterialOf(face, side);   // 网格体（W-12）：槽号在 faceMat、只有一侧
+    const m = this.scene.materialOfSlot(def, slot);
     this.setPaint(m ? pickOfMaterial(this.scene, m) : null);
   }
   /** 把选区（面）涂上当前材质。 */

@@ -81,7 +81,7 @@ describe("注册表接缝：三种单位 + 路由型动作「挪」", () => {
     assert(h.usageBytes() > 0 && h.usageBytes() < 20_000, `记录字节 ${h.usageBytes()}：一个盒子的网格表`);
     eq(h.replay().mesh(def).kernel.pt(v0).x, p0.x + 1, "指令流全量重放 = 同一结果");
   });
-  it("种类登记：网格体登记了自由建模工作台；SU 体没有", () => {
-    eq(KINDS.mesh.modes.join(","), "freeform"); eq(KINDS.brep.modes.includes("freeform" as never), false);
+  it("种类登记：网格体登记了自由建模工作台（排第一 = 进网格体默认的工作台）+ 表面（W-12 起油漆桶也管网格体的面）；SU 体没有自由建模", () => {
+    eq(KINDS.mesh.modes.join(","), "freeform,surface"); eq(KINDS.brep.modes.includes("freeform" as never), false);
   });
 });

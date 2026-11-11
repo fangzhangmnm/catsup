@@ -10,7 +10,7 @@ import { SurfaceAssignTool } from "../surface-assign.ts";
 export class SurfaceMode implements Mode {
   readonly id = "surface" as const;
   readonly label = "表面";
-  readonly kinds = ["brep"] as const;
+  readonly kinds = ["brep", "mesh"] as const;   // W-12（2026-11-11 Claude Opus 5.5）：网格体的面也在这里涂（走 meshPaintFaces；一张面只有一侧）
   readonly tools: readonly Tool[] = ["select", "paint"];
   readonly defaultTool: Tool = "paint";
   readonly handlers: Partial<Record<Tool, ToolHandler>> = {
@@ -20,7 +20,7 @@ export class SurfaceMode implements Mode {
       verb: "涂",
       apply: (ctx, faces, sides) => ctx.paintFaces(faces, sides),   // DT8：涂点到的那一侧
       sample: (ctx, face, side) => ctx.pickMaterialOf(face, side),
-      describe: (ctx, face, side) => ctx.scene().materialOfSlot(ctx.scene().defOfContext(ctx.context()), ctx.kernel().faceMaterialOf(face, side))?.name ?? "默认正面",
+      describe: (ctx, face, side) => ctx.scene().materialOfSlot(ctx.scene().defOfContext(ctx.context()), ctx.selection().kind === "mesh" ? ctx.mesh().faceMat[face] : ctx.kernel().faceMaterialOf(face, side))?.name ?? (ctx.selection().kind === "mesh" ? "默认" : "默认正面"),
     }),
   };
 }

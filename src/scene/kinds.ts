@@ -47,7 +47,7 @@ export const BREP_KIND: KindDef<BrepBody> = {
 };
 export const MESH_KIND: KindDef<MeshBody> = {
   id: "mesh", label: "网格",
-  modes: ["freeform"],   // 自由建模工作台（modes/freeform.ts；2026-10-27 接缝：壳 + 选择；刀 / 拉 / 环切 = M4 Opus）
+  modes: ["freeform", "surface"],   // surface = 表面（油漆桶）：W-12（2026-11-11）起网格体的面也能涂   // 自由建模工作台（modes/freeform.ts；2026-10-27 接缝：壳 + 选择；刀 / 拉 / 环切 = M4 Opus）
   castsTo: [{ to: "brep", loses: ["不平的面（折成平面块，块之间加软边）", "隐藏的面", "裸线（不属于任何面的边）", "软边 / 平滑标记（改按弯折角度重判）"] }],
   alignGeometry(b) {
     const m = b.kernel, points = m.verts().map((v) => m.pt(v));
