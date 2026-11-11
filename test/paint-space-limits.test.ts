@@ -4,7 +4,9 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { FRESH } from "../src/mesh/corner-columns.ts";
 import { SoftSpaceGpu } from "../src/paint/space-gpu-soft.ts";
-import { SpaceLayer, cellTable, packCell, checkLayerLimits, MAX_TRIS, MAX_FACES } from "../src/paint/space-layer.ts";
+import { SpaceLayer, cellTable, packCell, checkLayerLimits, MAX_TRIS, MAX_FACES, MAX_POLYS, MAX_CANVAS_SIDE } from "../src/paint/space-layer.ts";
+import { SpacePathPlacer } from "../src/paint/space-path.ts";
+import type { TexelTable } from "../src/paint/texel-table.ts";
 import { SpacePrep } from "../src/paint/space-prep.ts";
 import { PaintLimitError } from "../src/paint/paint-limit.ts";
 import { buildTargetGeo, type TargetGeo } from "../src/paint/space-target.ts";
@@ -79,5 +81,35 @@ describe("画画路径上的容量上限（1-4c）", () => {
     const say = limitSay(() => L.update([{ tip, reach }], 1));
     eq(say, `这一笔画不了：笔下有 ${MAX_FACES + 1} 张面共用画布上同一块地方（最多 ${MAX_FACES} 张）`);
     L.dispose();
+  });
+  it(`画布多边形最多 ${MAX_POLYS} 块（实例表是 32 位浮点，2^24 以内的编号才精确）：多一块 = 准备时报人话`, () => {
+    const m = gridMesh(2, 1), g = buildTargetGeo(targetOf(m, laidOut(m, "uv", m.faces(), { density: 8 })));
+    const fake = (n: number): TexelTable => ({ ...g.table, polys: { length: n } as unknown as TexelTable["polys"] });   // 只假装块数（真建一千六百多万块放不进测试）：上限只看块数
+    checkLayerLimits(new SoftSpaceGpu(), fake(MAX_POLYS));
+    eq(limitSay(() => checkLayerLimits(new SoftSpaceGpu(), fake(MAX_POLYS + 1))), `这个物件画不了：画布上的块太多（${MAX_POLYS + 1} 块，最多 ${MAX_POLYS} 块）`);
+  });
+  it(`画布每边最多 ${MAX_CANVAS_SIDE} 格（取样点在 32 位浮点里精确）：显卡放得下更大的也照样报人话`, () => {
+    const m = gridMesh(2, 1), g = buildTargetGeo(targetOf(m, laidOut(m, "uv", m.faces(), { density: 8 }))), big = new SoftSpaceGpu({ maxSize: 32768 });
+    const side = (w: number): TexelTable => ({ ...g.table, width: w });
+    checkLayerLimits(big, side(MAX_CANVAS_SIDE));
+    eq(limitSay(() => checkLayerLimits(big, side(MAX_CANVAS_SIDE + 1))), `这张画画不了：画布（${MAX_CANVAS_SIDE + 1} × ${g.table.height}）每边超过 ${MAX_CANVAS_SIDE} 格，笔对不准格子`);
+    for (const o of [32767, -32768]) { const x = MAX_CANVAS_SIDE - 1 + 0.5 + o / 1024, y = 0.5 + o / 1024; eq(Math.fround(x), x, `最右边一格、偏移 ${o} 份：32 位浮点里正好`); eq(Math.fround(y), y); }
+    const over = MAX_CANVAS_SIDE + 0.5 + 32767 / 1024; assert(Math.fround(over) !== over, "再宽一格就不精确了（上限是顶着算的）");
+  });
+  it("一帧里笔尖表放不下（显卡每边上限按 WebGL2 保底的 2048 算）：这一帧报人话，不静默少画", () => {
+    const m = gridMesh(2, 1), uv = laidOut(m, "uv", m.faces(), { density: 8 }), g = buildTargetGeo(targetOf(m, { ...uv, width: 16, height: 16 }));
+    const gpu = new SoftSpaceGpu({ maxSize: 2048 }), cap = (2048 * 2048) / 8;   // 每颗 8 个数，2048 行 × 2048（WebGL2 保证每边至少 2048 = 数据图的宽度）
+    const tip: InkTip = { x: 0, y: 0, z: 0, r: 0.1, alpha: 1 }, none = new Map();
+    const L = new SpaceLayer(gpu, g, 0, { hardness: 0.5, color: [1, 1, 1], accum: "max", origin: tip });
+    L.update(Array.from({ length: cap }, () => ({ tip, reach: none })), 0);   // 正好放得下
+    eq(limitSay(() => L.update(Array.from({ length: cap + 1 }, () => ({ tip, reach: none })), 0)), "这一笔画不了：这个物件太大，笔的数据表放不下（面太多，或者这一笔太长）");
+    L.dispose();
+  });
+  it("落成路时一对相邻点的射线有上限（maxRays）：到了 = 剩下的当断开、记进 stats.capped（自动退路，不卡死）", () => {
+    const hit = (sx: number) => ({ kind: "target" as const, ti: 0, tri: 0, pos: P(sx, 0, 0), t: 1 });
+    const run = (maxRays: number) => { const pl = new SpacePathPlacer({ hit, unit: 0.01, stepMax: 0.5, minPx: 1e-9, maxRays }); pl.place([0, 64], [0, 0], [1, 1], 2, 0); return pl.stats; };
+    const ok = run(4096), cut = run(8);
+    eq(ok.capped, 0, `一路分到步长以内（打了 ${ok.rays} 条）`); assert(ok.rays > 8, "要分很多次");
+    eq(cut.capped, 1, "上限 8 条：到了，记一笔"); assert(cut.rays <= 8 + 2 + 1, `只打了 ${cut.rays} 条（8 条对半分 + 两头的点 + 到上限那一下）`);
   });
 });

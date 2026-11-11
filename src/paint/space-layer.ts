@@ -31,6 +31,11 @@ export const MAX_FACES = 8, MAX_TRIS = 1024;
 export const MAX_POLYS = 2 ** 24 - 1;
 /** 一张数据图最多几个数：32 位浮点里存的编号（三角形号、面单子里的位置）2^24 以内才精确。 */
 export const MAX_DATA = 2 ** 24;
+/**
+ * 画布每边最多几格：取样点 = 格子中心 + 整数 / 1024，在 32 位浮点里精确要 |坐标| < 2^14（14 位整数 + 10 位小数 = 24 位有效数字）；
+ * 取样点最多伸出格子 32767 / 1024 格（每格的表的偏移范围），所以 边长 − 1 + 0.5 + 32 < 2^14 → 边长 ≤ 2^14 − 32。有的电脑显卡每边能到 32768，所以单独卡。
+ */
+export const MAX_CANVAS_SIDE = 2 ** 14 - 32;
 const TRI_STRIDE = 15, TIP_STRIDE = 8;
 
 const VS = `#version 300 es
@@ -145,7 +150,7 @@ export const SPACE_TIP: SpaceProgram = {
 
 /** 一维的数折成 DATA_W 宽的数据图。放不下（行数超过显卡每边上限，或超过 MAX_DATA）= 抛 PaintLimitError；what = 这是哪张表（报错用）。 */
 function pack(gpu: SpaceGpu, values: ArrayLike<number>, what: string): SpaceData {
-  const cap = Math.min(DATA_W * gpu.maxSize, MAX_DATA);
+  const cap = Math.min(DATA_W * gpu.maxSize, MAX_DATA);   // DATA_W = 2048 ≤ 显卡每边上限：WebGL2 保证 MAX_TEXTURE_SIZE ≥ 2048
   if (values.length > cap) throw new PaintLimitError(`SpaceLayer: ${what} needs ${values.length} values (> ${cap} = min(${DATA_W} x ${gpu.maxSize}, 2^24))`, "这一笔画不了：这个物件太大，笔的数据表放不下（面太多，或者这一笔太长）");
   const h = Math.max(1, Math.ceil(values.length / DATA_W)), a = new Float32Array(DATA_W * h);
   a.set(values as ArrayLike<number>);
@@ -192,6 +197,7 @@ export function packCell(out: Uint16Array, c: number, idPlus1: number, ox: numbe
  * 画布每边 ≤ 显卡上限、多边形块数 ≤ MAX_POLYS、每张面三角形 ≤ MAX_TRIS、面表 / 三角形表放得进数据图。超了 = 抛 PaintLimitError（带人话、点出是哪张面）。
  */
 export function checkLayerLimits(gpu: SpaceGpu, t: TexelTable): void {
+  if (t.width > MAX_CANVAS_SIDE || t.height > MAX_CANVAS_SIDE) throw new PaintLimitError(`SpaceLayer: canvas ${t.width}x${t.height} exceeds ${MAX_CANVAS_SIDE} per side (sample points stop being exact in float32)`, `这张画画不了：画布（${t.width} × ${t.height}）每边超过 ${MAX_CANVAS_SIDE} 格，笔对不准格子`);
   if (t.width > gpu.maxSize || t.height > gpu.maxSize) throw new PaintLimitError(`SpaceLayer: canvas ${t.width}x${t.height} exceeds GPU max ${gpu.maxSize}`, `这张画画不了：画布（${t.width} × ${t.height}）比这台设备的显卡能放的（每边 ${gpu.maxSize}）大`);
   if (t.polys.length > MAX_POLYS) throw new PaintLimitError(`SpaceLayer: ${t.polys.length} canvas polygons (> ${MAX_POLYS})`, `这个物件画不了：画布上的块太多（${t.polys.length} 块，最多 ${MAX_POLYS} 块）`);
   let nt = 0;

@@ -321,8 +321,9 @@ if (haveModels && want("G")) {
   const t0 = texs[0].tex;
   await S((t) => globalThis.__catsup.paint.warm(t), t0); await page.waitForFunction((t) => globalThis.__catsup.paint.state(t) === "hot", t0, { timeout: 60000 });
   await S((t) => globalThis.__catsup.paint.prep.ensure(t), t0);
-  const b2 = await S(() => __H.region(20, 280, 880, 360)), r2 = await S(([x, q]) => __H.stroke(x, q, { hardness: 1, size: 14 }), [t0, pts]), a2 = await S(() => __H.region(20, 280, 880, 360));
-  check(!r2?.refused && r2?.tips >= 0, `wip2020 重开后最大那块再画一笔没出错（红像素 ${b2.red} → ${a2.red}）`);
+  const pts2 = await S(([a, b, y]) => __H.line(a, y, b, y, 90), [VW * 0.03, VW * 0.97, VH * 0.3]);
+  const b2 = await S(() => __H.region(20, 190, 880, 230)), r2 = await S(([x, q]) => __H.stroke(x, q, { hardness: 1, size: 14 }), [t0, pts2]), a2 = await S(() => __H.region(20, 190, 880, 230));
+  check(!r2?.refused && r2?.tips > 0, `wip2020 重开后最大那块换一行再画一笔：没出错（红像素 ${b2.red} → ${a2.red}${a2.red > b2.red ? "" : "；这一行没打中这块"}）`);
 }
 if (haveModels && want("H")) {
   console.log("\nH 小红帽：按 256 见方的密度、一格大小的硬笔点一下 = 点到哪格就是哪格");
@@ -340,9 +341,10 @@ if (haveModels && want("H")) {
   if (aim) {
     const zoom = await S(([t, sy]) => { const C = globalThis.__catsup, e = C.editor, V = e.vp();
       // 把相机对准那一点，一格放大到约 12 像素：先量现在一格多少像素（沿横线往外走到格子变了）
-      const cellSpan = () => { let n = 0; const c0 = C.paint.cellAt(t, V.w / 2, V.h / 2)?.cell; for (let x = V.w / 2; x < V.w; x++) { if (C.paint.cellAt(t, x, V.h / 2)?.cell !== c0) break; n++; } for (let x = V.w / 2 - 1; x > 0; x--) { if (C.paint.cellAt(t, x, V.h / 2)?.cell !== c0) break; n++; } return n; };
+      const key = (x, y) => { const h = C.paint.cellAt(t, x, y); return h?.cell === undefined ? null : String(h.cell); };   // 格子是 [列, 行]：按字比
+      const cellSpan = () => { let n = 0; const c0 = key(V.w / 2, V.h / 2); if (c0 === null) return 0; for (let x = V.w / 2; x < V.w; x++) { if (key(x, V.h / 2) !== c0) break; n++; } for (let x = V.w / 2 - 1; x > 0; x--) { if (key(x, V.h / 2) !== c0) break; n++; } return n; };
       const r = e.cam.ray(V.w / 2, sy, V); e.cam.target = { x: r.origin.x + r.dir.x * 0, y: e.cam.target.y, z: r.origin.z + r.dir.z * 0 }; e.draw();
-      for (let i = 0; i < 6; i++) { const s = cellSpan(); if (s >= 10) break; e.cam.halfH *= Math.max(0.2, s / 14); e.draw(); }
+      for (let i = 0; i < 8; i++) { const s = cellSpan(); if (s >= 10 && s <= 16) break; e.cam.halfH *= s > 0 ? Math.min(4, Math.max(0.25, s / 12)) : 2; e.draw(); }
       return cellSpan(); }, [p.tex, aim.sy]);
     // 目标格：屏幕正中那一格；它那片像素的中心 = 点的位置
     const res = await S(async ([t]) => { const C = globalThis.__catsup, e = C.editor, V = e.vp(), R = 40, cx = Math.round(V.w / 2), cy = Math.round(V.h / 2);
