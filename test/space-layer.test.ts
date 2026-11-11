@@ -1,11 +1,12 @@
 // 一笔在一张贴图上的薄层（贴图主线 1-4b）：三维自己的显卡接口的软件版 + 薄层程序 vs 1-4a 的标准答案。created 2026-11-11 by Claude Opus 5.5
-// 薄层逐格 = 标准答案（淡彩取最大、叠色预乘叠加；软笔 / 硬笔；跨好几张面）；定型分两次画 = 一次画完；范围之外全是零。
+// 薄层逐格 = 标准答案的 8 位版（裁定 ②：每颗笔尖写一次量化一次，和画画内核二维同一种次序；放行线 1/255）；连续版当参考值（叠色约差 1.06/255，原因写在 strokeTruth8 头）。
+// 定型分两次画 = 一次画完；范围之外全是零。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { SoftSpaceGpu } from "../src/paint/space-gpu-soft.ts";
 import { SpaceLayer, SPACE_TIP } from "../src/paint/space-layer.ts";
 import { buildTargetGeo } from "../src/paint/space-target.ts";
 import { tipReach } from "../src/paint/tip-reach.ts";
-import { strokeTruth, type InkTip } from "../src/paint/tip-truth.ts";
+import { strokeTruth, strokeTruth8, type InkTip } from "../src/paint/tip-truth.ts";
 import { sphereTriDist } from "../src/paint/tip-reach.ts";
 import { P, gridMesh, laidOut, targetOf } from "./paint-space-kit.ts";
 
@@ -27,26 +28,28 @@ function run(r: ReturnType<typeof rig>, accum: "max" | "over", hardness: number,
   for (const k of frozenSteps) L.update(r.tips.slice(0, Math.max(k, frozenSteps[frozenSteps.length - 1] === k ? r.tips.length : k)), k);
   return { px: gpu.read(L.frame), range: L.range() };
 }
-/** 标准答案（预乘）和薄层比：最大差（0..255）、吃到墨的格数。 */
+/** 和标准答案比：8 位版（裁定 ②，放行线 1/255）的最大差 + 连续版（参考值）的最大差（0..255）、吃到墨的格数。 */
 function compare(r: ReturnType<typeof rig>, px: Uint8Array, accum: "max" | "over", hardness: number, color: [number, number, number]) {
-  const truth = strokeTruth([r.g], r.tips, hardness, accum).get(0) ?? new Map<number, number>();
-  let maxd = 0, inked = 0;
+  const truth = strokeTruth([r.g], r.tips, hardness, accum).get(0) ?? new Map<number, number>(), t8 = strokeTruth8([r.g], r.tips, hardness, accum, color).get(0) ?? new Map<number, Uint8ClampedArray>();
+  let maxd = 0, maxRef = 0, inked = 0;
   for (let c = 0; c < r.W * r.H; c++) {
-    const a = truth.get(c) ?? 0, want = [color[0] * a, color[1] * a, color[2] * a, a].map((x) => x * 255);
+    const a = truth.get(c) ?? 0, want = [color[0] * a, color[1] * a, color[2] * a, a].map((x) => x * 255), w8 = t8.get(c);
     if (a > 0) inked++;
-    for (let k = 0; k < 4; k++) maxd = Math.max(maxd, Math.abs(px[c * 4 + k] - want[k]));
+    for (let k = 0; k < 4; k++) { maxRef = Math.max(maxRef, Math.abs(px[c * 4 + k] - want[k])); maxd = Math.max(maxd, Math.abs(px[c * 4 + k] - (w8 ? w8[k] : 0))); }
   }
-  return { maxd, inked };
+  return { maxd, maxRef, inked };
 }
 
 describe("薄层 = 标准答案（三维显卡接口的软件版，1-4b）", () => {
   for (const [accum, hardness, alpha] of [["max", 0.3, 0.6], ["max", 1, 0.9], ["over", 0.3, 0.6], ["over", 0.8, 0.25]] as const) {
     it(`${accum === "max" ? "淡彩（取最大）" : "叠色（预乘叠加）"}、硬度 ${hardness}、浓度 ${alpha}：逐格和标准答案比`, () => {
       const r = rig({ alpha }), color: [number, number, number] = [0.9, 0.4, 0.1], { px } = run(r, accum, hardness, color);
-      const { maxd, inked } = compare(r, px, accum, hardness, color);
+      const { maxd, maxRef, inked } = compare(r, px, accum, hardness, color);
       assert(inked > 100, `吃到墨的格子 ${inked}`);
-      console.log(`    ${accum} 硬度 ${hardness} 浓度 ${alpha}：最大差 ${maxd.toFixed(3)} / 255（${inked} 格）`);
-      assert(maxd <= 1, `最大差 ${maxd.toFixed(3)} / 255`);
+      console.log(`    ${accum} 硬度 ${hardness} 浓度 ${alpha}：和 8 位标准答案最大差 ${maxd} / 255；和连续版（参考）最大差 ${maxRef.toFixed(3)} / 255（${inked} 格）`);
+      assert(maxd <= 1, `和 8 位标准答案最大差 ${maxd} / 255`);
+      // 连续版只当参考：淡彩只有量化（≤ 0.5）；叠色每一步的舍入会留一部分在下一步里，1-4b 量到约 1.06/255——这是 8 位累积本身（画画内核二维的叠色同样），不是写错
+      assert(maxRef <= (accum === "max" ? 0.5 : 1.5) + 1e-9, `和连续版差 ${maxRef.toFixed(3)} / 255`);
     });
   }
   it("定型分几次画 = 一次画完（定型层只画一次，尾巴每帧重画）", () => {

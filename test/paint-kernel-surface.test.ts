@@ -34,6 +34,9 @@ const PENDING: Readonly<Record<string, readonly string[]>> = {
   "src/backend/workpiece/layer-tree.ts": ["isGroupNode", "TreeNode"],   // 画板把作品的树转成合成器那棵（可以改成内核给一个「作品 → 合成输入」）
   "src/backend/gl/gl-room.ts": ["poolCapacityForBudget"],   // 图块池的预算换算（内核内部的；可以删，三维给一个数）
   "src/backend/soft-gl2-port.ts": ["SoftGl2Port"],   // 只在测试里：不带浏览器时交薄层、走预览 / 落层 / 撤销
+  "src/backend/workpiece/painting-view.ts": ["PaintingView"],   // 档口要的叶（ViewLeaf）从它拿（1-4b 画板开档口）
+  "src/backend/tiles/tile-layer.ts": ["LayerPixels"],   // 档口落层回调里那一层的像素（类型）
+  "src/backend/gl/gl-stamp.ts": ["GLStampRasterizer"],   // 只在对拍测试里（space-vs-kernel2d：三维的薄层 vs 内核二维的笔尖）
 };
 
 const walk = (dir: string): string[] => fs.readdirSync(dir).flatMap((n) => { const p = path.join(dir, n); return fs.statSync(p).isDirectory() ? (p.replace(/\\/g, "/").startsWith(KERNEL.slice(0, -1)) || n === "node_modules" || n === "vendor" ? [] : walk(p)) : /\.(ts|mts|mjs)$/.test(n) ? [p] : []; });
@@ -44,6 +47,7 @@ function kernelImports(): { file: string; mod: string; names: string[] }[] {
   const out: { file: string; mod: string; names: string[] }[] = [];
   for (const f of [...walk("src"), ...walk("test")]) {
     const src = strip(fs.readFileSync(f, "utf8"));
+    for (const m of src.matchAll(/import\(\s*["']([^"']+)["']\s*\)/g)) { const abs = path.relative(".", path.resolve(path.dirname(f), m[1])).replace(/\\/g, "/"); if (abs.startsWith(KERNEL)) out.push({ file: f.replace(/\\/g, "/"), mod: abs.slice(KERNEL.length), names: ["import(…)"] }); }   // 写在类型里的 import("…") 也算：表里没有「import(…)」这个名字 = 红
     for (const m of src.matchAll(/import\s+(type\s+)?(\{[^}]*\}|\*\s+as\s+\w+|\w+)?\s*(?:,\s*(\{[^}]*\}))?\s*from\s*["']([^"']+)["']/g)) {
       const spec = m[4];
       if (!spec.startsWith(".")) continue;

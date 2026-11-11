@@ -10,6 +10,10 @@ import { poolCapacityForBudget } from "./kernel/src/backend/gl/gl-room.ts";
 import type { DocNode } from "./kernel/src/backend/gl/gl-doc-bridge.ts";
 import type { Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
 import type { StepSink } from "./kernel/src/backend/workpiece/undo-stack.ts";
+import { PaintingView } from "./kernel/src/backend/workpiece/painting-view.ts";
+import { StrokeSession, type StrokeSessionDeps } from "./kernel/src/backend/stroke-session.ts";
+import type { HostOverlayInput } from "./kernel/src/backend/gl/gl-room.ts";
+import type { LayerPixels } from "./kernel/src/backend/tiles/tile-layer.ts";
 
 /** 显存预算（和画画软件的后端同一个数）：图块池按需长，长到这个顶。 */
 const BUDGET_BYTES = 256 * 1024 * 1024;
@@ -36,6 +40,9 @@ export class PaintBoard {
   private shown = 0;
   /** 显卡画面恢复了几次（进内容键：恢复后旧图作废、要重合成）。 */
   private restores = 0;
+  /** 这一笔交给显示那一侧的薄层（档口 setHostOverlays 给的；合成时垫在对应的层上）+ 它的版本（薄层内容每帧变 = 加一）。 */
+  private hostOverlays: readonly HostOverlayInput[] = [];
+  private overlayVer = 0;
   private disposed = false;
 
   constructor(o: PaintBoardOpts) {
@@ -49,7 +56,35 @@ export class PaintBoard {
   get width(): number { return this.tree().width; }
   get height(): number { return this.tree().height; }
   /** 内容键：作品的提交版本（画、撤销、改大小都算）+ 大小 + 底色 + 恢复次数。变了 = 下一次合成出新图。 */
-  private key(): string { return `${this.wp.commitVersion}|${this.width}x${this.height}|${this.bg.join(",")}|${this.restores}`; }
+  private key(): string { return `${this.wp.commitVersion}|${this.width}x${this.height}|${this.bg.join(",")}|${this.restores}|${this.overlayVer}`; }
+  /** 薄层的内容变了（三维每帧重画了尾巴）：下一次合成要重来。 */
+  overlayChanged(): void { this.overlayVer++; }
+
+  /**
+   * 一笔的档口（内核 0-5 的 host 方式；一次手势 = 一个令牌 = 一步）：宿主每帧 setHostLayers 交薄层（真显卡 / 软件版各自经 wrapExternal 包进来的那张），
+   * 抬笔 = 内核把它落进图层（commitBrushStroke = bakeStamps 写回链），取消 = 零痕迹。layerId 不给 = 当前层。
+   */
+  openStroke(layerId?: number): StrokeSession {
+    const view = new PaintingView(this.wp), id = layerId ?? view.activeId;
+    const leaf = view.layers.find((l) => !("children" in l) && l.id === id) as unknown as { id: number; pixels: LayerPixels; applyRegionDiff(x: number, y: number, w: number, h: number, px: Uint8ClampedArray): { tx: number; ty: number }[] } | undefined;
+    if (!leaf) throw new Error(`PaintBoard.openStroke: no leaf layer ${id}`);
+    const deps: StrokeSessionDeps = {
+      begin: (label) => this.wp.begin(label),
+      tokenChanged: (lid) => this.wp.layerTiles.tokenChanged(lid),
+      tokenBeforeImage: (lid) => this.wp.layerTiles.tokenBeforeImage(lid),
+      getSelection: () => null,
+      commitStamps: () => false,
+      invalidate: () => { this.overlayVer++; },
+      setShadows: () => {},
+      openRegion: () => { throw new Error("PaintBoard: no region strokes on a 3D board"); },
+      setRegions: () => {},
+      commitRegion: () => false,
+      setHostOverlays: (list) => { this.hostOverlays = list.slice(); this.overlayVer++; },
+      commitHost: (ov) => this.gl.commitBrushStroke(ov.layerId, leaf.pixels, ov, this.width, this.height, (px, x, y, w, h) => leaf.applyRegionDiff(x, y, w, h, px)),
+    };
+    const engine = { extendStroke() {}, endStroke() { return null; }, cancelStroke() {}, flushDirty() { return null; } };
+    return new StrokeSession(deps, engine, [leaf as never], { historyType: "stroke", finalize: true }, "host");
+  }
 
   /** 合成时垫在最底下的不透明底色（材质自己的底色，sRGB 0..1）：交出来的图不透明。 */
   setBackground(rgb: readonly number[]): void {
@@ -91,7 +126,7 @@ export class PaintBoard {
     const key = this.key();
     if (this.last && this.last.key === key) return { fbo: this.last.fbo, version: this.shown };
     this.gl.markContentDirty();
-    const fbo = this.gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg);
+    const fbo = this.gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg, [], this.hostOverlays);
     if (!fbo) { this.last = null; return null; }
     this.last = { fbo, key };
     return { fbo, version: ++this.shown };
