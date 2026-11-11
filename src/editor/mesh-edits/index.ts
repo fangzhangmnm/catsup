@@ -1,9 +1,10 @@
 // mesh-edits/index.ts —— 网格体的菜单动词（mesh.* 族；浮条 / 右键入口，自由建模工作台）。created 2026-10-27 by Claude Opus 5.5
 // 工具手势（挤出 / 挪 / 刀……）直接提交 op；这里是不用手势、选了就能点的那一类。第一条 = 环切（刀在一条边上点两下的菜单版，FM10「也加一个模式按钮，免得我不习惯」）。
 // 做完的选区走 PlanOut.select（规划时在副本上跑一遍拿新 id；op 确定性 = 提交后同一批）。
+import { LOOP_CUT_DEFAULTS, LOOP_CUT_FIELDS, loopCutArgs } from "./loop-cut-fields.ts";
 import type { Command, MeshUnit } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
-import { loopCut as loopCutOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits, duplicateGeometry, fillOrBridge, bestFitNormal, flattenMoves } from "../../mesh/ops/index.ts";
+import { loopCuts as loopCutsOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits, duplicateGeometry, fillOrBridge, bestFitNormal, flattenMoves } from "../../mesh/ops/index.ts";
 import { add3, scale3, type Pt3 } from "../../kernel/geom.ts";
 import { snapToSymmetry, type MirrorAxis, type SnapSide } from "../../mesh/mirror.ts";
 import { F_SHARP, F_SMOOTH, F_SOFT, type MeshKernel, type SmoothDefaultMode } from "../../mesh/mesh-kernel.ts";
@@ -39,17 +40,17 @@ export const connect: Command<MeshUnit> = {
 
 export const loopCut: Command<MeshUnit> = {
   id: "mesh.loopCut", unit: "mesh", title: "环切",
-  defaults: () => ({}),
-  params: () => [],
-  plan(env, u) {
+  defaults: () => ({ ...LOOP_CUT_DEFAULTS }),
+  params: () => [...LOOP_CUT_FIELDS],   // 做完进马后炮小窗：位置 / 圈数（W-8）
+  plan(env, u, v) {
     if (!u.sel || u.sel.edges.size !== 1 || u.sel.faces.size) return { ops: [], count: 0 };
-    const e = [...u.sel.edges][0], m = env.scene.mesh(u.def).kernel;
+    const e = [...u.sel.edges][0], m = env.scene.mesh(u.def).kernel, { t, cuts } = loopCutArgs(v);
     if (!m.hasE(e)) return { ops: [], count: 0 };
-    const r = loopCutOp(m.clone(), e, 0.5);
+    const r = loopCutsOp(m.clone(), e, cuts, t);
     if (!r.edges.length) return { ops: [], count: 0, notes: ["这条边两侧不是四边形，切不出一圈"] };
-    return { ops: [{ op: "meshLoopCut", def: u.def, edge: e, t: 0.5 }], count: r.edges.length, select: { edges: r.edges } };
+    return { ops: [{ op: "meshLoopCut", def: u.def, edge: e, t, ...(cuts > 1 ? { cuts } : {}) }], count: r.edges.length, select: { edges: r.edges } };
   },
-  done: (n) => `环切：切了一圈 ${n} 条边（在选区里，接着可以移动 / 缩放）`,
+  done: (n, _x, v) => `环切：${loopCutArgs(v).cuts > 1 ? `切了 ${loopCutArgs(v).cuts} 圈` : "切了一圈"} ${n} 条边（在选区里，接着可以移动 / 缩放）`,
   none: "环切：选一条四边形带上的边（只选一条）",
 };
 

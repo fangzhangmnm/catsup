@@ -138,6 +138,7 @@ flowchart LR
 
 - 每个工具落定时 `recordLast(上一步)` → `offerLastAfterthought`：变换类（复制 / 变换中心）、圆 / 弧（段数 + 公差说明行，DT95）、建组件（原点）、导入（上方向 / 单位）、修复（含子物体）、改组件原点（现成位置）。
 - 改值 = `undoN(这一步占的操作数)` → 按新值重做 → 重新数操作数；之后又提交别的 / 撤销 = 作废。
+- **v0.19.9（W-8）**：小窗底下「确定」= `done` → 编辑器 `afterthoughtDone`（关小窗、提示「X：定了」）；指令的重做可以说「这组值做不成」（返回 false、一条没提交）→ 那个数退回原值、按原值再重做一遍（`restoring = true`，指令别写成功的提示）；悬在 / 焦点在某一行 → `Editor.focusParam` → 会话的 `focus`（刀标出那个点）；字段可以带 `off(values)`（这一行灰掉）。刀的小窗：编辑器 `endChain`（「收刀」钮 / 同一处再点 / Esc 都走它）先调工具的 `onEndChain` 再收手势，刀在那里开小窗；重切 = 先在副本上把这一串切一遍（拿新点的编号、切不成就不提交），再提交同一串。环切记录多一个可选的 `cuts`（`mesh/ops/loopcut.ts loopCuts`：每次在剩下那段的第一个均分点切一圈）。碰多少东西：重切 = 这一串的刀数 × 刀本身；环切 = 圈数 × 一圈。
 - 数值小窗：`undoN(L.ops)` → 按精确值重做；圆 / 弧的重画（`redrawCircle` / `redrawArc`）和段数马后炮共用。
 
 ## ⑦ 渲染（`src/scene/world-view.ts` → `src/editor/render3.ts`；v0.17.5 起 render3 本体 = `src/minccino/backend/three/render3.ts`，编辑器那个文件只是转出口）

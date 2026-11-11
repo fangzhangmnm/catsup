@@ -592,6 +592,8 @@ export declare class Editor {
     /** 子项在当前视图里的槽键集合（渲染高亮 / 包围盒）。 */
     private slotsOfPick;
     setTool(t: Tool): void;
+    /** 键盘 Esc 先问这里：声明了 escFinishes 的工具（刀）在等下一点时 = 收（开小窗），返回 true；再按一次才是原来的取消（W-8）。 */
+    escToFinish(): boolean;
     cancel(): void;
     /** 上下文的帧（世界坐标）：根 = 绘图轴，进组 = 组的轴。 */
     contextFrame(): Frame;
@@ -1090,6 +1092,7 @@ export declare class Editor {
     paramPanel(): ParamPanelState | null;
     setParam(key: string, value: ParamValue): void;
     pressParam(key: string): void;
+    focusParam(key: string | null): void;
     /** 换一个会话（旧的收尾）；null = 关掉。 */
     openParamSession(s: ParamSession | null): void;
     /**
@@ -1098,6 +1101,8 @@ export declare class Editor {
      * 数值小窗改完数之后会再挂一次（读最新的 last），所以两边能接着改。
      */
     private offerXformAfterthought;
+    /** 马后炮小窗点了「确定」：这一步定了，小窗收起（W-8）。 */
+    private afterthoughtDone;
     /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做。note = 说明行（按当前值现算）。 */
     private offerAfterthought;
     /** 每一步记下来之后挂哪种马后炮：变换类（复制 / 变换中心）、圆 / 弧（段数）。 */

@@ -341,12 +341,13 @@ export type Op =
         t: number;
     })[];
 }
-/** 环切：从 edge 出发沿四边形带切一圈，每条边在 t 处劈开（缺 = 0.5）。mesh/ops/loopcut.ts。 */
+/** 环切：从 edge 出发沿四边形带切一圈，每条边在 t 处劈开（缺 = 0.5；从 edge 的 edgeA 那头量，整圈同一侧）。cuts = 圈数（缺 = 1；> 1 = 均分、t 不起作用；W-8）。mesh/ops/loopcut.ts。 */
  | {
     op: "meshLoopCut";
     def: number;
     edge: number;
     t?: number;
+    cuts?: number;
 }
 /** 删（自由建模的 X / Delete / 删除工具）：面 → 边 → 点三档一次；dissolve = 溶解（边 → 两侧面并一张、二度点去掉；溶解不了的跳过）。mesh/ops/delete.ts deleteSelection。 */
 /** 右键新建（网格体里）：在这个网格体里长一个基本体（坐标架 = 本地；mesh/ops/primitives.ts）。 */

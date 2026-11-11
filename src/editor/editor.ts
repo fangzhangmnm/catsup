@@ -804,6 +804,8 @@ export class Editor {
     this.draw();
   }
 
+  /** 键盘 Esc 先问这里：声明了 escFinishes 的工具（刀）在等下一点时 = 收（开小窗），返回 true；再按一次才是原来的取消（W-8）。 */
+  escToFinish(): boolean { if (!this.handlers[this._tool]?.escFinishes || this.finishLabel() === null) return false; this.finishChain(); return true; }
   cancel(): void {
     if (this.gizmo) { this.openParamSession(null); this.host.hint("镜像已取消"); return; }   // 镜像会话里 Esc = 取消镜像（选区留着）
     if (this.liveOriginEdit()) { const t = this.originEdit!.prevTool; this.setTool(t); this.host.hint("改组件原点：取消了"); return; }   // 选区留着
@@ -2418,7 +2420,7 @@ export class Editor {
       if (this.opCount === n0) { this.host.hint(`修复：没有要改的（${sc}）`); this.openParamSession(null); return; }
       const after = afterthought({ title: "修复", fields: [{ key: "children", def: { kind: "bool", label: "含子物件" } }, ...stepFields()], values: { ...vals }, nOps: this.opCount - n0, opCount: () => this.opCount, undoN: (n) => this.undoN(n),
         redo: (v) => { this.repairChildren = v.children !== false; const ps = runAll(v); this.host.hint(`修复：${ps.length ? ps.join("；") : "没有要改的"}（${this.scopeText(this.repairScope("auto", v.children !== false))}）`); },
-        note: (v) => { const sub = this.subtleFolds(v.children !== false).n; return sub ? `还剩 ${sub} 条微折软边（橙色高亮）` : "没有剩下的微折软边"; } });
+        note: (v) => { const sub = this.subtleFolds(v.children !== false).n; return sub ? `还剩 ${sub} 条微折软边（橙色高亮）` : "没有剩下的微折软边"; }, done: () => this.afterthoughtDone("修复") });
       this.repairSession = after; this.openParamSession(after);
       this.host.hint(`修复：${parts.join("；")}（${sc}）；右下角还能改勾选重做`);
       this.host.changed(); this.draw();
@@ -2796,6 +2798,7 @@ export class Editor {
   }
   setParam(key: string, value: ParamValue): void { this.step(() => this.param?.set(key, value)); this.host.changed(); this.draw(); }
   pressParam(key: string): void { this.step(() => this.param?.press(key)); this.host.changed(); this.draw(); }
+  focusParam(key: string | null): void { this.param?.focus?.(key); this.draw(); }   // 小窗里悬在 / 焦点在某一行（W-8：刀在模型上标出「第 N 点」）
   /** 换一个会话（旧的收尾）；null = 关掉。 */
   openParamSession(s: ParamSession | null): void { if (this.param && this.param !== s) this.param.dispose?.(); this.param = s; this.host.changed(); }
   /**
@@ -2829,9 +2832,11 @@ export class Editor {
       this.last = L.kind === "move" ? { ...L, copy, ops } : L.kind === "rotate" ? { ...L, copy, ops, center: piv ?? L.center, ...(pid ? { pivotUsed: pid } : {}) } : { ...L, copy, ops, anchor: piv ?? L.anchor, ...(pid ? { pivotUsed: pid } : {}) };
     });
   }
+  /** 马后炮小窗点了「确定」：这一步定了，小窗收起（W-8）。 */
+  private afterthoughtDone(title: string): void { this.openParamSession(null); this.host.hint(`${title}：定了`); }
   /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做。note = 说明行（按当前值现算）。 */
-  private offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>) => void, note?: (v: Readonly<Record<string, ParamValue>>) => string): void {
-    this.openParamSession(afterthought({ title, fields, values, nOps, opCount: () => this.opCount, stackKey: () => `${this.history.position()}/${this.history.depth()}`, undoN: (n) => this.undoN(n), redo, ...(note ? { note } : {}) }));
+  private offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>, restoring?: boolean) => void | false, note?: (v: Readonly<Record<string, ParamValue>>) => string, focus?: (key: string | null) => void): void {
+    this.openParamSession(afterthought({ title, fields, values, nOps, opCount: () => this.opCount, stackKey: () => `${this.history.position()}/${this.history.depth()}`, undoN: (n) => this.undoN(n), redo, ...(note ? { note } : {}), ...(focus ? { focus } : {}), done: () => this.afterthoughtDone(title) }));
   }
   /** 每一步记下来之后挂哪种马后炮：变换类（复制 / 变换中心）、圆 / 弧（段数）。 */
   private offerLastAfterthought(pass: StepPass): void {
@@ -3737,7 +3742,7 @@ export class Editor {
   /** 「收」（W-7）：声明了 sameSpotEnds 的工具定了点、在等下一点时 = 左下芯片那颗钮的字（工具给）；不是这时候 = null。点它 = finishChain = 和「同一处再点一下」同一条路（endChain）：做成的留着，只是不接下一段。 */
   finishLabel(): string | null { const H = this.handlers[this._tool], waiting = H?.grammar === "steps" ? this.armed && H.active() && !!this.anchor3 : !!H?.awaitsClick?.(); return H?.sameSpotEnds && waiting ? (H.finishLabel ?? "收") : null; }   // direct 工具（刀）自己说在不在等下一点
   finishChain(): void { this.step(() => { if (this.finishLabel() !== null) { this.endChain(); this.draw(); } }); }
-  private endChain(): void { this.cancelGesture(); this.host.hint(null); this.host.changed(); }
+  private endChain(): void { this.host.hint(null); this.handlers[this._tool]?.onEndChain?.(this.toolCtx); this.cancelGesture(); this.host.changed(); }   // onEndChain 先于 cancel：工具在收的这一刻交代（刀开小窗、可以写提示）
   private pointerDownStep(ev: ToolPointer): void {
     if (!isReadOnlyTool(this._tool) && this.refuse()) return;   // 第三层（输入闸）：改模型的工具的指针在这一个口全拒——鼠标 / 笔 / 手指 / 键盘起手 / 回车落定都从这进；相机不走这里；只读工具照用
     this.lastPtrType = ev.pointerType;   // 键盘起手的那一下带的也是真设备（keyboardStart 填的）
@@ -3933,7 +3938,8 @@ export class Editor {
       previewXform: (X, preview, copy) => this.previewXform(X, preview, copy),
       xformMoveOp: (X, vids) => this.xformMoveOp(X, vids),
       pivotOf: (m) => this.pivotOf(m),
-      offerAfterthought: (title, fields, values, nOps, redo) => this.offerAfterthought(title, fields, values, nOps, redo),
+      offerAfterthought: (title, fields, values, nOps, redo, o) => this.offerAfterthought(title, fields, values, nOps, redo, o?.note, o?.focus),
+      endChain: () => this.endChain(),   // 「收」只有这一段（W-8：刀「同一处再点一下」也走这里，和左下那颗钮同一条路）
       movablePoolPicks: (say) => this.movablePoolPicks(say),
       targetBounds: () => this.targetBounds(),
       marquee: (r) => this.host.marquee(r),

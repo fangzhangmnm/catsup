@@ -17,6 +17,10 @@ export declare class MeshKnifeTool implements ToolHandler {
     /** 同一处再点一下 = 收刀（和画线的收笔一样）。direct 工具底座不管这一下，刀在 up 里自己认；W-7 的「收」钮也认这个标记。 */
     readonly sameSpotEnds = true;
     readonly finishLabel = "\u6536\u5200";
+    readonly escFinishes = true;
+    /** 这一串切成的每一刀 + 第一个点定下时编辑器的操作数（收刀时进马后炮小窗：W-8）。 */
+    private chain;
+    private chainOps0;
     private start;
     private startW;
     private startKind;
@@ -58,6 +62,8 @@ export declare class MeshKnifeTool implements ToolHandler {
     live(ctx: ToolCtx, preview: PreviewOp): string;
     viewExtras(ctx: ToolCtx): Partial<ViewState>;
     private loopCutAt;
+    /** 收刀（W-8）：这一串进马后炮小窗——一行一个落在边上的点。编辑器的 endChain 在 cancel 之前调这里。 */
+    onEndChain(ctx: ToolCtx): void;
     /**
      * 光标下看得见的点 / 中点 / 边上的点（拓扑吸附，永远开）。中点 = 离边的中点在点的吸附半径内（和硬表面的求解器同一个 eps.point；W-3）。
      * 边上的点 = 光标正下方那一点在这条边上的位置：问指针帧的 distToSeg

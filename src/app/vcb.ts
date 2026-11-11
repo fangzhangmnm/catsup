@@ -90,7 +90,13 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
     const head = document.createElement("div"); head.className = "vcb-params-title"; head.textContent = (pp.phase === "after" ? "刚才：" : "") + pp.title; params.appendChild(head);
     if (pp.note) { const note = document.createElement("div"); note.className = "vcb-params-note"; note.textContent = pp.note; params.appendChild(note); }
     const row = document.createElement("div"); row.className = "vcb-params-fields";
-    for (const f of pp.fields) row.appendChild(fieldControl(f.def, pp.values[f.key], (v) => { editor.setParam(f.key, v); render(); }));
+    for (const f of pp.fields) {
+      const el = fieldControl(f.def, pp.values[f.key], (v) => { editor.setParam(f.key, v); render(); });
+      if (f.off?.(pp.values)) { el.classList.add("off"); el.setAttribute("aria-disabled", "true"); for (const x of [el, ...el.querySelectorAll("input, button")]) if (x instanceof HTMLInputElement || x instanceof HTMLButtonElement) x.disabled = true; }   // 灰掉的一行（W-8）
+      const over = (k: string | null) => (): void => editor.focusParam(k);   // 悬在 / 焦点在这一行：指令在模型上标出它（刀的「第 N 点」）
+      el.addEventListener("pointerenter", over(f.key)); el.addEventListener("pointerleave", over(null)); el.addEventListener("focusin", over(f.key)); el.addEventListener("focusout", over(null));
+      row.appendChild(el);
+    }
     params.appendChild(row);
     if (pp.buttons.length) {
       const br = document.createElement("div"); br.className = "vcb-params-buttons";

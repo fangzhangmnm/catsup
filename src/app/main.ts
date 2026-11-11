@@ -1542,6 +1542,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
       editor.clearToolLock();
       // 菜单 / 帮助 / 材质 / 调试日志开着时 Esc 到不了这里（输入闸的 escape：只关最上面那个面）
       // 自由建模的手势中（拖着 / 键盘起手 / 打数）→ 只取消这次操作、选区留着（Blender：G / S 里 Esc 只退回去；2026-10-28 晚「S Z 0」接线时改，硬表面照旧）
+      if (editor.escToFinish()) { syncUi(); return; }   // 刀在等下一点：Esc = 收刀、开「切割」小窗（W-8，Fable 11-10）；再按一次才是取消
       if (editor.modeId === "freeform" && editor.isGestureActive() && !editor.mirrorActive()) { editor.abortGesture(); syncUi(); return; }
       // 手势中 / 有选区 → 取消；否则在 group / 组件里 → 退出一层（SU：Esc 关组）
       if (!editor.isGestureActive() && !editor.hasAnySelection() && editor.contextDepth() > 0) editor.exitContext(); else editor.cancel();

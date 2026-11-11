@@ -145,7 +145,10 @@ export interface ToolCtx {
   /** 选区的轴心（变换工具）：包围盒中心 / 顶点平均 / 最后选的物体原点（最后选中的组 / 组件的轴原点，没选组 / 组件 = 包围盒中心）。没选区 → null。 */
   pivotOf(mode: "auto" | "bbox" | "mean" | "active"): Pt3 | null;
   /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做（右下「刚才：」）。 */
-  offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>) => void): void;
+  /** 马后炮小窗。redo 返回 false = 这组值做不成（自己说原因、一条没提交）→ 改的那个数退回原值。o.focus = 悬在 / 焦点在某一行（标出它说的东西）。 */
+  offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>, restoring?: boolean) => void | false, o?: { note?: (v: Readonly<Record<string, ParamValue>>) => string; focus?: (key: string | null) => void }): void;
+  /** 「收」（W-8）：多步工具自己认出「同一处再点一下」时调它，和左下那颗「收」钮、Esc 同一条路（编辑器先调工具的 onEndChain、再收手势）。 */
+  endChain(): void;
   /** 选中的子 group / 实例里能整体动的（锁住的不动；say = 提示一次）。 */
   movablePoolPicks(say?: boolean): PoolPick[];
   /** 选区的世界包围盒（缩放柄）。 */
@@ -256,6 +259,10 @@ export interface ToolHandler {
   readonly sameSpotEnds?: boolean;
   /** 声明了 sameSpotEnds 的工具：左下芯片那颗「收」的钮上写什么（画线 = 「收笔」、刀 = 「收刀」；W-7 2026-11-10）。没写 = 「收」。 */
   readonly finishLabel?: string;
+  /** 收的那一刻（「收」钮 / 同一处再点一下 / Esc，都走编辑器的 endChain；在 cancel 之前调）：刀在这里开马后炮小窗（W-8）。 */
+  onEndChain?(ctx: ToolCtx): void;
+  /** 在等下一点时 Esc = 收（不是取消）：刀（W-8，Fable 11-10）。再按一次 Esc 才是原来的取消。 */
+  readonly escFinishes?: boolean;
   /** steps 工具的「点一下（没拖）」：有它 = 不进「再点一下落定」，交给工具（自由建模：点空处 = 取消选择、点东西 = 选它；只有拖才是操作——user 10-27）。 */
   tap?(ctx: ToolCtx, ev: ToolPointer): void;
   /** 键盘起手（Blender G / R / S / E；自由建模）：用选区当目标、以光标处为起点开始一次手势（不用按下）；之后跟着鼠标走、点一下落定、Esc / 右键取消。没选区 = false。 */

@@ -105,6 +105,8 @@ svg.ico use { color: inherit; }
 .vcb-params-title { font-size: 12px; color: var(--muted); }
 .vcb-params-note { font-size: 11px; color: var(--muted); max-width: 22em; line-height: 1.35; }
 .vcb-params-fields, .vcb-params-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.vcb-params-fields { max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; }   /* 行多了（刀的「第 N 点」）在小窗里滚，不把小窗撑高（W-8） */
+.vcb-params-fields .off { opacity: 0.4; pointer-events: none; }   /* 按当前值不起作用的那一行（环切圈数 > 1 时的「位置」） */
 .strip-action.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 /* 面包屑（#25）：左上角，进了组 / 组件才出现 */
 /* 编辑模式下拉框（刀 ③；user「切换编辑模式还是左上下拉框」）：嵌纸面、像能按，同左上横排 */

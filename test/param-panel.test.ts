@@ -31,3 +31,30 @@ describe("参数小窗：马后炮", () => {
   });
 });
 
+
+describe("参数小窗：马后炮的「确定」、做不成退回、悬停（W-8，2026-11-10 Opus）", () => {
+  it("给了 done = 一颗主按钮「确定」，点它调 done；不给 = 没有按钮（老样子）", () => {
+    let done = 0;
+    const a = afterthought({ title: "t", fields: [], values: {}, nOps: 1, opCount: () => 0, undoN: () => {}, redo: () => {}, done: () => { done++; } });
+    eq(a.buttons.map((b) => `${b.key}:${b.label}:${b.primary}`).join(), "ok:确定:true");
+    a.press("ok"); eq(done, 1);
+    const b = afterthought({ title: "t", fields: [], values: {}, nOps: 1, opCount: () => 0, undoN: () => {}, redo: () => {} });
+    eq(b.buttons.length, 0);
+  });
+  it("redo 返回 false（这组值做不成）：改的那个数退回原值，按原值重做一遍，下次还能接着改", () => {
+    let ops = 5; const log: string[] = [];
+    const s = afterthought({ title: "t", fields: [], values: { x: 0.5 }, nOps: 2, opCount: () => ops,
+      undoN: (n) => { ops -= n; log.push(`undo${n}`); },
+      redo: (v) => { if (Number(v.x) >= 1) { log.push(`refuse:${v.x}`); return false; } ops += 2; log.push(`redo:${v.x}`); return undefined; } });
+    s.set("x", 1);
+    eq(log.join(","), "undo2,refuse:1,redo:0.5"); eq(s.values.x, 0.5); assert(!s.stale!(), "原来的做法回来了，小窗还算数");
+    s.set("x", 0.3);
+    eq(log.slice(3).join(","), "undo2,redo:0.3"); eq(s.values.x, 0.3);
+  });
+  it("focus 转给指令（悬在 / 离开某一行）", () => {
+    const seen: (string | null)[] = [];
+    const s = afterthought({ title: "t", fields: [], values: {}, nOps: 1, opCount: () => 0, undoN: () => {}, redo: () => {}, focus: (k) => seen.push(k) });
+    s.focus!("p1"); s.focus!(null);
+    eq(seen.join(","), "p1,");
+  });
+});
