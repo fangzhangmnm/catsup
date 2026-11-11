@@ -3,6 +3,7 @@ import type { TargetGeo } from "./space-target.ts";
 import { type InkTip } from "./tip-truth.ts";
 import type { Reach } from "./tip-reach.ts";
 import { type TexelTable } from "./texel-table.ts";
+import { DirtyCells } from "./kernel/src/common/dirty-rects.ts";
 import type { Pt3 } from "../kernel/geom.ts";
 /** 数据图一行几个数（一维的表按这个宽度折成二维）。 */
 export declare const DATA_W = 2048;
@@ -109,11 +110,14 @@ export declare class SpaceLayer {
     private readonly ft;
     private bounds;
     /**
-     * 当帧那张上次 takeChanged 之后变过的格子（[x0, y0, x1, y1)，1-4d 第 6 条：显示那一侧只拷这一块）。每帧变的 ⊆ 上一帧的尾巴 ∪ 这一帧新定型的 ∪ 这一帧的尾巴
-     * （定型层只往里画、当帧那张 = 定型层拷过来 + 尾巴；这一笔碰过的范围以外从没写过 = 透明）。定型层清掉重画（抬笔）= 整笔的范围。
+     * 当帧那张上次 takeChanged 之后变过的格子（1-4d 第 6 条：只合成 / 只拷变了的那些）：脏格子位图（内核 dirty-rects.ts，8 格见方），每颗笔尖在每块多边形上的方框直接标进去
+     * （不先攒成单子：花费只随碰到的格数涨，统筹 11-11）。每帧变的 ⊆ 上一帧的尾巴 ∪ 这一帧新定型的 ∪ 这一帧的尾巴（定型层只往里画、当帧那张 = 定型层拷过来 + 尾巴；
+     * 这一笔碰过的范围以外从没写过 = 透明）。定型层清掉重画（抬笔）= 整笔的范围。
      */
     private changed;
-    /** 上一帧尾巴画过的格子（这一帧要还原成定型层的样子）。 */
+    /** 这一帧标格花了多少毫秒（量；1-4d 第 6 条判据「算这张图 ≤ 0.2 毫秒」）。 */
+    lastMarkMs: number;
+    /** 上一帧尾巴画过的方框（这一帧要还原成定型层的样子：再标一遍）。 */
     private prevTail;
     /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）。 */
     readonly peak: {
@@ -138,13 +142,8 @@ export declare class SpaceLayer {
         readonly reach: Reach;
     }[], frozenHere: number): void;
     /** 定型层清掉（抬笔时收笔渐细重画整笔用）：下一次 update 从头画。范围留着（只会更大）。 */
-    /** 上次问过之后当帧那张变过的格子（{x, y, w, h}；没变 = null），问完清零。 */
-    takeChanged(): {
-        x: number;
-        y: number;
-        w: number;
-        h: number;
-    } | null;
+    /** 上次问过之后当帧那张变过的格子（脏格子位图；一格都没变 = null），问完换一张空的。 */
+    takeChanged(): DirtyCells | null;
     resetFrozen(): void;
     dispose(): void;
     /** 这颗笔尖在这块多边形上的实例方块（格子）：贴图上的外接框往外放块边那一圈（取样点离格子中心最多 gap/2）再多一格，夹进多边形的格子范围；夹完是空的 = null（画不到）。 */

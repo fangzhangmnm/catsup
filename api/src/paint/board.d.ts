@@ -1,3 +1,4 @@
+import { DirtyCells } from "./kernel/src/common/dirty-rects.ts";
 import { PaintingWorkpiece, type PaintingData } from "./kernel/src/backend/workpiece/painting-workpiece.ts";
 import type { ExternalImage, ExternalTexture, Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
 import type { StepSink } from "./kernel/src/backend/workpiece/undo-stack.ts";
@@ -19,6 +20,8 @@ export interface ChangedRect {
     readonly w: number;
     readonly h: number;
 }
+/** 合成图上变了的那些格（内核的脏格子位图）；"all" = 说不清、按整张算。 */
+export type Changed = DirtyCells | "all";
 export declare class PaintBoard {
     readonly wp: PaintingWorkpiece;
     private readonly gl;
@@ -41,7 +44,7 @@ export declare class PaintBoard {
      * 薄层换了一片、内核的档口叫 invalidate、overlayChanged() 不带块——都按整张。薄层的方框只是长大（同一片、同样的叠法）不算变：方框外面那片从没写过、是透明的。
      */
     private history;
-    /** 上一次合成之后攒下的薄层变化（[x0, y0, x1, y1)；"none" = 没报过；"all" = 按整张）。 */
+    /** 上一次合成之后攒下的薄层变化（脏格子位图；null = 没报过；"all" = 按整张）。 */
     private pending;
     /** 上一次合成时落定内容的键（变了 = 整张）。 */
     private lastCommitted;
@@ -57,14 +60,14 @@ export declare class PaintBoard {
     /** 三维画好的薄层包成内核的纹理对象（外面的图进内核的唯一一道门，画画仓 v0.14.75）：真显卡 = { gl: WebGLTexture }，软件版 = { pixels }。 */
     wrapLayer(src: ExternalImage): ExternalTexture;
     /**
-     * 薄层的内容变了（三维每帧重画了尾巴）：下一次合成要重来。rect = 只在这一块里变了（画布格子）；不给 = 不知道哪里变了（按整张）；null = 什么都没变（不重合成）。
+     * 薄层的内容变了（三维每帧重画了尾巴）：下一次合成要重来。cells = 只在这些格里变了（脏格子位图，画布格子）；不给 = 不知道哪里变了（按整张）；null = 什么都没变（不重合成）。
      */
-    overlayChanged(rect?: ChangedRect | null): void;
+    overlayChanged(cells?: DirtyCells | null): void;
     /**
      * 从版本 since 到现在的合成图变了哪一块（画布格子；没变 = w = 0）。中间有「说不清」的、或者 since 太老不在变化史里了 = "all"。
      * 显示那一侧（渲染器的显示图）按它只拷这一块；存盘用的合成图从不用它（composeBytes 永远整张重合）。
      */
-    changedSince(since: number): ChangedRect | "all";
+    changedSince(since: number): Changed;
     /**
      * 一笔的档口（内核 0-5 的 host 方式；一次手势 = 一个令牌 = 一步）：宿主每帧 setHostLayers 交薄层（真显卡 / 软件版各自经 wrapExternal 包进来的那张），
      * 抬笔 = 内核把它落进图层（commitBrushStroke = bakeStamps 写回链），取消 = 零痕迹。layerId 不给 = 当前层。

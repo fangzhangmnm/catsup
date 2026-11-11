@@ -84,12 +84,17 @@ export declare class SpacePaintStroke {
     /** 落笔那一下建各种表（三角形公式、两张离屏图；每格的表是借来的现成的）花了多少毫秒（量）。 */
     buildMs: number;
     /** 上一次「准备」各段（量；毫秒）：取新笔尖 + 算碰到哪些三角形 / 画薄层（含上传、拷定型层）/ 交给档口。fresh = 这一帧给的笔尖数。 */
+    /** 上一帧（量）：新笔尖几颗、定型几颗、各段毫秒；cellsMs = 算这张脏格子位图（标格 + 出行段 + 报给内核）、runs = 行段数（= 实例数）、cells = 脏格盖住的像素（1-4d 第 6 条）。 */
     lastFrame: {
         fresh: number;
         frozen: number;
         tipsMs: number;
         layerMs: number;
         hostMs: number;
+        cellsMs: number;
+        runs: number;
+        cells: number;
+        boxCells: number;
     };
     /** 这一帧的准备（画板登记处的 prepare 调；合成在它后面）。 */
     /** 建这一笔的表时出过错（已经取消、零痕迹）。 */
