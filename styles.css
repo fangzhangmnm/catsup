@@ -267,6 +267,8 @@ body.doc-locked .walk-btn[data-edits] { opacity: .45; }
 /* 通知栈（底部居中；一条栈一个样式） */
 #noticeStack { position: fixed; left: 50%; bottom: calc(40px + var(--safe-bottom) + var(--drawer-h)); transform: translateX(-50%); z-index: var(--z-notice);
   display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; width: min(92vw, 560px); }   /* 定宽：fixed 元素 shrink-to-fit 会在长句 + 按钮时坍成 min-content（中文逐字折行，v0.5.2 崩溃通知截图） */
+/* 栈里的通知排成一列（界面零件库的 .toast 是 position: fixed——它自己的栈有 .notice-stack > .toast 把它放回去，我们的栈是 #noticeStack，以前没放 = 两条以上的通知叠在同一个地方，上面那条盖住下面那条：统筹 11-11「看不见 = 等于没说」查出来的） */
+#noticeStack > .toast { position: static; transform: none; left: auto; bottom: auto; }
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 14px; border-radius: 10px; max-width: 100%;
   background: #2f2f2f; color: #fff; box-shadow: 0 6px 20px rgba(0,0,0,.2); font-size: 13px; }
 .toast-info { background: #24405e; }

@@ -870,7 +870,8 @@ export class Session {
 
   /** 保存 = 送回家。transient 显式保存 = 安家仪式（FSA 另存 / 下载兜底）；implicit（自动 / 离开）在 transient 上是 noop。
    *  localOnly：崩溃安全 flush 用，只落本地不推（push-pending 留着）。 */
-  async save(opts: { implicit?: boolean; localOnly?: boolean } = {}): Promise<boolean> {
+  /** leaving = 人要离开这份文档（leaveGate 用；和 implicit 一起给）：问和说照人按保存那样，推云和「存成了」照心跳的规矩。 */
+  async save(opts: { implicit?: boolean; localOnly?: boolean; leaving?: boolean } = {}): Promise<boolean> {
     // 人按的保存永不被静默丢掉（user 11-05「修，先修我们」；设计 = ai-docs/20261105-save-and-dispose-fixes.md §1）：撞上在飞的那次 = 等它落地，再完整存一遍（推云的意图和回执都在这一遍）；
     //   自动撞自动 = 下一拍再来，照旧。推云不会永远挂着：Graph 请求都带超时（app-store.ts GRAPH_TRANSPORT）。
     let slowSay: ReturnType<typeof setTimeout> | undefined;   // 平常几百毫秒就落地，不多说一句；等久了（网慢）才说明在等什么
@@ -878,27 +879,33 @@ export class Session {
       if (this.halted) { clearTimeout(slowSay); return false; }
       if (this.adopting) { await this.adopting; continue; }   // lazyblank 名字还没落定：等它（不含字节落盘，不会自等）
       if (!this.saving) break;
-      if (opts.implicit) return false;
+      if (opts.implicit && !opts.leaving) return false;
       slowSay ??= setTimeout(() => this.d.setStatus("上一次保存还在路上，等它落地就存…"), SAVE_WAIT_SAY_MS);
       await this.inflight;
     }
-    if (this.lossyHold) {   // 读进来时丢过东西（1-8b）：自动的不写；人按的先问
+    if (this.lossyHold) {   // 读进来时丢过东西（1-8b）：自动的不写；人按的先问；人要离开的也先问（离开前要存，存会丢东西）
       clearTimeout(slowSay);
-      if (opts.implicit) return false;
-      const v = await openChoiceSheet<"save" | "copy" | "later">("这份文件存了会丢掉一些东西", `${this.lossyHold.join("；")}。`, [
-        { label: "存（丢掉这几处）", value: "save" as const, primary: true },
-        { label: "另存一份新的（这份不动）", value: "copy" as const },
-        { label: "先不存", value: "later" as const },
-      ]);
-      if (v === "copy") { await this.exportProject(); return false; }
-      if (v !== "save") return false;
+      if (opts.implicit && !opts.leaving) return false;
+      const v = opts.leaving
+        ? await openChoiceSheet<"save" | "copy" | "later">("离开之前要先存这份，存了会丢掉一些东西", `${this.lossyHold.join("；")}。`, [
+          { label: "存（丢掉这几处）再走", value: "save" as const, primary: true },
+          { label: "另存一份新的再走（这份不动）", value: "copy" as const },
+          { label: "先不走", value: "later" as const },
+        ])
+        : await openChoiceSheet<"save" | "copy" | "later">("这份文件存了会丢掉一些东西", `${this.lossyHold.join("；")}。`, [
+          { label: "存（丢掉这几处）", value: "save" as const, primary: true },
+          { label: "另存一份新的（这份不动）", value: "copy" as const },
+          { label: "先不存", value: "later" as const },
+        ]);
+      if (v === "copy") { await this.exportProject(); return !!opts.leaving; }   // 要走：改动在另存的那一份里了，可以走（这份照旧不动）
+      if (v !== "save") return false;   // 人自己选了不存 / 不走：不再多说
       this.lossyHold = null;
     }
     clearTimeout(slowSay);
     const home = this.home;
     if (home.kind === "transient") return opts.implicit ? false : this.settleToFile();
     if (home.kind === "gallery" && this.lazy) { if (!opts.implicit) this.d.setStatus(this.forkBaseRev !== null ? "这份还没改过，不用存（改了才会存成分叉）" : "空白场景，还没有需要保存的内容"); return false; }   // WeebPaint blankNothingToSave
-    if (home.kind === "gallery" && this.encrypted && !this.d.crypto.getPassword(home.path)) { if (!opts.implicit) this.d.setStatus("这份是加密的、现在锁着：先解锁再保存（改动还在内存里）", true); return false; }   // 锁着绝不写（库也不会写明文；这里先说人话）
+    if (home.kind === "gallery" && this.encrypted && !this.d.crypto.getPassword(home.path)) { if (!opts.implicit || opts.leaving) this.d.setStatus("这份是加密的、现在锁着：先解锁再保存（改动还在内存里）", true); return false; }   // 锁着绝不写（库也不会写明文；这里先说人话）
     this.saving = true;
     const run: Promise<boolean> = this.writeHome(home, opts).finally(() => { if (this.inflight === run) this.inflight = null; });
     this.inflight = run;
@@ -906,7 +913,7 @@ export class Session {
     return run;
   }
   /** save 的后半段：saving 已经竖起来了，落家、发回执，最后放下 saving。 */
-  private async writeHome(home: Exclude<DocHome, { kind: "transient" }>, opts: { implicit?: boolean; localOnly?: boolean }): Promise<boolean> {
+  private async writeHome(home: Exclude<DocHome, { kind: "transient" }>, opts: { implicit?: boolean; localOnly?: boolean; leaving?: boolean }): Promise<boolean> {
     let replaceCover: { close(): void } | null = null;
     try {
       if (this.d.refs) await this.d.refs.settled();   // 刚加的参考卡字节还在编：等它，别存一份缺卡的
@@ -917,7 +924,7 @@ export class Session {
         let out: Uint8Array | Blob = bytes;
         if (this.sealFile) {   // 这个文件是加密的（另存时选的）：写容器；口令忘掉了就不写（规则书 §1 第 5 条：绝不把明文写回）
           const c = await shadowFrame(bytes, this.seal, this.sealPorts());
-          if (!c) { if (!opts.implicit) this.d.setStatus(`「${home.fileName}」是加密文件，口令已经忘掉：这次没有写（改动还在内存）`, true); return false; }
+          if (!c) { if (!opts.implicit || opts.leaving) this.d.setStatus(`「${home.fileName}」是加密文件，口令已经忘掉：这次没有写（改动还在内存）`, true); return false; }
           out = c;
         }
         if (home.handle) {
@@ -934,7 +941,7 @@ export class Session {
         return false;
       }
       // 图库家。implicit（自动保存 / 离开）撞上云端 → 不弹模态面，横幅接手（store-ui conflictGate；user 2026-10-26「不弹模态，横幅 + 钮」）
-      conflictGate.implicit = !!opts.implicit;
+      conflictGate.implicit = !!opts.implicit && !opts.leaving;   // 人要离开时撞上云端 = 弹面问（人看得见为什么没走成）；心跳撞上 = 横幅接手
       replaceCover = this.armReplaceCover(home.path);   // 工单 C：面上选了云端 → 换字节到重载完这段罩住（外层 finally 收）
       if (!opts.implicit) this.d.onExplicitSave?.(home.path);
       const held = !!opts.implicit && !!this.d.pushHeld?.(home.path);   // 从没传过、人还没答应：心跳不替他传（人按存不受这条管）
@@ -1055,7 +1062,9 @@ export class Session {
     // = 点「新建」/ 打开别的什么都没发生、也不说（大文件、慢机器上自动保存要好几秒，点的那一下正好落在里面）。等完再看还脏不脏，脏了照旧存一次。
     while (this.saving) await this.inflight;
     if (!this.dirty()) return true;
-    if (this.home.kind === "gallery") return this.lazy ? true : this.save({ implicit: true });   // lazy ∧ dirty 不可能（有内容即安家）；防御：空白可弃
+    // 图库家：离开前存一次。是人要走（新建 / 开别的），不是心跳：走不成的每一条都要在眼前说一句、该问的问（统筹 11-11「人点的动作不许被悄悄吞掉」）——
+    // save 的 leaving：问和说照人按保存那样（丢过东西 = 先问、锁着 = 说、存不上 = 说、撞上云端 = 弹面），推不推云照心跳的规矩（人没答应过的不替他传）、存成了不多说
+    if (this.home.kind === "gallery") return this.lazy ? true : this.save({ implicit: true, leaving: true });   // lazy ∧ dirty 不可能（有内容即安家）；防御：空白可弃
     const isFile = this.home.kind === "file";
     const v = await openChoiceSheet<"save" | "discard">(isFile ? "保存到文件再离开？" : "这个模型还没有家", isFile ? "改动还没写回文件。" : "现在离开会丢掉这个模型。",
       [{ label: isFile ? "保存" : "另存到磁盘…", value: "save", primary: true }, { label: "丢弃", value: "discard", danger: true }]);
