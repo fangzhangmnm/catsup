@@ -46,9 +46,11 @@ const bits = (x: number): string => { const b = new Float32Array([x]); return St
 
 describe("角上的列：A 切不动画", () => {
   it("随机一串只切不长的操作（劈边 / 劈面 / 刀 / 环切 / 内缩；6 个种子 × 25 步）：每张面每个角的值 = 原面的一次函数在这个角的位置上的值", () => {
+    const total = [0, 0, 0, 0, 0]; let totalSkipped = 0;
     for (let seed = 1; seed <= 6; seed++) {
       let { k } = paintedBox(seed); const { fn } = paintedBox(seed), r = rng(seed * 97);
       const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)];
+      const done = [0, 0, 0, 0, 0]; let skipped = 0;
       for (let step = 0; step < 25; step++) {
         const c = k.clone(), op = Math.floor(r() * 5);
         try {
@@ -58,14 +60,18 @@ describe("角上的列：A 切不动画", () => {
           else if (op === 3) loopCut(c, pick(c.edges()), 0.3 + 0.4 * r());
           else insetFaces(c, [pick(c.faces())], 0.03);
         } catch { continue; }   // 这一步在这个形状上做不了（环切碰到三角形等）：丢掉副本
-        if (c.check().length) continue;
-        k = c;
+        const bad = c.check();
+        if (bad.length) { eq(bad.filter((b) => /column/.test(b)).join("；"), "", `种子 ${seed} 第 ${step} 步：坏了角上的列的规矩`); skipped++; continue; }   // 别的毛病是算子在这个形状上本来就做不好：丢掉副本
+        k = c; done[op]++;
       }
       clean(k, `种子 ${seed}`);
       const err = worstError(k, fn);
       assert(err <= 1e-4, `种子 ${seed}：最大差 ${err}（面数 ${k.faceCount()}）`);
       assert(k.faceCount() > 6, `种子 ${seed}：真的切过了`);
+      total.forEach((_, i) => { total[i] += done[i]; }); totalSkipped += skipped;
     }
+    assert(total.every((n) => n >= 3), `五种操作每种都真做过几次：${total.join(" / ")}（丢掉 ${totalSkipped} 步）`);
+    console.log(`      （随机链：劈边 / 劈面 / 刀 / 环切 / 内缩 做成 ${total.join(" / ")} 步，丢掉 ${totalSkipped} 步）`);
   });
   it("细分（Fable 裁定 ①）：每个四边形 [原角, 边点, 面点, 边点] 的值 = 原面函数在取样处（原角 / 原边中点 / 原面角平均）的值；原角那一项逐位相同", () => {
     const { k, fn } = paintedBox(7);
