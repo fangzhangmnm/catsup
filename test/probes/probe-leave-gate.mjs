@@ -175,6 +175,17 @@ st = await here2();
 check(!!t?.onTop && st.path === p0 && st.dirty && await galleryOpen() && await hasMarker(8.5), `写不成 = 图库上面一句「${t?.text}」、还是这一份、改动还在`);
 check(!(await S(() => [...document.querySelectorAll("#noticeStack > *")].some((n) => /^\s*\[?QuotaExceeded/.test(n.textContent)))), "原始报错不弹（只进调试日志）");
 await S(() => { IDBObjectStore.prototype.put = globalThis.__put; }); await clearNotes();
+// ③½ 库说写成了、读回来却是空的 / 短了（统筹 11-11：读回核对）→ 当没存成：还是这一份、还脏着、看得见原因
+for (const kind of ["empty", "short"]) {
+  await S((kind) => { const s = globalThis.__catsup.store(), orig = s.file; globalThis.__fileOrig = orig; s.file = function (id, o) { const f = orig.call(this, id, o); if (/（副本 /.test(id)) f.open = async () => (kind === "empty" ? null : new Blob([new Uint8Array(3)])); return f; }; }, kind);
+  await page.click("#galleryNew");
+  await page.waitForFunction(() => !document.getElementById("sheet").hidden, null, { timeout: 8000 });
+  await page.click(`#sheetChoices button:has-text("存成图库里的另一份再走")`); await sleep(1200);
+  t = await toastOnTop(/读回来对不上/);
+  st = await here2();
+  check(!!t?.onTop && st.path === p0 && st.dirty && await galleryOpen() && await hasMarker(8.5), `库没抛、读回来${kind === "empty" ? "是空的" : "短了"} = 当没存成：图库上面一句「${t?.text}」、还是这一份、还脏着`);
+  await S(() => { globalThis.__catsup.store().file = globalThis.__fileOrig; }); await clearNotes();
+}
 await page.click("#galleryNew");   // 收掉这一份（存了再走），下面换一份
 await page.waitForFunction(() => !document.getElementById("sheet").hidden, null, { timeout: 8000 });
 await page.click(`#sheetChoices button:has-text("存（丢掉这几处）再走")`);

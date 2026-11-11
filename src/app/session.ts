@@ -1065,7 +1065,14 @@ export class Session {
       const path = await this.freeName(dirOf(this.home.path), `${this.displayName()}（副本 ${stampNow()}）`);
       const tryPush = !this.d.pushHeld?.(path) && (isFolderHome() ? folderHomeOnline() : auth.isSignedIn() && online());
       const r = await docFile(path, "new").save(bytes, { tryPush });
-      note("doc", `leave: copy into gallery → ${path}${r.pushed ? "" : " (local only)"}`);
+      // 读回核对（统筹 11-11）：这条路的全部意义是「扔掉内存里的改动之前，确认它在别处落地了」——不只信「库没抛」，从库里打开刚写的那一份、字节数对得上才算写成
+      const back = await docFile(path).open();
+      if (!back || back.size !== bytes.byteLength) {
+        reportError(new Error(`[session] leave copy read-back mismatch: ${path} wrote ${bytes.byteLength}, read ${back ? back.size : "nothing"}`), "log");
+        this.d.setStatus("另一份没存成（写完读回来对不上）：还在这份里，改动还在", true);
+        return null;
+      }
+      note("doc", `leave: copy into gallery → ${path}${r.pushed ? "" : " (local only)"}; read back ${back.size} B`);
       this.d.setStatus(`改动存成了图库里的另一份「${bareName(path)}」${r.pushed || !tryPush ? "" : "（先存在这台设备上，稍后同步）"}（读不全的那几处这一份里没有）；原来那份没动`);
       return path;
     } catch (e) { reportError(e, "log"); this.d.setStatus(`另一份没存成（${e instanceof Error ? e.message : String(e)}）：还在这份里，改动还在`, true); return null; }
