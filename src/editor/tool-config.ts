@@ -268,16 +268,16 @@ export const TOOL_OPTIONS = {
     strength: { kind: "number", label: "力度", def: 0.5, min: 0.05, max: 1, step: 0.05, scope: "session" },
   },
   /** 表面指派共用（user 2026-10-24 要的持久化 = 跟机器；scope device，经 host 递来的 device-kv）。 */
-  // 画画工作台（贴图主线 1-7）：笔 / 橡皮各一套；大小 = 屏幕像素、浓度 = 不透明度（这两样在左栏 dial）、硬度 = 笔尖边缘（工具条）；记在设备上（施工单第 8 条）
+  // 画画工作台（贴图主线 1-7）：笔 / 橡皮各一套；大小 = 屏幕像素、浓度 = 不透明度（这两样在左栏 dial）、硬度 = 笔尖边缘（工具条）；先 session（统筹 11-11：「记在设备上」是统筹自己写的、user 还没点头，守卫拦得对；点头了再开 device）
   paintPen: {
-    size: { kind: "number", label: "大小", def: 12, min: 1, max: 400, step: 1, unit: "像素", scope: "device", elsewhere: true },
-    opacity: { kind: "number", label: "浓度", def: 1, min: 0.05, max: 1, step: 0.05, scope: "device", elsewhere: true },
-    hardness: { kind: "number", label: "硬度", def: 0.8, min: 0, max: 1, step: 0.05, scope: "device" },
+    size: { kind: "number", label: "大小", def: 12, min: 1, max: 400, step: 1, unit: "像素", scope: "session", elsewhere: true },
+    opacity: { kind: "number", label: "浓度", def: 1, min: 0.05, max: 1, step: 0.05, scope: "session", elsewhere: true },
+    hardness: { kind: "number", label: "硬度", def: 0.8, min: 0, max: 1, step: 0.05, scope: "session" },
   },
   paintEraser: {
-    size: { kind: "number", label: "大小", def: 24, min: 1, max: 400, step: 1, unit: "像素", scope: "device", elsewhere: true },
-    opacity: { kind: "number", label: "浓度", def: 1, min: 0.05, max: 1, step: 0.05, scope: "device", elsewhere: true },
-    hardness: { kind: "number", label: "硬度", def: 0.8, min: 0, max: 1, step: 0.05, scope: "device" },
+    size: { kind: "number", label: "大小", def: 24, min: 1, max: 400, step: 1, unit: "像素", scope: "session", elsewhere: true },
+    opacity: { kind: "number", label: "浓度", def: 1, min: 0.05, max: 1, step: 0.05, scope: "session", elsewhere: true },
+    hardness: { kind: "number", label: "硬度", def: 0.8, min: 0, max: 1, step: 0.05, scope: "session" },
   },
   surface: {
     tier: { kind: "enum", label: "范围", values: SURFACE_TIERS, def: "smooth", scope: "device" },

@@ -78,8 +78,8 @@ user 在 iPad 上对着自己建的模型，切到「画画」，用笔画、用
 - 工作台 `paint`（modes/paint.ts）：三把工具 paintPen / paintEraser / eyedrop，工具只经 `ToolCtx.paint` 把「哪把、哪个阶段、在哪」交给宿主；工作台登记挪到 `modes/index.ts`（editor.ts 行数 4110 → 4107）。立场表三行、左柱一列、硬表面不收这三把。
 - 「开始画」= 动作 / 指令 `mesh.startPaint`（mesh-edits/start-paint.ts）：选中的面 / 没选 = 全部（已经有画的物件不露）；同一材质用它的颜色，不然白模灰；名字自动「画」「画 2」…；右下工具条的动作里露（没选东西也露）。
 - 画画控制器 `app/paint-workbench.ts`：落笔找面（射线打正在编辑的物件，三角格子按网格版本缓存）→ 画 → 1-8b 的门 → SpacePaintStroke（落点只认正在编辑的这一份摆放：`paintTargets` 多一个 chain）；吸管（`PaintBoard.pixelAt`）；进门 warm 这个物件上冷的画。
-- 颜色一个入口 `app/paint-color.ts`（色块 + 填代码；记在设备上）；面板 = index.html `#paintColorSheet`，进输入闸名册。
-- 设置：tool-config 笔 / 橡皮各一套（大小、浓度在左栏 dial = `app/paint-sliders.ts`，硬度在工具条），device scope；tool-config 多一个 `elsewhere`（有自己的控件、不进工具条）。
+- 颜色一个入口 `app/paint-color.ts`（色块 + 填代码；存哪由宿主给的口定，现在只在这一次打开里记，见「没做的」）；面板 = index.html `#paintColorSheet`，进输入闸名册。
+- 设置：tool-config 笔 / 橡皮各一套（大小、浓度在左栏 dial = `app/paint-sliders.ts`，硬度在工具条），**session**（见「没做的」）；tool-config 多一个 `elsewhere`（有自己的控件、不进工具条）。
 - 手势：`cameraLocked`——画画的一笔当中，环绕 / 平移 / 双指都不动相机（平时「画到一半转视角」照旧）。
 - 拒绝的话：`PAINT_CANT_MOVE` 改成人话（守卫跟上）。
 - 一笔建表出错（见下）：这一笔取消、零痕迹、提示行说人话；以前这个错在每帧的「准备」里抛。
@@ -110,6 +110,8 @@ user 在 iPad 上对着自己建的模型，切到「画画」，用笔画、用
 **⑩ 撤销一步建模、紧接着落笔**（统筹 11-11 要的那条测试）：出画画工作台 → 挪顶上那一圈 81 个点（+0.3 m）→ 回画画工作台、准备好 → 撤一下（「撤销：移动」，网格体修改号变了）→ 不给它画一帧、紧接着落一笔：撤销自己会画一帧，准备在撤销那一帧里就重建好了，这一笔画在按现在（撤销后）的几何算的那几格上（11 / 11 格有墨）；再画一笔同样 11 / 11。「过期了就挡住」那条路（落笔撞上没重建完）由 node 测试管（`paint-space-prep`：过期 = take 抛 PrepPendingError；`paint-workbench-say`：提示行说「画布的表还在准备」）。探针第一版在细分过的圆盒子上找 z = 1 的点、一个都没找到，「挪」了个空——测试自己先查挪了几个点、修改号变没变。
 
 **没做的 / 别扭的**
+- **笔的设置和颜色先不记在设备上**（第 8 条没做）：笔 / 橡皮的大小、浓度、硬度和颜色只在这一次打开里记，换页面回默认值。原因：第 8 条「记在设备上」是统筹写进施工单的，user 没说过；`test/tool-config.test.ts` 的守卫要求开 device 先有 user 同意，拦得对（统筹 11-11：不许为它加白名单）。统筹去问 user；点头了改回 device（tool-config 六处 + main.ts 颜色那两个口换回 device-kv），守卫白名单写上 user 的原话和日期。
+- app 层按工作台名字分叉的棘轮（≤ 6）：1-7 原来加了三处 `modeId === "paint"`，改成问手上拿的是不是画画的工具（`tool-ids.ts isPaintTool / paintPenOf`；那三把只在画画工作台里有），回到 6。
 - 没有压感（输入层没有压力这个口）。
 - 冷的画在解 PNG 那几帧显示底色；第一次落笔若还没热好，这一笔不开始（1-8b 的规矩），要再落一次。进门准备（几何 + 每格的表）在大物件上是一帧卡一下（24576 张面约 1 秒），没有进度条。
 - 颜色只有色块 + 代码（色轮 = F-253）。

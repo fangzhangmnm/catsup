@@ -2,7 +2,7 @@
 // 编辑器那边的三把工具（modes/paint.ts）只把「哪把工具、哪个阶段、在哪」经 ToolCtx.paint 交过来；画画内核、画板、落点、撤销的一步都在这里（编辑器不认识画画内核）。
 // · 落笔：笔尖下那张面（射线打当前这个物件自己的网格）→ 它走的那张画（一个物件几张画 = 落点那张面的）→ 问 1-8b 的门（还在打开 = 这一笔不开始、提示、同时解开；
 //   只能看不能画 = 说为什么）→ 开一笔（1-4b 的 SpacePaintStroke；落点只认正在编辑的这一份）。抬笔落层 = 三维撤销栈一步（1-8a）；一格都没碰到 = 内核不封步 = 不进栈、不说话。
-// · 设置：笔 / 橡皮各一套（大小 = 屏幕像素、浓度 = 不透明度、硬度），记在设备上（tool-config device）；颜色 = paint-color.ts 那一个入口。
+// · 设置：笔 / 橡皮各一套（大小 = 屏幕像素、浓度 = 不透明度、硬度），先只记在这一次打开里（tool-config session；「记在设备上」等 user 点头，统筹 11-11）；颜色 = paint-color.ts 那一个入口。
 // · 吸管：点一处 → 画过的面 = 那一格合成出来的颜色（热的读内核合成那一张的一个像素；冷的先热）；没画的面 = 材质的颜色。取完回到上一把笔。
 // · 进门就准备好：进画画工作台 / 换了正在编辑的物件 = 这个物件的画全部 warm()（冷的解开；新建还没画过的建画板），三角格子算好放着（模型一改就作废）。
 //   画画的准备（1-4c space-prep.ts：整份几何 + 每格的表）每帧对一次：这个物件上热的画都要现成；过期了（在工作台里撤销到建模那几步 = 网格体修改号变了）
@@ -18,6 +18,7 @@ import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { paintPlaceOf } from "../scene/paint.ts";
 import type { PaintColor, Rgb } from "./paint-color.ts";
 import type { SpacePrep } from "../paint/space-prep.ts";
+import { isPaintTool } from "../editor/tool-ids.ts";
 
 export interface PaintWorkbenchDeps {
   readonly editor: Editor;
@@ -69,7 +70,7 @@ export class PaintWorkbench {
    */
   tick(): void {
     const e = this.d.editor;
-    if (e.modeId !== "paint") { if (this.entered !== null) { this.entered = null; this.d.prep.release(); } return; }
+    if (!isPaintTool(e.tool)) { if (this.entered !== null) { this.entered = null; this.d.prep.release(); } return; }   // 手上不是画画的工具 = 不在画画工作台（那三把只在这里有）
     const S = e.sceneRef, def = S.defOfContext(e.context), key = `${e.docEpoch}:${def}`, body = S.def(def).body;
     if (body.kind !== "mesh") { this.entered = key; return; }
     if (key !== this.entered) {

@@ -6,7 +6,7 @@
 //   + 登录 / 回线 / 回前台显式快进 + 崩溃安全 flush 三件；审计 = ai-docs/20260922-lifecycle-alignment-with-weebpaint.md。
 
 import { mountSelectField, type SelectField } from "./ui/select-field.ts";
-import { ERASERS, BRUSHES, isReadOnlyTool } from "../editor/tool-ids.ts";
+import { ERASERS, BRUSHES, isReadOnlyTool, isPaintTool } from "../editor/tool-ids.ts";
 import { inputGate, installInputDom } from "./input-dom.ts";
 import { planeLockLabel } from "../editor/locks.ts";
 import { snapSwitchLook, snapSwitchSay } from "../editor/grid-state.ts";
@@ -887,7 +887,7 @@ function toolActions(tool: string): { id: string; label: string; title?: string;
     // 压平（W-5 2026-11-10 Opus；白模第一批第 2 条：iPad 上不用键盘、不用进手势就能「S X 0」）：缩放工具、没在做手势、右键「压平 ›」这会儿有东西（= 自由建模 + 选了点；放置表管工作台，这里不判 modeId）= 右下角「压平…」，弹的是那同一份
     if (tool === "scale" && !editor.isGestureActive() && submenuItems(hud, "压平").length) return [{ id: "flattenMenu", label: "压平…", title: "把选中的点沿一个方向压平：X / Y / Z / 这圈的朝向，镜像开着时还能压到镜像面（和右键「压平」同一份；一步撤销）", onClick: (el) => { if (el) openSubmenuAt(hud, el, "压平"); } }];
     // 画画工作台（1-7）：当前物件还没有画（或者选中了没画的面）= 一颗明着的「开始画」；没选东西也露（选区那一段只在有选区时才有）
-    if (editor.modeId === "paint" && (tool === "paintPen" || tool === "paintEraser" || tool === "eyedrop")) {
+    if (isPaintTool(tool)) {   // 画画的三把工具只在画画工作台里有
       const m = editor.commandMenu().find((x) => x.id === "mesh.startPaint");
       return m ? [{ id: "startPaint", label: m.label, title: "给这些面铺上一张画：选中了面 = 这些面，没选 = 整个物件；之后用笔直接画", onClick: () => { editor.runAction("mesh.startPaint"); syncUi(); editor.draw(); } }] : [];
     }
@@ -2485,7 +2485,8 @@ function paintStrokeDeps(chain?: readonly number[]): SpacePaintDeps {
   };
 }
 // 画画工作台（贴图主线 1-7）：颜色只有一个入口（paint-color.ts）；控制器接编辑器那边三把工具交过来的每一下
-const paintColor = createPaintColor({ get: deviceKvGet, set: deviceKvSet });
+const paintColorMem = new Map<string, string>();   // 先只在这一次打开里记（统筹 11-11：「记在设备上」user 还没点头；点头了换回 deviceKvGet / deviceKvSet，守卫白名单写上原话）
+const paintColor = createPaintColor({ get: (k) => paintColorMem.get(k) ?? null, set: (k, v) => { if (v === null) paintColorMem.delete(k); else paintColorMem.set(k, v); } });
 const paintColorSheet = mountPaintColorSheet({ root: $("paintColorSheet"), grid: $("paintColorGrid"), hex: $("paintColorHex") as HTMLInputElement, ok: $("paintColorHexOk"), close: $("paintColorClose"), note: $("paintColorNote") }, paintColor);
 inputGate.face({ kind: "face", label: "画笔颜色", rank: 502, root: "#paintColorSheet", up: () => paintColorSheet.isOpen(), esc: () => { paintColorSheet.close(); return true; } });
 paintColor.subscribe(() => syncUi());

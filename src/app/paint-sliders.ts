@@ -1,7 +1,8 @@
 // paint-sliders.ts —— 画画的大小 / 浓度：左栏 dial 的两根竖滑条（贴图主线 1-7；WeebPaint 左栏 笔粗 · 不透明度 同款）。created 2026-11-11 by Claude Opus 5.5
-// 只在画画工作台、手上拿着笔或橡皮时露；值住 tool-config（笔 / 橡皮各一套，记在设备上）。大小 = 屏幕像素、对数刻度、整数档位（和软选择半径那张表同一个意思）；浓度 = 5%–100%。
+// 只在画画工作台、手上拿着笔或橡皮时露；值住 tool-config（笔 / 橡皮各一套，先只记在这一次打开里：「记在设备上」等 user 点头）。大小 = 屏幕像素、对数刻度、整数档位（和软选择半径那张表同一个意思）；浓度 = 5%–100%。
 import type { Editor } from "../editor/editor.ts";
 import type { LeftDial } from "./left-dial.ts";
+import { paintPenOf } from "../editor/tool-ids.ts";
 
 const MIN = 1, MAX = 400;
 const BANDS: readonly [number, number][] = [[10, 1], [20, 1], [50, 2], [100, 5], [200, 10], [Infinity, 20]];
@@ -13,7 +14,7 @@ const sizeStep = (r: number, dir: 1 | -1): number => { let n = nice(r * (dir > 0
 const opaNice = (v: number): number => Math.min(1, Math.max(0.05, Math.round(v * 20) / 20));
 
 export function mountPaintSliders(dial: LeftDial, editor: Editor): { render(): void } {
-  const pen = (): "paintPen" | "paintEraser" | null => (editor.modeId === "paint" && (editor.tool === "paintPen" || editor.tool === "paintEraser") ? editor.tool : null);
+  const pen = (): "paintPen" | "paintEraser" | null => paintPenOf(editor.tool);   // 笔 / 橡皮只在画画工作台里有
   const name = (): string => (pen() === "paintEraser" ? "橡皮" : "笔");
   dial.addSlider({
     id: "paintSize", icon: "brush-width", visible: () => pen() !== null,

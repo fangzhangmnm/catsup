@@ -1,7 +1,7 @@
 // paint-color.ts —— 画画的「现在的颜色」：选颜色只有这一个入口（贴图主线 1-7；统筹 11-11：「选颜色的地方只有一个入口，以后换成色轮只改这一处」）。created 2026-11-11 by Claude Opus 5.5
 // 三种选法都走 PaintColor.set：色块（三维现成的家族色表 PALETTE_ZH）、填颜色代码（#rrggbb，填错了说一句、不改当前颜色）、吸管（画画控制器取到的颜色）。
 // 正式的取色面板（色轮）= 画画仓那一套抽进共享库之后（家族周账 F-253）换掉 mountPaintColorSheet 这一处；颜色本身（sRGB 0..1）和 set 的口不变。
-// 颜色记在设备上（device-kv，不进文件；施工单第 8 条）。
+// 颜色存哪由宿主给的那两个口定：现在只在这一次打开里记（main.ts；「记在设备上」user 还没点头，统筹 11-11 让先不开），不进文件。
 import { PALETTE_ZH } from "./palette.ts";
 
 export type Rgb = readonly [number, number, number];
