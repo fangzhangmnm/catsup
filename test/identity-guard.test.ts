@@ -162,6 +162,7 @@ describe("老文件（definitions 6.x → 7）", () => {
   it("迁移语义：6.x 形状读回来 = 同一个场景（面上的槽号、组的父子、实例挂在哪个组都对得上）", () => {
     for (const [name, make] of Object.entries(SCENE_DOCS)) {
       if (name === "sided") continue;   // 内置默认背面是 7.0 的语义，6.x 没有这个说法
+      if (name === "uvPainted" || name === "uvTwoSets") continue;   // 单品的画（贴图的 layout 按定义的 GUID 指自己那一套坐标）是 definitions 7 之后才有的：6.x 没有定义 GUID，读时现铸、layout 就对不上了，不存在这种老文件（1-2½）
       const s = make(), { json, bin } = jsonOf(writeCatsup(documentFromScene(s, name)));
       downgradeDefinitionsToV6(json);
       eq(sceneFingerprint(sceneFromDocument(readCatsup(encodeGlb(json, bin)))), sceneFingerprint(make()), `${name}：老形状读回来指纹一致`);

@@ -840,7 +840,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
         if (op.mesh) {
           const tb = s.mesh(ref.def), tk = tb.kernel, slot = (code: number): number => { const id = docMat(code); if (id < 0) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
           const vs = op.mesh.verts.map((q) => tk.addVertex(q));
-          for (const f of op.mesh.faces) tk.addFace(f.ring.map((i) => vs[i]), slot(f.mat), FRESH);   // 经过剪贴板：这一张先当凭空来的（贴图坐标进文件那一张一起做）
+          for (const f of op.mesh.faces) tk.addFace(f.ring.map((i) => vs[i]), slot(f.mat), FRESH);   // 经过剪贴板：故意不带角上的数（统筹 11-11 定，1-2½）——带过去 = 贴出来的面和原来那张悄悄共用画布上同一块；「副本共用一块还是另占一块」归 1-3d 一次定（网格体里的「复制面」现在是照抄角上的数）
           for (const e of op.mesh.edges) { const id = tk.ensureEdge(vs[e.a], vs[e.b]); tk.setEdgeFlags(id, e.flags); }
         }
         for (const i of op.instances ?? []) mintPasted(s, ref.def, null, i, merged);
@@ -1064,10 +1064,10 @@ function mintPasted(s: Scene, def: number, parent: number | null, i: TransferIns
 /** 画的指令的结果 → 抛（拒绝 = OpRejected 进提示行；目标没了 = OpTargetError）。 */
 const paintOutcome = (s: Scene, o: PaintOutcome): ApplyResult => { if (o && "rejected" in o) throw new OpRejected(o.rejected); if (o && "target" in o) throw new OpTargetError(o.target); return { scene: s, events: [] }; };
 /** 粘贴计划里要新建（含「断开」铸新）/ 更新的定义：载荷里它们的槽表 + 要被换掉身体的现有定义（1-3b 审后补：同一份文件贴「断开」/「更新」也不许把画搬走、丢掉）。 */
-const pastePaintScope = (s: Scene, pp: PastePlan): { defSlots: (readonly (Guid | null)[])[]; replaces: number[] } => {
+const pastePaintScope = (s: Scene, pp: PastePlan): { defSlots: (readonly (Guid | null)[])[]; replaces: number[]; carriesUv: boolean } => {
   const isDef = (r: { kind: string }): boolean => r.kind === DEFINITION, want = new Set([...pp.plan.create, ...pp.plan.update].filter(isDef).map((r) => r.guid)), upd = new Set(pp.plan.update.filter(isDef).map((r) => r.guid));
-  const defSlots = pp.bundle.docs.filter((d) => d.kind === DEFINITION && want.has((d.doc as DefinitionEntry).def.guid)).map((d) => (d.doc as DefinitionEntry).def.materialSlots);
-  return { defSlots, replaces: [...s.defs.values()].filter((d) => upd.has(d.guid)).map((d) => d.id) };
+  const defs = pp.bundle.docs.filter((d) => d.kind === DEFINITION && want.has((d.doc as DefinitionEntry).def.guid)).map((d) => (d.doc as DefinitionEntry).def);
+  return { defSlots: defs.map((d) => d.materialSlots), replaces: [...s.defs.values()].filter((d) => upd.has(d.guid)).map((d) => d.id), carriesUv: defs.some((d) => !!d.mesh?.uvSets?.length) };   // 1-2½：文件形状带着贴图坐标了
 };
 /** 第六节那几种动作的唯一拒绝口（判断在 scene/paint.ts paintMoveBlocked）。 */
 const refusePaintMove = (s: Scene, what: PaintMove): void => { const why = paintMoveBlocked(s, what); if (why) throw new OpRejected(why); };
