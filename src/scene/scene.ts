@@ -19,7 +19,7 @@ import type { MirrorSetting } from "../mesh/mirror.ts";
 import type { KernelView } from "./kernel-view.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
 import type { CurveParams } from "../kernel/curves.ts";
-import { type Channels, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc, colorMapIn, defaultLayers, emptyShelf } from "../format/document.ts";
+import { type CarriedJson, type Channels, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc, colorMapIn, defaultLayers, emptyShelf } from "../format/document.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
 import type { Stamp } from "../format/migrate/index.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "./builtin-materials.ts";
@@ -37,6 +37,8 @@ export interface Material {
   readonly color: readonly [number, number, number];
   /** 通道名 → 一摞贴图 GUID（这一版只用 color、一摞一张）。问「用哪张图」只经 Scene.colorMapOf。 */
   readonly channels?: Channels;
+  /** 文件里材质扩展本版不认识的键（原样带回；format/document.ts MaterialDoc.extra）。 */
+  readonly extra?: CarriedJson;
 }
 export interface Group { readonly id: GroupId; readonly guid: Guid; parent: GroupId | null; /** 进这个组画图用的坐标架（本 definition 坐标）；组没有原点（DT86）。 */ axes: Frame; kernel: Kernel; name?: string; /** 参考几何（0.11；本 definition 坐标）。 */ guides: Guides; }   // 组 = brep 汤里的分区，不是物体：无身份、无锁、无层（user 2026-10-24「su的group不算物体层级……地位类似选区」）
 export interface Instance { readonly id: InstId; readonly guid: Guid; def: DefId; parent: GroupId | null; xform: Xform; name?: string; /** 锁定（A27）。 */ locked?: boolean; /** 层（契约 §4）：缺 = 继承父上下文的有效层。 */ layer?: number; /** 隐藏（DT49；glTF KHR_node_visibility）：藏这一份连同里面的一切；不画、不吸、点不中。 */ hidden?: boolean; }

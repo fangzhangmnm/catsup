@@ -3,9 +3,9 @@
 import { KINDS, refKey, type EntryKind, type Ref } from "./kinds.ts";
 import type { Guid } from "./guid.ts";
 
-/** 弹窗和面板要摆的事实。faces / orphanFaces 只有材质有；placed / locked 只有定义有。 */
+/** 弹窗和面板要摆的事实。faces / orphanFaces 只有材质有；locked 只有定义有；placed = 被活着的东西引用了几次（定义 = 摆了几份，贴图 = 几个材质指着它；2026-11-10）。 */
 export interface Usage {
-  /** 活着的组件里摆了几份。 */
+  /** 被引用了几次：定义 = 活着的组件里摆了几份；贴图 = 几个材质指着它（不管那个材质自己有没有面在用）。 */
   readonly placed: number;
   /** 活着的组件里几张面在用（一面一侧算一次）。 */
   readonly faces: number;

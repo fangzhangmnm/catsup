@@ -107,6 +107,27 @@ describe("贴图表：写盘（门 3 / 4 / 5）", () => {
   });
 });
 
+describe("贴图表：材质扩展里不认识的东西原样带回（Fable 11-10 审 1-0½ 补）", () => {
+  it("材质扩展里塞一个不认识的键（还引用一段字节）+ 带图的材质多一个不认识的通道名：读 → 改颜色 → 写 → 读，都还在", () => {
+    const base = writeCatsup(documentFromScene(scenePainted(), "t")), j0 = jsonOf(base);
+    const row = j0.extensions.CATSUP_textures.list[0], tg = row.guid, bv = row.content.bytes.bufferView;
+    const bytes = patched(base, (j) => { for (const m of j.materials) { const e = m.extensions.CATSUP_material; e.future = { knob: 3, blob: { bufferView: bv } }; if (e.channels) e.channels.sheen = [tg]; } });
+    const doc = readCatsup(bytes), s = sceneFromDocument(doc);
+    for (let i = 0; i < s.materials.length; i++) s.materials[i] = { ...s.materials[i], color: [0.1, 0.2, 0.3] };   // 改颜色（材质不可变：换一个对象）
+    const out = writeCatsup(documentFromScene(s, "t", doc)), j = jsonOf(out), back = readCatsup(out);
+    const blobOf = (jj: AnyJson, bytesIn: Uint8Array, v: number): Uint8Array => { const g = decodeGlb(bytesIn) as unknown as { bin: Uint8Array }; const b = jj.bufferViews[v]; return g.bin.subarray(b.byteOffset ?? 0, (b.byteOffset ?? 0) + b.byteLength); };
+    for (const m of j.materials) {
+      const e = m.extensions.CATSUP_material;
+      eq(e.future?.knob, 3, "不认识的键还在");
+      assert(sameBytes(blobOf(j, out, e.future.blob.bufferView), TINY_PNG), "它引用的字节也跟着（号换了、内容一样）");
+    }
+    const textured = j.materials.find((m: AnyJson) => m.extensions.CATSUP_material.channels);
+    eq(JSON.stringify(textured.extensions.CATSUP_material.channels), JSON.stringify({ color: [tg], sheen: [tg] }), "不认识的通道名还在");
+    for (const m of back.materials) { assert(!!m.extra, "再读还在"); eq(m.color.map((c) => c.toFixed(3)).join(), "0.100,0.200,0.300", "颜色确实改了"); }
+    eq(JSON.stringify(back.materials.find((m) => m.channels)!.channels), JSON.stringify({ color: [tg], sheen: [tg] }));
+  });
+});
+
 describe("贴图表：两个材质共用一张图", () => {
   it("存盘重开还是同一张：表里一行、两个材质指同一个 GUID；标准那一半一条 image、两个材质用同一个 texture；导出模型也是一条", () => {
     const { s, tex } = sharedScene(), bytes = writeCatsup(documentFromScene(s, "t")), back = sceneFromDocument(readCatsup(bytes));

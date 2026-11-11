@@ -4,7 +4,7 @@
 
 import { decodeGlb } from "./glb.ts";
 import { materialColorFromFile, textureFromLegacyMaterial } from "./migrate/material.ts";
-import { readTextureRow } from "./texture-table.ts";
+import { carryJson, readTextureRow } from "./texture-table.ts";
 import { sliceBin } from "./binary.ts";
 import { decodeBrep, type CatsupBrepJson } from "./brep-codec.ts";
 import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc, TextureDoc } from "./document.ts";
@@ -20,6 +20,8 @@ import type { Frame, Xform } from "../scene/xform.ts";
 import { WORLD_FRAME } from "../scene/xform.ts";
 
 const fail = (msg: string): never => { throw new Error(`readCatsup: ${msg}`); };
+/** CATSUP_material 里本版认识的键（其余的原样带回）。 */
+const MATERIAL_EXT_KEYS = new Set(["version", "minor", "patch", "guid", "channels", "sizeM"]);
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 const num3 = (x: unknown, what: string): { x: number; y: number; z: number } => {
   if (!Array.isArray(x) || x.length !== 3 || !x.every((v) => typeof v === "number")) fail(`${what} must be [x,y,z]`);
@@ -130,6 +132,11 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     const bc = Array.isArray(pbr.baseColorFactor) ? (pbr.baseColorFactor as number[]) : [0.8, 0.8, 0.8, 1];
     const extRaw = isObj(m.extensions) && isObj((m.extensions as Record<string, unknown>).CATSUP_material) ? (m.extensions as Record<string, unknown>).CATSUP_material as Record<string, unknown> : null;
     const out: MaterialDoc = { guid: ownGuid(extRaw?.guid, matSeen, reminted), name: typeof m.name === "string" ? m.name : `material ${mi}`, color: materialColorFromFile(bc, extRaw) };   // 1.1 起文件里是线性值（glTF 规定），app 里按 sRGB；老文件原样（migrate/material.ts）
+    if (extRaw) {   // 材质扩展里本版不认识的键：连同引用的字节原样带回（小版本更新 = 能开能存、不认识的键直通）
+      const unknown: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(extRaw)) if (!MATERIAL_EXT_KEYS.has(k)) unknown[k] = v;
+      if (Object.keys(unknown).length) out.extra = carryJson(unknown, view);
+    }
     if (extRaw && isObj(extRaw.channels)) {
       const ext = migrateExtension("CATSUP_material", extRaw, notes), ch: Record<string, Guid[]> = {};
       for (const [name, stack] of Object.entries(ext.channels as Record<string, unknown>)) {

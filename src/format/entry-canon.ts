@@ -46,7 +46,7 @@ export function canonDefinition(d: DefinitionDoc, layerGuid: (code: number) => G
 }
 
 /** 材质：整条逐字比（名字 / 贴图字节 ……），颜色先走一遍写盘那道色彩空间换算（来回有 1e-16 的浮点噪声，存过一次之后不再变；不走 = 一边存过一边没存就判不一样）。 */
-export const canonMaterial = (m: MaterialDoc): unknown => ({ ...m, color: m.color.map((c) => linearToSrgb(srgbToLinear(c))) });
+export const canonMaterial = (m: MaterialDoc): unknown => ({ ...m, color: m.color.map((c) => linearToSrgb(srgbToLinear(c))), extra: m.extra ? canonCarried(m.extra) : undefined });   // 不认识的键：文件里的号换成字节再比
 
 /** 自带字节的 JSON 的规范形：每个 `{ bufferView: N }` 换成那段字节本身（N 只是读进来那份文件里的号，两份文件各编各的；views 是 Map，按键比不出东西）。 */
 function canonCarried(c: CarriedJson): unknown {

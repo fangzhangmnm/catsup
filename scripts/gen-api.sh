@@ -7,5 +7,7 @@ cd "$(dirname "$0")/.."
 tmp="$(mktemp -d)"
 npx tsc -p . --declaration --emitDeclarationOnly --noEmit false --outDir "$tmp"
 rm -rf api/src && mkdir -p api && cp -r "$tmp/src" api/src
+# 画画内核（src/paint/kernel/）是从画画仓原样拷来的：接口的正本在画画仓的 api/，这里不重复一份（Fable 11-10 审 1-0½）
+rm -rf api/src/paint/kernel && { rmdir api/src/paint 2>/dev/null || true; }
 rm -rf "$tmp"
 echo "[gen-api] api/src ← $(find api/src -name '*.d.ts' | wc -l) 个 .d.ts"

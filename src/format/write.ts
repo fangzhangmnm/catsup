@@ -4,7 +4,7 @@
 //   + CATSUP_instance；authoring 全在 CATSUP_definitions（groups / instances 各自带 3×4 变换，Z-up 本地坐标）。
 
 import { COLOR_CHANNEL, colorMapIn, shelfIsEmpty, type ColorMap, type MaterialDoc, type TextureDoc } from "./document.ts";
-import { writeTextureRow } from "./texture-table.ts";
+import { landCarried, writeTextureRow } from "./texture-table.ts";
 import { BUILTIN_BACK_GUID, type Guid } from "./guid.ts";
 import { APP_VERSION } from "../version.ts";
 import { srgbToLinear } from "./color-space.ts";   // glTF 的 baseColorFactor 是线性值；app 里按 sRGB 存（color-space.ts）
@@ -71,7 +71,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     }
     // 每个材质都挂 CATSUP_material 拍子（1.1 起；纯色材质以前不挂）：读的时候靠它认「颜色是线性值」（migrate/material.ts）；channels 只写非空的；sizeM = 给老读者（1.2）的回声
     const channels = channelsToWrite(m, texFrozen ? (g) => !texTable.has(g) : () => true), top = texTable.get(m.channels?.[COLOR_CHANNEL]?.[0] ?? "");
-    out.extensions = { CATSUP_material: { ...stampOf("CATSUP_material"), guid: m.guid, ...(channels ? { channels } : {}), ...(top?.sizeM ? { sizeM: [top.sizeM[0], top.sizeM[1]] } : {}) } };
+    out.extensions = { CATSUP_material: { ...(m.extra ? (landCarried(m.extra, sink) as Record<string, unknown>) : {}), ...stampOf("CATSUP_material"), guid: m.guid, ...(channels ? { channels } : {}), ...(top?.sizeM ? { sizeM: [top.sizeM[0], top.sizeM[1]] } : {}) } };
     return out;
   });
   const matIndex = new Map<Guid, number>(doc.materials.map((m, i) => [m.guid, i]));

@@ -169,5 +169,5 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
 
 /** 材质：文件形状 ↔ 场景（channels 深拷一层：一摞是数组）。 */
 const copyChannels = (c: Channels | undefined): { channels?: Record<string, Guid[]> } => (c && Object.keys(c).length ? { channels: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, [...v]])) } : {});
-export const materialFromDoc = (m: MaterialDoc): Omit<Material, "guid"> & { guid: Guid } => ({ guid: m.guid, name: m.name, color: [m.color[0], m.color[1], m.color[2]], ...copyChannels(m.channels) });
-export const materialToDoc = (m: Material): MaterialDoc => ({ guid: m.guid, name: m.name, color: [m.color[0], m.color[1], m.color[2]], ...copyChannels(m.channels) });
+export const materialFromDoc = (m: MaterialDoc): Omit<Material, "guid"> & { guid: Guid } => ({ guid: m.guid, name: m.name, color: [m.color[0], m.color[1], m.color[2]], ...copyChannels(m.channels), ...(m.extra ? { extra: m.extra } : {}) });   // extra 不可变，共用
+export const materialToDoc = (m: Material): MaterialDoc => ({ guid: m.guid, name: m.name, color: [m.color[0], m.color[1], m.color[2]], ...copyChannels(m.channels), ...(m.extra ? { extra: m.extra } : {}) });

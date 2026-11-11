@@ -91,6 +91,9 @@ import { definitionsV6toV7, type MigrationCtx } from "./definitions.ts";
 //                      同一条路上还有一处（门 6 拿 v0.18.50 的真代码跑出来的，2026-11-10；Fable 同意记成已知代价）：① 只在「新文件被老版本打开再存一遍」这条路上发生；
 //                      ② 两个材质原来共用一张贴图的话，老版本给每个材质各写一份图 → 本版再打开铸出两张新贴图（各叫各自材质的名字）：图一个字节不丢，丢的是「共用」这层关系，
 //                      文件里多一份同样的字节，原来那一行变孤儿；③ 不为它按内容认图。
+//                      规矩（Fable 11-10 审 1-0½）：**channels 一摞里的每一项永远是一个 GUID 字符串**——这一版的读者会丢掉不是 GUID 的项和不是数组的值。
+//                      以后要给槽加用法参数，用材质扩展里新的键，不许改一摞里项的形状；改了就是大版本。
+//                      从 1.3 的读者起，材质扩展里不认识的键（连同它们引用的字节）原样带回（MaterialDoc.extra）；更老的读者是读时重建扩展，存一次会丢。
 
 export interface Stamp { readonly major: number; readonly minor: number; readonly patch: number }
 /** 本版写出的拍子（SSoT）。 */
