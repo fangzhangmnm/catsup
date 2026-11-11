@@ -6,7 +6,7 @@ import { FRESH } from "../src/mesh/corner-columns.ts";
 import { SpaceStroke, type SpaceCamera } from "../src/paint/space-stroke.ts";
 import { sphereTriDist } from "../src/paint/tip-reach.ts";
 import type { TargetGeo } from "../src/paint/space-target.ts";
-import { P, RAW, brush, gridMesh, laidOut, pinhole, targetOf } from "./paint-space-fixtures.ts";
+import { P, RAW, brush, gridMesh, laidOut, pinhole, targetOf } from "./paint-space-kit.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
 const F = { o: P(0, 0, 0), x: P(1, 0, 0), y: P(0, 1, 0), z: P(0, 0, 1) };

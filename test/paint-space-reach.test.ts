@@ -5,7 +5,7 @@ import { addBox } from "../src/mesh/ops/index.ts";
 import { FRESH } from "../src/mesh/corner-columns.ts";
 import { buildTargetGeo, type TargetGeo } from "../src/paint/space-target.ts";
 import { sphereTriDist, tipReach, type Reach } from "../src/paint/tip-reach.ts";
-import { P, gridMesh, laidOut, rng, targetOf } from "./paint-space-fixtures.ts";
+import { P, gridMesh, laidOut, rng, targetOf } from "./paint-space-kit.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
 /** 离 p 最近的三角形（格子里的编号）。 */
