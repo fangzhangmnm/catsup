@@ -519,4 +519,4 @@ flowchart LR
 - **锁不再随「每步之后」解**：以前 `endStepGesture` 落定时把方向锁 / 面锁清掉（SU 同款）、`cancelGesture` 也清、`setTool` 把手势外按好的锁带到新工具。现在锁住在 `editor/tool-locks.ts`（按工具名一份），编辑器读写都经 `this.lk` / `locks.set(this._tool, …)`：落定不清、换工具不清；唯一清的地方 = 键盘 Esc（和左下芯片的「取消」同一条）走 `editor.clearToolLock()`，只清当前这把。例外一条：不吃锁的工具（选择）上先按好的锁，`setTool` 时交给下一把、这边不留（「先按 Y 再按 G」）。碰的东西 = 一张小表，不随模型涨。
 - **锁的入口**：右上角吸附 / X 光下面三行钮（`main.ts renderLockRows`，跟 `syncUi` 一起刷），点 = `toggleAxisLock` / `togglePlaneLock`。左下芯片的锁那一槽（`controller/chips.ts`）、吸附钮菜单里锁的那一段撤了。
 - **压平第 2 步「这圈的朝向」**（`mesh/ops/flatten.ts bestFitNormal`）：以前取协方差矩阵伴随阵行列式最大的那一行就交；现在拿它当起点，再用伴随阵乘、每遍归一（反幂迭代），收敛为止、最多 64 遍。每遍 9 次乘法，比算协方差（每个点一遍）便宜得多，选中再多也看不出来。和 Jacobi 严格解对照（`test/flatten.test.ts`）：新写法四种圈都是 0 偏差；旧写法 轻微起伏 0.014°、胳膊那一圈 0.22°、上下乱得很 10.7°。
-
+- **v0.19.3（Fable 审后三处）**：Esc（`main.ts` escape）= 没在做手势、这把工具锁着 → 只 `clearToolLock()` 就返回；做手势时 = 取消这一下并且解锁（同前）。`Editor.loadScene`（打开 / 新建）= `locks.clearAll()`。`renderLockRows`：不吃锁的工具上有交接中的锁 → 也出三行（六颗）。

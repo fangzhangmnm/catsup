@@ -411,3 +411,19 @@
   4. **拿着选择工具先按好的锁看不见**：三行只在工具吃锁时出现（照 W-6），所以「选择 + 按 Y」那一下只有提示行那句话，右上不亮；以前吸附钮上有字母角标，撤了。要不要让三行在「选择上有交接中的锁」时也出来，请定。
   5. 锁只记在这次打开期间，不进文件，换文件也不清（以前换文件会随取消清掉；现在换文件不碰锁）。
 
+### Fable 审后三处（v0.19.3，11-10 深夜，Claude Opus 5.5）
+
+- **做了什么**（第四½节末尾那三条）：
+  - Esc：没在做手势、这把工具锁着 → 这一下只解锁、到此为止，人还在组件里、选区也不动；再按一下才照旧（取消选区 / 退出一层）。做手势时 = 取消这一下并且解锁（没变）。芯片「取消」和 Esc 同一条，跟着变；手指轻点不碰锁（没变）。画线画到一半等下一点也算「做手势」，所以一下 Esc 就收笔并解锁。
+  - 「选择」上有先按好、等着交给下一把的锁 → 右上三行也出来，六颗都出、亮着那一颗；点它 = 解开，三行跟着收起。
+  - 换文件（打开 / 新建都经 `loadScene`）= 所有工具记着的锁一起清。
+- **改了的文件**：`src/app/main.ts`（Esc 那一段、`renderLockRows`）、`src/editor/editor.ts`（`loadScene` 里那一行，写在原有那行上，行数没变 4121）、`src/editor/tool-locks.ts`（`clearAll`）、`test/probes/probe-tool-locks.mjs`（加 ⑨⑩⑪）、UI 版图 / 工具定义表 / 流程图各补一句、发版。
+- **测试**：
+  - `npm test` 1758 + 内核 549 全过，45 秒；`tsc` 干净。
+  - `probe-tool-locks` 补的三步都绿：⑨ 选择上按 Y = 三行出来、六颗、亮 Y；点 Y = 锁没了、三行收起。⑩ 在组件里、移动锁着 X、没做手势没选区：第一下 Esc = 锁没了、还在组件里；第二下 = 退到根。⑪ 移动锁 Z、矩形锁面 YZ、画线锁面 XZ → 新建（「这个模型还没有家」点丢弃）→ 画线 / 移动 / 缩放 / 矩形 / 选择都没有锁。
+  - 其余碰锁 / Esc 的探针在新包上全绿：`probe-axis-lock`、`probe-plane-lock`、`probe-mfd`、`probe-ipad-pen`、`probe-mesh-transform`、`probe-mesh-pull`、`probe-mesh-handles`、`probe-lock-line`、`probe-mesh-knife`、`probe-mesh-flatten`、`probe-mirror-xform`、`probe-typed-amount`、`probe-create`、`probe-scale-ref`、`probe-undo-fuzz`。`probe-mesh-keymap` 只红 W-9 那两条老的（逐条对过）。
+- **截图**（拿着移动工具、锁着 X；硬表面根层；先用笔点了一下画布，所以是触屏的样子：手和放大镜那一行露着）：
+  - iPad 竖屏 820×1180：`/home/fangzhangmnm/.claude/jobs/2e86e0d4/tmp/shots/ipad-portrait-820x1180.png`
+  - 手机竖屏 390×844：`/home/fangzhangmnm/.claude/jobs/2e86e0d4/tmp/shots/phone-portrait-390x844.png`
+  - 看下来：不挤，没盖住别的东西。右上那一列从上到下 = ☰ 那一行 → 视图方块 → 手 / 放大镜 → 吸附 / X 光 → 锁的三行，整列底边离顶 331 像素（两种屏一样；iPad 屏高 1180、手机 844）。左柱在另一边，手机上左柱的横向范围 14–62 像素、锁的三行 300–382 像素，不重叠；右下「复制」、左下提示行都离得很远。手机上那一列占了屏高的四成上下，往下还空着。
+- **和你写的不一样的地方**：镜像会话开着、这把工具又锁着时，第一下 Esc 也只解锁，第二下才取消镜像——照「没在做手势」那条字面做的（镜像会话不算手势）。要改成一下就取消镜像并解锁，请说。

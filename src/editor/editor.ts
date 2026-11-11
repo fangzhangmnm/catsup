@@ -378,7 +378,7 @@ export class Editor {
   private lastMoveEv: ToolPointer | null = null;   // Shift 按下 / 松开时按它重算（setShiftHeld）   // 最后一次指针位置（Shift+↓ 取光标下的膜用）
   get axisLock(): LockAxis | null { return this.lk.axis; }
   get planeLock(): PlaneLock | null { return this.lk.plane; }
-  /** 键盘 Esc：解当前这把工具的锁（W-4；手指轻点的「取消」不解，免得误碰把锁悄悄清掉）。 */
+  /** 键盘 Esc / 芯片「取消」：解当前这把工具的锁（W-4；手指轻点的取消不解，免得误碰把锁悄悄清掉）。没在做手势时这一下只解锁、不再往下做（main.ts escape）。 */
   clearToolLock(): void { if (!this.lk.axis && !this.lk.plane) return; this.locks.clear(this._tool); this.host.changed(); this.draw(); }
   /** 当前工具吃哪种锁（null = 不吃锁：方向键 / 虚拟轴键无效）。 */
   lockStyle(): "axis" | "plane" | null { return this.handlers[this._tool]?.lock ?? null; }
@@ -1379,7 +1379,7 @@ export class Editor {
   /** 第几个模型（换模型 = 加一）：粘贴提示据此说「这是从别的模型拷来的、用的是本文件这版」（clipboard.ts）。 */
   private docEpoch = 0;
   loadScene(s: Scene, label = "打开"): void {
-    this.docEpoch++;
+    this.docEpoch++; this.locks.clearAll();   // 换文件：所有工具记着的锁一起清（W-4 审后，v0.19.3）
     this.last = null;
     this.cancelGesture();
     this.scene = s;

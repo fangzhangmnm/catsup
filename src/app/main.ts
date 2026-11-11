@@ -1352,10 +1352,12 @@ var xrayBtnRef: HTMLButtonElement | undefined;
 var lockBoxRef: HTMLElement | undefined;
 // eslint-disable-next-line no-var
 var lockRowsRef: { row: HTMLElement; axis: HTMLButtonElement; plane: HTMLButtonElement }[] | undefined;
-/** 锁的三行跟着这把工具：吃什么锁出什么钮、锁着的那颗亮；走路时不出。 */
+/** 锁的三行跟着这把工具：吃什么锁出什么钮、锁着的那颗亮；走路时不出。
+ *  不吃锁的工具（选择）上有先按好、等着交给下一把的锁 → 也出（六颗都出、亮着那一颗，点一下能解；v0.19.3，Fable 审：不留看不见的状态）。 */
 function renderLockRows(): void {
   if (!lockBoxRef || !lockRowsRef) return;
-  const style = locomotion?.isWalking() ? null : editor.lockStyle(), a = editor.axisLock, p = editor.planeLock;
+  const a = editor.axisLock, p = editor.planeLock, walking = !!locomotion?.isWalking();
+  const style = walking ? null : editor.lockStyle() ?? (a !== null || (p !== null && p !== "face") ? "axis" : null);
   lockBoxRef.hidden = !style;
   lockRowsRef.forEach((r, i) => {
     const ax = (["x", "y", "z"] as const)[i];
@@ -1532,7 +1534,10 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "undo": editor.undo(); return;
     case "redo": editor.redo(); return;
     case "escape":
-      editor.clearToolLock();   // 键盘 Esc 解这把工具记着的锁（W-4：锁不再随手势落定 / 换工具解；手指轻点的「取消」不解）
+      // 键盘 Esc / 芯片「取消」解这把工具记着的锁（W-4：锁不再随手势落定 / 换工具解；手指轻点的取消不解）。
+      // 没在做手势、而这把工具锁着 = 这一下只解锁，到此为止（v0.19.3，Fable 审：不然一下 Esc 既解锁又退出组件，只想解锁的人会被带出去）；做手势时 = 取消这一下并且解锁
+      if (!editor.isGestureActive() && (editor.axisLock !== null || editor.planeLock !== null)) { editor.clearToolLock(); syncUi(); return; }
+      editor.clearToolLock();
       // 菜单 / 帮助 / 材质 / 调试日志开着时 Esc 到不了这里（输入闸的 escape：只关最上面那个面）
       // 自由建模的手势中（拖着 / 键盘起手 / 打数）→ 只取消这次操作、选区留着（Blender：G / S 里 Esc 只退回去；2026-10-28 晚「S Z 0」接线时改，硬表面照旧）
       if (editor.modeId === "freeform" && editor.isGestureActive() && !editor.mirrorActive()) { editor.abortGesture(); syncUi(); return; }

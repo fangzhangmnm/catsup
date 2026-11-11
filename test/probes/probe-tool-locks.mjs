@@ -4,6 +4,8 @@
 //     ⑥ 拿选择工具（不吃锁）时锁的三行不出；拿移动时出，三行六颗
 // Esc ⑦ 键盘 Esc 只解当前这把工具的锁：移动锁着 XY、缩放锁着 X → 在移动里按 Esc = 移动没锁、缩放还是 X
 // 交接 ⑧ 不吃锁的工具（选择）先按 Y 再按 G = 这次移动锁在 Y（键表 lock.arm）；交过去以后选择工具那边不留
+// v0.19.3（Fable 审后三处）⑨ 选择上按 Y = 右上三行出来、亮 Y；点一下灭、三行收起 ⑩ 没做手势时锁着按 Esc = 只解锁、还在组件里；再按一下才退出一层
+//     ⑪ 换文件（新建）= 各工具都没有锁
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-tool-locks.mjs [url]
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -92,6 +94,26 @@ await page.keyboard.press("g"); await page.waitForTimeout(60);
 r.eightGesture = await ev(() => ({ tool: window.__tl.e.tool, gesture: window.__tl.e.isGestureActive(), ...window.__tl.lk() }));
 await page.keyboard.press("Escape"); await page.waitForTimeout(60);
 r.eightSelect = await ev(async () => { const { tool, sleep, e } = window.__tl; tool("select"); await sleep(30); return { axis: e.axisLock, plane: e.planeLock }; });
+// ⑨ 选择上按 Y：交接中的锁看得见、点一下能解
+await ev(async () => { const { e, tool } = window.__tl; tool("select"); e.deselectAll(); });
+await page.mouse.move(bx.x + v0.x + 4, bx.y + v0.y - 4); await page.waitForTimeout(40);
+await page.keyboard.press("y"); await page.waitForTimeout(60);
+const rowsShown = () => ev(() => { const box = document.querySelector(".gizmo-locks"); return !!box && !box.hidden && box.getClientRects().length > 0; });
+r.nineArmed = { shown: await rowsShown(), ...(await ev(() => window.__tl.lk())) };
+await page.click(".gizmo-lock.lock-y:not(.lock-plane)"); await page.waitForTimeout(60);
+r.nineOff = { shown: await rowsShown(), ...(await ev(() => window.__tl.lk())) };
+// ⑩ 移动锁着 X、没做手势、没选区：第一下 Esc 只解锁（还在组件里），第二下才退出
+await ev(async () => { const { e, tool, tap } = window.__tl; tool("move"); e.deselectAll(); await tap(".lock-x:not(.lock-plane)"); });
+const where = () => ev(() => ({ depth: window.__tl.e.contextDepth(), gesture: window.__tl.e.isGestureActive(), ...window.__tl.lk() }));
+r.tenBefore = await where();
+await page.keyboard.press("Escape"); await page.waitForTimeout(80); r.tenFirst = await where();
+await page.keyboard.press("Escape"); await page.waitForTimeout(80); r.tenSecond = await where();
+// ⑪ 移动、矩形、画线都锁着（根层是硬表面：这三把都吃锁；硬表面的缩放不吃锁）→ 新建 → 都没有锁
+await ev(async () => { const { e, sleep } = window.__tl; e.setTool("move"); e.setAxisLock("z"); e.setTool("rect"); e.setPlaneLock("x"); e.setTool("line"); e.setPlaneLock("y"); await sleep(20); });
+r.elevenBefore = await ev(() => { const e = window.__tl.e, out = {}; for (const t of ["move", "rect", "line"]) { e.setTool(t); out[t] = [e.axisLock, e.planeLock].join("/"); } return out; });
+await ev(() => { void globalThis.__catsup.session.newDoc(); }); await page.waitForTimeout(300);   // 没有家的模型 → 先问「丢弃」
+const discard = page.locator("button", { hasText: "丢弃" }); if (await discard.count()) { await discard.first().click(); } await page.waitForTimeout(400);
+r.eleven = await ev(() => { const e = globalThis.__catsup.editor, out = { depth: e.contextDepth() }; for (const t of ["line", "move", "scale", "rect", "select"]) { e.setTool(t); out[t] = [e.axisLock, e.planeLock].join("/"); } return out; });
 await b.close();
 r.errs = errs;
 console.log(JSON.stringify(r, null, 1));
@@ -102,6 +124,9 @@ const ok = r.one.sel === 1 && r.one.armed.axis === "x" && /(^| )X\*/.test(r.one.
   && !r.six.select.box && r.six.select.btns === "" && r.six.move.box && r.six.move.btns.split(" ").length === 6
   && r.sevenBefore.plane === "z" && r.seven.move.plane === null && r.seven.move.axis === null && r.seven.scale.axis === "x"
   && r.eightArmed.tool === "select" && r.eightArmed.axis === "y" && r.eightGesture.tool === "move" && r.eightGesture.gesture && r.eightGesture.axis === "y" && r.eightSelect.axis === null && r.eightSelect.plane === null
+  && r.nineArmed.shown && r.nineArmed.axis === "y" && /(^| )Y\*/.test(r.nineArmed.btns) && r.nineArmed.btns.split(" ").length === 6 && !r.nineOff.shown && r.nineOff.axis === null
+  && r.tenBefore.depth === 1 && r.tenBefore.axis === "x" && !r.tenBefore.gesture && r.tenFirst.axis === null && r.tenFirst.depth === 1 && r.tenSecond.depth === 0
+  && r.elevenBefore.move === "z/" && r.elevenBefore.rect === "/x" && r.elevenBefore.line === "/y" && ["line", "move", "scale", "rect", "select"].every((t) => r.eleven[t] === "/")
   && errs.length === 0;
 console.log(ok ? "probe-tool-locks OK" : "probe-tool-locks FAIL");
 process.exit(ok ? 0 : 1);
