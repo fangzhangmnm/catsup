@@ -51,9 +51,12 @@ export declare class MeshKernel {
     private eCount;
     private eFree;
     private edgeKey;
-    private adjDirty;
-    private vE;
-    private eF;
+    private vHead;
+    private eNext;
+    private eFHead;
+    private lNext;
+    private lEdge;
+    private lFace;
     private triCache;
     /** 改动计数（渲染缓存 / 预演差量的钥匙；拓扑或坐标改了就 +1）。 */
     rev: number;
@@ -78,7 +81,9 @@ export declare class MeshKernel {
     faceVerts(f: number): number[];
     facePts(f: number): Pt3[];
     edgeOf(a: number, b: number): number;
+    /** 点 v 连着的边（编号从小到大，一份新数组）。O(这个点的度数)。 */
     vEdges(v: number): Int32Array;
+    /** 边 e 挨着的面（编号从小到大，一份新数组）。O(挨着的面数)。 */
     eFaces(e: number): Int32Array;
     fEdges(f: number): number[];
     /** 面的朝向法向（Newell，**不**规范化符号：单面网格里环的绕向就是朝向；planeOfRing 的 canonical 会丢符号，别用它判朝向）。 */
@@ -90,8 +95,8 @@ export declare class MeshKernel {
     removeFace(f: number): void;
     /**
      * 一次删一批面（连同只属于这批面的边；裸线不删）。结果和对每张逐个 removeFace 一样：删掉的面和边、空出来的编号都一样
-     * （空闲编号表本来就一直排着序，之后分到的编号也一样），但邻接表只查一次、空闲编号只排一次序——逐个删 = 每删一张整张邻接表重建一次，
-     * 随面数平方涨（W-10：细分 6400 面要 44–54 秒，样本 test/mesh-subdivide-golden.test.ts）。
+     * （空闲编号表本来就一直排着序，之后分到的编号也一样），但空闲编号只排一次序（W-10：细分 6400 面要 44–54 秒，样本 test/mesh-subdivide-golden.test.ts；
+     * 那时逐个删还要每张整张重建一次邻接表，W-11 起邻接是增量的）。
      */
     removeFaces(fs: readonly number[]): void;
     /** 一次删一批孤立的点（没有边的；有边的 → 抛，和 removeVertex 一样）。邻接表只查一次（W-10）。 */
@@ -130,10 +135,17 @@ export declare class MeshKernel {
     hasFlag(e: number, mask: number): boolean;
     private keyOf;
     private touch;
-    /** 邻接表整张重建过几次（给测试用：「没多做事」的直接证明，test/mesh-subdivide-golden.test.ts）。 */
+    private vLink;
+    private vUnlink;
+    /** 面 f 现在这一圈（loopVert 的 faceStart[f] 起 faceLen[f] 个槽）挂到各自的边上。环上的边都要已经在（addFace / setFaceRing 先补边再挂）。 */
+    private linkRing;
+    /** 把面 f 现在这一圈从各自的边上摘下来（删面 / 换环之前）。 */
+    private unlinkRing;
+    /** 邻接表整张从头重建过几次（W-10 的测试看它；W-11 起维护是增量的，只有 check() 的 M8 为了比对从头建一份）。 */
     get adjacencyBuilds(): number;
     private adjBuilds;
-    private adjacency;
+    /** 从头重建邻接（以前的做法，原样）：每个点连着的边、每条边挨着的面，都按编号从小到大。只给 check() 的 M8 比对用。 */
+    private adjacencyFromScratch;
     triangles(): {
         tris: Int32Array;
         faceOfTri: Int32Array;

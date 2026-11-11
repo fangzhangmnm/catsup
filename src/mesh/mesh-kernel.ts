@@ -1,14 +1,15 @@
 // mesh/mesh-kernel.ts —— mesh 内核（自由建模的身体；提案 ai-docs/20261027-mesh-kernel-proposal.md §1–§2，user 10-27 拍：另做网格内核、列式 + 纯函数、
 // 面 = 简单顶点环（任意边数、允许不平、不带洞、单面）、顶点 id 寻址、没有几何公理只有拓扑不变量）。created 2026-10-27 by Claude Fable 5.1
 //
-// 列式：所有表都是定长类型数组 + 活跃位图 + 空闲表（id = 下标，删了不挪；复用取最小空位 = 确定性）。邻接（点 → 边、边 → 面、面 → 边）是派生的压缩数组，
-// 拓扑算子改完标脏、下次查询前 O(n) 重建；只改坐标的算子不碰它（软挪 / 雕每帧只写 pos）。
+// 列式：所有表都是定长类型数组 + 活跃位图 + 空闲表（id = 下标，删了不挪；复用取最小空位 = 确定性）。邻接见下一行。
+// 邻接（点 → 边、边 → 面）W-11 起增量维护：增删一条边 / 一张面只碰它自己的几个格子，查询 O(度数)；只改坐标的算子不碰它（软挪 / 雕每帧只写 pos）。
 // 不变量（test/mesh-kernel.test.ts 逐算子查）：(M1) 活面的环 ≥ 3 个不同的活顶点、环里没有重复顶点 (M2) 环上相邻顶点对都在边表里、边表里的边至少属于一张面或标为裸线
 // (M3) 标记只在活边上 (M4) 封闭流形块 V − E + F = 2 − 2g（只对流形块查）(M5) 删了的 id 不被任何活元素引用 (M6) 同算子在克隆上跑 = 同结果。
 // 这里只有数据 + 查询 + 最基本的生长 / 删除原语；拓扑算子在 mesh/ops/*.ts（每个一个文件，可扔）。
 // 角上的一列数 + 面的来历（2026-11-10 Claude Opus 5.5，贴图主线 1-2）：内核多一张「列」的表（和 loopVert 平行，NaN = 这个角没值）；
 // addFace / setFaceRing 必须交代来历（mesh/corner-columns.ts 的五种，那一段代码只有一份）。没有列的网格体：每次只多一个分支，行为逐字不变。
 // (M7) 一张面在一列上要么每个角都有值、要么都没有；列的数组装得下所有的角。
+// (M8) 增量维护的邻接 = 当场从头重建的邻接（每个点连着的边、每条边挨着的面，逐项、含先后；W-11）。
 import type { Pt3 } from "../kernel/geom.ts";
 import { triangulateFace } from "../format/triangulate.ts";
 import { ChangeLog } from "../kernel/change-log.ts";
@@ -56,10 +57,16 @@ export class MeshKernel {
   // 边
   edgeA = new Int32Array(0); edgeB = new Int32Array(0); eAlive = new Uint8Array(0); edgeFlags = new Uint8Array(0); private eCount = 0; private eFree: number[] = [];
   private edgeKey = new Map<number, number>();   // a * 2^26 + b（a < b）→ 边 id
+  // 邻接（增量维护，W-11 2026-11-10 Claude Opus 5.5；以前是整张懒重建：每改一下拓扑就标脏、下一次查询整张重建，「改一下、查一下」交替的循环随整个网格体涨）。
+  // 两套挂在扁平数组上的单链表，存「下标 + 1」（0 = 空：数组长大时补的 0 正好是空）。增删一条边 / 一张面只碰它自己的几个格子。
+  //   点 → 边：边 e 有两个格子，2e 挂在 edgeA[e] 的链上、2e+1 挂在 edgeB[e] 的链上；vHead[v] = 第一个格子 + 1，eNext[格子] = 下一个 + 1。
+  //   边 → 面：面上的每一段（loopVert 的槽 l = 从 loopVert[l] 到环上下一个点的那条边）挂在那条边的链上；eFHead[e] = 第一个槽 + 1，lNext[l] = 下一个 + 1，
+  //            lEdge / lFace = 这个槽是哪条边 / 哪张面的（摘的时候用）。loopVert 只往后接，这三张跟着长；以后谁给 loopVert 做整理，必须连这三张和列一起挪。
+  //   查询（vEdges / eFaces）把链取出来按编号从小到大排好、返回一份新数组：和以前整张重建出来的逐项、先后都一样（check() 的 M8 当场从头重建来比），
+  //   拿着上一次结果的调用方也不受之后修改影响（以前返回的是旧表的视图，同样不变）。
+  private vHead = new Int32Array(0); private eNext = new Int32Array(0); private eFHead = new Int32Array(0);
+  private lNext = new Int32Array(0); private lEdge = new Int32Array(0); private lFace = new Int32Array(0);
   // 派生
-  private adjDirty = true;
-  private vE = { start: new Int32Array(0), list: new Int32Array(0) };
-  private eF = { start: new Int32Array(0), list: new Int32Array(0) };
   private triCache: { tris: Int32Array; faceOfTri: Int32Array; rev: number } | null = null;
   /** 改动计数（渲染缓存 / 预演差量的钥匙；拓扑或坐标改了就 +1）。 */
   rev = 0;
@@ -86,8 +93,20 @@ export class MeshKernel {
   faceVerts(f: number): number[] { const s = this.faceStart[f], n = this.faceLen[f]; const o: number[] = new Array(n); for (let i = 0; i < n; i++) o[i] = this.loopVert[s + i]; return o; }
   facePts(f: number): Pt3[] { return this.faceVerts(f).map((v) => this.pt(v)); }
   edgeOf(a: number, b: number): number { const e = this.edgeKey.get(a < b ? a * 67108864 + b : b * 67108864 + a); return e === undefined ? -1 : e; }
-  vEdges(v: number): Int32Array { this.adjacency(); return this.vE.list.subarray(this.vE.start[v], this.vE.start[v + 1]); }
-  eFaces(e: number): Int32Array { this.adjacency(); return this.eF.list.subarray(this.eF.start[e], this.eF.start[e + 1]); }
+  /** 点 v 连着的边（编号从小到大，一份新数组）。O(这个点的度数)。 */
+  vEdges(v: number): Int32Array {
+    if (!(v >= 0 && v < this.vCount)) return new Int32Array(0);
+    let n = 0; for (let s = this.vHead[v]; s; s = this.eNext[s - 1]) n++;
+    const o = new Int32Array(n); n = 0; for (let s = this.vHead[v]; s; s = this.eNext[s - 1]) o[n++] = (s - 1) >> 1;
+    return o.sort();
+  }
+  /** 边 e 挨着的面（编号从小到大，一份新数组）。O(挨着的面数)。 */
+  eFaces(e: number): Int32Array {
+    if (!(e >= 0 && e < this.eCount)) return new Int32Array(0);
+    let n = 0; for (let l = this.eFHead[e]; l; l = this.lNext[l - 1]) n++;
+    const o = new Int32Array(n); n = 0; for (let l = this.eFHead[e]; l; l = this.lNext[l - 1]) o[n++] = this.lFace[l - 1];
+    return o.sort();
+  }
   fEdges(f: number): number[] { const vs = this.faceVerts(f); return vs.map((v, i) => this.edgeOf(v, vs[(i + 1) % vs.length])); }
   /** 面的朝向法向（Newell，**不**规范化符号：单面网格里环的绕向就是朝向；planeOfRing 的 canonical 会丢符号，别用它判朝向）。 */
   faceNormal(f: number): Pt3 {
@@ -99,7 +118,7 @@ export class MeshKernel {
   // ---------------- 生长 / 删除原语（算子用；每个都保持 (M1)–(M5)）
   addVertex(p: Pt3): number {
     const v = this.vFree.length ? this.vFree.pop()! : this.vCount++;
-    this.pos = grow(this.pos, 3 * this.vCount); this.vAlive = grow(this.vAlive, this.vCount);
+    this.pos = grow(this.pos, 3 * this.vCount); this.vAlive = grow(this.vAlive, this.vCount); this.vHead = grow(this.vHead, this.vCount); this.vHead[v] = 0;
     this.pos[3 * v] = p.x; this.pos[3 * v + 1] = p.y; this.pos[3 * v + 2] = p.z; this.vAlive[v] = 1;
     this.changes.v(v); this.touch(true); return v;
   }
@@ -113,36 +132,33 @@ export class MeshKernel {
     this.faceStart[f] = this.loopCount; this.faceLen[f] = ring.length; this.fAlive[f] = 1; this.faceMat[f] = mat; this.faceFlags[f] = 0; this.changes.f(f);
     this.writeRing(ring, origin);
     for (let i = 0; i < ring.length; i++) this.ensureEdge(ring[i], ring[(i + 1) % ring.length]);
+    this.linkRing(f);
     this.touch(true); return f;
   }
   /** 删面；它独占的边（没别的面、不是裸线）一起删；孤立的顶点留着（Blender 同款：删面留点线，要删干净用 ops 的 deleteFaces(onlyFaces=false)）。 */
   removeFace(f: number): void {
     if (!this.hasF(f)) return;
     const vs = this.faceVerts(f);
+    this.unlinkRing(f);
     this.fAlive[f] = 0; this.fFree.push(f); this.fFree.sort((a, b) => b - a);
     this.changes.f(f); this.touch(true);
     for (let i = 0; i < vs.length; i++) { const e = this.edgeOf(vs[i], vs[(i + 1) % vs.length]); if (e >= 0 && this.eFaces(e).length === 0 && !(this.edgeFlags[e] & F_WIRE)) this.removeEdge(e); }
   }
   /**
    * 一次删一批面（连同只属于这批面的边；裸线不删）。结果和对每张逐个 removeFace 一样：删掉的面和边、空出来的编号都一样
-   * （空闲编号表本来就一直排着序，之后分到的编号也一样），但邻接表只查一次、空闲编号只排一次序——逐个删 = 每删一张整张邻接表重建一次，
-   * 随面数平方涨（W-10：细分 6400 面要 44–54 秒，样本 test/mesh-subdivide-golden.test.ts）。
+   * （空闲编号表本来就一直排着序，之后分到的编号也一样），但空闲编号只排一次序（W-10：细分 6400 面要 44–54 秒，样本 test/mesh-subdivide-golden.test.ts；
+   * 那时逐个删还要每张整张重建一次邻接表，W-11 起邻接是增量的）。
    */
   removeFaces(fs: readonly number[]): void {
     const gone = new Set<number>();
     for (const f of fs) if (this.hasF(f)) gone.add(f);
     if (!gone.size) return;
-    this.adjacency();   // 删之前的邻接：一条边的面全在这一批里 = 删完它就没有面了
-    const cand = new Set<number>();
-    for (const f of gone) { const vs = this.faceVerts(f); for (let i = 0; i < vs.length; i++) { const e = this.edgeOf(vs[i], vs[(i + 1) % vs.length]); if (e >= 0) cand.add(e); } }
-    const doomed: number[] = [], L = this.eF.list, S = this.eF.start;
-    for (const e of cand) {
-      if (this.edgeFlags[e] & F_WIRE) continue;
-      let all = true; for (let i = S[e]; i < S[e + 1]; i++) if (!gone.has(L[i])) { all = false; break; }
-      if (all) doomed.push(e);
-    }
+    const cand = new Set<number>();   // 这一批的环边：全摘下之后没面了（又不是裸线）= 跟着删
+    for (const f of gone) { const vs = this.faceVerts(f); for (let i = 0; i < vs.length; i++) { const e = this.edgeOf(vs[i], vs[(i + 1) % vs.length]); if (e >= 0) cand.add(e); } this.unlinkRing(f); }
+    const doomed: number[] = [];
+    for (const e of cand) if (!this.eFHead[e] && !(this.edgeFlags[e] & F_WIRE)) doomed.push(e);
     for (const f of gone) { this.fAlive[f] = 0; this.fFree.push(f); this.changes.f(f); }
-    for (const e of doomed) { this.edgeKey.delete(this.keyOf(this.edgeA[e], this.edgeB[e])); this.eAlive[e] = 0; this.edgeFlags[e] = 0; this.eFree.push(e); this.changes.e(e); }
+    for (const e of doomed) { this.vUnlink(this.edgeA[e], 2 * e); this.vUnlink(this.edgeB[e], 2 * e + 1); this.edgeKey.delete(this.keyOf(this.edgeA[e], this.edgeB[e])); this.eAlive[e] = 0; this.edgeFlags[e] = 0; this.eFree.push(e); this.changes.e(e); }
     this.fFree.sort((a, b) => b - a); this.eFree.sort((a, b) => b - a);
     this.touch(true);
   }
@@ -158,6 +174,7 @@ export class MeshKernel {
   removeEdge(e: number): void {
     if (!this.hasE(e)) return;
     if (this.eFaces(e).length) throw new Error(`removeEdge: edge ${e} still belongs to a face`);
+    this.vUnlink(this.edgeA[e], 2 * e); this.vUnlink(this.edgeB[e], 2 * e + 1);
     this.edgeKey.delete(this.keyOf(this.edgeA[e], this.edgeB[e]));
     this.eAlive[e] = 0; this.edgeFlags[e] = 0; this.eFree.push(e); this.eFree.sort((a, b) => b - a);
     this.changes.e(e); this.touch(true);
@@ -174,6 +191,8 @@ export class MeshKernel {
     const e = this.eFree.length ? this.eFree.pop()! : this.eCount++;
     this.edgeA = grow(this.edgeA, this.eCount); this.edgeB = grow(this.edgeB, this.eCount); this.eAlive = grow(this.eAlive, this.eCount); this.edgeFlags = grow(this.edgeFlags, this.eCount);
     this.edgeA[e] = Math.min(a, b); this.edgeB[e] = Math.max(a, b); this.eAlive[e] = 1; this.edgeFlags[e] = 0;
+    this.eNext = grow(this.eNext, 2 * this.eCount); this.eFHead = grow(this.eFHead, this.eCount); this.eFHead[e] = 0;
+    this.vLink(this.edgeA[e], 2 * e); this.vLink(this.edgeB[e], 2 * e + 1);
     this.edgeKey.set(this.keyOf(a, b), e);
     this.changes.e(e); this.touch(true); return e;
   }
@@ -182,9 +201,11 @@ export class MeshKernel {
     const old = this.faceVerts(f);
     const distinct = new Set(ring);
     if (ring.length < 3 || distinct.size !== ring.length) throw new Error(`setFaceRing: ring must have ≥ 3 distinct vertices`);
+    this.unlinkRing(f);
     this.faceStart[f] = this.loopCount; this.faceLen[f] = ring.length;
     this.writeRing(ring, origin);
     for (let i = 0; i < ring.length; i++) this.ensureEdge(ring[i], ring[(i + 1) % ring.length]);
+    this.linkRing(f);
     this.changes.f(f); this.touch(true);
     for (let i = 0; i < old.length; i++) { const e = this.edgeOf(old[i], old[(i + 1) % old.length]); if (e >= 0 && this.eFaces(e).length === 0 && !(this.edgeFlags[e] & F_WIRE)) this.removeEdge(e); }
   }
@@ -261,24 +282,49 @@ export class MeshKernel {
   hasFlag(e: number, mask: number): boolean { return this.hasE(e) && (this.edgeFlags[e] & mask) !== 0; }
 
   private keyOf(a: number, b: number): number { return a < b ? a * 67108864 + b : b * 67108864 + a; }
-  private touch(topo: boolean): void { this.rev = ++meshRevClock; this.triCache = null; if (topo) this.adjDirty = true; }
+  private touch(_topo: boolean): void { this.rev = ++meshRevClock; this.triCache = null; }   // 邻接是增量维护的（W-11），不再标脏
 
-  // ---------------- 邻接（派生，O(n) 重建）
-  /** 邻接表整张重建过几次（给测试用：「没多做事」的直接证明，test/mesh-subdivide-golden.test.ts）。 */
+  // ---------------- 邻接的链（W-11）：挂 / 摘
+  private vLink(v: number, s: number): void { this.eNext[s] = this.vHead[v]; this.vHead[v] = s + 1; }
+  private vUnlink(v: number, s: number): void {
+    if (this.vHead[v] === s + 1) { this.vHead[v] = this.eNext[s]; this.eNext[s] = 0; return; }
+    for (let p = this.vHead[v]; p; p = this.eNext[p - 1]) if (this.eNext[p - 1] === s + 1) { this.eNext[p - 1] = this.eNext[s]; this.eNext[s] = 0; return; }
+  }
+  /** 面 f 现在这一圈（loopVert 的 faceStart[f] 起 faceLen[f] 个槽）挂到各自的边上。环上的边都要已经在（addFace / setFaceRing 先补边再挂）。 */
+  private linkRing(f: number): void {
+    const s0 = this.faceStart[f], n = this.faceLen[f], end = s0 + n;
+    this.lNext = grow(this.lNext, end); this.lEdge = grow(this.lEdge, end); this.lFace = grow(this.lFace, end);
+    for (let i = 0; i < n; i++) {
+      const l = s0 + i, e = this.edgeOf(this.loopVert[l], this.loopVert[s0 + ((i + 1) % n)]);
+      this.lEdge[l] = e; this.lFace[l] = f;
+      if (e >= 0) { this.lNext[l] = this.eFHead[e]; this.eFHead[e] = l + 1; } else this.lNext[l] = 0;
+    }
+  }
+  /** 把面 f 现在这一圈从各自的边上摘下来（删面 / 换环之前）。 */
+  private unlinkRing(f: number): void {
+    const s0 = this.faceStart[f], end = s0 + this.faceLen[f];
+    for (let l = s0; l < end; l++) {
+      const e = this.lEdge[l];
+      if (e < 0) continue;
+      if (this.eFHead[e] === l + 1) this.eFHead[e] = this.lNext[l];
+      else for (let p = this.eFHead[e]; p; p = this.lNext[p - 1]) if (this.lNext[p - 1] === l + 1) { this.lNext[p - 1] = this.lNext[l]; break; }
+      this.lNext[l] = 0; this.lEdge[l] = -1;
+    }
+  }
+
+  // ---------------- 邻接的从头重建（只给 check() 的 M8 比对；平时是增量的，见上面字段那一段）
+  /** 邻接表整张从头重建过几次（W-10 的测试看它；W-11 起维护是增量的，只有 check() 的 M8 为了比对从头建一份）。 */
   get adjacencyBuilds(): number { return this.adjBuilds; }
   private adjBuilds = 0;
-  private adjacency(): void {
-    if (!this.adjDirty) return;
+  /** 从头重建邻接（以前的做法，原样）：每个点连着的边、每条边挨着的面，都按编号从小到大。只给 check() 的 M8 比对用。 */
+  private adjacencyFromScratch(): { vE: number[][]; eF: number[][] } {
     this.adjBuilds++;
-    const vs = new Int32Array(this.vCount + 1), ve: number[][] = Array.from({ length: this.vCount }, () => []);
-    for (let e = 0; e < this.eCount; e++) if (this.eAlive[e]) { ve[this.edgeA[e]].push(e); ve[this.edgeB[e]].push(e); }
-    let total = 0; for (let v = 0; v < this.vCount; v++) { vs[v] = total; total += ve[v].length; } vs[this.vCount] = total;
-    const vl = new Int32Array(total); for (let v = 0; v < this.vCount; v++) { const l = ve[v].sort((a, b) => a - b); for (let i = 0; i < l.length; i++) vl[vs[v] + i] = l[i]; }
-    const es = new Int32Array(this.eCount + 1), ef: number[][] = Array.from({ length: this.eCount }, () => []);
-    for (let f = 0; f < this.fCount; f++) if (this.fAlive[f]) { const r = this.faceVerts(f); for (let i = 0; i < r.length; i++) { const e = this.edgeOf(r[i], r[(i + 1) % r.length]); if (e >= 0) ef[e].push(f); } }
-    total = 0; for (let e = 0; e < this.eCount; e++) { es[e] = total; total += ef[e].length; } es[this.eCount] = total;
-    const el = new Int32Array(total); for (let e = 0; e < this.eCount; e++) { const l = ef[e].sort((a, b) => a - b); for (let i = 0; i < l.length; i++) el[es[e] + i] = l[i]; }
-    this.vE = { start: vs, list: vl }; this.eF = { start: es, list: el }; this.adjDirty = false;
+    const vE: number[][] = Array.from({ length: this.vCount }, () => []), eF: number[][] = Array.from({ length: this.eCount }, () => []);
+    for (let e = 0; e < this.eCount; e++) if (this.eAlive[e]) { vE[this.edgeA[e]].push(e); vE[this.edgeB[e]].push(e); }
+    for (let f = 0; f < this.fCount; f++) if (this.fAlive[f]) { const r = this.faceVerts(f); for (let i = 0; i < r.length; i++) { const e = this.edgeOf(r[i], r[(i + 1) % r.length]); if (e >= 0) eF[e].push(f); } }
+    for (const l of vE) l.sort((a, b) => a - b);
+    for (const l of eF) l.sort((a, b) => a - b);
+    return { vE, eF };
   }
 
   // ---------------- 派生：三角化（约束 Delaunay，format/triangulate.ts），改过才重算
@@ -305,6 +351,7 @@ export class MeshKernel {
     m.edgeKey = new Map(this.edgeKey); m.rev = this.rev; m.faceFlags = this.faceFlags.slice(); m.smoothDefault = this.smoothDefault;
     m.changes = this.changes.fork();   // 族谱：渲染缓存从原件切到副本只重建差的
     m.columns = this.columns.map((c) => ({ guid: c.guid, arity: c.arity, data: c.data.slice() }));
+    m.vHead = this.vHead.slice(); m.eNext = this.eNext.slice(); m.eFHead = this.eFHead.slice(); m.lNext = this.lNext.slice(); m.lEdge = this.lEdge.slice(); m.lFace = this.lFace.slice();   // 邻接跟着拷（W-11）
     return m;
   }
   /**
@@ -316,7 +363,7 @@ export class MeshKernel {
     [this.faceStart, o.faceStart] = [o.faceStart, this.faceStart]; [this.faceLen, o.faceLen] = [o.faceLen, this.faceLen]; [this.fAlive, o.fAlive] = [o.fAlive, this.fAlive]; [this.faceMat, o.faceMat] = [o.faceMat, this.faceMat]; [this.faceFlags, o.faceFlags] = [o.faceFlags, this.faceFlags]; [this.fCount, o.fCount] = [o.fCount, this.fCount]; [this.fFree, o.fFree] = [o.fFree, this.fFree];
     [this.loopVert, o.loopVert] = [o.loopVert, this.loopVert]; [this.loopCount, o.loopCount] = [o.loopCount, this.loopCount];
     [this.edgeA, o.edgeA] = [o.edgeA, this.edgeA]; [this.edgeB, o.edgeB] = [o.edgeB, this.edgeB]; [this.eAlive, o.eAlive] = [o.eAlive, this.eAlive]; [this.edgeFlags, o.edgeFlags] = [o.edgeFlags, this.edgeFlags]; [this.eCount, o.eCount] = [o.eCount, this.eCount]; [this.eFree, o.eFree] = [o.eFree, this.eFree];
-    [this.edgeKey, o.edgeKey] = [o.edgeKey, this.edgeKey]; [this.adjDirty, o.adjDirty] = [o.adjDirty, this.adjDirty]; [this.vE, o.vE] = [o.vE, this.vE]; [this.eF, o.eF] = [o.eF, this.eF]; [this.triCache, o.triCache] = [o.triCache, this.triCache];
+    [this.edgeKey, o.edgeKey] = [o.edgeKey, this.edgeKey]; [this.vHead, o.vHead] = [o.vHead, this.vHead]; [this.eNext, o.eNext] = [o.eNext, this.eNext]; [this.eFHead, o.eFHead] = [o.eFHead, this.eFHead]; [this.lNext, o.lNext] = [o.lNext, this.lNext]; [this.lEdge, o.lEdge] = [o.lEdge, this.lEdge]; [this.lFace, o.lFace] = [o.lFace, this.lFace]; [this.triCache, o.triCache] = [o.triCache, this.triCache];
     [this.rev, o.rev] = [o.rev, this.rev]; [this.changes, o.changes] = [o.changes, this.changes]; [this.smoothDefault, o.smoothDefault] = [o.smoothDefault, this.smoothDefault];
     [this.columns, o.columns] = [o.columns, this.columns]; [this.dropped, o.dropped] = [o.dropped, this.dropped];
   }
@@ -373,11 +420,16 @@ export class MeshKernel {
         if (nan !== 0 && nan !== n) bad.push(`face ${f}: column ${c.guid} has values on some corners but not all`);
       }
     }
+    // (M8) 邻接（增量维护，W-11）= 当场从头重建的表：每个点连着的边、每条边挨着的面，逐项、含先后（Fable 11-10 定的主门）
+    {
+      const A = this.adjacencyFromScratch(), same = (a: Int32Array, b: number[]): boolean => a.length === b.length && b.every((x, i) => a[i] === x);
+      for (let v = 0; v < this.vCount; v++) { const got = this.vEdges(v); if (!same(got, A.vE[v])) { bad.push(`adjacency: vertex ${v} edges [${[...got]}] ≠ rebuilt [${A.vE[v]}]`); break; } }
+      for (let e = 0; e < this.eCount; e++) { const got = this.eFaces(e); if (!same(got, A.eF[e])) { bad.push(`adjacency: edge ${e} faces [${[...got]}] ≠ rebuilt [${A.eF[e]}]`); break; } }
+    }
     return bad;
   }
   /** 封闭流形块的欧拉示性数（只算流形块：每条边恰两张面、每个顶点的面扇连通）；非流形 / 有边界的块跳过。返回每块的 V − E + F。 */
   eulerOfClosedManifoldComponents(): number[] {
-    this.adjacency();
     const fs = this.faces(); if (!fs.length) return [];
     const parent = new Map<number, number>(fs.map((f) => [f, f]));
     const find = (x: number): number => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x)!)!); x = parent.get(x)!; } return x; };
