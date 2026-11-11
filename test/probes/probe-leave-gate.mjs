@@ -6,6 +6,8 @@
 //   B 加密的、现在锁着：说「…锁着：先解锁再保存」；解锁之后点 = 走得了
 //   C 存不上（写盘出错）：说存不上；修好之后点 = 走得了
 //   D 夹里那份被别处改过（撞上新版本）：弹面问（不是只亮个横幅）；取消 = 留下、不多说
+//   E 丢过东西、选「另存一份再走」（统筹 11-11 审）：明文 = 存成图库里的另一份，写成了才走（里面有改动、原来那份字节没动）；写不成 = 留下 + 一句、原始报错不弹；
+//     加密 = 下载副本（选形式的面上取消 = 留下；下载开始之后再问一次走不走）
 // 「正在存的时候点新建」= probe-ten-files 那三次。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-leave-gate.mjs [url]
 import { createRequire } from "node:module";
@@ -135,6 +137,77 @@ const kept = await S(async ([folder, p]) => { const root = await (await navigato
 // 两种都算「没吞掉」：本机那份存不上 = 弹面问、留下；本机存上了、只是同步撞上 = 走了，那句「要你选用哪边…处理」在图库上面（文档在夹里、不丢）
 check((!!sh && st.path === p0) || (!!t?.onTop && kept), `撞上新版本点「新建」：${sh ? `弹面问（${sh}）、还是这一份` : `本机存上了、走了；图库上面一句「${t?.text ?? "无"}」、原来那份还在夹里`}`);
 if (sh) { const cancel = await S(() => [...document.querySelectorAll("#sheet button")].map((b) => b.textContent.trim()).find((x) => /取消|先不/.test(x)) ?? null); if (cancel) { await page.click(`#sheet button:has-text("${cancel}")`); await sleep(400); check((await here2()).path === p0 && (await here2()).dirty, `面上点「${cancel}」= 还是这一份、改动还在`); } }
+
+console.log("\nE 丢过东西、选「另存一份再走」：另存成了才走（统筹 11-11 审）");
+const folderFiles = () => S(async (folder) => { const root = await (await navigator.storage.getDirectory()).getDirectoryHandle(folder); const out = []; for await (const [n, h] of root.entries()) if (h.kind === "file") out.push(n); return out; }, FOLDER);
+const fileBytes = (p) => S(async ([folder, p]) => { const root = await (await navigator.storage.getDirectory()).getDirectoryHandle(folder); const f = await (await root.getFileHandle(p)).getFile(); const b = new Uint8Array(await f.arrayBuffer()); let h = 0; for (const x of b) h = (h * 31 + x) >>> 0; return `${b.length}:${h}`; }, [FOLDER, p]);
+const marker = (x) => S((x) => { const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }); e.commitOp({ op: "addEdges", at: e.activePool(), segs: [[P(x, 3.5), P(x + 0.5, 4)]] }); }, x);
+const hasMarker = (x) => S((x) => globalThis.__catsup.editor.kernel.vertices().some((v) => Math.abs(v.x - x) < 1e-9 && Math.abs(v.y - 3.5) < 1e-9), x);
+const lossy = () => S(() => { globalThis.__catsup.session.noteFormat({ readNotes: { newerMinor: [], newerPatch: [], foreignPaintSlots: 2 } }); });
+// ② 另存成了 → 图库里多一份、里面有刚才的改动、原来那份字节没动、然后才走
+p0 = await freshSaved();
+let before0 = await fileBytes(p0);
+await lossy(); await marker(7.25);
+await clickNew();
+sh = await sheetOnTop(/离开之前要先存这份/);
+const copyLabel = await S(() => [...document.querySelectorAll("#sheetChoices button")].map((b) => b.textContent.trim()).find((x) => /另一份/.test(x)) ?? null);
+check(!!sh?.onTop && !!copyLabel, `面上有「${copyLabel}」`);
+const filesBefore = new Set(await folderFiles());
+await page.click(`#sheetChoices button:has-text("存成图库里的另一份再走")`);
+await page.waitForFunction(() => document.getElementById("galleryFull").hidden, null, { timeout: 15000 }).catch(() => {});
+st = await here2();
+const copyName = (await folderFiles()).find((n) => !filesBefore.has(n) && /（副本 /.test(n)) ?? null;
+check(!(await galleryOpen()) && st.path !== p0 && !!copyName, `另存成了 = 走了；夹里多了「${copyName}」`);
+check((await fileBytes(p0)) === before0, "原来那份的字节没动");
+if (copyName) {
+  await S((p) => globalThis.__catsup.session.openFromGallery(p), copyName); await sleep(400);
+  check(await hasMarker(7.25), "那一份里有刚才的改动");
+}
+// ③ 另存写不成（注入失败）→ 还是这一份、看得见原因
+p0 = await freshSaved();
+await lossy(); await marker(8.5);
+await clickNew();
+await page.waitForFunction(() => !document.getElementById("sheet").hidden, null, { timeout: 8000 });
+await S(() => { const P = IDBObjectStore.prototype; globalThis.__put = P.put; P.put = function () { throw new DOMException("probe: disk is full", "QuotaExceededError"); }; });
+await page.click(`#sheetChoices button:has-text("存成图库里的另一份再走")`); await sleep(1200);
+t = await toastOnTop(/另一份没存成/);
+st = await here2();
+check(!!t?.onTop && st.path === p0 && st.dirty && await galleryOpen() && await hasMarker(8.5), `写不成 = 图库上面一句「${t?.text}」、还是这一份、改动还在`);
+check(!(await S(() => [...document.querySelectorAll("#noticeStack > *")].some((n) => /^\s*\[?QuotaExceeded/.test(n.textContent)))), "原始报错不弹（只进调试日志）");
+await S(() => { IDBObjectStore.prototype.put = globalThis.__put; }); await clearNotes();
+await page.click("#galleryNew");   // 收掉这一份（存了再走），下面换一份
+await page.waitForFunction(() => !document.getElementById("sheet").hidden, null, { timeout: 8000 });
+await page.click(`#sheetChoices button:has-text("存（丢掉这几处）再走")`);
+await page.waitForFunction(() => document.getElementById("galleryFull").hidden, null, { timeout: 15000 }).catch(() => {});
+// ① 加密件：选形式的面上点取消 → 还是这一份、还脏着
+p0 = await freshSaved();
+await S(async (pw) => { const C = globalThis.__catsup; C.crypto.answer(async () => pw); await C.session.encryptCurrent(); }, PW);
+await page.waitForFunction(() => !globalThis.__catsup.session.saving && !globalThis.__catsup.session.dirty(), null, { timeout: 15000 }).catch(() => {});
+await clearNotes();
+await lossy(); await marker(9.75);
+await clickNew();
+await page.waitForFunction(() => !document.getElementById("sheet").hidden, null, { timeout: 8000 });
+const encLabel = await S(() => [...document.querySelectorAll("#sheetChoices button")].map((b) => b.textContent.trim()).find((x) => /副本/.test(x)) ?? null);
+check(/下载/.test(encLabel ?? ""), `加密件那一项是下载（「${encLabel}」：图库里的新文件会先落明文）`);
+await page.click(`#sheetChoices button:has-text("下载一份副本再走")`);
+await page.waitForFunction(() => !document.getElementById("sheet").hidden && /导出工程文件/.test(document.getElementById("sheetTitle").textContent), null, { timeout: 8000 });
+await page.click("#sheetCancel"); await sleep(500);
+st = await here2();
+check(st.path === p0 && st.dirty && await galleryOpen() && await hasMarker(9.75), "选形式的面上点取消 = 还是这一份、还脏着");
+// 选明文 → 下载开始 → 再问一次走不走：先不走 = 留下
+await page.click("#galleryNew");
+await page.waitForFunction(() => !document.getElementById("sheet").hidden, null, { timeout: 8000 });
+await page.click(`#sheetChoices button:has-text("下载一份副本再走")`);
+await page.waitForFunction(() => /导出工程文件/.test(document.getElementById("sheetTitle").textContent), null, { timeout: 8000 });
+const dl = page.waitForEvent("download", { timeout: 8000 }).catch(() => null);
+await page.click(`#sheetChoices button:has-text("明文文件")`);
+const got = await dl;
+await page.waitForFunction(() => !document.getElementById("sheet").hidden && /副本已经开始下载/.test(document.getElementById("sheetTitle").textContent), null, { timeout: 8000 }).catch(() => {});
+sh = await sheetOnTop(/副本已经开始下载/);
+check(!!got && !!sh?.onTop, `下载开始了、再问一次（${sh?.text}）`);
+await page.click(`#sheetChoices button:has-text("先不走")`); await sleep(400);
+st = await here2();
+check(st.path === p0 && st.dirty && await galleryOpen(), "先不走 = 还是这一份、改动还在");
 
 check(errs.length === 0, "没有报错", errs.slice(0, 3).join(" | "));
 console.log(`\nprobe-leave-gate ${failN ? "FAIL" : "OK"}（${pass} ✓ / ${failN} ✗）`);

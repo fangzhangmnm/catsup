@@ -122,6 +122,11 @@ export function saveFailedSay(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e), m = /^painting "([^"]*)" \([^)]*\) could not be encoded: (.*)$/s.exec(msg);
   return m ? `存盘没成：画「${m[1]}」编码出错（${m[2]}）；上一次存好的没动，改动还在` : `存盘没成（${msg}）；上一次存好的没动，改动还在`;
 }
+/** 新名字里的时间（`yyyymmdd-hhmmss`，本地时间）：分叉、离开时的副本用。 */
+function stampNow(): string {
+  const d = new Date(), p2 = (n: number): string => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+}
 export type SaveState = "none" | "dirty" | "local-only" | "saving" | "cloud-off" | "unpushed" | "synced";
 
 /** 根没起名（程序占位「model」）= 起一个四位码，和别的组件一样（user 10-30「没起名的根，要不要也和别的组件一样显示四位码 同意」）。
@@ -546,9 +551,7 @@ export class Session {
       this.d.setStatus(`「${name}」是加密的，分叉会留下明文，所以先放下了：它还在后台更新，好了到图库里打开`, true);
       return;
     }
-    const d = new Date(), p2 = (n: number): string => String(n).padStart(2, "0");
-    const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
-    const stem = `${name}（分叉 ${stamp}）`;
+    const stem = `${name}（分叉 ${stampNow()}）`;
     this.forkBaseRev = this.dirty() ? -1 : this.d.editor.revision;   // 本来就有没存的改动 = 下一次 noteChange 就安家
     this.lazy = true; this.createPending = false; this.pushPending = false; this.attention = null;
     this.setHome({ kind: "gallery", path: fullName(dirOf(path), stem) });
@@ -886,10 +889,13 @@ export class Session {
     if (this.lossyHold) {   // 读进来时丢过东西（1-8b）：自动的不写；人按的先问；人要离开的也先问（离开前要存，存会丢东西）
       clearTimeout(slowSay);
       if (opts.implicit && !opts.leaving) return false;
+      // 人要离开（统筹 11-11 审）：「另存一份」不能只是浏览器下载——下载一开始就放人走、内存里的改动跟着扔掉，下载没成就真丢了。
+      //   明文的 = 存成图库里同一个文件夹的另一份（库回执写成了才放走）；加密的不走这条（新文件会先落明文）= 下载容器，再问一次走不走。
+      const copyToGallery = !!opts.leaving && this.home.kind === "gallery" && !this.encrypted && !this.seal;
       const v = opts.leaving
         ? await openChoiceSheet<"save" | "copy" | "later">("离开之前要先存这份，存了会丢掉一些东西", `${this.lossyHold.join("；")}。`, [
           { label: "存（丢掉这几处）再走", value: "save" as const, primary: true },
-          { label: "另存一份新的再走（这份不动）", value: "copy" as const },
+          { label: copyToGallery ? "存成图库里的另一份再走（这份不动）" : "下载一份副本再走（这份不动）", value: "copy" as const },
           { label: "先不走", value: "later" as const },
         ])
         : await openChoiceSheet<"save" | "copy" | "later">("这份文件存了会丢掉一些东西", `${this.lossyHold.join("；")}。`, [
@@ -897,7 +903,15 @@ export class Session {
           { label: "另存一份新的（这份不动）", value: "copy" as const },
           { label: "先不存", value: "later" as const },
         ]);
-      if (v === "copy") { await this.exportProject(); return !!opts.leaving; }   // 要走：改动在另存的那一份里了，可以走（这份照旧不动）
+      if (v === "copy") {
+        if (!opts.leaving) { await this.exportSafely(); return false; }   // 人按的保存：下载开始 = 责任移交（文档还开着、改动还在内存）
+        if (copyToGallery) return (await this.copyIntoGallery()) !== null;   // 写成了才走；没成 = 留在这份、已经说了为什么
+        if (!(await this.exportSafely())) return false;   // 取消（选形式的面上点了取消）/ 打不出容器 / 编码出错 = 留在这份（原因 exportProject 说过了）
+        return (await openChoiceSheet<"go" | "stay">("副本已经开始下载", "下载要是没成（浏览器又问了一次、被取消了），现在离开就会丢掉这份里没存的改动。", [
+          { label: "先不走", value: "stay" as const, primary: true },
+          { label: "离开", value: "go" as const, danger: true },
+        ])) === "go";
+      }
       if (v !== "save") return false;   // 人自己选了不存 / 不走：不再多说
       this.lossyHold = null;
     }
@@ -963,7 +977,7 @@ export class Session {
       if (r.pushed) this.attention = null;   // 推上去了 = 和云端对上了（2.2.1 起谱系丢了也会先问云端再推，没人动过就直接成）
       if (!opts.implicit) this.d.setStatus(r.pushed ? `已保存并同步 ${bareName(home.path)}` : `已保存到本机 ${bareName(home.path)}${auth.isSignedIn() ? "（稍后同步）" : ""}`);
       return true;
-    } catch (e) { reportError(e); this.d.setStatus(saveFailedSay(e), true); return false; }   // 编码 / 写盘出错：这一轮整个没成、明说（上一份文件没动，改动还在内存；1-8b）
+    } catch (e) { reportError(e, "log"); this.d.setStatus(saveFailedSay(e), true); return false; }   // 编码 / 写盘出错：这一轮整个没成、明说（上一份文件没动，改动还在内存；1-8b）。原始报错只进调试日志（人话那句里已经带着原文；统筹 11-11：以前两条一起弹，原文那条盖住人话）
     finally { replaceCover?.close(); this.saving = false; this.d.onHomeChanged(); }
   }
   /** 另存到磁盘（安家仪式）：FSA → 文件家；无 FSA → 下载（不安家、不清 dirty）。 */
@@ -1023,6 +1037,7 @@ export class Session {
       const form = await this.chooseExitForm("导出工程文件");
       if (!form) return null;
       if (form === "container") {
+        if (this.home.kind === "gallery" && this.lossyHold && this.dirty()) { this.d.setStatus("打不出加密文件：这份读进来时丢过东西，没存的改动要先存进去才进得了加密文件（存了会丢那几处）。可以选明文文件", true); return null; }   // 加密文件 = 库里那份容器：没存的改动进不去（以前这里说「锁着」，不是真原因）
         const c = await this.containerNow();
         if (!c) { this.d.setStatus("打不出加密文件：这份现在锁着，改动还在内存。解锁后再导出", true); return null; }
         const name = `${stem}${DOC_EXT}.zip`;
@@ -1035,6 +1050,25 @@ export class Session {
     this.download(bytes, name);
     this.d.setStatus(`${name} 已下载（工程原样，可以开回 CatsUp${this.plainExportNote()}）`);
     return name;
+  }
+  /** 导出工程文件，出错接住：返回文件名 = 下载开始了；null = 取消 / 打不出 / 出错（原因已经说过；取消的不说）。离开那一路和人按保存的「另存一份」用。 */
+  private async exportSafely(): Promise<string | null> {
+    try { return await this.exportProject(); }
+    catch (e) { reportError(e, "log"); this.d.setStatus(`副本没导出来（${e instanceof Error ? e.message : String(e)}）：这份还开着，改动还在`, true); return null; }
+  }
+  /** 离开时把眼前的内容存成图库里同一个文件夹的另一份（`<名>（副本 时间）`，撞名加序号）；这份的家、字节、没存的标记都不动。
+   *  库回执写成了（至少本机那份落了）才返回新路径；写不成 = 说一句、null。推不推照心跳的规矩（人说过先别传的不替他传；文件夹家 = 写进夹里）。加密件不进这里（新文件会先落明文）。 */
+  private async copyIntoGallery(): Promise<string | null> {
+    if (this.home.kind !== "gallery" || this.encrypted || this.seal) return null;
+    try {
+      const bytes = await this.encodeNow();
+      const path = await this.freeName(dirOf(this.home.path), `${this.displayName()}（副本 ${stampNow()}）`);
+      const tryPush = !this.d.pushHeld?.(path) && (isFolderHome() ? folderHomeOnline() : auth.isSignedIn() && online());
+      const r = await docFile(path, "new").save(bytes, { tryPush });
+      note("doc", `leave: copy into gallery → ${path}${r.pushed ? "" : " (local only)"}`);
+      this.d.setStatus(`改动存成了图库里的另一份「${bareName(path)}」${r.pushed || !tryPush ? "" : "（先存在这台设备上，稍后同步）"}（读不全的那几处这一份里没有）；原来那份没动`);
+      return path;
+    } catch (e) { reportError(e, "log"); this.d.setStatus(`另一份没存成（${e instanceof Error ? e.message : String(e)}）：还在这份里，改动还在`, true); return null; }
   }
   /** 导出模型 .glb（导出设计稿 §4 / §5）：给别的软件看的烤好的模型——只写 glTF core，不是工程备份。only = 只导这几份物体（定义 id + 世界变换）。永不清 dirty。 */
   exportModelGlb(opts: { textures: boolean; lines: boolean; only?: readonly { def: number; xform: Xform; name?: string }[] }): { name: string; bytes: number } {
