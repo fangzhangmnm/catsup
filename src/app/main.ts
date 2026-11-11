@@ -69,7 +69,9 @@ import { reportError as funnel } from "./error-funnel.ts";
 import { DEFAULT_SNAP, Editor, GRID_PLANES, TOOLS, UNIT_SYSTEMS, isUnitSystem, snapLabel, snapLevels, type Tool, type GridPlane } from "../editor/editor.ts";
 import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
-import { Renderer3 } from "../minccino/providers/three/render3.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
+import { Renderer3 } from "../minccino/providers/three/render3.ts";
+import { browserPaintBoards } from "../paint/boards.ts";   // 画板登记处（贴图主线 1-3c）：一张贴图一块画板；这一张只有调试钩子 __catsup.paint 建
+import { paintPlaceOf } from "../scene/paint.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
 import { PALETTE, PRESETS, PRESET_IDS, isPresetId, isDarkPaper, SCREENS, SCREEN_IDS, isScreenId, type Preset, type MarkAccent } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
 import { makeBudgetWatch } from "./budget-notice.ts";
 import { KEYS_TABLE, README_SECTIONS } from "./readme-docs.ts";
@@ -254,6 +256,9 @@ const editor = new Editor(canvas, {
   error: (err, where) => reportError(where === "commit" ? "提交" : "预演", err),
   readout: (text) => { readoutEl.textContent = text; readoutEl.hidden = !READOUT_ON || !text; },   // 右下血槽位（A28）；10-25 先不显示（READOUT_ON）
 }, new Renderer3(canvas, perf));
+// 画显示到模型上（贴图主线 1-3c）：内核的显卡接口建在渲染器的画面上（第一次建画板时）；换文件 = editor.docEpoch 变 = 全部销毁。没有画板 = 渲染器每帧不多做事。
+const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => editor.docEpoch, (m) => note("paint", m));
+editor.provider.setPaint(paintBoards);
 
 // ---------- 工具条 ----------
 // 工具表只有 id / 图标 / 名字：键名不手抄——提示 / 小三角 / 手腕面板读 controller/keymap.ts toolKeyText（按工作台、按真按键现算；user 10-28 晚「tooltip你没有更新，这背后有什么架构问题」）。守卫 test/tool-tips.test.ts。
@@ -2412,7 +2417,15 @@ void (async () => {
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 
-(window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore, test: { openConfirmSheet, openInputSheet, toggleHelp, toggleMatSheet, openDebugLogSheet, openSyncGate, withBusy, inputGate },
+(window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor,
+  // 画板（贴图主线 1-3c；没有界面入口）：ensure = 给一张走画的贴图建画板（不给 GUID = 场景里第一张画）；fill = 灌一层像素（RGBA、画板大小）；探针 test/probes/probe-paint-display.mjs
+  paint: {
+    boards: paintBoards,
+    ensure: (guid?: string) => { const g = guid ?? [...editor.sceneRef.textures.keys()].find((t) => paintPlaceOf(editor.sceneRef, t)); if (!g) throw new Error("no placed paint in this scene"); const b = paintBoards.ensure(editor.sceneRef, g); editor.draw(); return { guid: g, width: b.width, height: b.height }; },
+    fill: (guid: string, rgba: ArrayLike<number>) => { const b = paintBoards.get(guid); if (!b) throw new Error(`no board for ${guid}`); b.load({ width: b.width, height: b.height, nodes: [{ name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: { rect: { x: 0, y: 0, w: b.width, h: b.height }, bytes: new Uint8ClampedArray(rgba) } }] }); editor.draw(); },
+    list: () => paintBoards.guids().map((g) => ({ guid: g, width: paintBoards.get(g)!.width, height: paintBoards.get(g)!.height })),
+    stats: () => (editor.renderer3 as unknown as { liveStats(): { images: number; copyMs: number } }).liveStats(),
+  }, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore, test: { openConfirmSheet, openInputSheet, toggleHelp, toggleMatSheet, openDebugLogSheet, openSyncGate, withBusy, inputGate },
   gate: { cloudGate, tune: gateTune, isUserOffline },
   // 图库的家（探针 test/probes/probe-folder-home.mjs 用）：openGallery = 用户点「图库」那条路；legacyFiles = 另开一个离线实例数以前那个库（不看退役旗）
   home: { openGallery: () => openGalleryFromUi(), state: () => currentHomeState(), folder: () => folderHomeLabel(), online: () => folderHomeOnline(), browserOnly: () => browserOnlyCount,

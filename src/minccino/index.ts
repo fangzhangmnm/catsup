@@ -1,7 +1,7 @@
 // minccino/index.ts —— 引擎的门牌（边界标准：外面只从这里 import；three 关在 providers/three/（画的供货商；「后端」= 无头的小栗鼠本体，T109））。created 2026-10-29 by Claude Fable 5.1
 export type { Vec3, Xform12, Mat4, Frame3 } from "./contract/geometry.ts";
 export { IDENTITY_XFORM, WORLD_FRAME3 } from "./contract/geometry.ts";
-export type { Chunk, ChunkKind, ChunkArray, ChunkAttr, ChunkDirty, ChunkSide, MaterialRef, TextureRef, Placement, FrustumBand, PullBudget, StreamQuery, StreamFrame, StreamProvider } from "./contract/stream.ts";
+export type { Chunk, ChunkKind, ChunkArray, ChunkAttr, ChunkDirty, ChunkSide, MaterialRef, TextureRef, LiveImage, Placement, FrustumBand, PullBudget, StreamQuery, StreamFrame, StreamProvider } from "./contract/stream.ts";
 export type { View, ViewCamera, RenderTarget, ViewBudget, QualityTier, BackgroundBudget, ViewportSize, CameraSource } from "./contract/view.ts";
 export { DEFAULT_VIEW_BUDGET } from "./contract/view.ts";
 export { GRID_FINEST_PX, ladderLevelAt, ladderWindow } from "./grid-ladder.ts";

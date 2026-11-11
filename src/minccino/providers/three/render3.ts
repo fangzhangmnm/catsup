@@ -43,7 +43,8 @@ import { Residency, type ResidentId, residentsOf } from "./residency.ts";
 import { OverlayMarksDrawer } from "./overlay-marks.ts";
 import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
 import type { RenderProvider, MarkAccent, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput, Mark, FaceSlot, LineSlot } from "../../index.ts";
-import { DEFAULT_VIEW_BUDGET, GRID_FINEST_PX, ladderWindow, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type Frame3, type MaterialRef, type TextureRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
+import { DEFAULT_VIEW_BUDGET, GRID_FINEST_PX, ladderWindow, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type Frame3, type MaterialRef, type TextureRef, type LiveImage, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
+import { LiveTextures } from "./live-image.ts";   // 活的图（画；贴图主线 1-3c）：专用显示图 + 拷贝那一遍
 import { PALETTE } from "../../palette.ts";
 import { hexToLinear } from "../../overlay/index.ts";
 import { NOOP_PERF, type PerfSink } from "../../perf.ts";
@@ -87,6 +88,7 @@ const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
  * 这样没被画的那套颜色的局部上传也不会一直攒着。缓冲直接包池网格的大数组（不拷），改过哪段只传哪段（addUpdateRange）。
  */
 /** 贴图面却没有图（不该有：提供者只给有图的材质开贴图块）：灰占位的缓存键。 */
+const isLive = (m: TextureRef | LiveImage): m is LiveImage => (m as LiveImage).kind === "live";
 const NO_MAP: object = Object.freeze({});
 interface GpuFaces { readonly id: string; version: number; readonly mat: MaterialRef | null; readonly side: ChunkSide | null; readonly attrs: Record<string, any>; readonly geo: any; count: number; gen: number; }
 interface GpuLines { readonly id: string; version: number; readonly instanced: boolean; readonly bufs: Record<string, any>; readonly geo: any; count: number; gen: number; }
@@ -693,6 +695,7 @@ export class Renderer3 implements RenderProvider {
     this.overlayLines.sync(items.filter((it): it is OverlayLines => it.kind === "lines"), styled && this.lineStyleInUse() === "pixel", styled);   // 像素那条路：细线 = 1 像素 GL 线（和模型的边同一条规矩）
     this.overlayMarks.sync(items.filter((it) => it.kind !== "lines") as Exclude<OverlayItem, OverlayLines>[], this.dpr, styled ? this.styledK() : 1, styled);
 
+    if (this.live?.update()) this.renderer.resetState();   // 活的图（画）：问一遍、有变的拷进显示图、统一作废一次 three 的状态缓存；一张都没有 = 什么都不做
     const t0 = performance.now();
     const info3 = this.renderer.info;
     if (!styled) this.renderer.render(this.scene, cam3);
@@ -867,7 +870,8 @@ export class Renderer3 implements RenderProvider {
    * 平滑组（0.8，user「平滑组是一个很重要的概念，好好设计一下」）：被 **smooth** 边连起来的膜 = 一个平滑组，组内顶点法向 = 含该顶点的膜法向按内角加权平均；
    * soft（不画线）与 smooth（插值法向）是两个独立的边层（SU 的 Soft / Smooth），推拉侧棱两者都给、软化工具默认两者都给。
    */
-  private textureFor(map: TextureRef | undefined): any {
+  private textureFor(map: TextureRef | LiveImage | undefined): any {
+    if (map && isLive(map)) return this.liveTextures().textureFor(map);   // 活的图（画）：专用显示图，不进解码缓存、不跟画风换过滤
     const key: object = map ?? NO_MAP;
     let tex = this.texCache.get(key);
     if (tex) return tex;
@@ -898,9 +902,21 @@ export class Renderer3 implements RenderProvider {
   }
   /** 贴图的 uniform 对象（风格的材质共用：解码完换贴图时在同一个对象里换值）。 */
   private texU = new Map<object, { value: unknown }>();
-  private texUniform(map: TextureRef | undefined): { value: unknown } { const key: object = map ?? NO_MAP; let u = this.texU.get(key); if (!u) { u = { value: this.textureFor(map) }; this.texU.set(key, u); } return u; }
+  private texUniform(map: TextureRef | LiveImage | undefined): { value: unknown } { const key: object = map ?? NO_MAP; let u = this.texU.get(key); if (!u) { u = { value: this.textureFor(map) }; this.texU.set(key, u); } return u; }
   /** 贴图异步解好后的回调（app 层接 editor.draw）。 */
   onTextureReady: (() => void) | null = null;
+  /** 活的图（画）的专用显示图：第一次用到时建；显卡画面丢了忘掉原始 GL 对象、恢复后重拷。 */
+  private live: LiveTextures | null = null;
+  private liveTextures(): LiveTextures {
+    if (!this.live) { const lt = new LiveTextures(this.renderer.getContext()); this.live = lt; this.renderer.domElement.addEventListener?.("webglcontextlost", () => lt.lost()); }
+    return this.live;
+  }
+  /** 画画内核共用的显卡画面（契约 RenderProvider.paintGl）。 */
+  paintGl(): WebGL2RenderingContext | null { const gl = this.renderer.getContext(); return typeof WebGL2RenderingContext !== "undefined" && gl instanceof WebGL2RenderingContext ? gl : null; }
+  /** 内核动过显卡了：three 作废自己缓存的状态。 */
+  resetPaintState(): void { this.renderer.resetState(); }
+  /** 探针：上一次拷活的图花了多少毫秒；现在登记着几张。 */
+  liveStats(): { images: number; copyMs: number } { return { images: this.live?.size ?? 0, copyMs: this.live?.lastCopyMs ?? 0 }; }
 
   /** 线稿风格（视图菜单「粗线稿」）：池的边换粗线 / 像素线 = 重拉一次（块不变，槽节点换几何）。 */
   setLineStyle(style: LineStyle): void { if (this.lineStyle !== style) { this.lineStyle = style; this.poolKey = ""; } }
@@ -949,6 +965,7 @@ export class Renderer3 implements RenderProvider {
     if (!this.provider) throw new Error("render3: no stream provider (editor wires EditorStreamProvider before the first draw)");
     const frame = this.provider.pull({ view: "main", eye: this.lastView?.camera.eye, bands: [{ near: 0, far: Infinity }], budget: {} });   // 小学：一带、预算只记不裁
     this.syncGen++;
+    if (this.live?.size) { const used = new Set<object>(); for (const ch of frame.chunks) if (ch.material?.map) used.add(ch.material.map); for (const im of this.live.images()) if (!used.has(im)) this.live.drop(im); }   // 没有块用的活的图：放掉显示图
     const byPool = new Map<string, { plain: GpuFaces | null; tex: GpuFaces[]; lines: GpuLines | null }>();
     this.perf.time("poolMesh.upload", () => {
       for (const ch of frame.chunks) {

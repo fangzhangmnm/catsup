@@ -1,7 +1,7 @@
 // scene/paint.ts —— 画在场景这一层的问法（贴图主线 1-3b，施工单 ai-docs/20261110-paint-workorders-8.md）。created 2026-11-10 by Claude Opus 5.5
 // 哪些面走画（Scene.facePaint 是那一个问法，这里是它的批量用法）、规矩自检、哪些走画的面还没有位置、「带着画的面现在还搬不了」那个唯一的拒绝判断。
 // 不认识编辑器、不改场景：改场景的只有三条指令（editor/paint-ops.ts）。
-import type { DefId, Material, Scene } from "./scene.ts";
+import type { DefId, Material, Scene, UvSetRow } from "./scene.ts";
 import { paintIn, type TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
 
@@ -13,6 +13,20 @@ export function paintUvOf(s: Scene, def: DefId, f: number): Guid | null {
   const b = s.defs.get(def)?.body;
   if (!b || b.kind !== "mesh" || !b.uvSets.size || !b.kernel.hasF(f)) return null;
   return s.facePaint(def, b.kernel.faceMat[f])?.uvSet.guid ?? null;
+}
+
+/**
+ * 这张画铺在哪（画板登记处跟着坐标改大小、垫底色用；贴图主线 1-3c）：贴图表里这一行是画、有材质的颜色那一槽指着它、它铺的那个定义的 uvSets 里有那一套
+ * → 定义、那一套、指着它的第一个材质（底色）；差一样 = null。layout 照旧只经 paintIn 读。
+ */
+export function paintPlaceOf(s: Scene, texture: Guid): { def: DefId; uvSet: UvSetRow; material: Material } | null {
+  for (const m of s.materials) {
+    const p = paintIn(s.textures, m);
+    if (!p || p.textureDoc.guid !== texture) continue;
+    const d = s.defByGuid(p.definition), row = d && d.body.kind === "mesh" ? d.body.uvSets.get(p.uvSet) : undefined;
+    return d && row ? { def: d.id, uvSet: row, material: m } : null;
+  }
+  return null;
 }
 
 /**

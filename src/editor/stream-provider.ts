@@ -3,7 +3,7 @@
 // **内容那半**（池网格本体 pool-mesh、同一帧同一内核只同步一次、两代没人用的释放、材质槽签名）搬到这里，render3 只剩「块 → 显卡 → 槽节点」。
 // 画面一个像素不变：块直接包池网格的大数组（零拷贝）、属性名 / 颜色烤法原样；颜色按调色板在这里算（刀 c 起不再问后端 = 反向依赖退役），粗线 / 像素线由编辑器告知——
 // 那是样式，过渡期还烤在顶点色里，材质模块 / 叠加层落地后从这里退役。
-import type { Chunk, ChunkAttr, MaterialRef, Placement, StreamFrame, StreamProvider, StreamQuery, TextureRef, Vec3 } from "../minccino/index.ts";
+import type { Chunk, ChunkAttr, LiveImage, MaterialRef, Placement, StreamFrame, StreamProvider, StreamQuery, TextureRef, Vec3 } from "../minccino/index.ts";
 import { PALETTE, hexToLinear } from "../minccino/index.ts";
 import { PoolMesh, type PoolMeshEnv } from "./pool-mesh.ts";
 import { type WorldView, type PoolSlot, slotKey } from "../scene/world-view.ts";
@@ -17,6 +17,16 @@ import type { MarkLayout } from "./highlight.ts";
 const srgb = (hex: number): readonly [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 /** 烤进顶点的颜色（= 以前后端 chunkStyle 给的同一套数：面 sRGB 浮点、线线性）。 */
 const FACE_SRGB = srgb(PALETTE.face), BACK_SRGB = srgb(PALETTE.faceBack), NO_SIDE: readonly [number, number, number] = [-1, -1, -1], EDGE_FACE = hexToLinear(PALETTE.edge), EDGE_WIRE = hexToLinear(PALETTE.edgeWire);
+
+/**
+ * 画板登记处在编辑器这边看到的样子（贴图主线 1-3c；实现 = src/paint/boards.ts，编辑器不认识画画内核）。
+ * sync = 每次拉流之前：跟着场景改画板大小、换了文件全部销毁；board = 这张贴图的画板（实际宽高 + 活的图）；sig = 有哪些画板、多大（变了 = 用到画的池整份重建）。
+ */
+export interface PaintImages {
+  sync(scene: Scene): void;
+  board(texture: string): { readonly width: number; readonly height: number; readonly image: LiveImage } | null;
+  sig(): string;
+}
 
 /** 一份池网格 = 一个「身体」：同一个池通常一份；同一帧要画两个不同内核（预演影子 + 原件）就多开一份。 */
 interface Body { readonly id: string; readonly mesh: PoolMesh; gen: number; faces: Map<string, Chunk>; lines: Chunk | null; }
@@ -46,6 +56,20 @@ export class EditorStreamProvider implements StreamProvider {
   }
   /** 世界视图对象 → 小整数（内容键 / 包围球缓存：预演影子每帧是新对象 = 身份变 = 自然失效，和以前 render3 的 kernelId 同构）。 */
   private worldIds = new WeakMap<object, number>(); private nextWorldId = 1;
+  /** 画板登记处（1-3c；没接 = 没有画显示）。 */
+  private paint: PaintImages | null = null;
+  setPaint(p: PaintImages | null): void { this.paint = p; }
+  /** 画的那一组交给渲染器的材质引用：同一个材质 + 同一张活的图 = 同一个对象。 */
+  private readonly paintRefs = new WeakMap<Material, { readonly image: LiveImage; readonly ref: MaterialRef }>();
+  private paintRef(m: Material, texture: string): MaterialRef | undefined {
+    const image = this.paint?.board(texture)?.image;
+    if (!image) return undefined;
+    const hit = this.paintRefs.get(m);
+    if (hit && hit.image === image) return hit.ref;
+    const ref: MaterialRef = { color: [1, 1, 1], map: image };
+    this.paintRefs.set(m, { image, ref });
+    return ref;
+  }
   /** 上一次 pull 每个槽画的是哪份身体（标记的布局按它找块 / 段）。 */
   private slotBody = new Map<string, Body>();
   private boundsCache: { world: WorldView; rev: number; sphere: { c: Vec3; r: number } | null } | null = null;
@@ -61,7 +85,7 @@ export class EditorStreamProvider implements StreamProvider {
   private editing = true;
   private worldId(w: WorldView): number { let id = this.worldIds.get(w); if (id === undefined) { id = this.nextWorldId++; this.worldIds.set(w, id); } return id; }
   /** 内容键（引擎契约）：世界身份 + 版本；没变 = 引擎不重新拉（= 以前 render3 的 poolKey 那半）。 */
-  contentKey(): string { return this.world ? `${this.worldId(this.world)}:${this.revision}${this.editing ? "" : ":view"}` : "none"; }
+  contentKey(): string { return this.world ? `${this.worldId(this.world)}:${this.revision}${this.editing ? "" : ":view"}${this.paint ? `|${this.paint.sig()}` : ""}` : "none"; }
   /** 场景包围球（引擎契约）：远平面 / 正交深度窗口 / 无限长线按它定（user 10-26「不应该写死特征长度」）。按世界身份 + 版本缓存。 */
   bounds(): { c: Vec3; r: number } | null {
     const w = this.world;
@@ -86,6 +110,7 @@ export class EditorStreamProvider implements StreamProvider {
   pull(_q: StreamQuery): StreamFrame {
     const world = this.world;
     if (!world) return { chunks: [], placements: [], complete: true };
+    this.paint?.sync(world.scene);   // 画板跟着坐标改大小 / 换了文件全部销毁（1-3c）：在建块之前，这一帧的签名就是新的
     this.gen++;
     const taken = new Map<Body, KernelView>();   // 这一帧哪份池网格画的是哪个内核
     const placements: Placement[] = [], chunks: Chunk[] = [];
@@ -124,18 +149,37 @@ export class EditorStreamProvider implements StreamProvider {
 
   private env(scene: Scene, defId: number, thick: boolean): PoolMeshEnv {
     const cullBack = !this.editing || this.styled();   // 演示锁 = 没有正在编辑的那一层
+    const body = scene.def(defId).body, paintOn = !!this.paint && body.kind === "mesh" && body.uvSets.size > 0;   // 有画板登记处、而且这个定义有贴图坐标：才问每张面
     const num = (o: object): number => { let u = this.matUids.get(o); if (u === undefined) { u = this.nextMatUid++; this.matUids.set(o, u); } return u; };
     const uid = (m: Material | undefined): string => { if (!m) return "0"; const map = m === BUILTIN_BACK ? null : scene.colorMapOf(m); return map ? `${num(m)}t${num(map)}` : `${num(m)}`; };   // 材质指的图换了（粘贴「更新」那张贴图）= 签名变 = 重建，块交出新的材质引用
     return {
       matOf: (slot) => scene.materialOfSlot(defId, slot),
       mapOf: (m) => scene.colorMapOf(m),
-      slotsSig: scene.def(defId).body.materialSlots.map((i) => uid(i === BUILTIN_BACK_SLOT ? BUILTIN_BACK : scene.materials[i])).join(","),   // 内置默认背面也有自己的号：把一侧从默认正面改成默认背面要重画
+      slotsSig: (paintOn ? `P[${this.paint!.sig()}]` : "") + scene.def(defId).body.materialSlots.map((i) => uid(i === BUILTIN_BACK_SLOT ? BUILTIN_BACK : scene.materials[i])).join(","),   // 画板的签名放最前面：变了不会是「前缀 = 增量」，整份重建   // 内置默认背面也有自己的号：把一侧从默认正面改成默认背面要重画
       singleSided: scene.kindOf(defId) === "mesh",
       backLook: cullBack ? "cull" : "show",
       faceColor: (mat) => (mat === BUILTIN_BACK ? (cullBack ? NO_SIDE : BACK_SRGB) : !mat ? FACE_SRGB : scene.colorMapOf(mat) ? [1, 1, 1] : [mat.color[0], mat.color[1], mat.color[2]]),   // 贴图面 = 白（贴图 × 1）；没材质 = 白模灰
       edgeColor: (loose) => (loose ? EDGE_WIRE : EDGE_FACE),
       thick,
+      ...(paintOn ? { paintOf: (k: KernelView, fid: number, m: Material) => this.paintOf(scene, defId, k, fid, m) } : {}),
     };
+  }
+
+  /**
+   * 这张面显示画吗（1-3c，规矩在 PoolMeshEnv.paintOf）：走不走画只问 Scene.facePaint；角上的数从正在同步的那个内核拿（预演影子也对）；
+   * 有一个角没有位置 = 这张面还没铺上 = 按底色画。
+   */
+  private paintOf(scene: Scene, defId: number, k: KernelView, fid: number, m: Material): { values: ArrayLike<number>; w: number; h: number; key: string } | null {
+    const mk = (k as { mesh?: { faceMat: ArrayLike<number>; cornerValues(f: number, guid: string): Float32Array | null } }).mesh;
+    if (!mk) return null;
+    const fp = scene.facePaint(defId, mk.faceMat[fid]);
+    if (!fp || scene.materialOfSlot(defId, mk.faceMat[fid]) !== m) return null;
+    const bd = this.paint?.board(fp.textureDoc.guid);
+    if (!bd) return null;
+    const v = mk.cornerValues(fid, fp.uvSet.guid);
+    if (!v) return null;
+    for (let i = 0; i < v.length; i++) if (!Number.isFinite(v[i])) return null;
+    return { values: v, w: bd.width, h: bd.height, key: fp.textureDoc.guid };
   }
 
   /** 池网格同步完 → 块：改过的段（takeDirty）/ 数组换过 / 组没了 = 新版本；没动 = 原块原版本。 */
@@ -146,7 +190,7 @@ export class EditorStreamProvider implements StreamProvider {
       if (prev && !d.grown && d.ranges.length === 0 && prev.attributes.position.array === A.position && prev.count === count) continue;
       const attributes: Record<string, ChunkAttr> = {};
       for (const sp of g.store.specs) attributes[sp.name] = { array: A[sp.name], size: sp.size, normalized: sp.type !== undefined && sp.type !== "f32" };
-      b.faces.set(g.key, { id: `${b.id}/${g.key}`, pool: b.id, version: ++this.seq, kind: "tris", attributes, count, dirty: d, material: g.mat ? this.refOf(g.mat, scene) : undefined, side: g.side ?? undefined });
+      b.faces.set(g.key, { id: `${b.id}/${g.key}`, pool: b.id, version: ++this.seq, kind: "tris", attributes, count, dirty: d, material: g.mat ? (g.key.startsWith("paint:") ? this.paintRef(g.mat, g.key.slice(6)) : this.refOf(g.mat, scene)) : undefined, side: g.side ?? undefined });
     }
     const L = b.mesh.lines, d = L.takeDirty(), A = L.arrays, instanced = L.specs.some((sp) => sp.name === "seg");
     const first = instanced ? "seg" : "position", count = instanced ? L.count : L.end, prev = b.lines;

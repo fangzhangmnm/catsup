@@ -199,6 +199,8 @@ export interface FaceRec {
   readonly mB: Material | null;
   /** 贴图方向（uv = 点乘 / 贴图物理尺寸）：正面 = textureBasis(n)、背面 = textureBasis(−n)（各自从自己那侧看「上 = 上、不镜像」；geom.ts）。 */
   readonly u: Pt3; readonly v: Pt3; readonly ub: Pt3; readonly vb: Pt3;
+  /** 每个三角顶点是这张面的第几个角（外环；洞上的点 = 外环角数之后接着数）。画的贴图坐标按它取角上存的数（贴图主线 1-3c）。 */
+  readonly corner: Int32Array;
 }
 const faceTexBases = (n: Pt3): { u: Pt3; v: Pt3; ub: Pt3; vb: Pt3 } => { const f = textureBasis(n), b = textureBasis({ x: -n.x, y: -n.y, z: -n.z }); return { u: f.u, v: f.v, ub: b.u, vb: b.v }; };
 export function buildFaceRec(k: KernelView, fid: FaceId, matOf: (slot: number | undefined) => Material | null): FaceRec | null {
@@ -213,14 +215,14 @@ export function buildFaceRec(k: KernelView, fid: FaceId, matOf: (slot: number | 
   const n = rec.plane.n, nOuter = f.outer.vids.length;
   const pn = pts.map((_, i) => (i < nOuter ? fanNormal(k, fid, i) : n));
   const tris = k.faceTriangles?.(fid) ?? triangulateRings(pts, rec.plane, outer, holes);   // 网格体：和内核 / 导出同一份三角形（1-3a 第一节）；硬表面照旧按膜的平面切
-  const pos = new Float32Array(tris.length * 9), nor = new Float32Array(tris.length * 9);
+  const pos = new Float32Array(tris.length * 9), nor = new Float32Array(tris.length * 9), corner = new Int32Array(tris.length * 3);
   let o = 0;
   for (const [a, b0, c0] of tris) {
     const flip = dot(cross(sub(pts[b0], pts[a]), sub(pts[c0], pts[a])), n) < 0;
     const b = flip ? c0 : b0, c = flip ? b0 : c0;
-    for (const i of [a, b, c]) { pos[o] = pts[i].x; pos[o + 1] = pts[i].y; pos[o + 2] = pts[i].z; nor[o] = pn[i].x; nor[o + 1] = pn[i].y; nor[o + 2] = pn[i].z; o += 3; }
+    for (const i of [a, b, c]) { corner[o / 3] = i; pos[o] = pts[i].x; pos[o + 1] = pts[i].y; pos[o + 2] = pts[i].z; nor[o] = pn[i].x; nor[o + 1] = pn[i].y; nor[o + 2] = pn[i].z; o += 3; }
   }
-  return { pos, nor, mF: matOf(k.faceMaterialOf(fid, 0)), mB: matOf(k.faceMaterialOf(fid, 1)), ...faceTexBases(n) };
+  return { pos, nor, mF: matOf(k.faceMaterialOf(fid, 0)), mB: matOf(k.faceMaterialOf(fid, 1)), ...faceTexBases(n), corner };
 }
 
 export interface EdgeRec { readonly a: Pt3; readonly b: Pt3; readonly loose: boolean; readonly w1: Pt3; readonly w2: Pt3; readonly flag: number; }
@@ -248,6 +250,11 @@ export interface PoolMeshEnv {
   matOf(slot: number | undefined): Material | null;
   /** 这个材质贴哪张图（scene.colorMapOf，那个口）：null = 按底色画。 */
   mapOf(m: Material): ColorMap | null;
+  /**
+   * 这张面显示画吗（贴图主线 1-3c）：走画（Scene.facePaint）、那张画有画板、角上在那一套坐标里有位置 → 每角两个数（画布像素）+ 画板**实际**宽高 + 那张贴图的 GUID；
+   * 差一样 = null（照旧按底色 / 原图那条路）。k = 正在同步的那个内核（预演影子也一样）。只有网格体给。
+   */
+  paintOf?(k: KernelView, fid: FaceId, m: Material): { readonly values: ArrayLike<number>; readonly w: number; readonly h: number; readonly key: string } | null;
   /** 定义的材质槽表签名（每个槽的材质身份，逗号连）：一边是另一边的前缀 = 增量；别的变化 = 全量重建。 */
   slotsSig: string;
   /** 面 / 边烤进顶点的颜色（提供者按调色板算；淡出 / 选中不在这里 = 标记）。 */
@@ -326,7 +333,7 @@ export class PoolMesh {
       if (!T.graph.hasVertex(v)) continue;
       for (const eid of T.graph.vertex(v).edges) { E.add(eid); for (const fid of T.graph.edge(eid).faceLinks) F.add(fid); }
     }
-    for (const fid of F) { this.noteFace(T, fid); this.writeFace(fid, buildFaceRec(T, fid, (s) => env.matOf(s)), env); }
+    for (const fid of F) { this.noteFace(T, fid); this.writeFace(fid, buildFaceRec(T, fid, (s) => env.matOf(s)), env, T); }
     for (const eid of E) this.writeEdge(eid, buildEdgeRec(T, eid), env);
     this.src = T; this.srcSeq = T.changes.seq; this.srcLin = T.changes.lineage();
     return this.last = { full: false, faces: F.size, edges: E.size };
@@ -362,7 +369,7 @@ export class PoolMesh {
     this.faceTopo.clear(); this.faceGroups.clear(); this.groups.clear(); this.matIds.clear();
     this.thick = env.thick; this.singleSided = env.singleSided; this.backLook = env.backLook;
     this.lines = new DenseStore(env.thick ? THICK_SPECS : PIXEL_SPECS, env.thick ? 1 : 2);
-    for (const f of T.faces()) { this.noteFace(T, f.id); this.writeFace(f.id, buildFaceRec(T, f.id, (s) => env.matOf(s)), env); }
+    for (const f of T.faces()) { this.noteFace(T, f.id); this.writeFace(f.id, buildFaceRec(T, f.id, (s) => env.matOf(s)), env, T); }
     for (const e of T.edges()) this.writeEdge(e.id, buildEdgeRec(T, e.id), env);
     for (const g of this.groups.values()) g.store.trim();
     this.lines.trim();
@@ -396,10 +403,22 @@ export class PoolMesh {
   private matKey(m: Material): number { let i = this.matIds.get(m); if (i === undefined) { i = this.matIds.size; this.matIds.set(m, i); } return i; }
 
   /** 一张面落进哪几组（同 buildKernelGeom 的规则）：两侧同一张贴图 = 双面贴图组；各自的贴图 = 正 / 背贴图组；有一侧不是贴图 = 纯色组（贴图那侧填 −1 = 纯色网格不画）。 */
-  private writeFace(fid: FaceId, rec: FaceRec | null, env: PoolMeshEnv): void {
+  private writeFace(fid: FaceId, rec: FaceRec | null, env: PoolMeshEnv, T: KernelView): void {
     const ok0 = this.faceGroups.get(fid), oldKeys = ok0 === undefined ? [] : typeof ok0 === "string" ? [ok0] : ok0;
     const parts: { key: string; mat: Material | null; side: TexSide | null; fill: Fill }[] = [];
-    if (rec) {
+    const pt = rec && rec.mF && env.paintOf ? env.paintOf(T, fid, rec.mF) : null;
+    if (pt && rec) {   // 画（1-3c）：一张画一组；贴图坐标 = 角上的数 ÷ 画板实际宽高（不翻转：画布第 0 行 = 贴图第 0 行）；顶点色白（底色已经垫在画里）
+      const white = q8(1);
+      parts.push({ key: `paint:${pt.key}`, mat: rec.mF, side: "front", fill: (a, off) => {
+        writeGeom(a, off, rec);
+        const nv = rec.pos.length / 3;
+        for (let i = 0; i < nv; i++) {
+          const o3 = (off + i) * 3, o2 = (off + i) * 2, c = rec.corner[i];
+          a.aColor[o3] = white; a.aColor[o3 + 1] = white; a.aColor[o3 + 2] = white;
+          a.aUv[o2] = pt.values[2 * c] / pt.w; a.aUv[o2 + 1] = pt.values[2 * c + 1] / pt.h;
+        }
+      } });
+    } else if (rec) {
       const tF = rec.mF && env.mapOf(rec.mF) ? rec.mF : null, tB = rec.mB && env.mapOf(rec.mB) ? rec.mB : null;
       const tex = (m: Material, side: TexSide): void => {
         const c = env.faceColor(m), [tw, th] = env.mapOf(m)!.sizeM;

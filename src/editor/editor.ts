@@ -241,7 +241,7 @@ const SKELETON_ONLY: ReadonlySet<string> = new Set(["setMeshMirror", "transformI
 
 export class Editor {
   readonly cam = new OrbitCamera();
-  private r3: RenderProvider; private readonly provider: EditorStreamProvider;
+  private r3: RenderProvider; readonly provider: EditorStreamProvider;   // provider 对外只读：app 层给它接画板登记处（1-3c）
   private scene = new Scene();
   private ctx: EditContext = ROOT_CONTEXT;
   private readonly gridState = new GridState();   // 网格设置 + 各工作台的吸附开关（自由建模单独一份，grid-state.ts）
@@ -1369,7 +1369,7 @@ export class Editor {
   }
   /** 装载一个场景当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始，上下文回根，选区/充能/手势全清。 */
   /** 第几个模型（换模型 = 加一）：粘贴提示据此说「这是从别的模型拷来的、用的是本文件这版」（clipboard.ts）。 */
-  private docEpoch = 0;
+  docEpoch = 0;   // 只在 loadScene 里加；外面只读（画板登记处认它判换文件，1-3c）
   loadScene(s: Scene, label = "打开"): void {
     this.docEpoch++; this.locks.clearAll();   // 换文件：所有工具记着的锁一起清（W-4 审后，v0.19.3）
     this.last = null;
