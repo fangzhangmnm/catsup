@@ -2549,7 +2549,7 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
       if (o.cancel) st.cancel(); else st.up();
       editor.draw();
       if (o.measure) { sync(); paintBoards.measureSync = null; }
-      return { guid: g, tips, range, prepMs, ...(o.measure ? { frames, buildMs, upMs: performance.now() - u0, up: st.lastUp } : {}) };
+      return { guid: g, tips, range, prepMs, peak: st.peak, ...(o.measure ? { frames, buildMs, upMs: performance.now() - u0, up: st.lastUp } : {}) };
     },
     /** 画画的准备（1-4c）：ensure = 给这张画的每份摆放建好（返回毫秒）；problem = null / "pending" / 错；stats = 几项、显卡字节、各项建了多久。 */
     prep: {

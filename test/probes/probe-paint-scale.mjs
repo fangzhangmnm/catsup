@@ -12,6 +12,7 @@
 // 手动跑的一档 = user 自己的真模型（不进仓：--models=<文件夹> 或环境变量 CATSUP_USER_MODELS；没给 = 明着说没跑，不算绿）：
 //   F wip2021.glb（15534 个三角形）：B 的整条，默认密度 + 4194304 格两档。
 //   G wip2020.glb（4636 个三角形，80 个面积是零）：每块都开始画 → 画一笔 → 存 → 重开 → 冷的照显示、再画一笔（只验不坏）。
+//   I wip2021：工作台允许的最大的笔（400 像素）快速画，一帧最大的数据表离上限多远。
 //   H littlered.glb（291 个三角形）：用我们自己的铺法、按 256 见方的密度（铺法自己的二分，基准 256）；硬度 1、一格大小的笔点一下 → 屏幕读色对格子（放大到一格十来个像素，
 //     每一格取它那片像素的中心比）：点到的那格是墨、周围的都不是。它自带的贴图坐标和那张图导入时怎么处理，原样报出来。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-paint-scale.mjs [url] [--models=<文件夹>] [--only=A,B,…]
@@ -380,6 +381,28 @@ if (haveModels && want("H")) await section("H", async () => {
     }, [p.tex]);
     check(!res.err && !res.refused && res.cellsSeen >= 9 && res.wrong.length === 0, `点到的那格（屏幕上一格约 ${res.side} 像素、窗口里看了 ${res.cellsSeen} 格，各取它那片像素的中心）：只有那一格是墨`, JSON.stringify(res).slice(0, 400));
     say(`放大后一格 ${zoom} 像素（横着量）；点在 ${JSON.stringify(res.px)}`);
+  }
+});
+
+if (haveModels && want("I")) await section("I", async () => {
+  console.log("\nI wip2021：工作台允许的最大的笔（400 像素）快速画，一帧最大的数据表离上限多远（统筹 11-11：合 1-7 之前要这个数）");
+  await newFile();
+  await importGlb("wip2021.glb");
+  const def = (await S(() => __H.meshDefs()))[0].def;
+  for (const [name, density] of [["默认密度", null], ["4194304 格", "max"]]) {
+    if (density) { await S(() => globalThis.__catsup.editor.undo()); }
+    const p = await S(([d, den]) => __H.paint(d, den ? { density: __H.densityForCells(d, 4194304) } : {}), [def, density]);
+    await S((v) => __H.view(v), "front");
+    await S((t) => globalThis.__catsup.paint.prep.ensure(t), p.tex);
+    const R = await S((d) => __H.rect(d), def);
+    for (const [what, pts] of [
+      ["从头到脚、每帧挪 60 像素", await S(([a, b]) => __H.line(a.x, a.y, b.x, b.y, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 60)), [{ x: R.x0 + R.w / 2, y: R.y0 }, { x: R.x0 + R.w / 2, y: R.y1 }])],
+      ["来回横扫五趟、每帧挪 80 像素", await S((r) => { const out = []; for (let k = 0; k < 5; k++) { const y = r.y0 + r.h * (0.2 + 0.15 * k), [a, b] = k % 2 ? [r.x1, r.x0] : [r.x0, r.x1]; for (let i = 0; i <= Math.ceil((r.w + 200) / 80); i++) out.push({ x: a + (b > a ? 1 : -1) * (i * 80 - 100), y }); } return out; }, R)],
+    ]) {
+      const r = await S(([t, q]) => __H.stroke(t, q, { size: 400, hardness: 0.5 }), [p.tex, pts]);
+      const pk = r?.peak ?? {};
+      check(!r?.refused && pk.values > 0 && pk.values <= pk.cap, `${name}、${what}：画了（${r?.tips} 颗笔尖），一帧最大的表 = ${pk.table} ${pk.values} 个数，上限 ${pk.cap}（用了 ${(100 * pk.values / pk.cap).toFixed(2)}%）`, JSON.stringify({ refused: r?.refused, pk }));
+    }
   }
 });
 

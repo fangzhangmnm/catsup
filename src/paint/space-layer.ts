@@ -233,6 +233,8 @@ export class SpaceLayer {
   /** 每张面（面号）的三角形反解数据（tipRect 用）。 */
   private readonly faceInv = new Map<number, TriInv[]>();
   private bounds: [number, number, number, number] | null = null;
+  /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）。 */
+  readonly peak = { values: 0, table: "", cap: 0 };
 
   constructor(gpu: SpaceGpu, g: TargetGeo, ti: number, o: SpaceLayerOpts) {
     this.gpu = gpu; this.g = g; this.ti = ti; this.o = o;
@@ -339,6 +341,8 @@ export class SpaceLayer {
       inst.push(it.tipIdx, it.poly, flist.length, it.faces.length);
       for (const f of it.faces) flist.push(this.faceSlot.get(f)!);
     }
+    this.peak.cap = Math.min(DATA_W * this.gpu.maxSize, MAX_DATA);
+    for (const [n, t] of [[inst.length, "instance table"], [flist.length, "face list"], [tipv.length, "tip table"]] as const) if (n > this.peak.values) { this.peak.values = n; this.peak.table = t; }
     return { u_inst: pack(this.gpu, inst, "instance table"), u_flist: pack(this.gpu, flist, "face list"), u_tips: pack(this.gpu, tipv, "tip table") };
   }
 

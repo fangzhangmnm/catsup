@@ -17,7 +17,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=60c648e5faba" />
-    <link rel="stylesheet" href="./styles.css?v=8eba96138cfa" />
+    <link rel="stylesheet" href="./styles.css?v=d1907d9d7357" />
     <script src="./boot-guard.js"></script>
     <script defer src="./vendor/zip-js/zip-full.min.js"></script>   <!-- 加密容器的明文外壳（UMD，挂 window.zip；7z-wasm 惰性加载） -->
   </head>
@@ -371,6 +371,14 @@
       <div class="sheet busy-card"><p class="sheet-title" id="busyOverlayText">处理中…</p><p class="sheet-message" id="busyOverlayHint">请稍候</p></div>
     </div>
 
+    <div id="paintColorSheet" class="sheet-backdrop" hidden>   <!-- 画画的颜色（贴图主线 1-7）：色块 + 填颜色代码；以后换色轮只改 paint-color.ts mountPaintColorSheet -->
+      <div class="sheet">
+        <div class="sheet-head"><span>画笔的颜色</span><button class="tb-btn" id="paintColorClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
+        <div id="paintColorGrid" class="swatch-grid"></div>
+        <div class="sheet-actions"><input id="paintColorHex" class="hex-input" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="9" placeholder="#rrggbb" aria-label="颜色代码"><button class="sheet-choice" id="paintColorHexOk" type="button">用这个颜色</button></div>
+        <div id="paintColorNote" class="sheet-note"></div>
+      </div>
+    </div>
     <div id="matSheet" class="sheet-backdrop" hidden>
       <div class="sheet">
         <div class="sheet-head"><span>材质</span><button class="tb-btn" id="matClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
@@ -405,6 +413,6 @@
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".catsup,.glb,.zip,model/gltf-binary,application/zip" hidden />
     <input type="file" id="glbImportFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-e66d1a55da05.mjs"></script>
+    <script type="module" src="./dist/catsup-e373cd9fa7fb.mjs"></script>
   </body>
 </html>

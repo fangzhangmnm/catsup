@@ -97,6 +97,8 @@ export class SpacePaintStroke {
   /** 抬笔那一下各段（量；毫秒）：收路 / 整笔重画（含取笔尖、画薄层、交档口）/ 落层（档口 end = 内核写回）。 */
   lastUp: Record<string, number> = {};
   cancel(): void { this.stroke.cancel(); this.session?.cancel(); this.board.overlayChanged(); this.close(); }
+  /** 这一笔到现在一帧里最大的那张数据表（个数、哪张、上限；探针量）。 */
+  peak: { values: number; table: string; cap: number } = { values: 0, table: "", cap: 0 };
   /** 现在的范围（报给内核的那一块；探针用）。 */
   range(): { x: number; y: number; w: number; h: number } | null { return this.layer?.range() ?? null; }
   tipCount(): number { return this.stroke.tipCount(); }
@@ -131,7 +133,7 @@ export class SpacePaintStroke {
     }
     const t1 = performance.now();
     if (this.finishing) this.layer.resetFrozen();
-    try { this.layer.update(tips, frozenHere); }
+    try { this.layer.update(tips, frozenHere); this.peak = { ...this.layer.peak }; }
     catch (err) { this.broken = true; this.cancel(); this.d.failed?.(err); return; }   // 这一帧才知道的上限（一颗笔尖下同一块挂了八张以上的面、一帧的数据表放不下）：这一笔取消、说那句人话（1-7；数据表那条以后改成分批画）
     this.drawn += frozenHere;
     const t2 = performance.now();
