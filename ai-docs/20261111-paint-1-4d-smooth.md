@@ -66,6 +66,6 @@
   | 40000 | 109869 → 666 | 1.93 → 0.48 | 8.29 → 1.21 |
 
   剩下随长度涨的是把缓存里的笔尖一颗颗交出去：口的样子不变就省不掉，三维这边 `space-stroke.tips(from)` 前面那些只是数过去。
-- **门**：画画仓全套 1772 过（worktree 里总账 lint 那条指针照旧红 = 副本路径）、全量层 3 过、显卡冒烟过。三维重拉（`pull-paint-kernel.sh 8f4d2cf`，三个文件变了），被动过的 436 过、内核那一套 603 过，探针 `probe-paint-workbench` 59 ✓、`probe-paint-open-memory` 20 ✓、`probe-paint-scale`（见下）。
+- **门**：画画仓全套 1772 过（worktree 里总账 lint 那条指针照旧红 = 副本路径）、全量层 3 过、显卡冒烟过。三维重拉（`pull-paint-kernel.sh 8f4d2cf`，三个文件变了），被动过的 436 过、内核那一套 603 过，探针 `probe-paint-workbench` 59 ✓、`probe-paint-open-memory` 20 ✓、`probe-paint-scale` 56 ✓ / 0 ✗（真模型那一档要给路径，没跑）。
 - 画画软件自己的二维笔（`BrushEngine.collectStamps` 每帧收集一遍）也因此不再每帧重走整条。
 
