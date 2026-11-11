@@ -681,11 +681,12 @@ SpaceStroke（paint/space-stroke.ts；目标名单 + 相机两个函数 + 内核
      物件已有画、选了没进画的面：多几行「加进已有的画」（layoutAppend 照补面的铺法试一遍，只算不改）
   → 选了一行：新开 = runAction("mesh.startPaint", { canvas, arrange: "patches" }) → applyStartPaint：layoutFaces(base = canvas, gap = gapForCanvas(canvas), style)
                加进 = runAction("mesh.paintAddFaces", { tex }) → meshPaintFaces → 画的维护那一步 layoutAppend(gap = gapForCanvas(那张画布的宽))
-layoutFaces(style = patches)：patchesOf（种子按面积；沿公共边先进先出；每个三角形和 e × t 的夹角 < 45°；压平不叠 = 分离轴 + 格子哈希）
+layoutFaces(style = patches)：patchesOf（种子按面积、一样大看面心位置；**离种子近的先试**（堆；施工单十六改，以前先进先出按编号）；每个三角形和 e × t 的夹角 < 45°；压平不叠 = 分离轴 + 格子哈希；
+    **收了之后片不太空**：压平面积 ÷ 包围盒 ≥ PATCH_MIN_FILL 0.5（施工单十六）；两张面以上的片最后转到包围盒最小的方向 = tightFrame：凸包 × 每条外沿边的方向）
   → 每个密度：每片 flattenAll（和一张面一块同一串算式）→ 按包围盒一行一行排（pack）→ 二分找 base 见方里放得下的最大密度
 ```
 
-- 碰多少东西：分片一次 O(面 + 边)（叠没叠用格子哈希，只比附近的三角形）；每个密度 O(角数)；二分 ~log(密度) 次。面板五档 = 五次（大模型上一行一行填，不挡面板）。
+- 碰多少东西：分片一次 O(面 + 边)（叠没叠用格子哈希，只比附近的三角形；离种子近的先试多一个堆 = O(面 log 面)；转方向 = 每片一次凸包 + 外沿边数 × 凸包点数）；每个密度 O(角数)；二分 ~log(密度) 次。面板五档 = 五次（大模型上一行一行填，不挡面板）。
 - 实测（软件显卡这台电脑，2021 的 7835 张面）：面板五档填完肉眼一两秒；数在施工单十五的施工记录里。
 - **还随整个模型涨的点**：开始画那一下的铺法随面数（只在开始画 / 换大小时做一次，不在落笔路径上）。
 
