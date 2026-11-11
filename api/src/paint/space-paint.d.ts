@@ -58,6 +58,8 @@ export declare class SpacePaintStroke {
     private readonly untrack;
     /** 借来的每格的表（画画的准备那里的；这一笔不放）。 */
     private readonly cells;
+    /** 面表 / 三角形表（准备里建好的，借来用；1-4d 第 3 条：落笔不再现做）。 */
+    private readonly tables;
     down(x: number, y: number, p: number, t?: number | null): void;
     move(x: number, y: number, p: number, t?: number | null): void;
     /** 抬笔：整笔重画一次（收笔渐细）→ 落层（内核一步）。在下一次「准备」里做完；这里先把它准备好。 */

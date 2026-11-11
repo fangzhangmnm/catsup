@@ -1,4 +1,5 @@
 import { type PaintTarget, type TargetGeo } from "./space-target.ts";
+import { type FaceTables } from "./space-layer.ts";
 import type { SpaceData, SpaceGpu } from "./space-gpu.ts";
 /** 落笔时准备还没好（还没建 / 刚改过模型、还没重建完）：这一笔不开始，提示行说 say。 */
 export declare class PrepPendingError extends Error {
@@ -22,10 +23,11 @@ export declare class SpacePrep {
     problem(targets: readonly PaintTarget[]): null | "pending" | unknown;
     /** 建缺的、过期的（同步）；只留这次给的这些目标，别的放掉。建不了的记下错、不抛。没有显卡 = 什么都不建。返回这次花了多少毫秒。 */
     ensure(targets: readonly PaintTarget[]): number;
-    /** 现成的那一份：整份几何（目标换成这次传进来的那份）+ 每格的表（借给这一笔，不许放）。不现成 = 抛（先问 problem）。 */
+    /** 现成的那一份：整份几何（目标换成这次传进来的那份）+ 每格的表 + 面表 / 三角形表（都借给这一笔，不许放）。不现成 = 抛（先问 problem）。 */
     take(t: PaintTarget): {
         readonly geo: TargetGeo;
         readonly cells: SpaceData;
+        readonly tables: FaceTables;
     };
     /** 全部放掉（离开画画工作台、换文件）。 */
     release(): void;
@@ -38,6 +40,7 @@ export declare class SpacePrep {
             readonly id: string;
             readonly geoMs: number;
             readonly cellMs: number;
+            readonly tableMs: number;
             readonly ok: boolean;
         }[];
     };

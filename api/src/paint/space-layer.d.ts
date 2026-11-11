@@ -44,11 +44,37 @@ export interface SpaceLayerOpts {
     /** 这一笔的颜色（0..1；淡彩和叠色都写预乘的 (c·v, v)）。 */
     readonly color: readonly [number, number, number];
     readonly accum: SpaceAccum;
-    /** 落笔的那一点（世界）：所有位置先减去它再上传。 */
-    readonly origin: Pt3;
     /** 现成的每格的表（space-prep.ts 缓存的，借来用、dispose 不放）。不给 = 自己建、自己放（测试）。 */
     readonly cells?: SpaceData;
+    /** 现成的面表 / 三角形表（space-prep.ts 缓存的，借来用、dispose 不放；1-4d 第 3 条：落笔那一下不再现做）。不给 = 自己建、自己放（测试）。 */
+    readonly tables?: FaceTables;
+    /** 只在自己建表时用（测试比较用）：表里的位置、笔尖先减去的那一点。不给 = 物件原点 objectOrigin。 */
+    readonly origin?: Pt3;
 }
+/**
+ * 面表 + 三角形表（1-4d 第 3 条，统筹定的：落笔那一下的花费不许跟着模型大小走）：只跟物件、摆放、那一套贴图坐标有关，跟这一笔无关——
+ * 进画画工作台时随「画画的准备」一起建（space-prep.ts），落笔只借。所有位置先减去物件原点 origin 再上传（笔尖也减它）：以前减的是落笔那一点，
+ * 那样表就得每一笔重做。三角形的公式钉在它自己的第一个角上（1-4c），所以这里减掉的只是一个整体平移。
+ */
+export interface FaceTables {
+    /** 物件原点（世界）：表里的位置、笔尖都先减去它。 */
+    readonly origin: Pt3;
+    /** 面表（每张面两个数：三角形表里从第几个起、几个）、三角形表（每个 TRI_STRIDE 个数）——显卡上的数据图。 */
+    readonly faces: SpaceData;
+    readonly tris: SpaceData;
+    /** 面号 → 面表里的槽号。 */
+    readonly faceSlot: ReadonlyMap<number, number>;
+    /** 面号 → 它的三角形的反解数据（tipRect 用；位置相对 origin）。 */
+    readonly faceInv: ReadonlyMap<number, readonly TriInv[]>;
+    /** 画布多边形 → 格子范围 [x, y, w, h]（和 tipCellsInPoly 扫的同一块）。 */
+    readonly polyRect: ReadonlyMap<number, readonly [number, number, number, number]>;
+}
+/** 物件原点：这项目标所有三角形世界位置的外接框中心（离画的地方都不远：减掉它之后上传的 32 位数都在物件大小以内）。没有三角形 = 0。 */
+export declare function objectOrigin(g: TargetGeo): Pt3;
+/** 建面表 + 三角形表（随这项目标的三角形数涨：只在准备里调）。放得下的上限和 SpaceLayer 一样（超了 = 抛 PaintLimitError）。 */
+export declare function buildFaceTables(gpu: SpaceGpu, g: TargetGeo, origin?: Pt3): FaceTables;
+/** 放掉面表 / 三角形表（准备放的时候）。 */
+export declare function releaseFaceTables(gpu: SpaceGpu, ft: FaceTables): void;
 /**
  * 每格的表（1-4c）：每格 4 个 16 位无符号整数 = 8 字节，显卡上是 RGBA16UI。
  *   [0] [1] = 画布多边形编号 + 1 的低、高 16 位（0 = 没人要）；[2] [3] = 取样点离格子中心的偏移 x、y（texel-table.ts sampleOffset，1/1024 格为单位）+ 32768（32768 = 中心）。
@@ -76,13 +102,11 @@ export declare class SpaceLayer {
     private readonly job;
     private readonly jobId;
     private readonly fixed;
-    /** 每格的表是不是自己建的（自己建的 dispose 时放；借来的不放）。 */
+    /** 每格的表 / 面表是不是自己建的（自己建的 dispose 时放；借来的不放）。 */
     private readonly ownCells;
-    /** 每块画布多边形：格子范围 + 它的面在面表里的槽号。 */
-    private readonly polyRect;
-    private readonly faceSlot;
-    /** 每张面（面号）的三角形反解数据（tipRect 用）。 */
-    private readonly faceInv;
+    private readonly ownTables;
+    /** 面表 + 三角形表 + 反解数据 + 多边形的格子范围（借来的或自己建的）。 */
+    private readonly ft;
     private bounds;
     /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）。 */
     readonly peak: {
