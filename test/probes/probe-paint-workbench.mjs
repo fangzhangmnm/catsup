@@ -398,6 +398,22 @@ await page.fill("#sheetInput", "3 mm"); await page.click("#sheetConfirm"); await
 const got14 = await S((d) => { const u = [...globalThis.__catsup.editor.sceneRef.mesh(d).uvSets.values()][0]; return u ? { w: u.width, h: u.height, d: u.pxPerM, fit: u.fit ?? null } : null; }, d14);
 check(!!got14 && got14.fit === "density" && Math.abs(got14.d - 1000 / 3) < 1e-6 && got14.h <= got14.w, `自己填 3 mm：每米 ${got14?.d?.toFixed(2)} 格、画布 ${got14?.w} × ${got14?.h}`, JSON.stringify(got14));
 
+console.log("\n⑬ 每帧读数的小角标（1-4d 第 1 条）：工具条「读数」开 → 角标露、画一笔各段有数；出画画工作台藏；关着不记");
+await S(() => { globalThis.__catsup.pickWorkbench("paint"); globalThis.__catsup.editor.setTool("paintPen"); }); await frames(2);
+const meterBtn = page.locator('#toolStrip button:has-text("读数")');
+check(await meterBtn.isVisible(), "笔的工具条上有「读数」");
+await meterBtn.click(); await frames(2);
+const tex13 = await S(() => [...globalThis.__catsup.editor.sceneRef.textures.values()].find((t) => t.content.kind === "layered" && globalThis.__catsup.paint.state(t.guid) !== "view-only")?.guid);
+await S((t) => { const C = globalThis.__catsup, V = C.editor.vp(), pts = []; for (let i = 0; i <= 20; i++) pts.push({ x: V.w * (0.4 + 0.2 * i / 20), y: V.h * 0.5 }); C.paint.warm?.(t); C.paint.stroke({ guid: t, points: pts, size: 20 }); }, tex13); await frames(6);
+const m13 = await S(() => ({ shown: !document.querySelector(".meter-badge").hidden, text: document.querySelector(".meter-badge").textContent, snap: globalThis.__catsup.meter().snapshot() }));
+check(m13.shown && /每帧读数/.test(m13.text) && /最近一秒画了 \d+ 帧、掉了 \d+ 帧/.test(m13.text) && m13.snap.frames > 0 && m13.snap.avg.scene > 0, `开了：角标露着、最近一秒 ${m13.snap.frames} 帧、三维画场景平均 ${m13.snap.avg.scene.toFixed(1)} 毫秒`, JSON.stringify(m13.snap));
+await S(() => globalThis.__catsup.pickWorkbench("freeform")); await frames(2);
+check(await S(() => document.querySelector(".meter-badge").hidden), "出了画画工作台：角标藏起来");
+await S(() => { globalThis.__catsup.pickWorkbench("paint"); globalThis.__catsup.editor.setTool("paintPen"); }); await frames(2);
+await page.locator('#toolStrip button:has-text("读数")').click(); await frames(2);
+const off13 = await S(async () => { const C = globalThis.__catsup, m = C.meter(); for (let i = 0; i < 5; i++) { C.editor.draw(); await new Promise((r) => requestAnimationFrame(r)); } return { hidden: document.querySelector(".meter-badge").hidden, frames: m.snapshot().frames }; });
+check(off13.hidden && off13.frames === 0, `关了：角标藏、关着画了 5 帧一帧都没记（${off13.frames}）`);
+
 await browser.close();
 if (errs.length) { console.log("页面错误：", errs.slice(0, 5)); process.exitCode = 1; }
 console.log(`\nprobe-paint-workbench ${failN || errs.length ? "FAIL" : "OK"}（${pass} ✓ / ${failN} ✗）`);

@@ -2563,7 +2563,7 @@ function paintStrokeGate(texture: string): "warming" | "view-only" | null {
   return null;
 }
 let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> } | null = null;
-(window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor, canvasWin: () => canvasWin,
+(window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor, canvasWin: () => canvasWin, meter: () => meterBadge,
   // 画板（贴图主线 1-3c；没有界面入口）：ensure = 给一张走画的贴图建画板（不给 GUID = 场景里第一张画）；fill = 灌一层像素（RGBA、画板大小）；探针 test/probes/probe-paint-display.mjs
   paint: {
     boards: paintBoards,
