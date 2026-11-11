@@ -493,4 +493,5 @@ Fable：可以，而且该这样。叫「槽栏」，住在材质上、三维这
 - 硬表面为什么不能画：面没有稳定的来历（设计稿原话），这一轮只做网格体。
 - 删贴图减肥、以后的画画手感问题：记在 `ai-docs/20261111-paint-feel-batch1.md`。
 - 悬空白板手写标注：wishlist，记在 `ai-docs/20261027-brainstorms-by-epoch.md` 第 3 节。
+- 墙上涂鸦（同日稍后，user：「wishlist: 软件affordance逼出一个人类直观：墙上涂鸦的splat，喷枪，柏林墙。这个可能是未来的killer app本轮筑基的时候不做，但是是一个高价值unexpected点子」）：wishlist，同一处。
 
