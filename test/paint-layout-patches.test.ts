@@ -86,6 +86,13 @@ describe("开始画的铺法：按朝向连成片（施工单十五）", () => {
     const a = audit(r.values, r.width, r.height);
     eq(a.overlap + a.outside, 0, `叠了 ${a.overlap} 个点、出界 ${a.outside} 个角`); eq(blocksApart(r.blocks, 2), "");
   });
+  it("不平的四边形（马鞍面：面的平均朝向在门槛里、某个三角形可能不在）：按每个三角形比，拉伸照样在 [cos 门槛, 1] 以内", () => {
+    const m = hills(8, 2, (x, y) => 0.9 * x * y), r = layoutFaces(m, m.faces(), { base: 512, gap: 2, style: "patches" });
+    assert(r.ok, r.ok ? "" : r.reason); if (!r.ok) return;
+    const s = stretch(m, r.values, r.density), cos = Math.cos((PATCH_MAX_DEG * Math.PI) / 180);
+    assert(s.lo >= cos - 1e-9 && s.hi <= 1 + 1e-9, `拉伸 ${s.lo.toFixed(4)}…${s.hi.toFixed(4)}，只许 [${cos.toFixed(4)}, 1]`);
+    eq(audit(r.values, r.width, r.height).overlap, 0);
+  });
   it("螺旋坡道（两圈）：朝向都差不多，但压平后会叠 → 分成几片、谁都不叠", () => {
     const m = spiral(), r = layoutFaces(m, m.faces(), { base: 1024, gap: 4, style: "patches" });
     assert(r.ok, r.ok ? "" : r.reason); if (!r.ok) return;

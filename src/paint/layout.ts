@@ -130,9 +130,8 @@ export function patchesOf(m: LayoutMesh, faces: readonly number[], maxDeg = PATC
       for (let i = 0; i < vs.length; i++) { const a = vs[i], b = vs[(i + 1) % vs.length]; for (const g of byEdge.get(a < b ? `${a},${b}` : `${b},${a}`) ?? []) if (g !== f) nbs.add(g); }
       for (const g of [...nbs].sort((a, b) => a - b)) {
         if (done.has(g) || !frameOf(m, g)) continue;
-        const nG = m.faceNormal(g);
-        if (!(dot(nG, nS) > cosMax)) continue;   // 夹角不小于门槛
         const pts = m.facePts(g), tg = ft(g);
+        if (!trisWithin(pts, tg, nS, cosMax)) continue;   // 夹角不小于门槛（按这张面的每个三角形比：导入的四边形常常不平，面的平均朝向在门槛里、某个三角形可能不在）
         if (tris.overlaps(pts, tg)) continue;   // 压平之后叠在一起：留给后面的种子
         done.add(g); members.push(g); queue.push(g); tris.add(pts, tg);
       }
@@ -140,6 +139,18 @@ export function patchesOf(m: LayoutMesh, faces: readonly number[], maxDeg = PATC
     out.push({ seed, faces: members, frame: fr });
   }
   return out;
+}
+/**
+ * 这张面的每个（不退化的）三角形朝向和种子的朝向夹角都小于门槛。面上任何一条边都在某个三角形里，投到种子的平面上最多压短到 cos(夹角)，
+ * 所以一片里每条边的拉伸都在 [cos 门槛, 1] 以内（只看面的平均朝向不够：不平的四边形里一个三角形可以歪出去）。
+ */
+function trisWithin(pts: readonly Pt3[], tris: readonly (readonly number[])[], nS: Pt3, cosMax: number): boolean {
+  for (const [a, b, c] of tris) {
+    const n = cross({ x: pts[b].x - pts[a].x, y: pts[b].y - pts[a].y, z: pts[b].z - pts[a].z }, { x: pts[c].x - pts[a].x, y: pts[c].y - pts[a].y, z: pts[c].z - pts[a].z }), l = len(n);
+    if (l < 1e-15) continue;   // 退化的三角形没有朝向
+    if (!(dot(n, nS) / l > cosMax)) return false;
+  }
+  return true;
 }
 /** 一片里已经收了的三角形（按片的方向压平到 (p·e, −p·t)，没乘密度）：查新的面叠没叠上。格子哈希（格长 = 种子最长的边）。 */
 class PatchTris {
