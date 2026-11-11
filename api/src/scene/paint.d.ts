@@ -39,7 +39,8 @@ export type PaintMove = {
         readonly textures?: readonly TextureDoc[];
         readonly faceMats?: Iterable<number>;
         readonly defSlots?: Iterable<readonly (Guid | null)[]>;
-        readonly replaces?: Iterable<DefId>;
+        readonly replaces?: Iterable<DefId>; /** 这一贴要新建 / 更新的定义里有带着贴图坐标的（1-2½ 起文件形状带着它们）。 */
+        readonly carriesUv?: boolean;
     };
 };
 /**
@@ -48,7 +49,8 @@ export type PaintMove = {
  * · 整个定义：带着贴图坐标（uvSets 不空，不管现在有没有面走画——从画换走的面角上的数还留着）= 拒：1-2½ 起文件形状（definitionToDoc）带着贴图坐标了，
  *   但搬到别处（复制成唯一、粘贴新建、并进别的物件）要给那几套铸新身份、把画的 layout 对上、贴图跟着按值拷，那是 1-3d；在那之前照旧拒，不让两个定义悄悄共用一套坐标的身份。
  * · 粘贴的载荷：散面里有画的材质 = 拒；这一贴要新建（跨文件 / 「断开」铸新身份）或更新的定义，槽表里有画的材质 = 拒（画会落到别的定义里、或者跟着换掉的身体丢了）；
- *   要被「更新」换掉身体的现有定义带着贴图坐标 = 拒。同一份文件里贴整个物件的另一份摆放（留这里的那条）不受影响：它们本来就共用同一张画。
+ *   要被「更新」换掉身体的现有定义带着贴图坐标 = 拒；这一贴要新建 / 更新的定义自己带着贴图坐标（哪怕只剩没人引用的那几套）= 拒（1-2½ 起文件形状带着它们：
+ *   跨文件 / 「断开」新建要给那几套铸新身份，归 1-3d；和「整个定义带着贴图坐标」那条一致）。同一份文件里贴整个物件的另一份摆放（留这里的那条）不受影响：它们本来就共用同一张画。
  * 返回原因 / null（放行）。
  */
 export declare function paintMoveBlocked(s: Scene, what: PaintMove): string | null;
