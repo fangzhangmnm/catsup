@@ -312,12 +312,14 @@ describe("拒绝的那几处（1-3b 测试 F）", () => {
   });
 });
 
-describe("存盘现在是抛（1-3b 测试 G）", () => {
-  it("带着贴图坐标的网格体：写盘抛、原因写明白（贴图坐标进文件是 1-2½）", () => {
+describe("存盘（1-3b 测试 G；1-2½ 起贴图坐标真的写）", () => {
+  it("带着贴图坐标的网格体：文件形状里带着那一套（1-2½）；画还没有字节 → 写盘照旧抛（1-8）", () => {
     const r = rig(boxMesh);
     r.step(startOp(r.def, r.k().faces()));
-    let msg = ""; try { documentFromScene(r.s, "画"); } catch (e) { msg = String((e as Error).message); }
-    assert(/texture coordinates for painting/.test(msg) && /1-2½/.test(msg), `原因：${msg}`);
+    const doc = documentFromScene(r.s, "画"), md = doc.definitions.find((d) => d.kind === "mesh")!.mesh!;
+    eq(md.uvSets?.length ?? 0, 1, "文件形状带着一套贴图坐标");
+    let msg = ""; try { writeCatsup(doc); } catch (e) { msg = String((e as Error).message); }
+    assert(/no bytes yet/.test(msg) && /1-8/.test(msg), `原因：${msg}`);
   });
   it("没有字节的分层贴图：写盘抛、原因写明白（画的字节进文件是 1-8）", () => {
     const s = new Scene();

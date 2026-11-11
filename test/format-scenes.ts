@@ -276,7 +276,11 @@ export function sceneFingerprint(s: Scene): string {
     (g.lines.length || g.points.length || g.circles?.length || g.spheres?.length) ? ` guides=[${g.lines.map((l) => `L${l.id}:${f3(l.p)}>${f3(l.dir)}`).join(" ")} ${g.points.map((q) => `P${q.id}:${f3(q.p)}`).join(" ")}${(g.circles ?? []).map((c) => ` C${c.id}:${f3(c.c)}^${f3(c.n)}r${c.r.toFixed(6)}`).join("")}${(g.spheres ?? []).map((x) => ` S${x.id}:${f3(x.c)}r${x.r.toFixed(6)}`).join("")}]` : "";
   parts.push(`axes ${f3(s.axes.origin)} | ${f3(s.axes.x)} | ${f3(s.axes.y)} | ${f3(s.axes.z)}`);
   for (const d of [...s.defs.values()].sort((a, b) => label(a.id).localeCompare(label(b.id)))) {
-    if (d.body.kind === "mesh") { const m = d.body.kernel, snap = m.toSnapshot(); parts.push(`def ${label(d.id)} kind=mesh slots=${d.body.materialSlots.join(",")}: ${JSON.stringify(snap)} faceFlags=${m.faces().map((f) => m.faceFlags[f]).join(",")}`); for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`); continue; }
+    if (d.body.kind === "mesh") {
+      const m = d.body.kernel, rows = d.body.uvSets, raw = m.toSnapshot();   // 贴图坐标（1-2½）：列的身份号是现铸的，不进指纹，换成那一套的名字；每套的宽高密度另记
+      const snap = raw.columns ? { ...raw, columns: raw.columns.map((c) => ({ ...c, guid: `uv:${rows.get(c.guid)?.name ?? "?"}` })) } : raw;
+      const uv = [...rows.values()].map((u) => `${u.name} ${u.width}x${u.height}@${u.pxPerM}`).sort().join(" | ");
+      parts.push(`def ${label(d.id)} kind=mesh slots=${d.body.materialSlots.join(",")}${uv ? ` uvSets=${uv}` : ""}: ${JSON.stringify(snap)} faceFlags=${m.faces().map((f) => m.faceFlags[f]).join(",")}`); for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`); continue; }
     const b = s.brep(d.id);
     parts.push(`def ${label(d.id)} slots=${b.materialSlots.join(",")}: ${fingerprint(b.kernel)} mats=${b.kernel.faces().map((f) => `${b.kernel.faceMaterialOf(f.id) ?? -1}/${b.kernel.faceMaterialOf(f.id, 1) ?? -1}`).sort().join(",")}${guidesFp(b.guides)}${b.drawFrame ? ` drawFrame=${f3(b.drawFrame.origin)}|${f3(b.drawFrame.x)}|${f3(b.drawFrame.y)}|${f3(b.drawFrame.z)}` : ""}`);
     for (const g of b.groups.values()) parts.push(`  group parent=${g.parent} axes=${[g.axes.origin.x, g.axes.origin.y, g.axes.origin.z].join(",")}: ${fingerprint(g.kernel)}${guidesFp(g.guides)}`);

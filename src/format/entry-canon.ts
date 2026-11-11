@@ -30,7 +30,7 @@ function canonBrep(snap: BrepSnapshot, slotGuid: (slot: number) => Guid | null):
 /** 网格体：点的下标原样（可能有重合的点，按坐标认会把「焊了」和「没焊」判成一样）；面从最小下标起转、面和边标记排序（存盘重开只会换这两样的序）；贴图坐标跟着面转（1-2½）。 */
 function canonMesh(m: MeshDoc, slotGuid: (slot: number) => Guid | null): unknown {
   const { faceStart, faceLen, loopVert, faceMat, faceFlags, edgePairs, edgeFlags, uvSets, ...rest } = m;
-  const sets = uvSets ?? [];
+  const sets = byKey(uvSets ?? [], (u) => u.guid);   // 列表顺序没有语义：按身份号排，每张面上的键也按这个序
   // 每张面从最小下标起转；贴图坐标（1-2½）跟着同一张面、同样转（存盘重开只会换面的序和环的起点，角上的数跟着角走）。这一套上没有位置 = null。
   const faces = Array.from(faceStart, (start, i) => {
     const n = faceLen[i], ring = Array.from(loopVert.subarray(start, start + n));
