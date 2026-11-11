@@ -28,6 +28,16 @@ export interface LiveImage {
         readonly gpuImage: unknown;
         readonly version: number;
     } | null;
+    /**
+     * 从版本 since 到现在变了哪一块（贴图格子；没变 = w = 0；说不清 = "all"）。不给这个口 = 每次整张（1-4d 第 6 条：渲染器的显示图只拷变了的那一块、缩小图只重做受影响的那一块）。
+     * 给的人自己负责说真话：只在确切知道「别的地方一个像素都没变」时给块（画画这边由变化史回答，见 paint/board.ts changedSince）。
+     */
+    changedSince?(since: number): {
+        readonly x: number;
+        readonly y: number;
+        readonly w: number;
+        readonly h: number;
+    } | "all";
 }
 /**
  * 对材质模块的引用：提供者从场景的材质 + 「这个材质用哪张图」那个口拼出来、按对象记住（同一个材质每次给同一个对象）；引擎拿它当着色器缓存键、拿 map 当解码缓存键。

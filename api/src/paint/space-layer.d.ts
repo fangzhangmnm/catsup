@@ -108,6 +108,13 @@ export declare class SpaceLayer {
     /** 面表 + 三角形表 + 反解数据 + 多边形的格子范围（借来的或自己建的）。 */
     private readonly ft;
     private bounds;
+    /**
+     * 当帧那张上次 takeChanged 之后变过的格子（[x0, y0, x1, y1)，1-4d 第 6 条：显示那一侧只拷这一块）。每帧变的 ⊆ 上一帧的尾巴 ∪ 这一帧新定型的 ∪ 这一帧的尾巴
+     * （定型层只往里画、当帧那张 = 定型层拷过来 + 尾巴；这一笔碰过的范围以外从没写过 = 透明）。定型层清掉重画（抬笔）= 整笔的范围。
+     */
+    private changed;
+    /** 上一帧尾巴画过的格子（这一帧要还原成定型层的样子）。 */
+    private prevTail;
     /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）。 */
     readonly peak: {
         values: number;
@@ -131,6 +138,13 @@ export declare class SpaceLayer {
         readonly reach: Reach;
     }[], frozenHere: number): void;
     /** 定型层清掉（抬笔时收笔渐细重画整笔用）：下一次 update 从头画。范围留着（只会更大）。 */
+    /** 上次问过之后当帧那张变过的格子（{x, y, w, h}；没变 = null），问完清零。 */
+    takeChanged(): {
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+    } | null;
     resetFrozen(): void;
     dispose(): void;
     /** 这颗笔尖在这块多边形上的实例方块（格子）：贴图上的外接框往外放块边那一圈（取样点离格子中心最多 gap/2）再多一格，夹进多边形的格子范围；夹完是空的 = null（画不到）。 */
