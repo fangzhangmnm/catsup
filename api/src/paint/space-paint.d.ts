@@ -1,4 +1,5 @@
 import { type SpaceCamera } from "./space-stroke.ts";
+import type { SpacePrep } from "./space-prep.ts";
 import type { SpaceGpu, SpaceImage } from "./space-gpu.ts";
 import type { PaintBoards } from "./boards.ts";
 import type { PaintTarget } from "./space-target.ts";
@@ -12,6 +13,8 @@ export interface SpacePaintDeps {
     readonly targets: (texture: Guid) => PaintTarget[];
     /** 三维的显卡接口（真显卡版 / 软件版）。 */
     readonly gpu: () => SpaceGpu | null;
+    /** 画画的准备（1-4c）：整份几何 + 每格的表，落笔只取现成的；没准备好 = 这一笔不开始（PrepPendingError / 建不了的那个错）。 */
+    readonly prep: SpacePrep;
     /** 这张离屏图在这个显卡接口上交给内核的形态（真显卡 = { gl }，软件版 = { pixels }）。 */
     readonly external: (img: SpaceImage) => {
         readonly gl: WebGLTexture;
@@ -51,6 +54,8 @@ export declare class SpacePaintStroke {
     private readonly unhook;
     constructor(d: SpacePaintDeps, texture: Guid, o: SpacePaintOpts);
     private readonly untrack;
+    /** 借来的每格的表（画画的准备那里的；这一笔不放）。 */
+    private readonly cells;
     down(x: number, y: number, p: number, t?: number | null): void;
     move(x: number, y: number, p: number, t?: number | null): void;
     /** 抬笔：整笔重画一次（收笔渐细）→ 落层（内核一步）。在下一次「准备」里做完；这里先把它准备好。 */
@@ -66,7 +71,7 @@ export declare class SpacePaintStroke {
         h: number;
     } | null;
     tipCount(): number;
-    /** 落笔那一下建各种表（每格的紧凑表、三角形公式、两张离屏图）花了多少毫秒（量）。 */
+    /** 落笔那一下建各种表（三角形公式、两张离屏图；每格的表是借来的现成的）花了多少毫秒（量）。 */
     buildMs: number;
     /** 上一次「准备」各段（量；毫秒）：取新笔尖 + 算碰到哪些三角形 / 画薄层（含上传、拷定型层）/ 交给档口。fresh = 这一帧给的笔尖数。 */
     lastFrame: {

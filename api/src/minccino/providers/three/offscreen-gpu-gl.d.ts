@@ -8,10 +8,13 @@ export declare class GlOffscreenGpu implements OffscreenGpu {
     private instBuf;
     /** 最近一次 draw 花了多少毫秒（CPU 时间；探针量）。 */
     lastDrawMs: number;
+    /** 每边最多多少格（MAX_TEXTURE_SIZE；契约 maxSize）。 */
+    readonly maxSize: number;
     constructor(gl: WebGL2RenderingContext, touched: () => void);
+    private fits;
     register(p: OffscreenProgram): void;
     image(w: number, h: number): OffscreenImage;
-    data(w: number, h: number, values: Float32Array | Uint16Array, format?: "r32f" | "rg16ui"): OffscreenData;
+    data(w: number, h: number, values: Float32Array | Uint16Array, format?: "r32f" | "rgba16ui"): OffscreenData;
     draw(d: OffscreenDraw): void;
     copy(src: OffscreenImage, dst: OffscreenImage, rect?: {
         readonly x: number;

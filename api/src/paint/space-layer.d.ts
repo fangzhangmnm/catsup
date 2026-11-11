@@ -1,12 +1,25 @@
-import type { SpaceAccum, SpaceGpu, SpaceImage, SpaceProgram } from "./space-gpu.ts";
+import type { SpaceAccum, SpaceData, SpaceGpu, SpaceImage, SpaceProgram } from "./space-gpu.ts";
 import type { TargetGeo } from "./space-target.ts";
 import { type InkTip } from "./tip-truth.ts";
 import type { Reach } from "./tip-reach.ts";
+import { type TexelTable } from "./texel-table.ts";
 import type { Pt3 } from "../kernel/geom.ts";
 /** 数据图一行几个数（一维的表按这个宽度折成二维）。 */
 export declare const DATA_W = 2048;
-/** 一块画布多边形下挂的面最多几张、一张面最多几个三角形（着色器里那两圈的上限；超了 = 抛，施工单「停下来报」那一条）。 */
-export declare const MAX_FACES = 8, MAX_TRIS = 64;
+/**
+ * 一颗笔尖下、同一块画布多边形挂的面最多几张；一张面最多几个三角形（着色器里那两圈循环的上界，循环带 break：面小的时候不花钱）。超了 = 抛 PaintLimitError。
+ * MAX_TRIS = 1024（统筹 11-11：64 会把默认的 72 段圆面挡在外面；1024 挡住的只剩极端的大面。以后真有人撞上：把一张大面分几批画、每批只让取样点落在自己那批三角形里的格子写——现在不做）。
+ */
+export declare const MAX_FACES = 8, MAX_TRIS = 1024;
+/** 画布多边形最多几块：着色器里拿来比的编号走 32 位浮点的实例表，2^24 以内才精确（每格的表本身能放到 2^32 − 2）。 */
+export declare const MAX_POLYS: number;
+/** 一张数据图最多几个数：32 位浮点里存的编号（三角形号、面单子里的位置）2^24 以内才精确。 */
+export declare const MAX_DATA: number;
+/**
+ * 画布每边最多几格：取样点 = 格子中心 + 整数 / 1024，在 32 位浮点里精确要 |坐标| < 2^14（14 位整数 + 10 位小数 = 24 位有效数字）；
+ * 取样点最多伸出格子 32767 / 1024 格（每格的表的偏移范围），所以 边长 − 1 + 0.5 + 32 < 2^14 → 边长 ≤ 2^14 − 32。有的电脑显卡每边能到 32768，所以单独卡。
+ */
+export declare const MAX_CANVAS_SIDE: number;
 /** 一个三角形的公式（世界里、减去落笔点）+ 反解用的 G⁻¹（G = [du·du du·dv; du·dv dv·dv]）+ smin = √(G 的小特征值) = 贴图上走一格在世界里最少走多远。 */
 interface TriInv {
     readonly ox: number;
@@ -33,7 +46,25 @@ export interface SpaceLayerOpts {
     readonly accum: SpaceAccum;
     /** 落笔的那一点（世界）：所有位置先减去它再上传。 */
     readonly origin: Pt3;
+    /** 现成的每格的表（space-prep.ts 缓存的，借来用、dispose 不放）。不给 = 自己建、自己放（测试）。 */
+    readonly cells?: SpaceData;
 }
+/**
+ * 每格的表（1-4c）：每格 4 个 16 位无符号整数 = 8 字节，显卡上是 RGBA16UI。
+ *   [0] [1] = 画布多边形编号 + 1 的低、高 16 位（0 = 没人要）；[2] [3] = 取样点离格子中心的偏移 x、y（texel-table.ts sampleOffset，1/1024 格为单位）+ 32768（32768 = 中心）。
+ * 容量：编号 + 1 ≤ 2^32 − 1（再受 MAX_POLYS 限）；偏移 −32768 … 32767 份 ≈ ±32 格（取样点离中心不超过间隔的一半，buildTexelTable 把 gap 限在 63 以内）。
+ * 大小：1024² = 8 MB，2048² = 32 MB。只跟贴图坐标有关（归属表 + 多边形）。
+ */
+export declare function cellTable(t: TexelTable): Uint16Array;
+/** 往每格的表里写一格（容量在这里查：编号 + 1 在 1 … 2^32 − 1、偏移在 −32768 … 32767；超了 = 抛）。 */
+export declare function packCell(out: Uint16Array, c: number, idPlus1: number, ox: number, oy: number): void;
+/**
+ * 一项目标上跟这一笔无关、只跟物件和画布有关的那几个上限（画画的准备进工作台时就查，落笔之前就知道画不了；SpaceLayer 建的时候再查一遍）：
+ * 画布每边 ≤ 显卡上限、多边形块数 ≤ MAX_POLYS、每张面三角形 ≤ MAX_TRIS、面表 / 三角形表放得进数据图。超了 = 抛 PaintLimitError（带人话、点出是哪张面）。
+ */
+export declare function checkLayerLimits(gpu: SpaceGpu, t: TexelTable): void;
+/** 每格的表传到显卡上（画布每边超过显卡上限 = 抛 PaintLimitError）。 */
+export declare function uploadCellTable(gpu: SpaceGpu, t: TexelTable): SpaceData;
 /** 一笔在一张贴图（名单里的一项）上的薄层：定型层 + 当帧那张。 */
 export declare class SpaceLayer {
     readonly frozen: SpaceImage;
@@ -45,6 +76,8 @@ export declare class SpaceLayer {
     private readonly job;
     private readonly jobId;
     private readonly fixed;
+    /** 每格的表是不是自己建的（自己建的 dispose 时放；借来的不放）。 */
+    private readonly ownCells;
     /** 每块画布多边形：格子范围 + 它的面在面表里的槽号。 */
     private readonly polyRect;
     private readonly faceSlot;

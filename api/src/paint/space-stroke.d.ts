@@ -36,6 +36,8 @@ export interface SpaceStrokeOpts {
     };
     /** 拐角选项（度；不给 = 不限）。 */
     readonly maxAngleDeg?: number;
+    /** 现成的整份几何（和 targets 一一对应；画画的准备 space-prep.ts 缓存的）。不给 = 现建（测试）。 */
+    readonly geos?: readonly TargetGeo[];
 }
 export declare class SpaceStroke {
     readonly geos: readonly TargetGeo[];

@@ -64,9 +64,15 @@ export declare function nearestOnPoly(r: ArrayLike<number>, px: number, py: numb
 export declare function distToPoly(r: ArrayLike<number>, px: number, py: number): number;
 /** 点到三角形的距离（在里面 / 边上 = 0）。 */
 export declare const distToTri: (t: ArrayLike<number>, px: number, py: number) => number;
-/** 建表。gap = 铺的时候块之间留的格数（没人要的界线 = 它的一半）。 */
+/** 取样点偏移的量化：1/SAMPLE_Q 格（1-4c）。 */
+export declare const SAMPLE_Q = 1024;
+/** 取样点离格子中心最多几格（每格的表里偏移是 16 位、加 32768 存：−32768 … 32767 份）。取样点离中心不超过间隔的一半，所以 gap 最多 MAX_GAP。 */
+export declare const MAX_GAP = 63;
+/** 建表。gap = 铺的时候块之间留的格数（没人要的界线 = 它的一半；最多 MAX_GAP，超了 = 抛）。 */
 export declare function buildTexelTable(width: number, height: number, faces: readonly PaintFace[], gap?: number): TexelTable;
-/** 一格的取样点（②）：中心在它那块多边形里（含边上）= 中心；在外面 = 多边形上离中心最近的那一点。没人要的格子 = null。 */
+/** 一格的取样点离格子中心的偏移（②，量化过的）：以 1/SAMPLE_Q 格为单位的两个整数。中心在它那块多边形里（含边上）= [0, 0]；在外面 = 多边形上离中心最近的那一点，四舍五入到份。没人要的格子 = null。 */
+export declare function sampleOffset(t: TexelTable, x: number, y: number): [number, number] | null;
+/** 一格的取样点（②）：中心 + 量化过的偏移。中心在多边形里 = 中心；在外面 = 离多边形上最近那一点不到 1/2048 格（每个轴）。没人要的格子 = null。 */
 export declare function samplePoint(t: TexelTable, x: number, y: number): [number, number] | null;
 /** 画布上一点 (sx, sy) 在某张面上的空间位置（③）：这张面自己的三角形里贴图坐标上离它最近的那个（一样近取编号小的），用它的公式算。面不走这张画 = null。 */
 export declare function positionOnFace(t: TexelTable, face: number, sx: number, sy: number): {

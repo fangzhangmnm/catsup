@@ -2,8 +2,9 @@ import type { Pt3 } from "../kernel/geom.ts";
 import { type Xform } from "../scene/xform.ts";
 import { type PickMesh, type TriGrid } from "./surface-pick.ts";
 import { type PaintMesh, type TexelTable } from "./texel-table.ts";
-/** 目标的网格体（MeshKernel 满足）。 */
+/** 目标的网格体（MeshKernel 满足）。rev = 修改号（任何改动都换一个从没用过的新值；画画的准备按它判过期，space-prep.ts）。 */
 export interface TargetMesh extends PickMesh, PaintMesh {
+    readonly rev: number;
 }
 /** 名单里的一项。 */
 export interface PaintTarget {
