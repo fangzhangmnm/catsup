@@ -3,7 +3,6 @@
 // ③ 三种设备的布尔默认都在；④ src/controller/ 是无头骑士：不许运行时 import 内核 / 网格 / three / DOM（type import 可以）。
 import { describe, it, assert, eq } from "./runner.mjs";
 import { STANCE, BOOLEAN_DEFAULT, SNAP_BASE, stanceOf } from "../src/controller/stance.ts";
-import { GeometryMode } from "../src/editor/modes/geometry.ts";
 import { workbenches } from "../src/editor/modes/index.ts";
 import type { Mode } from "../src/editor/mode.ts";
 const fs = (await import("node:fs" as string)) as { readdirSync(u: URL): string[]; readFileSync(u: URL, enc: "utf8"): string };

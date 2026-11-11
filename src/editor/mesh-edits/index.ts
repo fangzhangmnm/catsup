@@ -2,6 +2,7 @@
 // 工具手势（挤出 / 挪 / 刀……）直接提交 op；这里是不用手势、选了就能点的那一类。第一条 = 环切（刀在一条边上点两下的菜单版，FM10「也加一个模式按钮，免得我不习惯」）。
 // 做完的选区走 PlanOut.select（规划时在副本上跑一遍拿新 id；op 确定性 = 提交后同一批）。
 import { LOOP_CUT_DEFAULTS, LOOP_CUT_FIELDS, loopCutArgs } from "./loop-cut-fields.ts";
+import { startPaint } from "./start-paint.ts";   // 画画工作台的「开始画」（贴图主线 1-7）
 import type { Command, MeshUnit } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
 import { loopCuts as loopCutsOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits, duplicateGeometry, fillOrBridge, bestFitNormal, flattenMoves } from "../../mesh/ops/index.ts";
@@ -365,10 +366,11 @@ function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
 }
 export const smoothByAngle = smoothDefaultCommand("angle"), smoothAll = smoothDefaultCommand("smooth"), smoothNone = smoothDefaultCommand("hard");
 
-const commands: readonly Command[] = [duplicate as Command, fill as Command, flipNormals as Command, loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
+const commands: readonly Command[] = [startPaint as Command, duplicate as Command, fill as Command, flipNormals as Command, loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
   bevel as Command, bevelPoints as Command, symmetrySnap as Command, mergeCenter as Command, flattenX as Command, flattenY as Command, flattenZ as Command, flattenNormal as Command, flattenMirror as Command, subdivideCmd as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
 /** 图标 = stopgap（剪刀；图标库 TODO 已登记 loop-cut）。 */
 const actions: readonly Action[] = [
+  { id: "mesh.startPaint", icon: "pencil", label: (n) => `开始画（${n} 张面）`, commands: { mesh: "mesh.startPaint" } },   // 画画工作台（1-7）
   { id: "mesh.duplicate", icon: "copy", label: (n) => `复制（${n}）`, commands: { mesh: "mesh.duplicate" } },
   { id: "mesh.fill", icon: "fill-hole", label: (n) => (n === 1 ? "补洞" : `桥接（${n} 张面）`), commands: { mesh: "mesh.fill" } },
   { id: "mesh.flipNormals", icon: "flip-horizontal", label: (n) => `翻转法线（${n} 张面）`, commands: { mesh: "mesh.flipNormals" } },
@@ -393,7 +395,7 @@ const actions: readonly Action[] = [
   { id: "mesh.smooth.smooth", icon: "circle", label: () => "默认平滑：全部平滑", commands: { mesh: "mesh.smooth.smooth" } },
   { id: "mesh.smooth.hard", icon: "circle", label: () => "默认平滑：全部是棱", commands: { mesh: "mesh.smooth.hard" } },
 ];
-const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }, { action: "mesh.connect", where: "contextBar", order: 21, modes: ["freeform"] }, { action: "mesh.inset", where: "contextBar", order: 22, modes: ["freeform"] },
+const placements: readonly Placement[] = [{ action: "mesh.startPaint", where: "contextBar", order: 1, modes: ["paint"] }, { action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }, { action: "mesh.connect", where: "contextBar", order: 21, modes: ["freeform"] }, { action: "mesh.inset", where: "contextBar", order: 22, modes: ["freeform"] },
   { action: "mesh.bevel", where: "contextBar", order: 23, modes: ["freeform"] }, { action: "mesh.bevelVerts", where: "contextBar", order: 24, modes: ["freeform"] }, { action: "mesh.originToSelection", where: "contextBar", order: 30, modes: ["freeform"] },
   { action: "mesh.mergeCenter", where: "contextBar", order: 25, modes: ["freeform"] },
   { action: "mesh.flatten.x", where: "contextBar", order: 25.1, modes: ["freeform"], submenu: { label: "压平", item: "沿 X" } },   // W-5：右键「压平 ›」；工具条入口 = 缩放工具右下角「压平…」（main.ts toolActions，弹的是这同一份）
