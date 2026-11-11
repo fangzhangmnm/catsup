@@ -98,4 +98,31 @@ export class HostedSteps {
 
 ## 施工记录
 
-（小弟写）
+### 0-2（11-10 深夜 → 11-11，Claude Opus 5.5；画画仓分支 `kernel-steps-host` 最后一个提交 94055b4；**等 Fable 看**，没合）
+
+施工细则（侦察之后）：`Workpiece` 和子类对撤销栈只用四样（独占绑定、收一步、「现在停在哪一步」、清空；`painting-workpiece.ts` 装载时清空）——共有的那一面就定这四样（`StepSink`）。后端靠 History 的变化回调数「真落了一步」（`strokeEnd` / `filterCommit` 的返回值），宿主模式下这个信号得照样有。没读的便条（撞名后缀、隐藏窗口、剪纸山树、后台流式、导入）和撤销无关，没动。
+
+做完：
+- `src/backend/workpiece/hosted-steps.ts`：`StepHost` / `StepOrderError` / `HostedSteps`（每步记前一步；`directionOf` 认方向、把关顺序；`flip` / `bytes` / `drop` / `clear`）。
+- `undo-stack.ts`：翻一步的循环提成 `applyStep`（两个类共用）；`StepSink` 接口。
+- `history.ts`：`hosted` 装法；`stack` 改成取值器（步归宿主管时抛），新 `steps`（给 Workpiece）、`hosted`、`flip(step)`。
+- `workpiece.ts`：只改类型（`UndoStack` → `StepSink`，4 行）。
+- `weebpaint-backend.ts`：注入口 `stepHost`；宿主模式下「真落了一步」的计数从 `HostedSteps` 的变化回调来，不发 `onHistChange`（能不能撤销归宿主）。
+- 测试：`test/hosted-steps.test.mjs`（进内核名单 `test/kernel-tests.json`）—— A 两件作品共用一个宿主栈、夹别的步、随机撤销 / 重做 / 截断，12 个种子 × 60 步，每一下甲乙像素都和各用自带栈的对照组一样，最后全丢掉活步为零；B 乱用五种都抛 `StepOrderError`、像素和停的位置没变、之后按对的顺序能翻、同一步 drop 两次不出事；C 脏不脏两种装法逐条一样；D 不可恢复（onUnrecoverable 一次、宿主 onReset、旧步再翻抛错、活步为零）；E 并步（三个子步封口后宿主只收到一步，标签 `sub0+sub1+sub2`）；宿主模式下 undo / redo / canUndo / peekLabel 抛且没替宿主封口；没给 onUnrecoverable 建不起来；后端注入口（画一笔落一步、宿主翻回去像素回原样、`backend.undo` 抛）。`test/hosted-steps-guard.test.mjs`（扫源码，不进内核名单）：swapRecord 循环全仓只在 `applyStep`；`workpiece.ts` 只 import type 撤销栈。
+- ADR-0008 末尾加修订一段；`api/` 重打。
+
+门：
+1. 画画仓 `npm test`：1751 过 / 1 红——红的是总账 lint 的「指针文件都存在」，行 31 指针 `../ai-docs/…` 在副本路径下找不到（副本的老问题，主目录不红；画画仓 CLAUDE.md 11-09 那条也记过）。内核那一套 `run-kernel.mjs` 557 过（含新测试）、泄漏门 0。全量层 `run-full.mjs` 3 过。显卡冒烟 PASSED。`tsc` 干净。现有测试文件一个字没改（只在登记处 `test/run.mjs` 加了两行、内核名单加了一行）。
+2–7. 见上。
+8. ADR 修订、api 重打、内核名单加上了。
+9. **版本号没在这个分支升**：0-2 / 0-6 / 0-5 三张各开分支、等 Fable 都看过后一起合进画画仓 main（施工方案第 5 步），三个分支各升版本、各构建会在 `version.ts` / `dist/` / `index.html` 上互相冲突——合并时一次升一个末位版本、构建一次。
+
+和施工单不一样的地方：
+- `HostedSteps` 的构造多一个可选的 `opts.onChange`（收一步 / 翻一步 / 清空时调）：后端靠它数「真落了一步」，不给的话宿主模式下 `strokeEnd` 永远返回「没落」。
+- `History` 加了 `directionOf` 之外的 `steps` / `hosted` 两个取值器；`stack` 从字段改成取值器（自带栈时照旧返回 `UndoStack`，现有用法不变）。
+- 宿主模式下 `canRedo` / `peekLabel` 也抛（施工单写了 undo / redo / canUndo「这些」）。
+
+不放心的：
+- 后端在建的时候装载会清一次步，宿主在还没收到任何一步时先收到一次 `onReset`（测试里遇到过：宿主那边拿作品的引用要能处理「还没建好」）。1-8 接三维时注意。
+- 宿主翻步之前要自己先 `sealCheckpoint()`；忘了会得到 `StepOrderError`（响亮，不会悄悄出错）。
+
