@@ -1718,7 +1718,7 @@ function applyPaintDesk(p: PaintDeskDoc | null): void {
     for (const t of PAINT_DESK_TOOLS) {
       editor.config.reset(t);
       const d = p?.tools[t];
-      if (d) for (const k of ["size", "opacity", "hardness"] as const) if (d[k] !== undefined) editor.config.set(t, k, d[k]!);
+      if (d) for (const k of ["size", "opacity", "hardness"] as const) if (d[k] !== undefined) editor.config.set(t, k, d[k]!);   // 工具表的 set 自己夹到滑条的范围（文件里写了 1e9 / 负数 / 浓度 5 也不炸）
     }
     paintColor.set(parseHexColor(p?.color ?? "") ?? PAINT_COLOR_DEFAULT);
   } finally { applyingPaintDesk = false; }

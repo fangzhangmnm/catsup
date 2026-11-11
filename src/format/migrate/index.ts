@@ -54,8 +54,9 @@
 //                      老读者少看见它 = 导出表单用默认（minor 语义：习惯丢了，内容一字不少）。
 //   CATSUP_desk        1.5（2026-11-11，Claude Opus 5.5；user「笔的设置记在哪 学weebpaint」= 跟文件走、设备上不记，画画软件 v406 起同款）：可选键 paint
 //                      { color?: "#rrggbb", tools: { <工具名>: { size?, opacity?, hardness? } } }（字段名照画画软件的 dial）。改过才写；工具名本层不解释，
-//                      不认识的工具名和键原样带回。size = 笔的直径、屏幕上的 CSS 像素（不是空间长度，不换国际单位）；hardness 以后归「笔」（笔架来了它属于
-//                      那支笔，到时候这个键保留读、停止写）；activeBrushId 留给笔架、现在不写。老读者少看见它 = 笔用默认（minor：习惯丢了，内容一字不少）。
+//                      不认识的工具名和键原样带回（tools 不是对象也原样带回）。size 的含义和单位由工具自己定：这一版的笔和橡皮 = 直径、屏幕上的 CSS 像素（不是空间长度，
+//                      不换国际单位；以后的像素笔 = 画布上的格数）。color 原样存。hardness 以后归「笔」（笔架来了它属于那支笔，到时候这个键保留读、停止写）；
+//                      activeBrushId 留给笔架、现在不写。这一层收任何有限的数，app 套上时夹到滑条的范围。老读者少看见它 = 笔用默认（minor：习惯丢了，内容一字不少）。
 //   CATSUP_references  1.0（2026-10-25，Claude Opus 5.5；契约 §5.8）：参考窗牌组 = @internal/reference-window 的目录 `.catsup/references/`（manifest.json + 每张卡）原样进 glb：
 //                      files[] = { path, mimeType, bufferView }；**本层不懂清单**（清单的拍子 / 迁移归库）。空牌组不写这个扩展（抠）。不进定稿指纹、不进撤销；
 //                      **major 比本版新 → 不拒开**（同 desk）：原字节带回、参考窗先不显示、提示一次。user 2026-10-25「咱们是不忘了接reference window. 先看懂我们的文件规范」。

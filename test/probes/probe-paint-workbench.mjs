@@ -153,6 +153,15 @@ const pen6b = await S(() => { const C = globalThis.__catsup, c = C.editor.config
 check(JSON.stringify(pen6b.pen) === JSON.stringify(pen6.pen) && JSON.stringify(pen6b.eraser) === JSON.stringify(pen6.eraser) && pen6b.color === "51,153,77", `重开：笔 ${pen6b.pen.join(" / ")}、橡皮 ${pen6b.eraser.join(" / ")}、颜色 ${pen6b.color} = 存之前`, JSON.stringify({ want: pen6, got: pen6b }));
 await drag(await line(0.2, 0.8, 0.7));
 check(await px() !== p6, "接着画能画");
+// 文件里的笔写成离谱的数（size 1e9、浓度 5、硬度 −1）：打开不炸、不卡，笔夹到滑条的范围
+await S(() => { const C = globalThis.__catsup; C.session.setPaintDesk({ ...C.session.paintDesk, tools: { ...C.session.paintDesk.tools, paintPen: { size: 1e9, opacity: 5, hardness: -1, extra: {} } } }); });
+check(await S(async () => globalThis.__catsup.session.save()) === true, "把离谱的数存进文件");
+const t6 = Date.now();
+await reloaded(() => page.reload());
+await S(() => { for (const n of [...document.querySelectorAll("#noticeStack > *")]) n.remove(); });
+const pen6c = await S(() => { const c = globalThis.__catsup.editor.config; return ["size", "opacity", "hardness"].map((k) => c.get("paintPen", k)).join(" / "); });
+check(pen6c === "400 / 1 / 0" && Date.now() - t6 < 30000, `打开不炸：笔 = ${pen6c}（滑条的最大 / 最大 / 最小）`, pen6c);
+await enterBox(); await S(() => { globalThis.__catsup.pickWorkbench("paint"); }); await frames(2);
 
 console.log("\n⑧ 颜色：色块 / 填颜色代码（填错说一句、不改）走同一个入口");
 await S(() => { globalThis.__catsup.editor.setTool("paintPen"); }); await frames(1);

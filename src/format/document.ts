@@ -181,9 +181,12 @@ export const defaultDesk = (): DeskDoc => ({ menuTabs: {}, extra: {} });
 
 /**
  * 画画工作台的笔（desk 1.5）：{ color?: "#rrggbb", tools: { <工具名>: { size?, opacity?, hardness? } } }。字段名照画画软件的 dial（size / opacity）。
- * - 工具名本层不解释（不透明字符串）：本版不认识的工具名、每把工具里不认识的键、整个 paint 里不认识的键都原样带回（各自的 extra）。
- * - size = 笔的直径，单位是**屏幕上的 CSS 像素**（user 11-10「笔的大小应该是屏幕大小，因为这个是你的语义」）——不是画布像素，也不是空间里的长度，所以不换国际单位。
- *   opacity = 浓度（0..1）；hardness = 笔尖边缘（0..1）。
+ * - 工具名本层不解释（不透明字符串）：本版不认识的工具名、每把工具里不认识的键、paint 里不认识的键都原样带回（各自的 extra）。
+ *   tools 本身不是对象（数组、字符串……）：原样放进 extra 带回；这时候没有认识的工具，写回去的就是它。有认识的工具时以认识的为准。paint 本身不是对象 = 当没有（和 desk 别的键一样）。
+ * - size 的含义和单位由工具自己定；这一版的笔和橡皮 = 直径，屏幕上的 CSS 像素（user 11-10「笔的大小应该是屏幕大小，因为这个是你的语义」；不是空间里的长度，所以不换国际单位）。
+ *   以后的像素笔的 size 会是画布上的格数——这一层不替工具定单位。opacity = 浓度（0..1）；hardness = 笔尖边缘（0..1）。
+ * - color 原样存（不在这一层规整大小写；app 比的时候不分大小写）。
+ * - 这一层收任何有限的数；夹到能用的范围是 app 套上的时候做的（main.ts applyPaintDesk 经工具表 set，夹到滑条的范围）。
  * - hardness 以后归「笔」：笔架来了它属于那支笔，到时候这个键保留读、停止写。activeBrushId（画画软件的 dial 里有）现在不写，留给笔架。
  * - 类型不对的已知键不当成值，原样放进 extra 带回（不悄悄改别人写的字节）。
  */
@@ -196,7 +199,7 @@ export function paintDeskOf(raw: unknown): PaintDeskDoc | undefined {
   if (!isRecord(raw)) return undefined;
   const out: PaintDeskDoc = { tools: {}, extra: {} };
   for (const [k, v] of Object.entries(raw)) {
-    if (k === "color" && typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v)) out.color = v.toLowerCase();
+    if (k === "color" && typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v)) out.color = v;
     else if (k === "tools" && isRecord(v)) {
       for (const [name, t] of Object.entries(v)) {
         if (!isRecord(t)) { out.extra[`tools`] ??= {}; (out.extra.tools as Record<string, unknown>)[name] = t; continue; }   // 一把工具的值不是对象：原样带回
@@ -211,8 +214,11 @@ export function paintDeskOf(raw: unknown): PaintDeskDoc | undefined {
   }
   return out;
 }
-/** PaintDeskDoc → 写进文件的样子（extra 先铺、已知键后铺；没有工具 = 不写 tools）。 */
+/** PaintDeskDoc → 写进文件的样子（extra 先铺、已知键后铺；tools 没有东西 = 不写；tools 本来不是对象、又没有认识的工具 = 原样写回）。 */
 export function paintDeskToJson(p: PaintDeskDoc): Record<string, unknown> {
+  if (p.extra.tools !== undefined && !isRecord(p.extra.tools) && !Object.keys(p.tools).length) {   // tools 不是对象（读进来就放在 extra 里）、又没有认识的工具：原样带回
+    return { ...p.extra, ...(p.color !== undefined ? { color: p.color } : {}) };
+  }
   const extraTools = isRecord(p.extra.tools) ? p.extra.tools : {};
   const tools: Record<string, unknown> = { ...extraTools };
   for (const [name, t] of Object.entries(p.tools)) tools[name] = { ...t.extra, ...(t.size !== undefined ? { size: t.size } : {}), ...(t.opacity !== undefined ? { opacity: t.opacity } : {}), ...(t.hardness !== undefined ? { hardness: t.hardness } : {}) };

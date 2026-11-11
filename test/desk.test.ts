@@ -100,6 +100,16 @@ describe("CATSUP_desk 桌面态", () => {
     eq(JSON.stringify(jsonOf(writeCatsup(back)).json.extensions.CATSUP_desk.paint), JSON.stringify({ color: "red", tools: { odd: 7, paintPen: { size: "big", opacity: 0.5 } } }), "坏的那几个字节原样带回");
     eq(paintDeskOf(null), undefined); eq(paintDeskOf([1]), undefined); eq(paintDeskOf("x"), undefined);
   });
+  it("画画工作台的笔：tools 不是对象（数组 / 字符串）= 原样带回；有认识的工具时以认识的为准；颜色的大小写原样存", () => {
+    const back = (paint: unknown) => { const { json, bin } = jsonOf(writeCatsup(fresh())); json.extensions.CATSUP_desk.paint = paint; return readCatsup(encodeGlb(json, bin)); };
+    for (const tools of [[1, "a"], "brushes"]) {
+      const b = back({ color: "#AbCdEf", tools });
+      eq(b.desk.paint?.color, "#AbCdEf", "颜色原样（不改成小写）");
+      eq(JSON.stringify(jsonOf(writeCatsup(b)).json.extensions.CATSUP_desk.paint), JSON.stringify({ tools, color: "#AbCdEf" }), `tools = ${JSON.stringify(tools)} 原样写回`);
+    }
+    const b = back({ tools: "brushes" }); b.desk.paint!.tools.paintPen = { size: 9, extra: {} };   // app 改过笔：认识的工具为准
+    eq(JSON.stringify(jsonOf(writeCatsup(b)).json.extensions.CATSUP_desk.paint), JSON.stringify({ tools: { paintPen: { size: 9 } } }));
+  });
   it("menuTabsOf：只收字符串值，坏形状 = 空", () => {
     eq(JSON.stringify(menuTabsOf({ main: "settings", view: 3, x: null })), JSON.stringify({ main: "settings" }));
     eq(JSON.stringify(menuTabsOf(["a"])), "{}");
