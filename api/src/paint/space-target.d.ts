@@ -66,4 +66,9 @@ export type Hit = {
  * 世界里的射线 o + t·d（d 不必是单位长）打中名单里哪一项的哪个三角形。眼睛看到的第一张面才算：名单里各项取最近的；
  * 那张面不走这张画 = 「打中了但不是目标」；名单之外的东西挡在前面（occluded(t) = 真）= 「打中了但不是目标」。
  */
+/**
+ * 世界里的射线只和第 ti 项的第 tri 个三角形求交（少打射线，1-4d 第 7 条）：和 rayHit 同样换进定义坐标、同一个求交（rayTriangle），所以打中时 t、落点和 rayHit 打中这个三角形时逐位相同。
+ * 没中 = null。不查别的三角形、不查名单之外挡着的（调用的人只在两头都打中这个三角形、屏幕上很近时用）。
+ */
+export declare function rayHitTri(geos: readonly TargetGeo[], ti: number, tri: number, o: Pt3, d: Pt3): Hit | null;
 export declare function rayHit(geos: readonly TargetGeo[], o: Pt3, d: Pt3, occluded?: (t: number) => boolean): Hit;

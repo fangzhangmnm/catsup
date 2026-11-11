@@ -38,6 +38,12 @@ export type PickResult = null | {
 };
 /** 建格子（模型改了就重建；O(三角形数)）。 */
 export declare function buildTriGrid(m: PickMesh): TriGrid;
+/** Möller–Trumbore（两面都算）：射线和格子里第 t 个三角形，命中的 t 和重心坐标 (u, v)（相对角 0）；没中 = null。全仓射线求交只有这一份（castRay 和空间里的笔少打射线都用它；守卫 paint-space-guard ①）。 */
+export declare function rayTriangle(g: TriGrid, t: number, o: Pt3, d: Pt3): {
+    t: number;
+    u: number;
+    v: number;
+} | null;
 /** 射线最先打中的三角形（格子里的编号）+ t + 重心；没中 = null。 */
 export declare function castRay(g: TriGrid, o: Pt3, d: Pt3): {
     tri: number;

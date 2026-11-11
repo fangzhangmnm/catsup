@@ -1,6 +1,6 @@
 import type { Pt3 } from "../kernel/geom.ts";
 import type { ResolvedBrush } from "./kernel/src/common/resolved-brush.ts";
-import { type PaintTarget, type TargetGeo } from "./space-target.ts";
+import { type Hit, type PaintTarget, type TargetGeo } from "./space-target.ts";
 import { type SpacePath } from "./space-path.ts";
 import { type Reach } from "./tip-reach.ts";
 export interface SpaceCamera {
@@ -55,10 +55,13 @@ export declare class SpaceStroke {
     /** 打射线的统计（落成路那一层）。 */
     get stats(): {
         rays: number;
+        planes: number;
         capped: number;
     };
     /** 屏幕一点打中了什么（名单、遮挡都算上）。 */
-    hitAt(sx: number, sy: number): import("./space-target.ts").Hit;
+    hitAt(sx: number, sy: number): Hit;
+    /** 屏幕一点的射线只和第 ti 项第 tri 个三角形求交（少打射线，1-4d 第 7 条；space-target.ts rayHitTri：和 rayHit 打中它时逐位相同）；没中 = null。 */
+    hitTri(sx: number, sy: number, ti: number, tri: number): Hit | null;
     down(x: number, y: number, p: number, t?: number | null): void;
     move(x: number, y: number, p: number, t?: number | null): void;
     up(): void;
