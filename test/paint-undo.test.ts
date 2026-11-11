@@ -3,7 +3,7 @@
 // 一笔 = 落层之后 commitRecords 一步（commitStep）、每次之后 sync（每帧的「准备」）。一笔 = 交给档口一块矩形色块当薄层（像素进出照样走内核）。
 // ① 混着来回逐字节对：在 paint-undo-random.test.ts（拆开跑）。架子在 paint-undo-kit.ts。
 // ② 一笔画到两张贴图：一次撤销两张都退；第二张翻不成（问的时候说不能 / 翻的时候抛）= 什么都没动；翻回去也抛 = 那张画的步作废、记录摘掉、说出来。
-// ③ 额度：最老的步被挤掉时内核那边活着的步数跟着减；画没了的画板歇着，栈里没有它的记录了才扔。
+// ③ 额度：最老的步被挤掉时内核那边活着的步数跟着减；画没了的画板歇着，一直留到关文件（0-3a 统筹改判：栈里没有它的记录了也不扔）。
 // ④ 画布加高那一步：挤出让画布加高，撤销之后画板和贴图坐标都缩回去，再重做回来；加高之后在新的行上画过、又撤销到加高之前也缩得回去。
 // ⑤ 统筹点的两个例子：开始画 → 画一笔 → 撤两下 → 重做两下；删掉画着的物件（清理掉定义）再撤销回来，画和它之前的每一步都还能撤。
 import { describe, it, eq, assert } from "./runner.mjs";
@@ -62,7 +62,7 @@ describe("额度和画板活多久（1-8a）", () => {
     assert(r.h.evictedCount() > 0, "挤掉过");
     eq(r.live(tex), r.paintRecords(tex), "内核活着的步数 = 栈里的记录数");
   });
-  it("画没了（清理掉定义）= 歇着；栈里它的记录被挤掉之后才扔；同一个身份号回来接着用", () => {
+  it("画没了（清理掉定义）= 歇着；同一个身份号回来接着用", () => {
     const r = rig(2, { quota: 1 << 20 }), rnd = rng(9), texs = r.defs.map((d) => r.startPaint(d));
     r.stroke([texs[0]], rnd); r.stroke([texs[0]], rnd);
     const root = r.cur().root, inst = [...r.cur().def(root).instances.values()].find((i) => i.def === r.defs[0])!;
@@ -74,7 +74,7 @@ describe("额度和画板活多久（1-8a）", () => {
     r.undo(); r.undo();   // 两笔也能撤
     eq(r.paintRecords(texs[0]), 2, "两笔的记录都在");
   });
-  it("歇着的画板：栈里的记录全被挤掉 = 扔（内核的步一条不剩）", () => {
+  it("歇着的画板：栈里的记录全被挤掉 = 不扔（0-3a 改判），内核的步一条不剩、画板的内容一个字节不动", () => {
     const r = rig(2), rnd = rng(11), texs = r.defs.map((d) => r.startPaint(d));
     r.stroke([texs[0]], rnd);
     const root = r.cur().root, inst = [...r.cur().def(root).instances.values()].find((i) => i.def === r.defs[0])!;
@@ -82,12 +82,14 @@ describe("额度和画板活多久（1-8a）", () => {
     r.commit({ op: "purgeDefs", defs: [r.defs[0]] } as Op);
     const steps = (r.boards as unknown as { entries: Map<string, { steps: { liveCount(): number } }> }).entries.get(texs[0])!.steps;
     assert(!!r.boards.get(texs[0]), "歇着");
+    const px0 = r.shot();
     r.h.dropRedo();
     (r.h as unknown as { quota: number }).quota = 1;   // 额度调到最小：下一步把更早的全挤掉
     r.stroke([texs[1]], rnd);
     eq(r.paintRecords(texs[0]), 0, "它的记录全被挤掉");
-    eq(r.boards.get(texs[0]), undefined, "画板扔了");
+    assert(!!r.boards.get(texs[0]), "画板还在（歇着，留到关文件）");
     eq(steps.liveCount(), 0, "内核的步一条不剩");
+    eq(r.shot().split("\n").find((l) => l.startsWith(texs[0].slice(0, 4))), px0.split("\n").find((l) => l.startsWith(texs[0].slice(0, 4))), "A 的画一个字节不动");
   });
 });
 

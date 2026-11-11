@@ -142,14 +142,14 @@ export class PaintBoard {
   /**
    * 扔掉这块画板：图块全部还给内核的图块池（1-8a 统筹审查：以前只记个「扔了」，图块一直占着）。
    * 和画画仓 WeebPaintBackend.dispose 同一手：换 1×1 空根 = 现在的内容还池；装载顺手清栈 = 步里攒着的旧图块也还池（交给三维的栈的步也在内：HostedSteps.clear 逐步释放、发 onReset）；
-   * 最后图块账退租。开着的一笔要宿主先取消（登记处 disposeAll 先 cancelOpen；令牌开着时装载会抛）。只做一次。
-   * 显卡那一侧（GLBoard 的图块纹理）内核还没有退租口——记在施工记录里等统筹定。
+   * 图块账退租；显卡上那份退租（内核 v0.14.77 的 GLBoard.dispose：建的纹理全删、借的离屏图全还，0-3a）。开着的一笔要宿主先取消（登记处 disposeAll 先 cancelOpen；令牌开着时装载会抛）。只做一次。
    */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.last = null; this.hostOverlays = [];
     this.wp.load(BLANK_1x1);
     this.wp.layerTiles.dispose();
+    this.gl.dispose();
   }
 
   // ---------------------------------------------------------------- 内部

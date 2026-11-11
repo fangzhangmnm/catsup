@@ -64,6 +64,11 @@ export interface UndoComponent<R = unknown> {
   swap(record: R, host: UndoHost): R;
   /** 字节估计（配额用；量纲：字节；量级即可）。 */
   bytes(record: R): number;
+  /**
+   * 字节会变（画：内核的图块没压缩时记 0、归图块池自己的额度管，压缩之后记压缩后的大小、被几条记录共用时分摊——画画软件的栈每次重算，0-3a）：
+   * 算额度之前现问一遍 bytes，不用挂上时存的那个数。不给 = 挂上时算一次（别的成分照旧）。
+   */
+  readonly volatileBytes?: boolean;
   dispose?(record: R): void;
   /** 翻之前先问（整步事务第一段）：这一步里这种成分的全部记录（按要翻的先后）现在能不能按 dir 翻；不能 = 原因，能 = null。不给 = 永远能。不许改任何状态。 */
   check?(records: readonly R[], dir: "undo" | "redo", host: UndoHost): string | null;
@@ -181,7 +186,19 @@ export class History<M = unknown> {
   position(): number { return this.cursor; }
   log(): readonly Op[] { return this.ops; }
   /** 撤销记录占的字节（估计）。 */
-  usageBytes(): number { let n = 0; for (let i = this.evicted; i < this.entries.length; i++) for (const e of this.entries[i]) n += e.bytes; return n; }
+  /** 现在占多少字节（还能撤的那一段）。字节会变的成分现问一遍、顺手记下（volatileBytes）。 */
+  usageBytes(): number {
+    const live = this.volatileKinds();
+    let n = 0;
+    for (let i = this.evicted; i < this.entries.length; i++) for (const e of this.entries[i]) { if (live && live.has(e.kind)) e.bytes = this.components.get(e.kind)!.bytes(e.data); n += e.bytes; }
+    return n;
+  }
+  /** 登记过的「字节会变」的成分；一个都没有 = null（不画画的栈不多做一点事）。 */
+  private volatileKinds(): ReadonlySet<string> | null {
+    let out: Set<string> | null = null;
+    for (const [k, c] of this.components) if (c.volatileBytes) (out ??= new Set()).add(k);
+    return out;
+  }
   /** 被配额驱逐、不能再撤的 op 数（披露用）。 */
   evictedCount(): number { return this.evicted; }
 
@@ -370,10 +387,11 @@ export class History<M = unknown> {
   /** 从最老端整步驱逐到配额之内；最新一步永不驱逐。驱逐 = 丢撤销记录、游标之前不能再撤；指令流留着。 */
   private evictToQuota(): void {
     const lastStart = ((): number => { let s = this.cursor; do s--; while (s > 0 && this.joins[s]); return s; })();
-    while (this.usageBytes() > this.quota && this.evicted < lastStart) {
+    let usage = this.usageBytes();   // 一次算清（字节会变的现问），之后每驱逐一步减掉它的（以前每一圈都全扫一遍）
+    while (usage > this.quota && this.evicted < lastStart) {
       let j = this.evicted + 1;
       while (j < this.ops.length && this.joins[j]) j++;
-      for (let i = this.evicted; i < j; i++) { for (const e of this.entries[i]) this.components.get(e.kind)?.dispose?.(e.data); this.entries[i] = []; }
+      for (let i = this.evicted; i < j; i++) { for (const e of this.entries[i]) { usage -= e.bytes; this.components.get(e.kind)?.dispose?.(e.data); } this.entries[i] = []; }
       this.evicted = j;
     }
   }

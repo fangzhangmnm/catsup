@@ -6,8 +6,10 @@
 // · 撤销（贴图主线 1-8a，施工单 ai-docs/20261111-paint-workorders-12.md，统筹 11-11 裁定）：画板用内核的 HostedSteps，内核封好的每一步交给三维的撤销栈（这里先攒着，
 //   编辑器提交收尾时 / 一笔收完时取走挂上）；undoComponent() = 「画」这一种撤销成分（翻 = 叫内核翻；问 = 内核认不认这个方向、这一笔开没开着；丢 = 告诉内核丢掉）。
 //   跟大小 = follow()（编辑器提交的收尾里调，封出来的那一步并进那条指令的那一步）。
-// · 画板活多久（统筹 11-11）：看三维的撤销栈里还有没有它的记录，不看场景里现在有没有这张画。场景里没了 = 歇着（不合成、不进每帧的活、不占显示用的图；同一个贴图身份号回来了接着用这一块）；
-//   歇着、而且栈里一条它的记录都没有了（被截断、被额度挤掉、被摘掉）= 这时才扔。记录数靠成分的 dispose / forget 数，不扫全栈。换文件 = 全扔。
+// · 画板活多久（统筹 11-11 改判，0-3a）：**只在换文件时扔**。画板是这张画的像素唯一的一份（编成字节存进文件之前），模型那一侧的步（删物件、撤销开始画、清理贴图）撤回来时要的正是它，
+//   所以不因为栈里没有画的记录了就扔（1-8a 那条「歇着且记录数为零就扔」作废：会丢画，施工单十二的记录里有复现）。场景里没了 = 歇着（不合成、不进每帧的活、不占显示用的图；
+//   同一个贴图身份号回来了接着用这一块），一直留到关文件；歇着那块的内存靠图块池接上压缩之后自己压（tile-jobs.ts）。画的记录被额度挤掉 = 只告诉内核丢那几步，画板的内容不动。
+//   以后要再省（编好字节、变冷）等 1-8b 有了编码缓存：先有一份字节挂在所有还回得去的地方，才许放画板。
 // · 整个程序只有一个内核的显卡接口：第一次要用时建在渲染器的画面上（BrowserGl2Port.fromContext），以后所有画板共用。
 import { BrowserGl2Port } from "./kernel/src/shell/browser-gl2-port.ts";
 import type { Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
@@ -35,7 +37,7 @@ export interface PaintBoardsOpts {
 export interface PaintRec { /** 哪张贴图（GUID；字段不叫 texture：守卫 textures-table 不许「点 texture」）。 */ readonly tex: Guid; readonly step: Parameters<HostedSteps["flip"]>[0] }
 export const PAINT_UNDO_KIND = "paint";
 
-interface Entry { readonly board: PaintBoard; readonly image: LiveImage; prepared: { gpuImage: unknown; version: number } | null; readonly steps: HostedSteps; dormant: boolean; records: number; open: number }
+interface Entry { readonly board: PaintBoard; readonly image: LiveImage; prepared: { gpuImage: unknown; version: number } | null; readonly steps: HostedSteps; dormant: boolean; open: number }
 
 export class PaintBoards {
   private readonly entries = new Map<Guid, Entry>();
@@ -60,13 +62,13 @@ export class PaintBoards {
     let born = true;   // 刚建画板时内核要是叫 onReset（空的那一次）：什么都不用做
     const steps = new HostedSteps({
       onStep: (step) => { this.pending.push({ tex: texture, step }); },
-      onReset: () => { this.pending = this.pending.filter((p) => p.tex !== texture); if (!born && !this.disposing) this.o.undoReset?.(texture, this.resetWhy?.why ?? "画画内核说这张画的状态不可信", this.resetWhy?.tell ?? true); },   // 扔画板时内核清栈也会叫它：那时栈里已经没有它的记录（歇着且记录 0）或整个栈换了（换文件），不用去摘
+      onReset: () => { this.pending = this.pending.filter((p) => p.tex !== texture); if (!born && !this.disposing) this.o.undoReset?.(texture, this.resetWhy?.why ?? "画画内核说这张画的状态不可信", this.resetWhy?.tell ?? true); },   // 扔画板（只在换文件时）内核清栈也会叫它：那时整个栈已经换了，不用去摘
     });
     const board = new PaintBoard({ port: this.port, width: place.uvSet.width, height: place.uvSet.height, log: this.o.log, undo: steps });
     born = false;
     this.pending = this.pending.filter((p) => p.tex !== texture);   // 建画板时内核要是封过步（空画布的那一步）：不进三维的栈
     board.setBackground(place.material.color);
-    const entry: Entry = { board, image: null as unknown as LiveImage, prepared: null, steps, dormant: false, records: 0, open: 0 };
+    const entry: Entry = { board, image: null as unknown as LiveImage, prepared: null, steps, dormant: false, open: 0 };
     (entry as { image: LiveImage }).image = {
       kind: "live",
       get width() { return board.width; },
@@ -108,13 +110,13 @@ export class PaintBoards {
   /** 只给量的时候用（探针）：每段前后等显卡把活做完，量到的才是显卡真花的时间。平时 null。 */
   measureSync: (() => void) | null = null;
 
-  /** 换文件全销毁；画没了 = 歇着（栈里也没有它的记录了 = 扔）；回来了 = 接着用；垫底色（prepare 的第一步；测试也直接调）。不改大小（1-8a：跟大小在提交的收尾里，follow）。 */
+  /** 换文件全销毁；画没了 = 歇着（留到关文件）；回来了 = 接着用；垫底色（prepare 的第一步；测试也直接调）。不改大小（1-8a：跟大小在提交的收尾里，follow）。 */
   sync(scene: Scene): void {
     if (this.checkEpoch() || !this.entries.size) return;
     let changed = false;
     for (const [g, e] of [...this.entries]) {
       const place = paintPlaceOf(scene, g);
-      if (!place) { if (!e.dormant) { e.dormant = true; e.prepared = null; changed = true; } if (this.retire(g)) changed = true; continue; }
+      if (!place) { if (!e.dormant) { e.dormant = true; e.prepared = null; changed = true; } continue; }
       if (e.dormant) { e.dormant = false; changed = true; }
       e.board.setBackground(place.material.color);
     }
@@ -142,12 +144,8 @@ export class PaintBoards {
   // —— 撤销（1-8a）——
   private pending: PaintRec[] = [];
   private resetWhy: { why: string; tell: boolean } | null = null;
-  /** 内核交来、还没挂进三维的栈的步（取走 = 交给编辑器挂上；记录数跟着加）。 */
-  takePending(): PaintRec[] {
-    const out = this.pending; this.pending = [];
-    for (const r of out) { const e = this.entries.get(r.tex); if (e) e.records++; }
-    return out;
-  }
+  /** 内核交来、还没挂进三维的栈的步（取走 = 交给编辑器挂上）。 */
+  takePending(): PaintRec[] { const out = this.pending; this.pending = []; return out; }
   /** 正开着的一笔（档口开着令牌）：撤销 / 重做之前取消它们（beforeHistoryMove）。返回撤掉登记。 */
   trackOpen(texture: Guid, cancel: () => void): () => void {
     const e = this.entries.get(texture);
@@ -173,25 +171,12 @@ export class PaintBoards {
     try { e.board.load(data); } finally { this.resetWhy = null; }
     this.pending = this.pending.filter((p) => p.tex !== texture);   // 装载封的那一步不进三维的栈（以前的都作废了）
   }
-  /** 歇着、而且三维的栈里一条它的记录都没有了 = 扔。 */
-  private retire(texture: Guid): boolean {
-    const e = this.entries.get(texture);
-    if (!e || !e.dormant || e.records > 0 || e.open > 0) return false;   // 有一笔开着：等它收了（或换文件全扔）再扔
-    this.entries.delete(texture); this.kill(e.board);
-    return true;
-  }
-  /** 扔一块画板：图块全部还池（PaintBoard.dispose）；这期间内核清栈发的 onReset 不往三维的栈里摘记录。 */
+  /** 扔一块画板（只在换文件时）：图块全部还池、显卡上那份退租（PaintBoard.dispose）；这期间内核清栈发的 onReset 不往三维的栈里摘记录。 */
   private kill(board: PaintBoard): void {
     this.disposing = true;
     try { board.dispose(); } finally { this.disposing = false; }
   }
   private disposing = false;
-  private recordGone(texture: Guid): void {
-    const e = this.entries.get(texture);
-    if (!e) return;
-    e.records = Math.max(0, e.records - 1);
-    if (this.retire(texture)) this.resig();
-  }
   /** 「画」这一种撤销成分（编辑器 registerUndoComponent 登记）。 */
   undoComponent(): UndoComponent<PaintRec> {
     const steps = (r: PaintRec): HostedSteps | null => this.entries.get(r.tex)?.steps ?? null;
@@ -213,8 +198,8 @@ export class PaintBoards {
       },
       swap: (r) => { const s = steps(r); if (!s) throw new Error(`paint undo: no board for texture ${r.tex}`); s.flip(r.step); this.overlayTouched(r.tex); return r; },
       bytes: (r) => steps(r)?.bytes(r.step) ?? 0,
-      dispose: (r) => { steps(r)?.drop(r.step); this.recordGone(r.tex); },
-      forget: (r) => { this.recordGone(r.tex); },
+      dispose: (r) => { steps(r)?.drop(r.step); },   // 截断 / 额度挤掉：只告诉内核丢那一步（图块还池），画板的内容不动
+      volatileBytes: true,   // 内核的图块没压缩时记 0、压缩之后记压缩后的大小（0-3a）：算额度之前现问
       untrusted: (r, cause) => { const why = `翻回去也失败了（${cause instanceof Error ? cause.message : String(cause)}）`; this.distrust(r.tex, why); return `这张画的撤销记录清掉了：${why}`; },
     };
   }
@@ -233,6 +218,7 @@ export class PaintBoards {
     const all = [...this.entries.values()];
     this.entries.clear(); this.pending = []; this.opens.clear();
     for (const e of all) this.kill(e.board);
+    if (all.length) this.port?.clearPool();   // 一块画板都不剩了：内核显卡接口池子里空着的离屏图也删掉（池是几块画板共用的，只有它们用；扔光了才清）
     this.resig();
   }
 
