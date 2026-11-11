@@ -134,7 +134,7 @@ export function brepToMesh(b: BrepBody): MeshBody {
   addBrepPool(m, b.kernel, isBack);
   for (const g of [...b.groups.values()].sort((x, y) => x.id - y.id)) addBrepPool(m, g.kernel, isBack);
   keepLookUnderAngle(m, 30);   // 默认平滑 = 按角度 30°（FM129）；SU 里本来硬、夹角又小于 30° 的边手标成棱 = 转过来样子不变，之后新长的几何跟着默认平滑走
-  return { kind: "mesh", kernel: m, materialSlots: [...b.materialSlots] };
+  return { kind: "mesh", kernel: m, materialSlots: [...b.materialSlots], uvSets: new Map() };
 }
 /** p 落在三角形 abc 里（p 已知在它的平面上；重心坐标都 ≥ −容差）。 */
 const inTriangle = (p: Pt3, a: Pt3, b: Pt3, c: Pt3): boolean => {

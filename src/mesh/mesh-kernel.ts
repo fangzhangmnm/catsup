@@ -246,6 +246,24 @@ export class MeshKernel {
     const s = this.faceStart[f] * c.arity, n = this.faceLen[f] * c.arity;
     return Number.isNaN(c.data[s]) ? null : c.data.slice(s, s + n);
   }
+  /**
+   * 这一列（每角两个数）上有值的每张活面的包围盒，摊平成 [横小, 纵小, 横大, 纵大, …]（贴图主线 1-3b：补面时「画布上哪里被占着」，一趟扫完、不拷每张面的值）。
+   * 没有这一列 / 不是每角两个数 = 空。
+   */
+  columnBoxes(guid: string): Float64Array {
+    const c = this.columns.find((x) => x.guid === guid);
+    if (!c || c.arity !== 2) return new Float64Array(0);
+    const out: number[] = [], d = c.data;
+    for (let f = 0; f < this.fCount; f++) {
+      if (!this.fAlive[f]) continue;
+      const s = this.faceStart[f] * 2, n = this.faceLen[f];
+      if (Number.isNaN(d[s])) continue;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let i = 0; i < n; i++) { const x = d[s + 2 * i], y = d[s + 2 * i + 1]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      out.push(x0, y0, x1, y1);
+    }
+    return Float64Array.from(out);
+  }
   /** 这张面在每一列上的值（GUID → 角数 × arity）；没值的列不在表里。整张面搬到别的内核时交给 fresh。 */
   faceValues(f: number): Map<string, Float32Array> {
     const out = new Map<string, Float32Array>();

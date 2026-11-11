@@ -80,7 +80,7 @@ export function materializeDefinitions(scene: Scene, entries: readonly Definitio
     const d = e.def, def = scene.def(idOf.get(d.guid)!);
     // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
     if (d.kind === "mesh" && d.mesh) {
-      def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: slotsOf(d) };
+      def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: slotsOf(d), uvSets: new Map() };   // 文件里还没有贴图坐标（1-2½）
       if (d.mesh.mirror) scene.meshMirrors.set(def.id, { mode: d.mesh.mirror.mode, axis: d.mesh.mirror.axis });
       placeInstances(def.id, e, () => null);   // 网格体没有组
       continue;
@@ -147,6 +147,9 @@ export function definitionToDoc(scene: Scene, id: DefId, name?: string): Definit
 
 /** 场景 → 文档（base = 打开时的文档，保留未知携带内容 / 设置 / 视图）。 */
 export function documentFromScene(scene: Scene, name: string, base?: CatsupDocument | null): CatsupDocument {
+  // 贴图坐标进文件是 1-2½（贴图主线）：在那之前，带着贴图坐标的网格体写盘 = 抛、写明原因，不许悄悄丢（1-3b；守卫 test/paint-start-guard.test.ts）。
+  //   抛在整份写盘这里、不在 definitionToDoc：后者也是条目仓库的读面（粘贴对账、复制成唯一），那些路上不该炸。
+  for (const d of scene.defs.values()) if (d.body.kind === "mesh" && d.body.uvSets.size) throw new Error(`definition "${d.name}" (${d.guid}): this mesh carries ${d.body.uvSets.size} set(s) of texture coordinates for painting, which cannot be written to a file yet (lands with work order 1-2½); refusing to write a file that would silently drop them`);
   const ids = [...scene.defs.keys()];
   const rootIndex = ids.indexOf(scene.root);
   const definitions: DefinitionDoc[] = ids.map((id) => definitionToDoc(scene, id, id === scene.root ? name : undefined));

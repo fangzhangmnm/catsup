@@ -40,7 +40,8 @@ export interface CarriedJson { readonly json: unknown; readonly views: ReadonlyM
 /** 贴图的内容：原图 / 分层的画（ora 字节，这一层不解释，显示成灰色占位）/ 更新版写的种类（整段原样带回，显示成灰色占位）。 */
 export type TextureContent =
   | { readonly kind: "image"; readonly mimeType: string; readonly bytes: Uint8Array }
-  | { readonly kind: "layered"; readonly ora: Uint8Array }
+  /** ora = null：新建的画、还没有编过码（编码靠画画内核、是异步的；第一次存盘时才有字节 = 1-8）。读文件读进来的永远有字节；写盘碰到 null = 抛（贴图主线 1-3b）。 */
+  | { readonly kind: "layered"; readonly ora: Uint8Array | null }
   | { readonly kind: "other"; readonly raw: CarriedJson };
 /** 贴图表的一行。表里的先后没有意思；条目不可变（改 = 换一个对象）。 */
 export interface TextureDoc {
@@ -51,7 +52,7 @@ export interface TextureDoc {
   readonly content: TextureContent;
   /** 自由的图：物理尺寸 米（两个数都 > 0）。和 layout 正好有一个。 */
   readonly sizeM?: readonly [number, number];
-  /** 单品的画：{ definition, uvSet }（这一版没有入口造它，原样带）。 */
+  /** 单品的画：{ definition, uvSet }（两个 GUID 字符串；形状不认识的原样带，当它不是画）。读它只经 paintIn。 */
   readonly layout?: unknown;
   /** 行里不认识的键（原样带回）。 */
   readonly extra?: CarriedJson;
@@ -70,6 +71,21 @@ export function colorMapIn(table: ReadonlyMap<Guid, TextureDoc>, m: { readonly c
   const g = m.channels?.[COLOR_CHANNEL]?.[0];
   const t = g === undefined ? undefined : table.get(g);
   return t && t.content.kind === "image" && t.sizeM ? (t as ColorMap) : null;
+}
+/** 画：颜色那一槽指着的那张分层的贴图，和它铺在哪个定义的哪一套贴图坐标上（两个 GUID）。 */
+export interface PaintRef { /** 那张分层的贴图（贴图表里那一行；字段不叫 texture：守卫 textures-table 不许「点 texture」这种读法，免得和旧的「材质里装着图」混）。 */ readonly textureDoc: TextureDoc; readonly definition: Guid; readonly uvSet: Guid }
+/**
+ * 「这个材质是不是画」全仓唯一的问法（贴图主线 1-3b；紧挨着 colorMapIn，两个加在一起是问「颜色那一槽是什么」的全部入口）：颜色那一槽的第一张，内容是分层的，
+ * 而且 layout 是 { definition, uvSet } 两个 GUID 字符串 → 那张图和两个 GUID；别的情况 = null。layout 形状不认识的照旧原样带，当它不是画。
+ * src/ 里读贴图的 layout 只有这里（守卫 test/paint-start-guard.test.ts；读写文件的 texture-table.ts 只是原样搬运）。
+ */
+export function paintIn(table: ReadonlyMap<Guid, TextureDoc>, m: { readonly channels?: Channels }): PaintRef | null {
+  const g = m.channels?.[COLOR_CHANNEL]?.[0];
+  const t = g === undefined ? undefined : table.get(g);
+  if (!t || t.content.kind !== "layered") return null;
+  const l = t.layout as { definition?: unknown; uvSet?: unknown } | null | undefined;
+  if (!l || typeof l !== "object" || typeof l.definition !== "string" || typeof l.uvSet !== "string") return null;
+  return { textureDoc: t, definition: l.definition, uvSet: l.uvSet };
 }
 /** 材质（= glTF core material）：颜色 sRGB 0..1 + channels（通道名 → 一摞贴图 GUID；这一版只用 color、一摞只放一张；不认识的名字原样带）。 */
 export interface MaterialDoc { /** 身份（CATSUP_material 1.2）；名字只是显示、可重名。 */ guid: Guid; name: string; color: [number, number, number]; channels?: Channels; /** CATSUP_material 里本版不认识的键（更新版写的），连同它们引用的字节原样带回（2026-11-10 起，Fable 审 1-0½）。 */ extra?: CarriedJson; }

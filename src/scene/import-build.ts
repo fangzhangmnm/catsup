@@ -58,7 +58,7 @@ export function buildImport(s: Scene, at: PoolRef, data: ImportedScene, place: X
   /** 网格号 → 新定义（网格体 = 自己的内核；老复现包的膜 = brep 定义）。 */
   const mintMeshDef = (name: string, mi: number): DefId => {
     const m = data.meshes[mi];
-    if (m.mesh) { const d = s.mintDef(name, new Kernel()); d.body = { kind: "mesh", kernel: kernelFromMeshDoc(m.mesh, `导入「${name}」`), materialSlots: [] }; return d.id; }
+    if (m.mesh) { const d = s.mintDef(name, new Kernel()); d.body = { kind: "mesh", kernel: kernelFromMeshDoc(m.mesh, `导入「${name}」`), materialSlots: [], uvSets: new Map() }; return d.id; }
     if (m.brep) return s.mintDef(name, Kernel.fromBrep(m.brep)).id;
     throw new Error(`导入：网格 ${mi} 没有载荷`);
   };

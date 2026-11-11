@@ -359,7 +359,7 @@ function wrapInMesh(s: Scene, op: Extract<Op, { op: "makeComponent" }>): ApplyRe
   const pts = isel.flatMap((i) => s.pointsOfDef(i.def, i.xform)), origin = pts.length ? bboxMin(pts) : { x: 0, y: 0, z: 0 };
   const T = translation({ x: -origin.x, y: -origin.y, z: -origin.z });
   const def = s.mintDef(op.name, new Kernel());
-  def.body = { kind: "mesh", kernel: new MeshKernel(), materialSlots: [...slots] };
+  def.body = { kind: "mesh", kernel: new MeshKernel(), materialSlots: [...slots], uvSets: new Map() };
   for (const i of isel) {
     const ni = s.mintInstance(def.id, null, i.def, compose(T, i.xform), i.guid);   // 搬家保身份（ID-2）
     if (i.name !== undefined) ni.name = i.name;
@@ -854,7 +854,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       nk.setSmoothDefault(k.smoothDefault);
       deleteSelection(k, { faces }, false);
       const d = s.mintDef(op.name, new Kernel());
-      d.body = { kind: "mesh", kernel: nk, materialSlots: [...src.materialSlots] };
+      d.body = { kind: "mesh", kernel: nk, materialSlots: [...src.materialSlots], uvSets: new Map() };   // 带着画的面分不出来（paintMoveBlocked 先拒）：新物件没有贴图坐标的表
       s.mintInstance(op.at.def, op.at.group, d.id, xf);
       return { scene: s, events: [] };
     }
