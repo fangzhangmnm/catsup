@@ -52,10 +52,11 @@ float distToTri(vec2 p, vec2 a, vec2 b, vec2 c) {
   return sqrt(min(segD2(p, a, b), min(segD2(p, b, c), segD2(p, c, a))));
 }
 void main() {
-  int x = int(gl_FragCoord.x), y = int(gl_FragCoord.y), cell = y * int(u_size.x) + x;
+  int x = int(gl_FragCoord.x), y = int(gl_FragCoord.y);
   int it = 4 * v_item, tip = int(at(u_inst, it)), poly = int(at(u_inst, it + 1)), fs = int(at(u_inst, it + 2)), fn = int(at(u_inst, it + 3));
-  if (int(at(u_owner, cell)) != poly) discard;
-  vec2 s = vec2(at(u_sx, cell), at(u_sy, cell));
+  ivec2 xy = ivec2(x, y);   // 每格的三张数据图和画布一样大：按格子坐标取（不是一维折行的那种）
+  if (int(texelFetch(u_owner, xy, 0).r) != poly) discard;
+  vec2 s = vec2(texelFetch(u_sx, xy, 0).r, texelFetch(u_sy, xy, 0).r);
   int tb = ${TIP_STRIDE} * tip;
   vec3 tc = vec3(at(u_tips, tb), at(u_tips, tb + 1), at(u_tips, tb + 2));
   float r = at(u_tips, tb + 3), al = at(u_tips, tb + 4), best = 1e30;

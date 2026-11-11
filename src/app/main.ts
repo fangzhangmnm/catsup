@@ -73,7 +73,13 @@ import { Renderer3 } from "../minccino/providers/three/render3.ts";
 import { browserPaintBoards } from "../paint/boards.ts";   // 画板登记处（贴图主线 1-3c）：一张贴图一块画板；这一张只有调试钩子 __catsup.paint 建
 import { paintPlaceOf } from "../scene/paint.ts";
 import { buildTriGrid, pickSurface } from "../paint/surface-pick.ts";   // 调试钩子 __catsup.paint.cellAt：1-3a 的落点
-import { applyDir, applyPt, invert } from "../scene/xform.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
+import { applyDir, applyPt, invert } from "../scene/xform.ts";
+// 调试钩子 __catsup.paint.lab（贴图主线 1-4b）：探针在页面里拿三维的空间层那几块（薄层、软件版、名单、找面、真显卡版）对拍；没有界面入口
+import { SpaceLayer, SPACE_TIP } from "../paint/space-layer.ts";
+import { SoftSpaceGpu } from "../paint/space-gpu-soft.ts";
+import { buildTargetGeo } from "../paint/space-target.ts";
+import { tipReach, sphereTriDist } from "../paint/tip-reach.ts";
+import { paintTargets } from "../paint/paint-targets.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
 import { PALETTE, PRESETS, PRESET_IDS, isPresetId, isDarkPaper, SCREENS, SCREEN_IDS, isScreenId, type Preset, type MarkAccent } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
 import { makeBudgetWatch } from "./budget-notice.ts";
 import { KEYS_TABLE, README_SECTIONS } from "./readme-docs.ts";
@@ -2427,6 +2433,7 @@ void (async () => {
     fill: (guid: string, rgba: ArrayLike<number>) => { const b = paintBoards.get(guid); if (!b) throw new Error(`no board for ${guid}`); b.load({ width: b.width, height: b.height, nodes: [{ name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: { rect: { x: 0, y: 0, w: b.width, h: b.height }, bytes: new Uint8ClampedArray(rgba) } }] }); editor.draw(); },
     list: () => paintBoards.guids().map((g) => ({ guid: g, width: paintBoards.get(g)!.width, height: paintBoards.get(g)!.height })),
     stats: () => (editor.renderer3 as unknown as { liveStats(): { images: number; copyMs: number } }).liveStats(),
+    lab: { SpaceLayer, SPACE_TIP, SoftSpaceGpu, buildTargetGeo, tipReach, sphereTriDist, gpu: () => editor.renderer3.offscreenGpu(), targets: (guid: string) => { const b = paintBoards.get(guid); return b ? paintTargets(editor.worldGeom(), editor.sceneRef, guid, { width: b.width, height: b.height }) : []; } },
     /** 屏幕上一点（CSS 像素）按 1-3a 的落点落在这张画的哪一格（探针拿它和屏幕上读到的颜色对）；只看摆在最外层的那一份。 */
     cellAt: (guid: string, sx: number, sy: number) => {
       const S = editor.sceneRef, place = paintPlaceOf(S, guid), body = place ? S.def(place.def).body : null;
