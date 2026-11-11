@@ -23,7 +23,7 @@ import { exportSideCounts, type BrepSideCounts } from "../scene/kinds.ts";
 import { isForeignGlb } from "../format/gltf-import.ts";
 import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
-import { defaultDesk, emptyReferences, type DeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
+import { defaultDesk, emptyReferences, type DeskDoc, type PaintDeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import { formatNotesSay, lossySay } from "./format-notes.ts";
 import type { Xform } from "../scene/xform.ts";
 import { AUTOSAVE_IDLE_MS, DOC_EXT, DOC_EXTS, defaultDocName, downloadName, hex4, RELOAD_PUSH_WAIT_MS } from "../config.ts";
@@ -83,6 +83,8 @@ export interface SessionDeps {
   paintSave?: { freeze(doc: CatsupDocument, scene: Scene, mode: "save" | "snapshot"): { readonly stale: boolean; finish(): Promise<CatsupDocument> }; cacheKey(): string; refresh(scene: Scene): Promise<void> };
   /** 风格 / 屏幕跟文件走（desk 1.3，T86）：载入 / 新建后套上（null = 用默认）。app 认不出的 id 当没有。 */
   applyView?: (style: string | null, screen: string | null) => void;
+  /** 画画工作台的笔跟文件走（desk 1.5；user 11-11「笔的设置记在哪 学weebpaint」）：载入 / 新建后套上（null = 默认）。 */
+  applyPaint?: (p: PaintDeskDoc | null) => void;
   onHomeChanged: () => void;
   setStatus: (text: string, error?: boolean) => void;
   online: () => boolean;
@@ -192,7 +194,10 @@ export class Session {
     if (v.style !== undefined) { if (v.style === null) delete this.desk.style; else this.desk.style = v.style; }
     if (v.screen !== undefined) { if (v.screen === null) delete this.desk.screen; else this.desk.screen = v.screen; }
   }
-  private applyDeskView(): void { this.d.applyView?.(this.desk.style ?? null, this.desk.screen ?? null); }
+  private applyDeskView(): void { this.d.applyView?.(this.desk.style ?? null, this.desk.screen ?? null); this.d.applyPaint?.(this.desk.paint ?? null); }
+  /** 画画工作台的笔（desk 1.5）：跟文件走，改它不标脏、不进撤销，下次存盘顺手带走（同风格 / 导出表单）。 */
+  get paintDesk(): PaintDeskDoc | undefined { return this.desk.paint; }
+  setPaintDesk(p: PaintDeskDoc): void { this.desk.paint = p; }
   setMenuTab(key: string, tab: string): void { this.desk.menuTabs[key] = tab; }
   /** 导出表单上次的选择（desk 1.4）：跟文件走，改它不标脏（user 11-04「我建议文件workbench而不是workpiece记住」）。 */
   get exportChoice(): Readonly<Record<string, string>> { return this.desk.exportModel ?? {}; }

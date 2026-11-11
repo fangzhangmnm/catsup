@@ -1,7 +1,7 @@
 // paint-color.ts —— 画画的「现在的颜色」：选颜色只有这一个入口（贴图主线 1-7；统筹 11-11：「选颜色的地方只有一个入口，以后换成色轮只改这一处」）。created 2026-11-11 by Claude Opus 5.5
 // 三种选法都走 PaintColor.set：色块（三维现成的家族色表 PALETTE_ZH）、填颜色代码（#rrggbb，填错了说一句、不改当前颜色）、吸管（画画控制器取到的颜色）。
 // 正式的取色面板（色轮）= 画画仓那一套抽进共享库之后（家族周账 F-253）换掉 mountPaintColorSheet 这一处；颜色本身（sRGB 0..1）和 set 的口不变。
-// 颜色存哪由宿主给的那两个口定：现在只在这一次打开里记（main.ts；「记在设备上」user 还没点头，统筹 11-11 让先不开），不进文件。
+// 颜色跟文件走（desk 1.5 paint.color；user 11-11「笔的设置记在哪 学weebpaint」）：这里只在内存里记着现在的颜色，宿主（main.ts）载入时套上、改了写回桌面态；设备上不记。
 import { PALETTE_ZH } from "./palette.ts";
 
 export type Rgb = readonly [number, number, number];
@@ -11,8 +11,9 @@ export interface PaintColor {
   set(c: Rgb): void;
   subscribe(fn: () => void): () => void;
 }
-const KEY = "paint-color";
-const DEFAULT: Rgb = [0.1, 0.1, 0.1];
+/** 新文件 / 文件里没记的时候的颜色。 */
+export const PAINT_COLOR_DEFAULT: Rgb = [0.1, 0.1, 0.1];
+const DEFAULT = PAINT_COLOR_DEFAULT;
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 
 /** 「#rrggbb」（# 可省、大小写都行）→ sRGB 0..1；别的写法 = null。 */
@@ -24,12 +25,12 @@ export function parseHexColor(s: string): Rgb | null {
 }
 export function hexOf(c: Rgb): string { return "#" + c.map((v) => Math.round(clamp01(v) * 255).toString(16).padStart(2, "0")).join(""); }
 
-export function createPaintColor(kv: { get(k: string): string | null; set(k: string, v: string | null): void }): PaintColor {
-  let cur: Rgb = parseHexColor(kv.get(KEY) ?? "") ?? DEFAULT;
+export function createPaintColor(): PaintColor {
+  let cur: Rgb = DEFAULT;
   const subs = new Set<() => void>();
   return {
     get: () => cur,
-    set: (c) => { cur = [clamp01(c[0]), clamp01(c[1]), clamp01(c[2])]; kv.set(KEY, hexOf(cur)); for (const f of [...subs]) f(); },
+    set: (c) => { cur = [clamp01(c[0]), clamp01(c[1]), clamp01(c[2])]; for (const f of [...subs]) f(); },
     subscribe: (fn) => { subs.add(fn); return () => { subs.delete(fn); }; },
   };
 }

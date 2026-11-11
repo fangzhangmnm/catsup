@@ -74,7 +74,8 @@ import { browserPaintBoards, PAINT_UNDO_KIND, type PaintRec } from "../paint/boa
 import { initPaintTileJobs } from "../paint/tile-jobs.ts";
 import { PaintSaver } from "../paint/save.ts";
 import { PaintWorkbench } from "./paint-workbench.ts";   // 画画工作台的控制器（1-7）
-import { createPaintColor, mountPaintColorSheet, hexOf } from "./paint-color.ts";
+import { createPaintColor, mountPaintColorSheet, hexOf, parseHexColor, PAINT_COLOR_DEFAULT } from "./paint-color.ts";
+import type { PaintDeskDoc } from "../format/document.ts";
 import { mountPaintSliders } from "./paint-sliders.ts";
 import type { SpacePaintDeps } from "../paint/space-paint.ts";
 import { PAINT_STEP_LABELS } from "../editor/step-labels.ts";   // 画板登记处（贴图主线 1-3c）：一张贴图一块画板；这一张只有调试钩子 __catsup.paint 建
@@ -1705,6 +1706,31 @@ refBtn.addEventListener("click", () => { refHost.toggle(); syncRefBtn(); });
 const syncRefBtn = (): void => { const on = refHost.isOpen(); refBtn.classList.toggle("on", on); refBtn.setAttribute("aria-pressed", on ? "true" : "false"); };
 new MutationObserver(syncRefBtn).observe(refHost.el, { attributes: true, attributeFilter: ["open"] });
 syncRefBtn();
+// 画画工作台的笔跟文件走（desk 1.5 paint；user 11-11「笔的设置记在哪 学weebpaint」：画画软件 v406 起就是这样，设备上不记）。
+// 载入 / 新建时套上（套的时候不回写）；改了大小 / 浓度 / 硬度 / 颜色 = 写回桌面态（不标脏、不进撤销，下次存盘顺手带走）。
+// 先建颜色：会话一载入文件就要套上它（在会话之前建，免得开机那一下还没建好）。
+const paintColor = createPaintColor();
+const PAINT_DESK_TOOLS = ["paintPen", "paintEraser"] as const;
+let applyingPaintDesk = false, paintDeskReady = false;
+function applyPaintDesk(p: PaintDeskDoc | null): void {
+  applyingPaintDesk = true;
+  try {
+    for (const t of PAINT_DESK_TOOLS) {
+      editor.config.reset(t);
+      const d = p?.tools[t];
+      if (d) for (const k of ["size", "opacity", "hardness"] as const) if (d[k] !== undefined) editor.config.set(t, k, d[k]!);
+    }
+    paintColor.set(parseHexColor(p?.color ?? "") ?? PAINT_COLOR_DEFAULT);
+  } finally { applyingPaintDesk = false; }
+}
+function mirrorPaintDesk(): void {
+  if (applyingPaintDesk || !paintDeskReady) return;
+  const prev = session.paintDesk, tools = { ...(prev?.tools ?? {}) };   // 别的工具名、每把工具里不认识的键原样留着
+  for (const t of PAINT_DESK_TOOLS) tools[t] = { extra: prev?.tools[t]?.extra ?? {}, size: editor.config.get(t, "size"), opacity: editor.config.get(t, "opacity"), hardness: editor.config.get(t, "hardness") };
+  session.setPaintDesk({ color: hexOf(paintColor.get()), tools, extra: prev?.extra ?? {} });
+}
+editor.config.subscribe((tool) => { if ((PAINT_DESK_TOOLS as readonly string[]).includes(tool)) mirrorPaintDesk(); });
+paintColor.subscribe(mirrorPaintDesk);
 const session = new Session({
   editor,
   paintSave: paintSaver,
@@ -1712,6 +1738,7 @@ const session = new Session({
   onExplicitSave: (path) => { heldNeverUploaded.delete(path); },
   refs: refHost,
   captureThumbnail: () => captureThumbnail(editor),
+  applyPaint: (p) => applyPaintDesk(p),
   applyView: (style, screen) => { editor.renderer3.setPreset(isPresetId(style) ? style : "white"); syncNight(); editor.renderer3.setScreen(isScreenId(screen) ? screen : null); editor.draw(); },   // 风格 / 屏幕跟文件走（desk 1.3，T86）：认不出的 id = 默认
   onHomeChanged: updateSaveStatus,
   setStatus: (text, error) => { note("doc", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
@@ -1721,6 +1748,7 @@ const session = new Session({
   crypto: { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshPassword, setPassword, getPassword, unlockImportedContainer, isEncryptedBlob: (bytes) => appEncryption.isEncryptedBlob(bytes),
     packShadow: (bytes, name, pw) => appEncryption.packContainer({ dataBytes: bytes, fileName: name, ext: "catsup", password: pw }) },
 });
+paintDeskReady = true;   // 会话建好了：从这以后改笔才写回桌面态
 // 口令面板注入（crypto-state 零 DOM；守「无系统对话框」红线）。探针可换成脚本答题（__catsup.crypto.answer）。
 let probePasswordAnswer: ((o: PromptOpts) => Promise<string | null>) | null = null;
 setPasswordPrompt(async (o) => {
@@ -2485,8 +2513,6 @@ function paintStrokeDeps(chain?: readonly number[]): SpacePaintDeps {
   };
 }
 // 画画工作台（贴图主线 1-7）：颜色只有一个入口（paint-color.ts）；控制器接编辑器那边三把工具交过来的每一下
-const paintColorMem = new Map<string, string>();   // 先只在这一次打开里记（统筹 11-11：「记在设备上」user 还没点头；点头了换回 deviceKvGet / deviceKvSet，守卫白名单写上原话）
-const paintColor = createPaintColor({ get: (k) => paintColorMem.get(k) ?? null, set: (k, v) => { if (v === null) paintColorMem.delete(k); else paintColorMem.set(k, v); } });
 const paintColorSheet = mountPaintColorSheet({ root: $("paintColorSheet"), grid: $("paintColorGrid"), hex: $("paintColorHex") as HTMLInputElement, ok: $("paintColorHexOk"), close: $("paintColorClose"), note: $("paintColorNote") }, paintColor);
 inputGate.face({ kind: "face", label: "画笔颜色", rank: 502, root: "#paintColorSheet", up: () => paintColorSheet.isOpen(), esc: () => { paintColorSheet.close(); return true; } });
 paintColor.subscribe(() => syncUi());

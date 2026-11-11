@@ -57,10 +57,11 @@ describe("tool-config: 表驱动", () => {
     eq(c.entries("nope").length, 0);
     eq(c.labelOf("paint", "mode", "b"), "B"); eq(c.labelOf("paint", "deg", "x"), "x");
   });
-  it("CatsUp 的表健全：默认值合法、修饰键指向表内值、本版全部 session（没开新持久化）", () => {
+  it("CatsUp 的表健全：默认值合法、修饰键指向表内值、持久化只开过 user 同意的那几处（surface = 设备、画画的笔 = 文件）", () => {
     const c = new ToolConfig(TOOL_OPTIONS);
     for (const [tool, opts] of Object.entries(TOOL_OPTIONS)) for (const [key, def] of Object.entries(opts as Record<string, OptionDef>)) {
-      eq(def.scope, tool === "surface" ? "device" : "session", `${tool}.${key}：surface 组 = device（user 2026-10-24「锐角阈值和模式的持久化不同工具共享」）；其余本版只许 session（开 device / doc 要 user 同意）`);
+      const want = tool === "surface" ? "device" : tool === "paintPen" || tool === "paintEraser" ? "doc" : "session";
+      eq(def.scope, want, `${tool}.${key}：surface 组 = device（user 2026-10-24「锐角阈值和模式的持久化不同工具共享」）；画画的笔 = doc（跟文件走，user 2026-11-11「笔的设置记在哪 学weebpaint」——记到设备上仍然不许）；其余本版只许 session（开 device / doc 要 user 同意）`);
       if (def.kind === "enum") { assert(def.values.some((v) => v.id === def.def), `${tool}.${key} 默认值在表里`); for (const m of Object.values(def.modifiers ?? {})) assert(def.values.some((v) => v.id === m), `${tool}.${key} 修饰键目标在表里`); }
     }
     eq(c.get("circle", "segments"), 24); eq(c.get("surface", "tier"), "smooth"); eq(c.get("surface", "sharpDeg"), 20);

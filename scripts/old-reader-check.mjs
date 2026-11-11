@@ -66,7 +66,9 @@ function randomScene(withUv) {
 const files = [];
 for (const [name, mk] of Object.entries(S.SCENE_DOCS)) files.push({ name: `golden:${name}`, bytes: F.writeCatsup(F.documentFromScene(mk(), name)) });
 for (const [name, mk] of Object.entries(S.SCENES)) files.push({ name: `golden:${name}`, bytes: F.writeCatsup(F.newDocument(mk().toBrep(), name)) });
-for (let i = 0; i < N; i++) { const withUv = i % 2 === 0; files.push({ name: `random:${i}${withUv ? "+uv" : ""}`, bytes: F.writeCatsup(F.documentFromScene(randomScene(withUv), `r${i}`)) }); }
+// 每三份随机文件里一份带 desk 1.5 的笔（画画工作台的笔跟文件走，2026-11-11）：旧读者 desk 是 1.4，该能开、把 paint 当不认识的键原样带回
+const withPaint = (doc, i) => { doc.desk.paint = { color: "#3366cc", tools: { paintPen: { size: 10 + (i % 7), opacity: 0.8, hardness: 0.5, extra: {} }, paintEraser: { size: 40, opacity: 1, hardness: 0.8, extra: {} }, airbrush: { size: 3, extra: { flow: 0.2 } } }, extra: { future: [1, 2] } }; return doc; };
+for (let i = 0; i < N; i++) { const withUv = i % 2 === 0, pen = i % 3 === 0, d = F.documentFromScene(randomScene(withUv), `r${i}`); files.push({ name: `random:${i}${withUv ? "+uv" : ""}${pen ? "+pen" : ""}`, bytes: F.writeCatsup(pen ? withPaint(d, i) : d) }); }
 const hasUv = (bytes) => F.readCatsup(bytes).definitions.some((d) => d.mesh?.uvSets?.length);
 const hasTextures = (bytes) => F.readCatsup(bytes).textures.length > 0;
 const geom = (doc) => JSON.stringify(doc.definitions.map((d) => ({ kind: d.kind ?? "brep", mesh: d.mesh ? { p: Array.from(d.mesh.positions), l: Array.from(d.mesh.loopVert), s: Array.from(d.mesh.faceStart) } : null, brep: d.kind === "mesh" ? null : d.brep })));

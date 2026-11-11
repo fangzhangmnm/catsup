@@ -3,7 +3,7 @@
 // v2（2026-10-21，group / component）：每个 definition 一个 mesh（根池 + 全部 group 合并烘焙）；实例 = glTF 节点树（matrix，Y-up）
 //   + CATSUP_instance；authoring 全在 CATSUP_definitions（groups / instances 各自带 3×4 变换，Z-up 本地坐标）。
 
-import { COLOR_CHANNEL, colorMapIn, shelfIsEmpty, type ColorMap, type MaterialDoc, type TextureDoc } from "./document.ts";
+import { COLOR_CHANNEL, colorMapIn, paintDeskToJson, shelfIsEmpty, type ColorMap, type MaterialDoc, type TextureDoc } from "./document.ts";
 import { landCarried, writeTextureRow } from "./texture-table.ts";
 import { BUILTIN_BACK_GUID, type Guid } from "./guid.ts";
 import { APP_VERSION } from "../version.ts";
@@ -196,6 +196,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
         ...(doc.desk.locked ? { locked: true } : {}),   // 演示锁（desk 1.2）：锁着才写
         ...(doc.desk.style !== undefined ? { style: doc.desk.style } : {}), ...(doc.desk.screen !== undefined ? { screen: doc.desk.screen } : {}),   // 风格 / 屏幕（desk 1.3）：选过才写
         ...(doc.desk.exportModel ? { exportModel: { ...doc.desk.exportModel } } : {}),   // 导出表单上次的选择（desk 1.4）：导出过才写
+        ...(doc.desk.paint ? { paint: paintDeskToJson(doc.desk.paint) } : {}),   // 画画工作台的笔（desk 1.5）：改过才写
       },
       ...(refsExt ? { CATSUP_references: refsExt } : {}),
       ...(doc.shelf && !shelfIsEmpty(doc.shelf) ? { CATSUP_shelf: { ...doc.shelf.extra, ...stampOf("CATSUP_shelf"), folders: doc.shelf.folders, items: doc.shelf.items } } : {}),

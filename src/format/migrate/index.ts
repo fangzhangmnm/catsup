@@ -52,6 +52,10 @@
 //                      默认正面的唯一表示 = 槽缺。本地老 7.0 读者读到内置 GUID = 没材质（默认正面），无害。
 //   CATSUP_desk        1.4（2026-11-04，Claude Opus 5.5；计划书 §9.2½ ②，user「我建议文件workbench而不是workpiece记住」）：可选键 exportModel（导出表单上次的选择，字符串键值）。
 //                      老读者少看见它 = 导出表单用默认（minor 语义：习惯丢了，内容一字不少）。
+//   CATSUP_desk        1.5（2026-11-11，Claude Opus 5.5；user「笔的设置记在哪 学weebpaint」= 跟文件走、设备上不记，画画软件 v406 起同款）：可选键 paint
+//                      { color?: "#rrggbb", tools: { <工具名>: { size?, opacity?, hardness? } } }（字段名照画画软件的 dial）。改过才写；工具名本层不解释，
+//                      不认识的工具名和键原样带回。size = 笔的直径、屏幕上的 CSS 像素（不是空间长度，不换国际单位）；hardness 以后归「笔」（笔架来了它属于
+//                      那支笔，到时候这个键保留读、停止写）；activeBrushId 留给笔架、现在不写。老读者少看见它 = 笔用默认（minor：习惯丢了，内容一字不少）。
 //   CATSUP_references  1.0（2026-10-25，Claude Opus 5.5；契约 §5.8）：参考窗牌组 = @internal/reference-window 的目录 `.catsup/references/`（manifest.json + 每张卡）原样进 glb：
 //                      files[] = { path, mimeType, bufferView }；**本层不懂清单**（清单的拍子 / 迁移归库）。空牌组不写这个扩展（抠）。不进定稿指纹、不进撤销；
 //                      **major 比本版新 → 不拒开**（同 desk）：原字节带回、参考窗先不显示、提示一次。user 2026-10-25「咱们是不忘了接reference window. 先看懂我们的文件规范」。
@@ -112,7 +116,7 @@ export const FORMAT = {
   CATSUP_definitions: { major: 7, minor: 0, patch: 0 },   // 7.0（2026-11-04）：引用换 GUID
   CATSUP_instance: { major: 2, minor: 0, patch: 0 },   // 2.0（2026-11-04）：节点 definition 换 GUID（只写不读）
   CATSUP_material: { major: 1, minor: 3, patch: 0 },   // 1.3（2026-11-10）：channels（图搬进贴图表，sizeM 只是给老版本的回声）   // 1.2（2026-11-04）：guid   // 1.1（2026-10-30）：材质的 baseColorFactor 按 glTF 规定存线性值（以前存 sRGB 的数；color-space.ts）；老文件不迁移（user「老文件我们现在真的不用念旧」）
-  CATSUP_desk: { major: 1, minor: 4, patch: 0 },   // 1.4（2026-11-04）：可选键 exportModel；1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
+  CATSUP_desk: { major: 1, minor: 5, patch: 0 },   // 1.5（2026-11-11）：可选键 paint（画画工作台的笔）；1.4（2026-11-04）：可选键 exportModel；1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
   CATSUP_references: { major: 1, minor: 0, patch: 0 },
   /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
   CATSUP_mesh: { major: 2, minor: 0, patch: 0 },   // 2.0（2026-11-11，1-2½）：uvSets 贴图坐标（只有带它的网格体盖 2.0，见 MESH_STAMP_NO_UV）；1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）

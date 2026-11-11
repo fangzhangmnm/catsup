@@ -3,11 +3,13 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import { newDocument, writeCatsup, readCatsup, FORMAT } from "../src/format/index.ts";
-import { menuTabsOf } from "../src/format/document.ts";
+import { menuTabsOf, paintDeskOf } from "../src/format/document.ts";
 import { decodeGlb, encodeGlb } from "../src/format/glb.ts";
 
 const fresh = () => newDocument(new Kernel().toBrep(), "t");
 const jsonOf = (bytes: Uint8Array): { json: any; bin: Uint8Array } => decodeGlb(bytes) as { json: any; bin: Uint8Array };
+/** 键排好序再变成字（只比内容、不比键的先后）。 */
+const canon = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, (x as Record<string, unknown>)[k]])) : x));
 
 describe("CATSUP_desk 桌面态", () => {
   it("新文档也写 desk（只有拍子）；extensionsUsed 含 CATSUP_desk；读回 = 默认", () => {
@@ -78,6 +80,25 @@ describe("CATSUP_desk 桌面态", () => {
     const back2 = readCatsup(encodeGlb(json, bin));
     eq(back2.readNotes?.newerMinor.length ?? 0, 0);
     eq(back2.readNotes?.newerPatch.map((n) => n.ext).join(), "CATSUP_desk");
+  });
+  it("画画工作台的笔（desk 1.5 paint）：改过才写；往返一模一样；本版不认识的工具名 / 键原样带回", () => {
+    eq("paint" in jsonOf(writeCatsup(fresh())).json.extensions.CATSUP_desk, false, "没改过 = 不写 paint");
+    const doc = fresh();
+    doc.desk.paint = { color: "#c03050", tools: { paintPen: { size: 18, opacity: 0.75, hardness: 0.6, extra: {} }, paintEraser: { size: 48, opacity: 1, hardness: 0.9, extra: { activeBrushId: "b1" } }, airbrush: { size: 4, extra: { flow: 0.3 } } }, extra: { future: [1, 2] } };
+    const bytes = writeCatsup(doc), raw = jsonOf(bytes).json.extensions.CATSUP_desk.paint;
+    eq(JSON.stringify(raw), JSON.stringify({ future: [1, 2], color: "#c03050", tools: { paintPen: { size: 18, opacity: 0.75, hardness: 0.6 }, paintEraser: { activeBrushId: "b1", size: 48, opacity: 1, hardness: 0.9 }, airbrush: { flow: 0.3, size: 4 } } }), "写出去的样子（字段名照画画软件的 dial）");
+    const back = readCatsup(bytes);
+    eq(canon(back.desk.paint), canon(doc.desk.paint), "读回一模一样");
+    eq(JSON.stringify(jsonOf(writeCatsup(back)).json.extensions.CATSUP_desk.paint), JSON.stringify(raw), "再写一遍逐字一样");
+  });
+  it("画画工作台的笔：类型不对的已知键不当值、原样带回；不是对象 = 没有", () => {
+    const { json, bin } = jsonOf(writeCatsup(fresh()));
+    json.extensions.CATSUP_desk.paint = { color: "red", tools: { paintPen: { size: "big", opacity: 0.5 }, odd: 7 } };
+    const back = readCatsup(encodeGlb(json, bin));
+    eq(back.desk.paint?.color, undefined, "颜色不是 #rrggbb = 不当颜色");
+    eq(back.desk.paint?.tools.paintPen.size, undefined, "大小不是数 = 不当大小"); eq(back.desk.paint?.tools.paintPen.opacity, 0.5);
+    eq(JSON.stringify(jsonOf(writeCatsup(back)).json.extensions.CATSUP_desk.paint), JSON.stringify({ color: "red", tools: { odd: 7, paintPen: { size: "big", opacity: 0.5 } } }), "坏的那几个字节原样带回");
+    eq(paintDeskOf(null), undefined); eq(paintDeskOf([1]), undefined); eq(paintDeskOf("x"), undefined);
   });
   it("menuTabsOf：只收字符串值，坏形状 = 空", () => {
     eq(JSON.stringify(menuTabsOf({ main: "settings", view: 3, x: null })), JSON.stringify({ main: "settings" }));

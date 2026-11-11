@@ -174,8 +174,51 @@ export interface DeskDoc { menuTabs: Record<string, string>; lastView?: unknown;
   style?: string; screen?: string;
   /** 导出表单上次的选择（desk 1.4，2026-11-04；user「导出的时候永远有个框……我建议文件workbench而不是workpiece记住」）：导出过才写；本层不解释键，app 认不出的键当默认。 */
   exportModel?: Record<string, string>;
+  /** 画画工作台的笔（desk 1.5，2026-11-11；user「笔的设置记在哪 学weebpaint」= 跟文件走，设备上不记）：改过才写。见 PaintDeskDoc。 */
+  paint?: PaintDeskDoc;
   extra: Record<string, unknown>; }
 export const defaultDesk = (): DeskDoc => ({ menuTabs: {}, extra: {} });
+
+/**
+ * 画画工作台的笔（desk 1.5）：{ color?: "#rrggbb", tools: { <工具名>: { size?, opacity?, hardness? } } }。字段名照画画软件的 dial（size / opacity）。
+ * - 工具名本层不解释（不透明字符串）：本版不认识的工具名、每把工具里不认识的键、整个 paint 里不认识的键都原样带回（各自的 extra）。
+ * - size = 笔的直径，单位是**屏幕上的 CSS 像素**（user 11-10「笔的大小应该是屏幕大小，因为这个是你的语义」）——不是画布像素，也不是空间里的长度，所以不换国际单位。
+ *   opacity = 浓度（0..1）；hardness = 笔尖边缘（0..1）。
+ * - hardness 以后归「笔」：笔架来了它属于那支笔，到时候这个键保留读、停止写。activeBrushId（画画软件的 dial 里有）现在不写，留给笔架。
+ * - 类型不对的已知键不当成值，原样放进 extra 带回（不悄悄改别人写的字节）。
+ */
+export interface PaintDeskDoc { color?: string; tools: Record<string, PaintToolDesk>; extra: Record<string, unknown> }
+export interface PaintToolDesk { size?: number; opacity?: number; hardness?: number; extra: Record<string, unknown> }
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+/** 文件里的 paint → PaintDeskDoc；不是对象 = 没有。 */
+export function paintDeskOf(raw: unknown): PaintDeskDoc | undefined {
+  if (!isRecord(raw)) return undefined;
+  const out: PaintDeskDoc = { tools: {}, extra: {} };
+  for (const [k, v] of Object.entries(raw)) {
+    if (k === "color" && typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v)) out.color = v.toLowerCase();
+    else if (k === "tools" && isRecord(v)) {
+      for (const [name, t] of Object.entries(v)) {
+        if (!isRecord(t)) { out.extra[`tools`] ??= {}; (out.extra.tools as Record<string, unknown>)[name] = t; continue; }   // 一把工具的值不是对象：原样带回
+        const tool: PaintToolDesk = { extra: {} };
+        for (const [tk, tv] of Object.entries(t)) {
+          if ((tk === "size" || tk === "opacity" || tk === "hardness") && finite(tv)) tool[tk] = tv;
+          else tool.extra[tk] = tv;
+        }
+        out.tools[name] = tool;
+      }
+    } else out.extra[k] = v;
+  }
+  return out;
+}
+/** PaintDeskDoc → 写进文件的样子（extra 先铺、已知键后铺；没有工具 = 不写 tools）。 */
+export function paintDeskToJson(p: PaintDeskDoc): Record<string, unknown> {
+  const extraTools = isRecord(p.extra.tools) ? p.extra.tools : {};
+  const tools: Record<string, unknown> = { ...extraTools };
+  for (const [name, t] of Object.entries(p.tools)) tools[name] = { ...t.extra, ...(t.size !== undefined ? { size: t.size } : {}), ...(t.opacity !== undefined ? { opacity: t.opacity } : {}), ...(t.hardness !== undefined ? { hardness: t.hardness } : {}) };
+  const { tools: _t, ...rest } = p.extra;
+  return { ...rest, ...(p.color !== undefined ? { color: p.color } : {}), ...(Object.keys(tools).length ? { tools } : {}) };
+}
 /** 参考窗的窗（视图态，CSS px）：WeebPaint / MoonSinger 同形 { open, left, top, width, height }。 */
 export interface RefPanelDoc { open: boolean; left: number; top: number; width: number; height: number; }
 /** 文件里的 refPanel → 五个字段都对才收；坏形状 = 没有（落回「没开过」）。 */
