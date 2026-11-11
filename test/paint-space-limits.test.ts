@@ -75,7 +75,7 @@ describe("画画路径上的容量上限（1-4c）", () => {
     const gpu = new SoftSpaceGpu(), t = { ...targetOf(m, { guid: "uv", width: 40, height: 40, pxPerM: 32 }) }, g = buildTargetGeo(t);
     eq(g.table.polys.length, 1, "九张面并成同一块"); eq(g.table.polyFaces[0].length, MAX_FACES + 1);
     const tip: InkTip = { x: 0.5, y: 0.5, z: 0, r: 0.2, alpha: 1 }, L = new SpaceLayer(gpu, g, 0, { hardness: 0.5, color: [1, 1, 1], accum: "max", origin: tip });
-    const reach = new Map([[0, new Map([[0, g.grid.face.map((_, k) => k)]])]]);   // 叠着的面互不相连（各自的点）：这颗笔尖碰到的三角形直接给全部
+    const reach = new Map([[0, new Map([[0, Array.from(g.grid.face, (_, k) => k)]])]]);   // 叠着的面互不相连（各自的点）：这颗笔尖碰到的三角形直接给全部
     const say = limitSay(() => L.update([{ tip, reach }], 1));
     eq(say, `这一笔画不了：笔下有 ${MAX_FACES + 1} 张面共用画布上同一块地方（最多 ${MAX_FACES} 张）`);
     L.dispose();

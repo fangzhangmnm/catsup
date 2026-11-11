@@ -85,6 +85,7 @@ import { tipReach, sphereTriDist } from "../paint/tip-reach.ts";
 import { strokeTruth8 } from "../paint/tip-truth.ts";
 import { paintTargets } from "../paint/paint-targets.ts";
 import { SpacePrep } from "../paint/space-prep.ts";
+import { layoutFaces } from "../paint/layout.ts";
 import { SpacePaintStroke, hookBrush } from "../paint/space-paint.ts";
 import { PALETTE, PRESETS, PRESET_IDS, isPresetId, isDarkPaper, SCREENS, SCREEN_IDS, isScreenId, type Preset, type MarkAccent } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
 import { makeBudgetWatch } from "./budget-notice.ts";
@@ -2463,6 +2464,7 @@ function paintStrokeGate(texture: string): "warming" | "view-only" | null {
   if (st === "view-only") { hintEl.textContent = paintBoards.viewOnlyWhy(texture) ?? "这张画只能看不能画"; return "view-only"; }
   return null;
 }
+let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> } | null = null;
 (window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor,
   // 画板（贴图主线 1-3c；没有界面入口）：ensure = 给一张走画的贴图建画板（不给 GUID = 场景里第一张画）；fill = 灌一层像素（RGBA、画板大小）；探针 test/probes/probe-paint-display.mjs
   paint: {
@@ -2524,15 +2526,18 @@ function paintStrokeGate(texture: string): "warming" | "view-only" | null {
       problem: (guid: string) => { const b = paintBoards.get(guid); if (!b) return "no-board"; const p = paintPrep.problem(paintTargets(editor.worldGeom(), editor.sceneRef, guid, { width: b.width, height: b.height })); return p === null || p === "pending" ? p : String((p as { say?: string }).say ?? p); },
       stats: () => paintPrep.stats(),
       release: () => paintPrep.release(),
+      /** 现成的那一份（第一份摆放）：探针拿缓存里的每格的表在真显卡上画、和软件版对拍。 */
+      take: (guid: string) => { const b = paintBoards.get(guid)!; return paintPrep.take(paintTargets(editor.worldGeom(), editor.sceneRef, guid, { width: b.width, height: b.height })[0]); },
     },
-    lab: { SpaceLayer, SPACE_TIP, SoftSpaceGpu, buildTargetGeo, tipReach, sphereTriDist, strokeTruth8, gpu: () => editor.renderer3.offscreenGpu(), targets: (guid: string) => { const b = paintBoards.get(guid); return b ? paintTargets(editor.worldGeom(), editor.sceneRef, guid, { width: b.width, height: b.height }) : []; } },
+    lab: { layoutFaces, SpaceLayer, SPACE_TIP, SoftSpaceGpu, buildTargetGeo, tipReach, sphereTriDist, strokeTruth8, gpu: () => editor.renderer3.offscreenGpu(), targets: (guid: string) => { const b = paintBoards.get(guid); return b ? paintTargets(editor.worldGeom(), editor.sceneRef, guid, { width: b.width, height: b.height }) : []; } },
     /** 屏幕上一点（CSS 像素）按 1-3a 的落点落在这张画的哪一格（探针拿它和屏幕上读到的颜色对）；只看摆在最外层的那一份。 */
     cellAt: (guid: string, sx: number, sy: number) => {
       const S = editor.sceneRef, place = paintPlaceOf(S, guid), body = place ? S.def(place.def).body : null;
-      const inst = place ? [...S.def(S.root).instances.values()].find((i) => i.def === place.def) : undefined;
-      if (!place || !body || body.kind !== "mesh" || !inst) return null;
-      const r = editor.cam.ray(sx, sy, editor.vp()), X = invert(inst.xform);
-      const hit = pickSurface(body.kernel, buildTriGrid(body.kernel), place.uvSet.guid, applyPt(X, r.origin), applyDir(X, r.dir));
+      const slot = place ? editor.worldGeom().slots.find((s) => s.pool.def === place.def && s.pool.group === null) : undefined;   // 按世界里的槽找（嵌在组件里的也找得到，1-4c）
+      if (!place || !body || body.kind !== "mesh" || !slot) return null;
+      const k = body.kernel, r = editor.cam.ray(sx, sy, editor.vp()), X = invert(slot.xform);
+      if (!cellAtGrid || cellAtGrid.k !== k || cellAtGrid.rev !== k.rev) cellAtGrid = { k, rev: k.rev, grid: buildTriGrid(k) };   // 探针一格一格问：格子按网格体 + 修改号留着
+      const hit = pickSurface(k, cellAtGrid.grid, place.uvSet.guid, applyPt(X, r.origin), applyDir(X, r.dir));
       return hit && hit.inPaint ? { face: hit.face, cell: hit.cell, uv: hit.uv } : hit ? { face: hit.face } : null;
     },
   }, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore, test: { openConfirmSheet, openInputSheet, toggleHelp, toggleMatSheet, openDebugLogSheet, openSyncGate, withBusy, inputGate },

@@ -85,7 +85,8 @@ void main() {
       if (d < bd) { bd = d; bi = t0 + j; }
     }
     int b = ${TRI_STRIDE} * bi;
-    vec3 pos = vec3(at(u_tris, b + 6), at(u_tris, b + 7), at(u_tris, b + 8)) + vec3(at(u_tris, b + 9), at(u_tris, b + 10), at(u_tris, b + 11)) * s.x + vec3(at(u_tris, b + 12), at(u_tris, b + 13), at(u_tris, b + 14)) * s.y;
+    vec2 q = s - vec2(at(u_tris, b), at(u_tris, b + 1));   // 1-4c：公式钉在这个三角形自己的第一个角上（离取样点只有几格）：32 位浮点的误差不随画布多大涨
+    vec3 pos = vec3(at(u_tris, b + 6), at(u_tris, b + 7), at(u_tris, b + 8)) + vec3(at(u_tris, b + 9), at(u_tris, b + 10), at(u_tris, b + 11)) * q.x + vec3(at(u_tris, b + 12), at(u_tris, b + 13), at(u_tris, b + 14)) * q.y;
     best = min(best, distance(pos, tc));
   }
   if (best >= r) discard;
@@ -249,7 +250,9 @@ export class SpaceLayer {
         const F = tr.formula, oW = { x: X[0] * F.o.x + X[1] * F.o.y + X[2] * F.o.z + X[3] - o.origin.x, y: X[4] * F.o.x + X[5] * F.o.y + X[6] * F.o.z + X[7] - o.origin.y, z: X[8] * F.o.x + X[9] * F.o.y + X[10] * F.o.z + X[11] - o.origin.z };
         const du = R(F.du), dv = R(F.dv);
         inv.push(triInv(oW, du, dv));
-        tris.push(tr.uvf[0], tr.uvf[1], tr.uvf[2], tr.uvf[3], tr.uvf[4], tr.uvf[5], oW.x, oW.y, oW.z, du.x, du.y, du.z, dv.x, dv.y, dv.z);
+        // 上传的公式钉在第一个角 (u0, v0) 上：位置 = A + du·(s − 角)（A 用 64 位算好再减落笔点）。以前钉在画布原点：画布四千多格高时两个很大的数相减，硬边上差到 3/255（1-4c 量出来的）
+        const A = { x: oW.x + du.x * tr.uvf[0] + dv.x * tr.uvf[1], y: oW.y + du.y * tr.uvf[0] + dv.y * tr.uvf[1], z: oW.z + du.z * tr.uvf[0] + dv.z * tr.uvf[1] };
+        tris.push(tr.uvf[0], tr.uvf[1], tr.uvf[2], tr.uvf[3], tr.uvf[4], tr.uvf[5], A.x, A.y, A.z, du.x, du.y, du.z, dv.x, dv.y, dv.z);
       }
     }
     // 每块多边形的格子范围（和 tipCellsInPoly 扫的同一块：环的外接框往外 gap/2 + 0.5，夹在画布里）
