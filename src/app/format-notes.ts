@@ -1,30 +1,52 @@
 // app/format-notes.ts —— 打开一份文件时要说的话（读取侧三级拍子 + 素材架的两种情况；家族纪律：minor 更新提示一次、patch 静默）。纯函数（node 直测）。
 // created 2026-11-04 by Claude Opus 5.5（从 session.noteFormat 搬出来，好直测；身份地基 ID-3 计划书 §15.1-F 加了素材架两句）。一条一个通知（通知是堆叠的，互相盖不掉）。
+// 2026-11-11（贴图主线 1-2½，统筹审过时定的）：改成一张表 READ_NOTE_SAY，读入时记下的每一种（FormatReadNotes 的每一个键）都有一行。理由：记了不说等于没记，这类键以后还会加，
+//   靠人记得补一句话靠不住。类型上每个键必须有一行（少了编译不过）；守卫 test/format-notes-guard.test.ts 读源码比对接口的键、每个键造一份样本看它真说出话来（少了 / 不说 = 红）。
+//   唯一故意不说的是 newerPatch（家族纪律：patch 可无脑降，静默），在 SILENT_NOTES 里写明。
 import { fmtStamp, type FormatReadNotes, type UvDropWhy } from "../format/migrate/index.ts";
 
-export function formatNotesSay(n: FormatReadNotes): string[] {
-  const out: string[] = [];
-  if (n.newerMinor.length) out.push(`这份文件是更新版的 CatsUp 写的（${n.newerMinor.map((x) => `${x.ext.replace("CATSUP_", "")} ${fmtStamp(x.file)}，本版 ${fmtStamp(x.mine)}`).join("；")}）：能开能存，它多出来的内容会原样带回`);
-  if (n.deskTooNew) out.push(`这份文件的界面记录（desk ${fmtStamp(n.deskTooNew)}）比本版新：按默认显示，保存时原样带回`);
-  if (n.shelfTooNew) out.push(`这份文件的素材架是更新版写的（shelf ${fmtStamp(n.shelfTooNew)}）：本版读不出架上有什么、也不能改，保存时原样带回；为了不删到架上的东西，这份文件里先不能清理没人用的组件和材质`);
-  if (n.danglingShelfRefs) out.push(`素材架上有 ${n.danglingShelfRefs} 格指向的东西已经不在文件里，这次打开丢掉了（保存后就没了）`);
-  if (n.remintedGuids) out.push(`这份文件里有 ${n.remintedGuids} 条身份重复或不合法（可能被手改过），这次打开换了新身份；保存后就固定了`);
+type Say<K extends keyof FormatReadNotes> = (v: NonNullable<FormatReadNotes[K]>) => string[];
+/** 读入时记下的每一种 → 打开之后说的话（空 = 这一次没什么要说）。键的先后 = 说的先后。 */
+export const READ_NOTE_SAY: { readonly [K in keyof Required<FormatReadNotes>]: Say<K> } = {
+  newerMinor: (v) => (v.length ? [`这份文件是更新版的 CatsUp 写的（${v.map((x) => `${x.ext.replace("CATSUP_", "")} ${fmtStamp(x.file)}，本版 ${fmtStamp(x.mine)}`).join("；")}）：能开能存，它多出来的内容会原样带回`] : []),
+  newerPatch: () => [],   // 静默：家族纪律 patch 可无脑降（user 2026-10-21「三级语义 同意」）；SILENT_NOTES 里登记了
+  deskTooNew: (v) => [`这份文件的界面记录（desk ${fmtStamp(v)}）比本版新：按默认显示，保存时原样带回`],
+  referencesTooNew: (v) => [`这份文件的参考图是更新版的 CatsUp 写的（references ${fmtStamp(v)}）：本版先不显示参考窗，保存时原样带回`],
+  shelfTooNew: (v) => [`这份文件的素材架是更新版写的（shelf ${fmtStamp(v)}）：本版读不出架上有什么、也不能改，保存时原样带回；为了不删到架上的东西，这份文件里先不能清理没人用的组件和材质`],
+  danglingShelfRefs: (v) => [`素材架上有 ${v} 格指向的东西已经不在文件里，这次打开丢掉了（保存后就没了）`],
+  remintedGuids: (v) => [`这份文件里有 ${v} 条身份重复或不合法（可能被手改过），这次打开换了新身份；保存后就固定了`],
+  builtinFrontSlots: (v) => [`这份文件里有 ${v} 格默认材质的写法不标准（可能被手改过），已经按默认材质读进来；保存后就是标准写法`],
+  // 贴图表（贴图主线 1-0½；1-2½ 审过时补上说的话）
+  texturesTooNew: (v) => [`这份文件的贴图表是更新版的 CatsUp 写的（textures ${fmtStamp(v)}）：本版读不懂，用到贴图的材质先按底色显示，保存时原样带回；这份文件里先不能加贴图、清理贴图、开始画（用更新版打开再改）`],
+  danglingTextureRefs: (v) => [`有 ${v} 处材质指着的贴图不在文件里，这次打开那几处当空的（按材质的底色显示）；再存盘会去掉这些引用`],
+  unknownTextureKinds: (v) => [`有 ${v} 张贴图是更新版的 CatsUp 才认识的种类：先显示成灰色占位，保存时原样带回`],
   // 画这一层（贴图主线 1-2½；契约第五节：贴图坐标是模型的附属数据，坏了模型照开、坏的部分按没有处理、打开后说出来）
-  if (n.uvDropped?.length) {
+  uvDropped: (v) => {
     const byDef = new Map<string, string[]>();
-    for (const x of n.uvDropped) {
+    for (const x of v) {
       const set = x.uvSet ? `「${x.uvSet.name || x.uvSet.guid.slice(0, 8)}」` : "";
       const what = x.faces ? `贴图坐标${set}上有 ${x.faces} 张面${UV_WHY[x.why]}，这些面在这一套上按没有位置处理` : `有一套贴图坐标${set}${UV_WHY[x.why]}，整套不认`;
       const k = x.def.name || x.def.guid; byDef.set(k, [...(byDef.get(k) ?? []), what]);
     }
-    for (const [d, items] of byDef) out.push(`「${d}」的贴图坐标有坏的地方（模型本身一点没少）：${items.join("；")}。再存盘会把这些坏的部分去掉`);
+    return [...byDef].map(([d, items]) => `「${d}」的贴图坐标有坏的地方（模型本身一点没少）：${items.join("；")}。再存盘会把这些坏的部分去掉`);
+  },
+  paintUnplaced: (v) => v.map((x) => `「${x.def.name || x.def.guid}」有 ${x.faces} 张画了的面在贴图坐标「${x.uvSet.name || x.uvSet.guid.slice(0, 8)}」上没有位置，先按材质的底色显示`),
+  foreignPaintSlots: (v) => [`有 ${v} 处别的物件用了只属于某一个物件的画，这次打开那几处当没有材质；再存盘会去掉这些引用`],
+  orphanPaintTextures: (v) => [`有 ${v} 张画找不到它铺的那一套贴图坐标，先留着当没人用的（资源页能清）`],
+};
+/** 故意不说的键（每一个写明为什么）。守卫只放过这几个「有值也不说」。 */
+export const SILENT_NOTES: Readonly<Partial<Record<keyof FormatReadNotes, string>>> = { newerPatch: "家族纪律：patch 比本版新 = 可无脑降，静默" };
+
+export function formatNotesSay(n: FormatReadNotes): string[] {
+  const out: string[] = [];
+  for (const k of Object.keys(READ_NOTE_SAY) as (keyof FormatReadNotes)[]) {
+    const v = n[k];
+    if (v === undefined || v === null) continue;
+    out.push(...(READ_NOTE_SAY[k] as (x: unknown) => string[])(v));
   }
-  if (n.foreignPaintSlots) out.push(`有 ${n.foreignPaintSlots} 处别的物件用了只属于某一个物件的画，这次打开那几处当没有材质；再存盘会去掉这些引用`);
-  if (n.orphanPaintTextures) out.push(`有 ${n.orphanPaintTextures} 张画找不到它铺的那一套贴图坐标，先留着当没人用的（资源页能清）`);
-  for (const x of n.paintUnplaced ?? []) out.push(`「${x.def.name || x.def.guid}」有 ${x.faces} 张画了的面在贴图坐标「${x.uvSet.name || x.uvSet.guid.slice(0, 8)}」上没有位置，先按材质的底色显示`);
   return out;
 }
-/** 贴图坐标坏在哪（formatNotesSay 用；接在「整套」或「N 张面」后面）。 */
+/** 贴图坐标坏在哪（uvDropped 用；接在「整套」或「N 张面」后面）。 */
 const UV_WHY: Record<UvDropWhy, string> = {
   "not-a-list": "（整份贴图坐标的格式不对）", "not-an-object": "（格式不对）", "bad-guid": "（身份号缺了或不对）", "bad-size": "（画布的宽高不是正整数）",
   "bad-density": "（密度不是正数）", "no-loopUv": "（角上的数找不到）", "bad-length": "（角上的数个数和模型对不上）", "duplicate-guid": "（和同一个物件的另一套用了同一个身份号）",

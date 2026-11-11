@@ -53,6 +53,7 @@ import "./corner-columns.test.ts";
 import "./mesh-view.test.ts";
 import "./mesh-format.test.ts";   // CATSUP_mesh 1.0.0 多边形载荷（2026-10-27 Fable M3）
 import "./uv-format.test.ts";   // CATSUP_mesh 2.0 贴图坐标进文件（2026-11-11 贴图主线 1-2½）
+import "./format-notes-guard.test.ts";   // 读入时记下的每一种都要说出来（2026-11-11 贴图主线 1-2½ 审过时补）
 import "./object-commands.test.ts";
 import "./id-table.test.ts";   // 内核表的数组制度 IdMap / IdSet（2026-10-27 Fable O3）
 import "./preview-rewind.test.ts";   // 拖动预演「拷一次 + 每帧退回」差分（2026-10-27 Fable O1）   // 物件族：转成网格体 / 转回 SU 体 + 导入直接成网格体（2026-10-27 Fable）   // mesh 显示视图 + 场景 / 渲染缓存接网格体（2026-10-27 Fable M2）   // mesh 内核 M1：不变量 + 算子 + 随机串（2026-10-27 Fable）
