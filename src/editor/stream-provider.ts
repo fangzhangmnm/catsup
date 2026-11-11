@@ -3,11 +3,12 @@
 // **内容那半**（池网格本体 pool-mesh、同一帧同一内核只同步一次、两代没人用的释放、材质槽签名）搬到这里，render3 只剩「块 → 显卡 → 槽节点」。
 // 画面一个像素不变：块直接包池网格的大数组（零拷贝）、属性名 / 颜色烤法原样；颜色按调色板在这里算（刀 c 起不再问后端 = 反向依赖退役），粗线 / 像素线由编辑器告知——
 // 那是样式，过渡期还烤在顶点色里，材质模块 / 叠加层落地后从这里退役。
-import type { Chunk, ChunkAttr, Placement, StreamFrame, StreamProvider, StreamQuery, Vec3 } from "../minccino/index.ts";
+import type { Chunk, ChunkAttr, MaterialRef, Placement, StreamFrame, StreamProvider, StreamQuery, TextureRef, Vec3 } from "../minccino/index.ts";
 import { PALETTE, hexToLinear } from "../minccino/index.ts";
 import { PoolMesh, type PoolMeshEnv } from "./pool-mesh.ts";
 import { type WorldView, type PoolSlot, slotKey } from "../scene/world-view.ts";
 import { poolKey, type Material, type Scene } from "../scene/scene.ts";
+import type { ColorMap } from "../format/document.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import { perf } from "./perf-stats.ts";
@@ -29,7 +30,20 @@ export class EditorStreamProvider implements StreamProvider {
   /** 块版本：全局单调（一个块被删了又长出来也不会撞上后端留着的旧版本）。 */
   private seq = 0;
   /** 材质对象 → 小整数（材质槽签名用：槽表只追加 = 池网格增量；别的变化 = 全量）。 */
-  private matUids = new WeakMap<Material, number>(); private nextMatUid = 1;
+  private matUids = new WeakMap<object, number>(); private nextMatUid = 1;
+  /** 交给渲染器的材质引用（契约 MaterialRef）：同一个材质、同一张图 = 同一个对象（渲染器按对象缓存着色器）；图换了 = 新对象。 */
+  private readonly refs = new WeakMap<Material, { readonly map: ColorMap | null; readonly ref: MaterialRef }>();
+  /** 一张图 = 一个 TextureRef（渲染器按它解码一次：两个材质用同一张图只解一次）。 */
+  private readonly texRefs = new WeakMap<ColorMap, TextureRef>();
+  private refOf(m: Material, scene: Scene): MaterialRef {
+    const map = scene.colorMapOf(m), hit = this.refs.get(m);
+    if (hit && hit.map === map) return hit.ref;
+    let tr = map ? this.texRefs.get(map) : undefined;
+    if (map && !tr) { tr = { mimeType: map.content.mimeType, bytes: map.content.bytes, sizeM: map.sizeM }; this.texRefs.set(map, tr); }
+    const ref: MaterialRef = { color: m.color, ...(tr ? { map: tr } : {}) };
+    this.refs.set(m, { map, ref });
+    return ref;
+  }
   /** 世界视图对象 → 小整数（内容键 / 包围球缓存：预演影子每帧是新对象 = 身份变 = 自然失效，和以前 render3 的 kernelId 同构）。 */
   private worldIds = new WeakMap<object, number>(); private nextWorldId = 1;
   /** 上一次 pull 每个槽画的是哪份身体（标记的布局按它找块 / 段）。 */
@@ -104,33 +118,35 @@ export class EditorStreamProvider implements StreamProvider {
     const B = b, env = this.env(scene, s.pool.def, thick);
     const r = perf.time("poolMesh.sync", () => B.mesh.sync(k, env));
     if (r.full) perf.count["poolMesh.full"] = (perf.count["poolMesh.full"] ?? 0) + 1;   // 全量重建了几次（探针 / 黑匣子：拖动预演里不该涨）
-    this.refreshChunks(b);
+    this.refreshChunks(b, scene);
     return b;
   }
 
   private env(scene: Scene, defId: number, thick: boolean): PoolMeshEnv {
     const cullBack = !this.editing || this.styled();   // 演示锁 = 没有正在编辑的那一层
-    const uid = (m: Material | undefined): number => { if (!m) return 0; let u = this.matUids.get(m); if (u === undefined) { u = this.nextMatUid++; this.matUids.set(m, u); } return u; };
+    const num = (o: object): number => { let u = this.matUids.get(o); if (u === undefined) { u = this.nextMatUid++; this.matUids.set(o, u); } return u; };
+    const uid = (m: Material | undefined): string => { if (!m) return "0"; const map = m === BUILTIN_BACK ? null : scene.colorMapOf(m); return map ? `${num(m)}t${num(map)}` : `${num(m)}`; };   // 材质指的图换了（粘贴「更新」那张贴图）= 签名变 = 重建，块交出新的材质引用
     return {
       matOf: (slot) => scene.materialOfSlot(defId, slot),
+      mapOf: (m) => scene.colorMapOf(m),
       slotsSig: scene.def(defId).body.materialSlots.map((i) => uid(i === BUILTIN_BACK_SLOT ? BUILTIN_BACK : scene.materials[i])).join(","),   // 内置默认背面也有自己的号：把一侧从默认正面改成默认背面要重画
       singleSided: scene.kindOf(defId) === "mesh",
       backLook: cullBack ? "cull" : "show",
-      faceColor: (mat) => (mat === BUILTIN_BACK ? (cullBack ? NO_SIDE : BACK_SRGB) : mat && !mat.texture ? [mat.color[0], mat.color[1], mat.color[2]] : mat?.texture ? [1, 1, 1] : FACE_SRGB),   // 贴图面 = 白（贴图 × 1）；没材质 = 白模灰
+      faceColor: (mat) => (mat === BUILTIN_BACK ? (cullBack ? NO_SIDE : BACK_SRGB) : !mat ? FACE_SRGB : scene.colorMapOf(mat) ? [1, 1, 1] : [mat.color[0], mat.color[1], mat.color[2]]),   // 贴图面 = 白（贴图 × 1）；没材质 = 白模灰
       edgeColor: (loose) => (loose ? EDGE_WIRE : EDGE_FACE),
       thick,
     };
   }
 
   /** 池网格同步完 → 块：改过的段（takeDirty）/ 数组换过 / 组没了 = 新版本；没动 = 原块原版本。 */
-  private refreshChunks(b: Body): void {
+  private refreshChunks(b: Body, scene: Scene): void {
     for (const key of [...b.faces.keys()]) if (!b.mesh.groups.has(key)) b.faces.delete(key);   // 全量重建后不再有的组
     for (const g of b.mesh.groups.values()) {
       const d = g.store.takeDirty(), A = g.store.arrays, prev = b.faces.get(g.key), count = g.store.end;
       if (prev && !d.grown && d.ranges.length === 0 && prev.attributes.position.array === A.position && prev.count === count) continue;
       const attributes: Record<string, ChunkAttr> = {};
       for (const sp of g.store.specs) attributes[sp.name] = { array: A[sp.name], size: sp.size, normalized: sp.type !== undefined && sp.type !== "f32" };
-      b.faces.set(g.key, { id: `${b.id}/${g.key}`, pool: b.id, version: ++this.seq, kind: "tris", attributes, count, dirty: d, material: g.mat ?? undefined, side: g.side ?? undefined });
+      b.faces.set(g.key, { id: `${b.id}/${g.key}`, pool: b.id, version: ++this.seq, kind: "tris", attributes, count, dirty: d, material: g.mat ? this.refOf(g.mat, scene) : undefined, side: g.side ?? undefined });
     }
     const L = b.mesh.lines, d = L.takeDirty(), A = L.arrays, instanced = L.specs.some((sp) => sp.name === "seg");
     const first = instanced ? "seg" : "position", count = instanced ? L.count : L.end, prev = b.lines;

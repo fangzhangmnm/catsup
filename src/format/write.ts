@@ -3,7 +3,8 @@
 // v2（2026-10-21，group / component）：每个 definition 一个 mesh（根池 + 全部 group 合并烘焙）；实例 = glTF 节点树（matrix，Y-up）
 //   + CATSUP_instance；authoring 全在 CATSUP_definitions（groups / instances 各自带 3×4 变换，Z-up 本地坐标）。
 
-import { shelfIsEmpty } from "./document.ts";
+import { COLOR_CHANNEL, colorMapIn, shelfIsEmpty, type ColorMap, type MaterialDoc, type TextureDoc } from "./document.ts";
+import { writeTextureRow } from "./texture-table.ts";
 import { BUILTIN_BACK_GUID, type Guid } from "./guid.ts";
 import { APP_VERSION } from "../version.ts";
 import { srgbToLinear } from "./color-space.ts";   // glTF 的 baseColorFactor 是线性值；app 里按 sRGB 存（color-space.ts）
@@ -53,18 +54,24 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     images.push({ bufferView: v, mimeType: doc.thumbnail.mimeType, name: "thumbnail" });
     thumbnail = 0;
   }
-  // 材质 = glTF core materials（+ images / textures；贴图原字节原样进 BIN）+ CATSUP_material{sizeM}
-  const textures: Record<string, unknown>[] = [];
+  // 材质 = glTF core materials（+ images / textures = 颜色那一槽的原图，给别的软件看的派生物）+ CATSUP_material { guid, channels, sizeM 回声 }。
+  // 贴图表（CATSUP_textures）：一张图的字节只落一次，表里那一行和标准那一半的 images[] 指同一个 bufferView；两个材质用同一张图 = 一条 image。
+  const texTable = new Map<Guid, TextureDoc>(doc.textures.map((t) => [t.guid, t]));
+  const texFrozen = isObj(doc.carry.extensions.CATSUP_textures);   // 贴图表是更新版写的：原样写回；这份 textures 里只有老文件那条路现铸的行，它们只靠标准那一半表达（下次打开再现铸）
+  const imageViews = new Map<Guid, number>();
+  const imageView = (t: TextureDoc): number => { let v = imageViews.get(t.guid); if (v === undefined) { v = sink.add((t as ColorMap).content.bytes); imageViews.set(t.guid, v); } return v; };
+  const textures: Record<string, unknown>[] = [], coreTexture = new Map<Guid, number>();
   const materials = doc.materials.map((m) => {
     const out: Record<string, unknown> = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [srgbToLinear(m.color[0]), srgbToLinear(m.color[1]), srgbToLinear(m.color[2]), 1], metallicFactor: 0, roughnessFactor: 1 } };
-    if (m.texture) {
-      const v = sink.add(m.texture.bytes);
-      images.push({ bufferView: v, mimeType: m.texture.mimeType, name: m.name });
-      textures.push({ source: images.length - 1 });
-      (out.pbrMetallicRoughness as Record<string, unknown>).baseColorTexture = { index: textures.length - 1 };
+    const map = colorMapIn(texTable, m);
+    if (map) {
+      let ti = coreTexture.get(map.guid);
+      if (ti === undefined) { images.push({ bufferView: imageView(map), mimeType: map.content.mimeType, name: map.name }); textures.push({ source: images.length - 1 }); ti = textures.length - 1; coreTexture.set(map.guid, ti); }
+      (out.pbrMetallicRoughness as Record<string, unknown>).baseColorTexture = { index: ti };
     }
-    // 每个材质都挂 CATSUP_material 拍子（1.1 起；纯色材质以前不挂）：读的时候靠它认「颜色是线性值」（migrate/material.ts）；sizeM 只在有贴图时写
-    out.extensions = { CATSUP_material: { ...stampOf("CATSUP_material"), guid: m.guid, ...(m.texture ? { sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } : {}) } };
+    // 每个材质都挂 CATSUP_material 拍子（1.1 起；纯色材质以前不挂）：读的时候靠它认「颜色是线性值」（migrate/material.ts）；channels 只写非空的；sizeM = 给老读者（1.2）的回声
+    const channels = channelsToWrite(m, texFrozen ? (g) => !texTable.has(g) : () => true), top = texTable.get(m.channels?.[COLOR_CHANNEL]?.[0] ?? "");
+    out.extensions = { CATSUP_material: { ...stampOf("CATSUP_material"), guid: m.guid, ...(channels ? { channels } : {}), ...(top?.sizeM ? { sizeM: [top.sizeM[0], top.sizeM[1]] } : {}) } };
     return out;
   });
   const matIndex = new Map<Guid, number>(doc.materials.map((m, i) => [m.guid, i]));
@@ -78,7 +85,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     const slots = doc.definitions[i].materialSlots;
     const mats = {
       slotToCore: (slot: number) => { const g = slots[slot]; return g ? matIndex.get(g) : undefined; },
-      sizeOfCore: (core: number) => doc.materials[core]?.texture?.sizeM ?? null,
+      sizeOfCore: (core: number) => { const m = doc.materials[core]; return m ? (colorMapIn(texTable, m)?.sizeM ?? null) : null; },
       isBack: (slot: number) => slots[slot] === BUILTIN_BACK_GUID,
     };
     const dd = doc.definitions[i];
@@ -92,7 +99,9 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   const viewMap = new Map<number, number>();
   for (const [oldIdx, bytes] of doc.carry.views) viewMap.set(oldIdx, sink.add(bytes));
   const remap = (old: number): number => { const n = viewMap.get(old); if (n === undefined) throw new Error(`writeCatsup: carried JSON references bufferView ${old} that was not carried`); return n; };
-  const carry = remapBufferViewRefs({ topLevel: doc.carry.topLevel, extensions: doc.carry.extensions, documentExtra: doc.carry.documentExtra, definitionsExtra: doc.carry.definitionsExtra, brepKeep: doc.carry.brepKeep ?? {}, referencesExtra: doc.references.extra }, remap);
+  const carry = remapBufferViewRefs({ topLevel: doc.carry.topLevel, extensions: doc.carry.extensions, documentExtra: doc.carry.documentExtra, definitionsExtra: doc.carry.definitionsExtra, brepKeep: doc.carry.brepKeep ?? {}, referencesExtra: doc.references.extra, texturesExtra: doc.carry.texturesExtra ?? {} }, remap);
+  // 贴图表（CATSUP_textures 1.0）：空 = 不写；太新 = 上面 carry.extensions 原样写回；否则一行一条（原图的字节上面落过就共用那条）
+  const texExt: Record<string, unknown> | null = !texFrozen && doc.textures.length ? { ...carry.texturesExtra, ...stampOf("CATSUP_textures"), list: doc.textures.map((t) => writeTextureRow(t, sink, imageView)) } : null;
   // 参考窗牌组（§5.8）：太新的原字节（读取器放进 carry.extensions）原样写回；否则每个文件一条 bufferView；空牌组不写
   const refsCarried = isObj(carry.extensions.CATSUP_references);
   const refsExt: Record<string, unknown> | null = refsCarried ? null : doc.references.files.length ? {
@@ -147,7 +156,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   const json: Record<string, unknown> = {
     ...carry.topLevel,
     asset: { version: WRITE_GLTF_VERSION, minVersion: MIN_GLTF_VERSION, generator: `CatsUp ${APP_VERSION}`, ...(thumbnail !== undefined ? { thumbnail } : {}) },
-    extensionsUsed: [...CATSUP_EXTENSIONS, ...(refsCarried || refsExt ? ["CATSUP_references"] : []), ...(isObj(carry.extensions.CATSUP_shelf) || (doc.shelf && !shelfIsEmpty(doc.shelf)) ? ["CATSUP_shelf"] : []), ...(anyHidden ? ["KHR_node_visibility"] : [])],
+    extensionsUsed: [...CATSUP_EXTENSIONS, ...(refsCarried || refsExt ? ["CATSUP_references"] : []), ...(isObj(carry.extensions.CATSUP_shelf) || (doc.shelf && !shelfIsEmpty(doc.shelf)) ? ["CATSUP_shelf"] : []), ...(texFrozen || texExt ? ["CATSUP_textures"] : []), ...(anyHidden ? ["KHR_node_visibility"] : [])],
     extensionsRequired: [],
     buffers: [{ byteLength: 0 }],
     bufferViews,
@@ -190,6 +199,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       },
       ...(refsExt ? { CATSUP_references: refsExt } : {}),
       ...(doc.shelf && !shelfIsEmpty(doc.shelf) ? { CATSUP_shelf: { ...doc.shelf.extra, ...stampOf("CATSUP_shelf"), folders: doc.shelf.folders, items: doc.shelf.items } } : {}),
+      ...(texExt ? { CATSUP_textures: texExt } : {}),
     },
   };
   const binBytes = bin.finish();
@@ -214,12 +224,15 @@ export function writeGltfModel(doc: CatsupDocument, opts: ModelExportOpts): Uint
   const bufferViews: Record<string, unknown>[] = [];
   const sink: ViewSink = { add(bytes) { const span = bin.push(bytes); bufferViews.push({ buffer: 0, byteOffset: span.byteOffset, byteLength: span.byteLength }); return bufferViews.length - 1; } };
   const images: Record<string, unknown>[] = [], textures: Record<string, unknown>[] = [];
+  const texTable = new Map<Guid, TextureDoc>(doc.textures.map((t) => [t.guid, t])), mapOf = (m: MaterialDoc | undefined): ColorMap | null => (m && opts.textures ? colorMapIn(texTable, m) : null);   // 不带贴图 = 只留底色
+  const coreTexture = new Map<Guid, number>();   // 两个材质用同一张图 = 一条 image
   const materials = doc.materials.map((m) => {
     const out: Record<string, unknown> = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [srgbToLinear(m.color[0]), srgbToLinear(m.color[1]), srgbToLinear(m.color[2]), 1], metallicFactor: 0, roughnessFactor: 1 } };
-    if (m.texture && opts.textures) {
-      images.push({ bufferView: sink.add(m.texture.bytes), mimeType: m.texture.mimeType, name: m.name });
-      textures.push({ source: images.length - 1 });
-      (out.pbrMetallicRoughness as Record<string, unknown>).baseColorTexture = { index: textures.length - 1 };
+    const map = mapOf(m);
+    if (map) {
+      let ti = coreTexture.get(map.guid);
+      if (ti === undefined) { images.push({ bufferView: sink.add(map.content.bytes), mimeType: map.content.mimeType, name: map.name }); textures.push({ source: images.length - 1 }); ti = textures.length - 1; coreTexture.set(map.guid, ti); }
+      (out.pbrMetallicRoughness as Record<string, unknown>).baseColorTexture = { index: ti };
     }
     return out;
   });
@@ -234,7 +247,7 @@ export function writeGltfModel(doc: CatsupDocument, opts: ModelExportOpts): Uint
     const d = doc.definitions[i], slots = d.materialSlots;
     const mats: BakeMaterials = {
       slotToCore: (slot) => { const g = slots[slot]; return g ? matIndex.get(g) : undefined; },
-      sizeOfCore: (core) => (opts.textures ? doc.materials[core]?.texture?.sizeM ?? null : null),   // 不带贴图 = 不出 UV
+      sizeOfCore: (core) => mapOf(doc.materials[core])?.sizeM ?? null,   // 不带贴图 = 不出 UV
       isBack: (slot) => slots[slot] === BUILTIN_BACK_GUID,
     };
     const baked = d.kind === "mesh" && d.mesh ? bakeMesh(d.mesh, sink, accessors.length, mats, { lines: opts.lines })
@@ -277,3 +290,9 @@ export function writeGltfModel(doc: CatsupDocument, opts: ModelExportOpts): Uint
   return encodeGlb(json, binBytes);
 }
 
+/** 材质扩展里写的 channels：一摞空 = 不写那个名字，都空 = 不写（null）；keep = 这一格写不写（贴图表太新时，现铸的老文件行不写进去）。 */
+function channelsToWrite(m: MaterialDoc, keep: (g: Guid) => boolean): Record<string, Guid[]> | null {
+  const out: Record<string, Guid[]> = {};
+  for (const [name, stack] of Object.entries(m.channels ?? {})) { const gs = stack.filter(keep); if (gs.length) out[name] = [...gs]; }
+  return Object.keys(out).length ? out : null;
+}

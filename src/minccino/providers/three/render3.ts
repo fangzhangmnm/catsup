@@ -43,7 +43,7 @@ import { Residency, type ResidentId, residentsOf } from "./residency.ts";
 import { OverlayMarksDrawer } from "./overlay-marks.ts";
 import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
 import type { RenderProvider, MarkAccent, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput, Mark, FaceSlot, LineSlot } from "../../index.ts";
-import { DEFAULT_VIEW_BUDGET, GRID_FINEST_PX, ladderWindow, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type Frame3, type MaterialRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
+import { DEFAULT_VIEW_BUDGET, GRID_FINEST_PX, ladderWindow, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type Frame3, type MaterialRef, type TextureRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
 import { PALETTE } from "../../palette.ts";
 import { hexToLinear } from "../../overlay/index.ts";
 import { NOOP_PERF, type PerfSink } from "../../perf.ts";
@@ -86,6 +86,8 @@ const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
  * 线同理。每份几何都把「另一套颜色」也挂在一个着色器不用的名字下——three 画一份几何时把它挂着的缓冲全传上去，
  * 这样没被画的那套颜色的局部上传也不会一直攒着。缓冲直接包池网格的大数组（不拷），改过哪段只传哪段（addUpdateRange）。
  */
+/** 贴图面却没有图（不该有：提供者只给有图的材质开贴图块）：灰占位的缓存键。 */
+const NO_MAP: object = Object.freeze({});
 interface GpuFaces { readonly id: string; version: number; readonly mat: MaterialRef | null; readonly side: ChunkSide | null; readonly attrs: Record<string, any>; readonly geo: any; count: number; gen: number; }
 interface GpuLines { readonly id: string; version: number; readonly instanced: boolean; readonly bufs: Record<string, any>; readonly geo: any; count: number; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
@@ -282,7 +284,7 @@ export class Renderer3 implements RenderProvider {
   /** 提供者没给内容键时的帧号（= 每帧都拉）。 */
   private frameNo = 0;
   private emptyGeo: any; private emptyLineGeo: any;
-  private texCache = new Map<object, any>();                                  // Material 对象 → three Texture（原图解码一次）
+  private texCache = new Map<object, any>();                                  // 贴图对象（契约 TextureRef）→ three Texture（原图解码一次；两个材质用同一张图只解一次，2026-11-10）
   private faceMatOther: any;
   private faceMatFront: any; private faceMatOtherFront: any;   // 单面身体（mesh）的两份：只画正面（剔背面 = user 10-27「enforce backface culling」）
   private edgeMat: any;
@@ -865,28 +867,29 @@ export class Renderer3 implements RenderProvider {
    * 平滑组（0.8，user「平滑组是一个很重要的概念，好好设计一下」）：被 **smooth** 边连起来的膜 = 一个平滑组，组内顶点法向 = 含该顶点的膜法向按内角加权平均；
    * soft（不画线）与 smooth（插值法向）是两个独立的边层（SU 的 Soft / Smooth），推拉侧棱两者都给、软化工具默认两者都给。
    */
-  private textureFor(mat: MaterialRef): any {
-    let tex = this.texCache.get(mat);
+  private textureFor(map: TextureRef | undefined): any {
+    const key: object = map ?? NO_MAP;
+    let tex = this.texCache.get(key);
     if (tex) return tex;
     tex = new THREE.DataTexture(new Uint8Array([200, 200, 200, 255]), 1, 1);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.needsUpdate = true;
     this.applyTexFilter(tex);
-    this.texCache.set(mat, tex);
-    const bytes = mat.texture?.bytes;
-    if (bytes && typeof createImageBitmap === "function") {
-      const blob = new Blob([bytes as BlobPart], { type: mat.texture!.mimeType });
+    this.texCache.set(key, tex);
+    const bytes = map?.bytes;
+    if (map && bytes && typeof createImageBitmap === "function") {
+      const blob = new Blob([bytes as BlobPart], { type: map.mimeType });
       createImageBitmap(blob, { imageOrientation: "flipY" }).then((bmp) => {
         // 解好的位图要换成一张**普通** Texture：占位的是 DataTexture，three 按 `image.data` 上传，塞进去的 ImageBitmap 没有 data →
         // texSubImage2D「no pixels」→ 贴图面全黑（2026-10-29 截图基线 box-textured 抓到的；Claude Fable 5.1）。换对象、材质的 uMap 跟着换。
-        if (this.texCache.get(mat) !== tex) { bmp.close?.(); return; }   // 材质已经换过贴图 / 被回收：这份解码作废
+        if (this.texCache.get(key) !== tex) { bmp.close?.(); return; }   // 这张图已经被回收：这份解码作废
         const real = new THREE.Texture(bmp);
         real.colorSpace = THREE.SRGBColorSpace; real.wrapS = real.wrapT = THREE.RepeatWrapping;
         real.flipY = false; real.generateMipmaps = true; real.minFilter = THREE.LinearMipmapLinearFilter; real.needsUpdate = true; this.applyTexFilter(real);
-        this.texCache.set(mat, real);
-        for (const m of this.texMats.get(mat)?.values() ?? []) m.uniforms.uMap.value = real;
-        const tu = this.texU.get(mat); if (tu) tu.value = real;   // 风格材质（写实）的那份也换
+        this.texCache.set(key, real);
+        for (const bySide of this.texMats.values()) for (const m of bySide.values()) if (m.uniforms.uMap.value === tex) m.uniforms.uMap.value = real;   // 用这张图的每个材质（可能不止一个）
+        const tu = this.texU.get(key); if (tu) tu.value = real;   // 风格材质（写实）的那份也换
         tex.dispose();
         this.onTextureReady?.();
       }).catch(() => { /* 解码失败：留灰占位 */ });
@@ -895,7 +898,7 @@ export class Renderer3 implements RenderProvider {
   }
   /** 贴图的 uniform 对象（风格的材质共用：解码完换贴图时在同一个对象里换值）。 */
   private texU = new Map<object, { value: unknown }>();
-  private texUniform(mat: MaterialRef): { value: unknown } { let u = this.texU.get(mat); if (!u) { u = { value: this.textureFor(mat) }; this.texU.set(mat, u); } return u; }
+  private texUniform(map: TextureRef | undefined): { value: unknown } { const key: object = map ?? NO_MAP; let u = this.texU.get(key); if (!u) { u = { value: this.textureFor(map) }; this.texU.set(key, u); } return u; }
   /** 贴图异步解好后的回调（app 层接 editor.draw）。 */
   onTextureReady: (() => void) | null = null;
 
@@ -976,7 +979,7 @@ export class Renderer3 implements RenderProvider {
         if (!(gf.count > 0)) continue;
         let slot = n.tex[ti];
         if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(gf.mat!, gf.side!)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh, src: null, mat: null, chunk: null }; n.tex.push(slot); }
-        slot.mesh.material = paper ? paper.face(gf.side!, true, true) : tron ? tron.face(gf.side!, true, true) : pbr ? pbr.face(gf.side!, true, true, false, this.framePreset.material.colorize === "model" ? this.texUniform(gf.mat!) : null, this.framePreset.material.surface) : this.texMatFor(gf.mat!, gf.side!);   // 写实：贴图进底色   // 一件一色印不出贴图：贴图面 = 纸本色；Tron 不借模型颜色
+        slot.mesh.material = paper ? paper.face(gf.side!, true, true) : tron ? tron.face(gf.side!, true, true) : pbr ? pbr.face(gf.side!, true, true, false, this.framePreset.material.colorize === "model" ? this.texUniform(gf.mat!.map) : null, this.framePreset.material.surface) : this.texMatFor(gf.mat!, gf.side!);   // 写实：贴图进底色   // 一件一色印不出贴图：贴图面 = 纸本色；Tron 不借模型颜色
         slot.mesh.geometry = gf.geo; slot.mesh.visible = true;
         slot.src = slot.mesh.geometry; slot.mat = slot.mesh.material; slot.chunk = gf.id;
         ti++;
@@ -1242,7 +1245,7 @@ export class Renderer3 implements RenderProvider {
     if (!bySide) { bySide = new Map(); this.texMats.set(mat, bySide); }
     let m = bySide.get(side);
     if (m) return m;
-    m = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU, uMap: { value: this.textureFor(mat) } }, side: side === "front" ? THREE.FrontSide : side === "back" ? THREE.BackSide : THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: DEPTH.faceSlope, polygonOffsetUnits: DEPTH.face });
+    m = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU, uMap: { value: this.textureFor(mat.map) } }, side: side === "front" ? THREE.FrontSide : side === "back" ? THREE.BackSide : THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: DEPTH.faceSlope, polygonOffsetUnits: DEPTH.face });
     bySide.set(side, m);
     return m;
   }

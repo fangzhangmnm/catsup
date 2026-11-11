@@ -3,10 +3,11 @@
 // v2（2026-10-21）：definitions 全读（groups / instances）；root = 其中一个。
 
 import { decodeGlb } from "./glb.ts";
-import { materialColorFromFile } from "./migrate/material.ts";
+import { materialColorFromFile, textureFromLegacyMaterial } from "./migrate/material.ts";
+import { readTextureRow } from "./texture-table.ts";
 import { sliceBin } from "./binary.ts";
 import { decodeBrep, type CatsupBrepJson } from "./brep-codec.ts";
-import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc } from "./document.ts";
+import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc, TextureDoc } from "./document.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { DEFAULT_SETTINGS, DEFAULT_LAYER, defaultDesk, emptyReferences, menuTabsOf, refPanelOf, shelfIsEmpty, type DeskDoc, type LayerDoc, type ReferencesDoc, type ShelfDoc, type ShelfItem } from "./document.ts";
 import { migrateExtension, emptyReadNotes, readStamp, FormatTooNewError, type FormatReadNotes } from "./migrate/index.ts";
@@ -101,7 +102,26 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const notes = emptyReadNotes();   // 三级拍子判决（minor 更新 → 宿主提示一次）
   const reminted = (): void => { notes.remintedGuids = (notes.remintedGuids ?? 0) + 1; };
   const docExt = migrateExtension("CATSUP_document", exts.CATSUP_document as Record<string, unknown>, notes);
-  // 材质：先于定义读（定义 6→7 的迁移要材质的 GUID）。glTF core materials（baseColorFactor / baseColorTexture → images）+ CATSUP_material{sizeM}
+  // 贴图表 CATSUP_textures（2026-11-10，贴图主线 1-0½）：先于材质读（材质的 channels 要查它）。没有 = 空表；major 比本版新 → 不拒开（同 desk）：原字节带回、
+  // 材质的 channels 原样带回、先按底色显示、notes 记一笔（这时 textures 里只会有下面老文件那条路现铸的行，写盘时它们不进那张原样带回的表，见 write.ts）。
+  const textures: TextureDoc[] = [];
+  let texturesRaw: Record<string, unknown> | null = null;
+  const texturesExtraRaw: Record<string, unknown> = {};
+  if (isObj(exts.CATSUP_textures)) {
+    const raw = exts.CATSUP_textures as Record<string, unknown>;
+    try {
+      const tj = migrateExtension("CATSUP_textures", raw, notes), texSeen = new Set<Guid>();
+      (Array.isArray(tj.list) ? tj.list : []).forEach((row: unknown, i: number) => textures.push(readTextureRow(row, i, view, texSeen, reminted, notes)));
+      for (const [k, v] of Object.entries(tj)) if (k !== "version" && k !== "minor" && k !== "patch" && k !== "list") texturesExtraRaw[k] = v;
+    } catch (e) {
+      if (!(e instanceof FormatTooNewError)) throw e;
+      texturesRaw = raw;
+      notes.texturesTooNew = readStamp(raw);
+    }
+  }
+  const texKnown = new Set(textures.map((t) => t.guid));
+  // 材质：先于定义读（定义 6→7 的迁移要材质的 GUID）。glTF core materials（baseColorFactor）+ CATSUP_material { guid, channels, sizeM（老读者的回声） }。
+  // 有 channels = 照它来，不看标准那一半的 baseColorTexture（那是给别的软件看的派生物）；没有 channels、标准那一半有图 = 老文件：图搬进贴图表（migrate/material.ts）。
   const texList = Array.isArray(json.textures) ? (json.textures as Record<string, unknown>[]) : [];
   const imgList = Array.isArray(json.images) ? (json.images as Record<string, unknown>[]) : [];
   const matSeen = new Set<Guid>([BUILTIN_FRONT_GUID, BUILTIN_BACK_GUID]);   // 内置材质永不进材质表：冒充的现铸新身份（§9.2-A）
@@ -110,14 +130,25 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     const bc = Array.isArray(pbr.baseColorFactor) ? (pbr.baseColorFactor as number[]) : [0.8, 0.8, 0.8, 1];
     const extRaw = isObj(m.extensions) && isObj((m.extensions as Record<string, unknown>).CATSUP_material) ? (m.extensions as Record<string, unknown>).CATSUP_material as Record<string, unknown> : null;
     const out: MaterialDoc = { guid: ownGuid(extRaw?.guid, matSeen, reminted), name: typeof m.name === "string" ? m.name : `material ${mi}`, color: materialColorFromFile(bc, extRaw) };   // 1.1 起文件里是线性值（glTF 规定），app 里按 sRGB；老文件原样（migrate/material.ts）
+    if (extRaw && isObj(extRaw.channels)) {
+      const ext = migrateExtension("CATSUP_material", extRaw, notes), ch: Record<string, Guid[]> = {};
+      for (const [name, stack] of Object.entries(ext.channels as Record<string, unknown>)) {
+        if (!Array.isArray(stack)) continue;
+        const keep = stack.filter((g): g is Guid => { if (!isGuid(g)) return false; if (texturesRaw || texKnown.has(g)) return true; notes.danglingTextureRefs = (notes.danglingTextureRefs ?? 0) + 1; return false; });   // 指着表里没有的 = 这一格当空的（不猜、不造）；表太新 = 原样带
+        if (keep.length) ch[name] = keep;
+      }
+      if (Object.keys(ch).length) out.channels = ch;
+      return out;
+    }
     const bt = isObj(pbr.baseColorTexture) ? (pbr.baseColorTexture as Record<string, unknown>) : null;
     if (bt && typeof bt.index === "number" && isObj(texList[bt.index])) {
       const src = (texList[bt.index] as Record<string, unknown>).source;
       const img = typeof src === "number" ? imgList[src] : undefined;
       if (isObj(img) && typeof img.bufferView === "number") {
         const ext = extRaw ? migrateExtension("CATSUP_material", extRaw, notes) : {};
-        const sz = Array.isArray(ext.sizeM) && ext.sizeM.length === 2 ? (ext.sizeM as number[]) : [1, 1];
-        out.texture = { mimeType: typeof img.mimeType === "string" ? img.mimeType : "image/png", bytes: new Uint8Array(view(img.bufferView)), sizeM: [sz[0], sz[1]] };
+        const row = textureFromLegacyMaterial(out.name, { mimeType: typeof img.mimeType === "string" ? img.mimeType : "image/png", bytes: new Uint8Array(view(img.bufferView)) }, ext.sizeM);
+        textures.push(row); texKnown.add(row.guid);
+        out.channels = { color: [row.guid] };
       }
     }
     return out;
@@ -202,7 +233,8 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const topLevel: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(json)) if (!OURS_TOP.has(k)) topLevel[k] = v;
   const extensions: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(exts)) if (k !== "CATSUP_document" && k !== "CATSUP_definitions" && k !== "CATSUP_desk" && k !== "CATSUP_references" && k !== "CATSUP_shelf") extensions[k] = v;
+  for (const [k, v] of Object.entries(exts)) if (k !== "CATSUP_document" && k !== "CATSUP_definitions" && k !== "CATSUP_desk" && k !== "CATSUP_references" && k !== "CATSUP_shelf" && k !== "CATSUP_textures") extensions[k] = v;
+  if (texturesRaw) extensions.CATSUP_textures = texturesRaw;   // 贴图表太新：原字节原样写回
   // 桌面态 CATSUP_desk（§5.7）：major 比本版新 → **不拒开**（WeebPaint desk 同款）：原字节进 carry.extensions 原样写回、这边用默认、notes 记一笔；
   // 没有这个扩展（老文件）→ 默认 + 老位置的 document.lastView（§7.2 保留读）。
   let desk: DeskDoc = defaultDesk();
@@ -266,7 +298,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   for (const [k, v] of Object.entries(defsExt)) if (!DEF_KEYS.has(k)) definitionsExtra[k] = v;
 
   const views = new Map<number, Uint8Array>();
-  for (const i of collectBufferViewRefs([topLevel, extensions, documentExtra, definitionsExtra, brepKeep ?? {}, referencesExtraRaw])) views.set(i, new Uint8Array(view(i)));
+  for (const i of collectBufferViewRefs([topLevel, extensions, documentExtra, definitionsExtra, brepKeep ?? {}, referencesExtraRaw, texturesExtraRaw])) views.set(i, new Uint8Array(view(i)));
   references.extra = referencesExtraRaw;   // 直通的未知键（里面的 bufferView 仍是文件里的旧索引；写入器经 carry.views 重映射）
   const settingsIn = isObj(docExt.settings) ? (docExt.settings as Record<string, unknown>) : {};
   const bake = isObj(docExt.bake) ? (docExt.bake as Record<string, unknown>) : {};
@@ -283,9 +315,10 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     rootIndex: rootIdx,
     root: definitions[rootIdx],
     materials,
+    textures,
     ...(shelf && !shelfIsEmpty(shelf) ? { shelf } : {}),
     ...(thumbnail ? { thumbnail } : {}),
-    carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), views },
-    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew || notes.referencesTooNew || notes.shelfTooNew || notes.danglingShelfRefs || notes.builtinFrontSlots || notes.remintedGuids ? { readNotes: notes } : {}),
+    carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), ...(Object.keys(texturesExtraRaw).length ? { texturesExtra: texturesExtraRaw } : {}), views },
+    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew || notes.referencesTooNew || notes.shelfTooNew || notes.danglingShelfRefs || notes.builtinFrontSlots || notes.remintedGuids || notes.texturesTooNew || notes.danglingTextureRefs || notes.unknownTextureKinds ? { readNotes: notes } : {}),
   };
 }

@@ -8,13 +8,15 @@ import type { Vec3, Xform12 } from "./geometry.ts";
 /** 块的原语种类。开放集：以后加「笔画」（折线 + 每点宽度 / 压力，屏幕恒宽）= 多一个值，不改别的。 */
 export type ChunkKind = "tris" | "lines" | "points";
 
+/** 一张图（原图字节 + 物理尺寸 米）：引擎拿**这个对象**当解码缓存键——两个材质用同一张图 = 同一个对象 = 只解一次（2026-11-10 贴图主线 1-0½）。 */
+export interface TextureRef { readonly mimeType: string; readonly bytes: Uint8Array; readonly sizeM: readonly number[] }
 /**
- * 对材质模块的引用：小学 = 文档里那个材质对象本身（和场景的 Material **同形**：颜色 + 可选贴图），引擎只读这几个字段——拿它当贴图缓存键，
- * 颜色过渡期还由提供者烤进顶点色（提供者自己按调色板算，不再问后端）；材质模块落地后换成槽表（material/）。
+ * 对材质模块的引用：提供者从场景的材质 + 「这个材质用哪张图」那个口拼出来、按对象记住（同一个材质每次给同一个对象）；引擎拿它当着色器缓存键、拿 map 当解码缓存键。
+ * 渲染器不认识场景（不知道贴图表、GUID）。颜色过渡期还由提供者烤进顶点色（提供者自己按调色板算，不再问后端）；材质模块落地后换成槽表（material/）。
  */
 export interface MaterialRef {
   readonly color: readonly number[];
-  readonly texture?: { readonly mimeType: string; readonly bytes: Uint8Array; readonly sizeM: readonly number[] };
+  readonly map?: TextureRef;
 }
 /** 贴图面画哪一侧（两个表面，DT8）：double = 两侧同一张贴图；front / back = 只画 +n / −n 那侧。 */
 export type ChunkSide = "front" | "back" | "double";

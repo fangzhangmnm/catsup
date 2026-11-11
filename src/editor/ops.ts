@@ -9,7 +9,8 @@
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
 import { mintGuid, type Guid } from "../format/guid.ts";
 import { uniqueCopy } from "../format/scene-store.ts";
-import type { ShelfItem } from "../format/document.ts";
+import { COLOR_VALUE, assertSizedImage, type ShelfItem, type TextureDoc } from "../format/document.ts";
+import { TEXTURE } from "../format/entry-kinds.ts";
 import type { CurveSpec } from "../kernel/kernel.ts";
 import { markEdges } from "../mesh/edge-smooth.ts";
 import { bevelEdges, bevelVerts } from "../mesh/ops/bevel.ts";
@@ -102,8 +103,14 @@ export type Op =
   | { op: "moveInstance"; from: { def: number; inst: number }; into: { def: number; parent: number | null }; xform?: Xform; index?: number }
   /** 复制一个 group（含子 group / 子实例）到同父池，整体经 xform（父空间）。 */
   | { op: "copyGroup"; at: PoolRef; group: number; xform: Xform }
-  /** 新材质（文档级）：颜色 sRGB 0..1；贴图 = 原图字节（运行时 Uint8Array；线协议要走 base64，未做）+ 物理尺寸 米。返回索引 = 当时的 materials.length。 */
-  | { op: "addMaterial"; name: string; color: [number, number, number]; texture?: { mimeType: string; bytes: Uint8Array; sizeM: [number, number] } }
+  /** 新材质（文档级）：颜色 sRGB 0..1；channels = 通道名 → 一摞贴图 GUID（这一版只用 color、一摞一张；图在贴图表里，先 addTexture）。返回索引 = 当时的 materials.length。
+   *  （v0.19.4 起不再带 texture：旧复现包里带 texture 的这一条重放不了，scripts/replay-repro.mjs 拒绝并停下——统筹 11-10 定：调试用的衍生物不做向后兼容。） */
+  | { op: "addMaterial"; name: string; color: [number, number, number]; channels?: Record<string, Guid[]> }
+  /** 贴图表加一行原图（2026-11-10 贴图主线 1-0½）：guid 在指令里（同一步后面的 addMaterial 要指它；重放同一个身份）；value = 颜色。
+   *  字节 = 运行时 Uint8Array（进复现包 = JSON 里一个键是 0、1、2… 的对象，和以前 addMaterial 的图一样；replay-repro.mjs 转回字节）。 */
+  | { op: "addTexture"; guid: Guid; name: string; mimeType: string; bytes: Uint8Array; sizeM: [number, number] }
+  /** 清理没人用的贴图（用户在资源页点了「清理」才跑）：全家唯一删贴图的地方（守卫 test/textures-table.test.ts）；还有材质指着 / 素材架收着 = 整条拒绝。 */
+  | { op: "purgeTextures"; textures: Guid[] }
   /** 边层开关（软化 / 硬化 / 隐藏…）：这些边打上 / 去掉若干层。 */
   | { op: "setEdgeLayers"; at: PoolRef; edges: EdgeKey[]; layers: string[]; on: boolean }
   /** 油漆桶：这些面涂文档材质 material（null = 回默认）；槽号在该 definition 里解析 / 新开。 */
@@ -174,7 +181,7 @@ export type Op =
    * 面上的材质编号 = materials 这张对照表的下标（家规「编号只当对照表的代号」）：按 GUID 对回文档材质，没有就带着原 GUID 加回来，再换成目标定义的槽号。缺 materials = 老复现包：编号就是文档材质下标。
    * closure = 载荷自带的定义 / 层（计划书 §15.1-B）：先合并再摆放，同 GUID 用目标那条、不比内容；不在的带原 GUID 新建；摆放现铸 GUID。只有闭包没有摆放（素材导入）= 纯合并。
    */
-  | { op: "paste"; at: PoolRef; brep?: BrepSnapshot; groups?: TransferGroup[]; mesh?: MeshFragment; instances?: TransferInstance[]; materials?: readonly Material[]; closure?: TransferClosure; /** 内容不一样的条目怎么办（设计书 §7–§8；缺 = 留这里的）。 */ merge?: Decision; /** 素材导入：落地之后这几条上架（断开过的按新身份，所以不能另起一条 shelfPut）。 */ shelve?: { ref: Guid; guid: Guid }[] }
+  | { op: "paste"; at: PoolRef; brep?: BrepSnapshot; groups?: TransferGroup[]; mesh?: MeshFragment; instances?: TransferInstance[]; materials?: readonly Material[]; /** 材质指着的贴图（文件形状；2026-11-10）。 */ textures?: readonly TextureDoc[]; closure?: TransferClosure; /** 内容不一样的条目怎么办（设计书 §7–§8；缺 = 留这里的）。 */ merge?: Decision; /** 素材导入：落地之后这几条上架（断开过的按新身份，所以不能另起一条 shelfPut）。 */ shelve?: { ref: Guid; guid: Guid }[] }
   /** 素材架（计划书 §15.1-D）：架上只存引用，取下不删条目（生死按引用）。条目顺序有意义（user 摆的）；index = 同一个文件夹里的第几个，缺 = 排最后。文件比本版新（shelfFrozen）= 六条全拒。
    *  新条目的 guid 写在指令里（调用方铸）：后面的指令按它找这一格 / 这个文件夹，落地时才铸 = 重放对不上（撤销一致性 fuzz 抓到的）。 */
   | { op: "shelfPut"; kind: "definition" | "material"; ref: Guid; folder: Guid | null; index?: number; guid: Guid }
@@ -637,7 +644,24 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       return { scene: s, events };
     }
     case "addMaterial": {
-      s.addMaterial({ name: op.name, color: [op.color[0], op.color[1], op.color[2]], ...(op.texture ? { texture: { mimeType: op.texture.mimeType, bytes: op.texture.bytes, sizeM: [op.texture.sizeM[0], op.texture.sizeM[1]] } } : {}) });
+      if ("texture" in op) throw new OpTargetError("addMaterial: 旧形状（材质里直接装着图，v0.19.3 及以前的复现包）——图现在先 addTexture、材质用 channels 指它；这一条重放不了");
+      for (const g of Object.values(op.channels ?? {}).flat()) if (!s.textures.has(g)) throw new OpTargetError(`addMaterial: texture ${g}`);
+      s.addMaterial({ name: op.name, color: [op.color[0], op.color[1], op.color[2]], ...(op.channels && Object.keys(op.channels).length ? { channels: Object.fromEntries(Object.entries(op.channels).map(([k, v]) => [k, [...v]])) } : {}) });
+      return { scene: s, events: [] };
+    }
+    case "addTexture": {
+      if (s.texturesFrozen) throw new OpRejected(TEXTURES_FROZEN);
+      if (s.textures.has(op.guid)) throw new OpTargetError(`addTexture: texture ${op.guid} already exists`);
+      assertSizedImage({ bytes: op.bytes, sizeM: op.sizeM }, "addTexture");
+      s.addTexture({ guid: op.guid, name: op.name, value: COLOR_VALUE, content: { kind: "image", mimeType: op.mimeType, bytes: op.bytes }, sizeM: [op.sizeM[0], op.sizeM[1]] });
+      return { scene: s, events: [] };
+    }
+    case "purgeTextures": {
+      if (s.texturesFrozen) throw new OpRejected(TEXTURES_FROZEN);
+      if (s.shelfFrozen) throw new OpRejected(SHELF_FROZEN_PURGE);
+      const pointed = new Set(s.materials.flatMap((m) => Object.values(m.channels ?? {}).flat())), shelved = new Set(s.shelf.items.map((it) => it.ref));
+      for (const g of op.textures) { const t = s.textures.get(g); if (!t) throw new OpTargetError(`purgeTextures: texture ${g}`); if (pointed.has(g) || shelved.has(g)) throw new OpTargetError(`purgeTextures: 「${t.name}」还有人用`); }
+      for (const g of op.textures) s.textures.delete(g);   // purgeTextures：全家唯一删贴图的地方（守卫只放过这一行）
       return { scene: s, events: [] };
     }
     case "setEdgeLayers": {
@@ -784,6 +808,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (!s.hasPool(ref)) throw new OpTargetError(`paste: pool ${ref.def}/${ref.group ?? "root"}`);
       const pp = planPaste(s, op, op.merge ?? KEEP), blocked = pasteBlocked(s, pp, ref.def);
       if (blocked) throw new OpRejected(blocked);
+      if (s.texturesFrozen && [...pp.plan.create, ...pp.plan.update].some((r) => r.kind === TEXTURE)) throw new OpRejected(TEXTURES_FROZEN);
       const merged = landPayload(s, pp, op.materials);
       for (const it of op.shelve ?? []) applyShelfOp(s, { op: "shelfPut", kind: "definition", ref: merged.defGuid(it.ref), folder: null, guid: it.guid });
       for (const i of op.instances ?? []) {
@@ -953,7 +978,9 @@ export function describeOp(op0: Op): string {
     case "purgeMaterials": return `purgeMaterials [${op.materials.join(",")}]`;
     case "moveInstance": return `moveInstance ${op.from.def}/${op.from.inst} → ${op.into.def}/${op.into.parent ?? "root"}${op.index !== undefined ? ` @${op.index}` : ""}`;
     case "copyGroup": return `copyGroup ${op.group}${at}`;
-    case "addMaterial": return `addMaterial "${op.name}"${op.texture ? " +texture" : ""}`;
+    case "addMaterial": return `addMaterial "${op.name}"${op.channels ? ` channels=${Object.keys(op.channels).join("+")}` : ""}`;
+    case "addTexture": return `addTexture "${op.name}" ${op.mimeType} ${op.bytes?.length ?? 0}B ${op.sizeM.join("x")}m`;
+    case "purgeTextures": return `purgeTextures ${op.textures.length}`;
     case "flipFaceSides": return `flipFaceSides n=${op.faces.length}${at}`;
     case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${op.sides ? ` sides=${op.sides.filter((x) => x === 0).length}+/${op.sides.filter((x) => x === 1).length}-` : ""}${at}`;
     case "setEdgeLayers": return `setEdgeLayers n=${op.edges.length} ${op.on ? "+" : "-"}${op.layers.join(",")}${at}`;
@@ -1010,6 +1037,7 @@ function mintPasted(s: Scene, def: number, parent: number | null, i: TransferIns
   if (layer !== undefined) ni.layer = layer;
   if (i.hidden) ni.hidden = true;
 }
+const TEXTURES_FROZEN = "这份文件的贴图表是更新版写的，本版读不懂，加贴图 / 清理会和它打架：用更新版打开再改";
 const SHELF_FROZEN_PURGE = "这份文件的素材架是更新版写的，本版看不见架上收着什么，清理可能删掉它们：用更新版打开再清理";
 /** 同一个文件夹里排到第 index 个（items 是一张表，顺序只在同夹之间有意义；缺 / 超了 = 排最后）。 */
 function placeOnShelf(items: ShelfItem[], it: ShelfItem, index: number | undefined): void {

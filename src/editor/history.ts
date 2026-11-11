@@ -1,7 +1,8 @@
 // history.ts —— 正规 undo：**指令流 + 差量栈**（A1 2026-09-20 立；A3 2026-10-27 换底子，设计稿 ai-docs/20261027-undo-delta-design.md）。
 // created 2026-09-20 by Claude Fable 5.1 · 2026-10-27 重做底子 by Claude Fable 5.1（user：「我是更喜欢逆指令……会不会不好写的有另外一条兜底的路？」「CatsUp为什么不128」「画画……我建议不走[自己的栈]」「影子换真身好主意」）
 //
-// · 指令流 ops[]：可序列化、按坐标寻址——复现包 / 黑匣子 / 以后的联机 / 脚本都读它；永不驱逐（很小）。**不再是撤销的底子**（以前 = 每 8 条整场景快照 + 回到快照重放：八份整场景常驻、深撤销 O(全部指令)）。
+// · 指令流 ops[]：可序列化、按坐标寻址——复现包 / 黑匣子 / 以后的联机 / 脚本都读它；永不驱逐（很小）。
+//   指令的形状改了（例：v0.19.4 addMaterial 不再带 texture、图先 addTexture），旧复现包里对应的那几条重放不了——这是许可的（统筹 11-10：复现包是调试用的衍生物，不做向后兼容；重放脚本说清是哪一条、停下）。**不再是撤销的底子**（以前 = 每 8 条整场景快照 + 回到快照重放：八份整场景常驻、深撤销 O(全部指令)）。
 // · 差量栈 entries[i]：ops[i] 的撤销记录，三种部件，WeebPaint undo-stack 同款自反交换（应用一次 = 撤，记录被换成反向包；再应用 = 重做）：
 //     kernel —— 池内核差量（kernel/delta.ts）：**提交 = 影子换真身**：先从真身新拷一份当影子、在影子上跑这条 op、成功就把影子装进池（真身换对象），
 //               旧真身里触碰集的记录就是「之前」（deltaAgainst，O(触碰)），旧真身随即丢掉。任何 op 自动有逆，不手写逆指令。失败 = 真身原封不动。
@@ -60,7 +61,7 @@ export interface UndoComponent<R = unknown> {
 interface Entry { kind: string; data: unknown; bytes: number }
 
 const KERNEL_OPS = new Set<Op["op"]>(["addEdges", "eraseEdges", "eraseFaces", "eraseSelection", "move", "pushpull", "followme", "absorb", "weldEdges", "dissolveVertices", "explodeCurves", "setEdgeLayers", "paintFaces", "flipFaceSides", "plugin", "mirror", "setHidden"]);
-const SKELETON_OPS = new Set<Op["op"]>(["setMeshMirror", "transformInstance", "placeInstance", "eraseInstance", "purgeDefs", "purgeMaterials", "moveInstance", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setAxes", "setDrawFrame", "castDefinition", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
+const SKELETON_OPS = new Set<Op["op"]>(["setMeshMirror", "transformInstance", "placeInstance", "eraseInstance", "purgeDefs", "purgeMaterials", "moveInstance", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "addTexture", "purgeTextures", "setAxes", "setDrawFrame", "castDefinition", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
 /** mesh 族的 op：改一个网格体的内核（寻址 = 定义）。加一种内核 = 加一个集合 + 一种记录；以后种类多了把「怎么记」挂到 KindDef 上。 */
 const MESH_OPS = new Set<Op["op"]>(["meshMove", "meshExtrude", "meshKnife", "meshLoopCut", "meshDelete", "meshInset", "meshAddPrimitive", "meshEdgeMarks", "meshSmoothDefault", "meshBevel", "meshBevelVerts", "meshSymmetrize", "meshSymmetrySnap", "meshSubdivide", "meshMerge", "meshDuplicate", "meshFill", "meshFlip"]);
 export type OpTier = "kernel" | "mesh" | "skeleton" | "scene";

@@ -1,14 +1,15 @@
-// format/entry-kinds.ts —— CatsUp 的三种条目（组件定义 / 材质 / 层）在身份层的声明。政策表 = 设计书 ai-docs/20261104-identity-layer-design.md §3。created 2026-11-04 by Claude Opus 5.5（ID-4a）
-// 贴图独立成条目（材质纪元）= 这里加一份声明 + 文件里一节，不加算法。
+// format/entry-kinds.ts —— CatsUp 的四种条目（组件定义 / 材质 / 层 / 贴图）在身份层的声明。政策表 = 设计书 ai-docs/20261104-identity-layer-design.md §3。created 2026-11-04 by Claude Opus 5.5（ID-4a）
+// 贴图独立成条目（材质纪元）= 这里加一份声明 + 文件里一节，不加算法。2026-11-10 落地（贴图主线 1-0½，Claude Opus 5.5）：材质经 channels 指贴图，贴图不指别人。
 import { registerKind, type Ref } from "../identity/kinds.ts";
 import { BUILTIN_BACK_GUID, BUILTIN_FRONT_GUID, DEFAULT_LAYER_GUID, mintGuid, type Guid } from "../identity/guid.ts";
-import type { DefinitionDoc, LayerDoc, MaterialDoc } from "./document.ts";
-import { canonDefinition, canonMaterial } from "./entry-canon.ts";
+import type { DefinitionDoc, LayerDoc, MaterialDoc, TextureDoc } from "./document.ts";
+import { canonDefinition, canonMaterial, canonTexture } from "./entry-canon.ts";
 
-export const DEFINITION = "definition", MATERIAL = "material", LAYER = "layer";
+export const DEFINITION = "definition", MATERIAL = "material", LAYER = "layer", TEXTURE = "texture";
 export const defRef = (guid: Guid): Ref => ({ kind: DEFINITION, guid });
 export const materialRef = (guid: Guid): Ref => ({ kind: MATERIAL, guid });
 export const layerRef = (guid: Guid): Ref => ({ kind: LAYER, guid });
+export const textureRef = (guid: Guid): Ref => ({ kind: TEXTURE, guid });
 
 /** 定义这种条目在图上的样子：文件形状 + 它实例上层代号的那张对照表（层代号是源文件层表的代号，家规「编号只当对照表的代号」；离开那份文件就得带着表走）。 */
 export interface DefinitionEntry { readonly def: DefinitionDoc; readonly layerGuid: (code: number) => Guid | undefined }
@@ -37,10 +38,20 @@ registerKind<MaterialDoc>({
   kind: MATERIAL, carry: true, structural: false, overwrite: true, constants: [BUILTIN_FRONT_GUID, BUILTIN_BACK_GUID],
   guidOf: (m) => m.guid,
   nameOf: (m) => m.name,
-  refs: () => [],
-  rewrite: (m, map) => ({ ...m, guid: map(materialRef(m.guid)) }),
+  refs: (m) => Object.values(m.channels ?? {}).flatMap((stack) => stack.map(textureRef)),   // 材质指贴图（channels 的每一摞；不认识的通道名也算）
+  rewrite: (m, map) => ({ ...m, guid: map(materialRef(m.guid)), ...(m.channels ? { channels: Object.fromEntries(Object.entries(m.channels).map(([k, stack]) => [k, stack.map((g) => map(textureRef(g)))])) } : {}) }),
   remintOwned: (m) => m,
   canon: canonMaterial,
+});
+
+registerKind<TextureDoc>({
+  kind: TEXTURE, carry: true, structural: false, overwrite: true, constants: [],   // 跟着用它的材质走；内容不一样 = 和材质一样问（更新 / 留这里的 / 断开）
+  guidOf: (t) => t.guid,
+  nameOf: (t) => t.name,
+  refs: () => [],   // layout.definition（单品的画）这一版没有入口造它，原样带，不当引用走（施工单（二）「这一张不做的」）
+  rewrite: (t, map) => ({ ...t, guid: map(textureRef(t.guid)) }),
+  remintOwned: (t) => t,
+  canon: canonTexture,
 });
 
 registerKind<LayerDoc>({

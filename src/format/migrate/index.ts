@@ -74,6 +74,23 @@ import { definitionsV6toV7, type MigrationCtx } from "./definitions.ts";
 //   CATSUP_document    3.5（minor）：layers[].guid；默认层是全家一个常量（guid.ts），别的层读时现铸。
 //   CATSUP_brep        不动（4.2）。11-04 一度加了 4.3「面层 0xFFFE = 这一侧没有表面」，门审时 user 撤回：硬表面里对象是片不是体，单面 / 双面跟身体种类和导出规矩走，不进膜的数据（计划书 §2.9；Claude Fable 5.1）。
 //   CATSUP_shelf       1.0（新，可选）：素材架。空 = 不写这个扩展。major 比本版新 → 不拒开（同 desk）：原字节带回、架子先空。
+//
+// 贴图成为独立的条目（2026-11-10，Claude Opus 5.5；贴图主线 1-0½，施工单 ai-docs/20261110-paint-workorders-2.md，Fable 定的形状）：
+//   CATSUP_textures    1.0（新，可选顶层扩展）：贴图表，一行 = { guid, name, value, content, sizeM | layout, …不认识的键 }。表空 = 不写这个扩展。
+//                      content.kind = image（{ mimeType, bytes: { bufferView } }）/ layered（{ ora: { bufferView } }，这一版不解释）/ 不认识的（整行和字节原样带回，readNotes 记一笔）。
+//                      字节一律写成 `{ "bufferView": N }`（不许写图片下标）：老版本不认识这个扩展、原样带回时只会改 bufferView 的号（carry.ts）。
+//                      sizeM（自由的图，两个数 > 0）和 layout（单品的画）正好有一个，否则读取失败、报哪一行。行里不认识的键原样带回；表里的先后没有意思。
+//                      **major 比本版新 → 不拒开**（同 desk / 参考窗 / 素材架）：扩展原样带回，材质的 channels 原样带回、先按底色显示，readNotes 记一笔；标准那一半这次不写这些材质的图。
+//   CATSUP_material    1.3（minor）：材质不装图了，channels { 通道名: [贴图 GUID…] }（这一版只写 color、一摞一张；不认识的名字原样带；一摞空 = 不写那个名字，都空 = 不写 channels）。
+//                      **材质扩展里的 sizeM 只是回声**：老读者（1.2）从这里读贴图尺寸，读不到当一米，所以照写 = 颜色那一槽最上面那张自由的图的 sizeM；本版读的时候有 channels 就不看它。
+//                      标准那一半（pbrMetallicRoughness.baseColorTexture → textures → images）照写，images 那一条和贴图表那一行指同一个 bufferView（字节只存一份）。
+//                      读老文件（没有 channels、标准那一半有图 = 1.2 和更老，或者被老版本存过一遍的新文件）：现铸 GUID、贴图表加一行（名字 = 材质名，尺寸 = 材质扩展的 sizeM，没有 = 一米），
+//                      材质的 channels.color 指它；两个材质各有各的图 = 两行，不按内容合并（migrate/material.ts）。
+//                      **已知的代价**：新文件被老版本打开再存一遍，老版本重写材质扩展、丢掉 channels，贴图表它原样带着 → 再用本版打开，材质得到一张新身份的贴图，表里原来那一行
+//                      变成没人用的孤儿（资源页能清）。图不丢，身份号换了，多一行孤儿。不按内容认图（内容哈希当身份，全家族否决过）。
+//                      同一条路上还有一处（门 6 拿 v0.18.50 的真代码跑出来的，2026-11-10；Fable 同意记成已知代价）：① 只在「新文件被老版本打开再存一遍」这条路上发生；
+//                      ② 两个材质原来共用一张贴图的话，老版本给每个材质各写一份图 → 本版再打开铸出两张新贴图（各叫各自材质的名字）：图一个字节不丢，丢的是「共用」这层关系，
+//                      文件里多一份同样的字节，原来那一行变孤儿；③ 不为它按内容认图。
 
 export interface Stamp { readonly major: number; readonly minor: number; readonly patch: number }
 /** 本版写出的拍子（SSoT）。 */
@@ -82,15 +99,16 @@ export const FORMAT = {
   CATSUP_brep: { major: 4, minor: 2, patch: 0 },
   CATSUP_definitions: { major: 7, minor: 0, patch: 0 },   // 7.0（2026-11-04）：引用换 GUID
   CATSUP_instance: { major: 2, minor: 0, patch: 0 },   // 2.0（2026-11-04）：节点 definition 换 GUID（只写不读）
-  CATSUP_material: { major: 1, minor: 2, patch: 0 },   // 1.2（2026-11-04）：guid   // 1.1（2026-10-30）：材质的 baseColorFactor 按 glTF 规定存线性值（以前存 sRGB 的数；color-space.ts）；老文件不迁移（user「老文件我们现在真的不用念旧」）
+  CATSUP_material: { major: 1, minor: 3, patch: 0 },   // 1.3（2026-11-10）：channels（图搬进贴图表，sizeM 只是给老版本的回声）   // 1.2（2026-11-04）：guid   // 1.1（2026-10-30）：材质的 baseColorFactor 按 glTF 规定存线性值（以前存 sRGB 的数；color-space.ts）；老文件不迁移（user「老文件我们现在真的不用念旧」）
   CATSUP_desk: { major: 1, minor: 4, patch: 0 },   // 1.4（2026-11-04）：可选键 exportModel；1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
   CATSUP_references: { major: 1, minor: 0, patch: 0 },
   /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
   CATSUP_mesh: { major: 1, minor: 2, patch: 0 },   // 1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）
   CATSUP_shelf: { major: 1, minor: 0, patch: 0 },   // 1.0（2026-11-04）：素材架（可选扩展）
+  CATSUP_textures: { major: 1, minor: 0, patch: 0 },   // 1.0（2026-11-10）：贴图表（可选扩展）
 } as const satisfies Record<string, Stamp>;
 export type CatsupExtension = keyof typeof FORMAT;
-export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references", "CATSUP_mesh", "CATSUP_shelf"];
+export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references", "CATSUP_mesh", "CATSUP_shelf", "CATSUP_textures"];
 /** 各子结构的 major（老名字，读写两端的 too-new 判定与 STEPS 索引都用它）。 */
 export const EXTENSION_VERSIONS: Readonly<Record<CatsupExtension, number>> = Object.fromEntries(CATSUP_EXTENSION_ORDER.map((k) => [k, FORMAT[k].major])) as Record<CatsupExtension, number>;
 /** 写入器盖拍子：`version` 必写；`minor` / `patch` 是可选键（缺 = 0），为 0 时不写——省字节（§3.2「抠」），字节照样确定。 */
@@ -117,7 +135,7 @@ export function compareStamp(file: Stamp, mine: Stamp): StampVerdict {
 }
 /** 读取时攒的判决（不持久化）：newerMinor = 哪些子结构比本版新一个 minor（宿主提示一次）；deskTooNew = 桌面态 major 比本版新（原字节带回、用默认）；
  *  referencesTooNew = 参考窗牌组 major 比本版新（原字节带回、参考窗先不显示）；shelfTooNew 同理；danglingShelfRefs = 架子上有几格指向的东西已经不在文件里（读时丢掉，不猜、不造）。 */
-export interface FormatReadNotes { /** 文件里写了身份、但重复或不合法，这次打开换了新身份（ID-4c；手改过的文件才有）。 */ remintedGuids?: number; newerMinor: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; newerPatch: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; deskTooNew?: Stamp; /** 槽表里写了内置默认正面 GUID 的格数（默认正面的唯一表示是槽缺，读成没有；手改过的文件才有）。 */ builtinFrontSlots?: number; referencesTooNew?: Stamp; shelfTooNew?: Stamp; danglingShelfRefs?: number }
+export interface FormatReadNotes { /** 文件里写了身份、但重复或不合法，这次打开换了新身份（ID-4c；手改过的文件才有）。 */ remintedGuids?: number; newerMinor: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; newerPatch: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; deskTooNew?: Stamp; /** 槽表里写了内置默认正面 GUID 的格数（默认正面的唯一表示是槽缺，读成没有；手改过的文件才有）。 */ builtinFrontSlots?: number; referencesTooNew?: Stamp; shelfTooNew?: Stamp; danglingShelfRefs?: number; /** 贴图表是更新版写的（major 比本版新）：原样带回、材质先按底色显示。 */ texturesTooNew?: Stamp; /** 材质的 channels 指着贴图表里没有的 GUID：那一格当空的（不猜、不造）。 */ danglingTextureRefs?: number; /** 贴图表里有本版不认识的 content 种类（整行原样带回、显示成灰色占位）。 */ unknownTextureKinds?: number }
 export const emptyReadNotes = (): FormatReadNotes => ({ newerMinor: [], newerPatch: [] });
 
 export type MigrationStep = (json: Record<string, unknown>, ctx?: MigrationCtx) => Record<string, unknown>;

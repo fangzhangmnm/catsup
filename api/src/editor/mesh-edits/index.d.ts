@@ -25,5 +25,8 @@ export declare const fill: Command<MeshUnit>;
 export declare const flipNormals: Command<MeshUnit>;
 export declare const subdivideCmd: Command<MeshUnit>;
 export declare const symmetrySnap: Command<MeshUnit>;
+export declare const flattenX: Command<MeshUnit>, flattenY: Command<MeshUnit>, flattenZ: Command<MeshUnit>, flattenNormal: Command<MeshUnit>;
+/** 压到镜像面：方向 = 镜像轴，压到那个坐标正好是零的面上（中缝合不上多半就差这一下）。物件没开镜像 = 数出来是 0，菜单不露。 */
+export declare const flattenMirror: Command<MeshUnit>;
 export declare const smoothByAngle: Command<MeshUnit>, smoothAll: Command<MeshUnit>, smoothNone: Command<MeshUnit>;
 export declare const meshEdits: Family;

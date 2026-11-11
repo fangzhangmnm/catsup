@@ -411,14 +411,14 @@ export declare class Editor {
     private deferredBefore;
     /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
     /** A9 方向锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
-     *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
+     *  轴 = 上下文帧（绘图轴 / 组轴）的轴。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
+     *  生命周期（W-4，2026-11-10）：每个工具各记各的（tool-locks.ts），手势落定不解、换工具不解、换回来还是它；键盘 Esc 解当前这把的（clearToolLock）。
      *  面锁（user 2026-10-25「Shift + 方向键锁平面、矩形工具的平面锁、触屏常驻三颗轴键。 要！」；键位 = ledger A9 的 Blender Shift+X 语义）：
      *  锁到「排除该轴」的平面 = 法向是该轴的面（Shift+→ YZ / Shift+← XZ / Shift+↑ XY / Shift+↓ 光标下那张膜的面）。
      *  先定平面的工具（矩形 / 圆 / 旋转矩形 / 弧 / 旋转 / 量角器，`lock: "plane"`）不吃方向锁：方向键直接锁平面（SU 旋转矩形「按方向键定平面」同款），
      *  平面过首点（ctx.lockedPlane）；沿轴走的工具（`lock: "axis"`）Shift+方向键 = 点投到过锚点的那张面上（ctx.applyLock）。方向锁与面锁互斥。 */
-    private _axisLock;
-    private _planeLock;
-    private _planeLockN;
+    private readonly locks;
+    private get lk();
     private lastPtr;
     /** 最近一次真指针的种类（键盘起手不算）：自由建模吸附的底按它查 SNAP_BASE。 */
     private lastPtrType;
@@ -427,6 +427,8 @@ export declare class Editor {
     private lastMoveEv;
     get axisLock(): LockAxis | null;
     get planeLock(): PlaneLock | null;
+    /** 键盘 Esc / 芯片「取消」：解当前这把工具的锁（W-4；手指轻点的取消不解，免得误碰把锁悄悄清掉）。没在做手势时这一下只解锁、不再往下做（main.ts escape）。 */
+    clearToolLock(): void;
     /** 当前工具吃哪种锁（null = 不吃锁：方向键 / 虚拟轴键无效）。 */
     lockStyle(): "axis" | "plane" | null;
     setAxisLock(a: LockAxis | null): void;
@@ -1034,7 +1036,9 @@ export declare class Editor {
     setPaint(p: PaintPick): void;
     /** 文档材质表（只读）。 */
     materials(): readonly import("../scene/scene.ts").Material[];
-    /** 蘸的材质在文档材质表里的索引（没有就新建一条 addMaterial op）；null = 默认。 */
+    /** 这个材质当「蘸的」是什么（色板 / 吸色同一份：paint-material.ts）。 */
+    materialPick(m: import("../scene/scene.ts").Material): NonNullable<PaintPick>;
+    /** 蘸的材质在文档材质表里的索引（没有就在这一步里新建：图 = addTexture + addMaterial，paint-material.ts 算）；null = 默认。 */
     private materialIndexForPick;
     /** 给活动池里的这些面涂当前材质（op）。 */
     paintFaces(faces: readonly FaceId[], sides?: readonly (0 | 1)[]): void;

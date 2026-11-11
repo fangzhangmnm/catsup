@@ -16,7 +16,7 @@ import { applyOp } from "../src/editor/ops.ts";
 import { IDENTITY, WORLD_FRAME } from "../src/scene/xform.ts";
 import { oneSided, sceneBox, sceneHoledOpen } from "./format-scenes.ts";
 
-const env: PoolMeshEnv = { matOf: () => null, slotsSig: "", faceColor: () => [0.5, 0.5, 0.5], edgeColor: () => [0, 0, 0], thick: false, singleSided: true, backLook: "show" };
+const env: PoolMeshEnv = { matOf: () => null, mapOf: () => null, slotsSig: "", faceColor: () => [0.5, 0.5, 0.5], edgeColor: () => [0, 0, 0], thick: false, singleSided: true, backLook: "show" };
 const dot = (a: Pt3, b: Pt3): number => a.x * b.x + a.y * b.y + a.z * b.z;
 const centroid = (pts: readonly Pt3[]): Pt3 => { let x = 0, y = 0, z = 0; for (const p of pts) { x += p.x; y += p.y; z += p.z; } return { x: x / pts.length, y: y / pts.length, z: z / pts.length }; };
 const unitBox = (): { m: MeshKernel; verts: number[]; faces: number[] } => { const m = new MeshKernel(); const { verts, faces } = addBox(m, { x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 }); return { m, verts, faces }; };

@@ -6,7 +6,7 @@ const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=sw
 const page = await browser.newPage({ viewport: { width: 744, height: 1133 }, deviceScaleFactor: 2 /* iPad mini 6 竖屏（user 2026-10-21「默认测试按 ipad mini」「我比较习惯竖屏」）*/ });
 const errs = []; page.on("pageerror", (e) => errs.push(e.message));
 page.on("console", (m) => { if (m.type() === "error") errs.push("console: " + m.text()); });
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(400); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
+await page.goto(process.argv[2]?.startsWith("http") ? process.argv[2] : "http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(400); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
 const res = await page.evaluate(async () => {
   const e = globalThis.__catsup.editor; const vp = () => e.vp(); const c = document.getElementById("board"); const r = c.getBoundingClientRect();
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -93,7 +93,7 @@ const res = await page.evaluate(async () => {
   e.setPaint({ kind: "texture", name: "格子", mimeType: "image/png", bytes: png, sizeM: [0.5, 0.5] });
   const sideCyl = e.kernel.faces().find((f) => f.outer.edges.length === 4 && e.kernel.faceRings3(f.id).outer.some((p) => p.z > 0.1) && e.kernel.faceRings3(f.id).outer.some((p) => p.z < 0.01));
   if (sideCyl) { const rr = e.kernel.faceRings3(sideCyl.id).outer; const c3 = rr.reduce((a, p) => ({ x: a.x + p.x / 4, y: a.y + p.y / 4, z: a.z + p.z / 4 }), { x: 0, y: 0, z: 0 }); const sp = px(c3); fire("pointerdown", sp.x, sp.y, { button: 0, buttons: 1 }); fire("pointerup", sp.x, sp.y, { button: 0 }); await sleep(60); }
-  out.texturedMaterials = e.materials().filter((m) => m.texture).length;
+  out.texturedMaterials = e.materials().filter((m) => e.materialPick(m).kind === "texture").length;   // 图在贴图表里（2026-11-10）：问编辑器，不读材质字段
   // ⑥c 偏移：在圆柱顶面按住、往里拖 → 顶面分成环带 + 内岛（面数 +1）
   e.cancel(); e.setTool("offset");
   if (topCyl) {

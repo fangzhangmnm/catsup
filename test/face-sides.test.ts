@@ -16,7 +16,7 @@ import { EditorStreamProvider } from "../src/editor/stream-provider.ts";
 import { planOutward, planUnify } from "../src/editor/repairs/orient/plan.ts";
 import { flipSides, orientOutward, orientUnify } from "../src/editor/repairs/orient/index.ts";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, writeGltfModel } from "../src/format/index.ts";
-import { BUILTIN_BACK_GUID, BUILTIN_FRONT_GUID } from "../src/format/guid.ts";
+import { BUILTIN_BACK_GUID, BUILTIN_FRONT_GUID, mintGuid } from "../src/format/guid.ts";
 import { decodeGlb, encodeGlb } from "../src/format/glb.ts";
 import { textureBasis, dot3 } from "../src/kernel/geom.ts";
 import { oneSided, sceneBox, sceneSided, sceneFingerprint } from "./format-scenes.ts";
@@ -215,7 +215,7 @@ describe("内置默认背面碰到的地方（§9.2-A）", () => {
     const withBack = p.env(s, s.root, false).slotsSig;
     assert(withBack !== "0" && withBack !== empty, `内置 uid：${withBack}`);
     const k = new Kernel(); k.addEdges(rect()); const f = k.faces()[0].id;
-    const envOf = (cull: boolean): PoolMeshEnv => ({ matOf: (slot) => (slot === 0 ? BUILTIN_BACK : null), slotsSig: "1", faceColor: (m) => (m === BUILTIN_BACK ? (cull ? [-1, -1, -1] : [0.6, 0.7, 0.8]) : [0.8, 0.8, 0.8]), edgeColor: () => [0, 0, 0], thick: false, singleSided: false, backLook: cull ? "cull" : "show" });
+    const envOf = (cull: boolean): PoolMeshEnv => ({ matOf: (slot) => (slot === 0 ? BUILTIN_BACK : null), mapOf: () => null, slotsSig: "1", faceColor: (m) => (m === BUILTIN_BACK ? (cull ? [-1, -1, -1] : [0.6, 0.7, 0.8]) : [0.8, 0.8, 0.8]), edgeColor: () => [0, 0, 0], thick: false, singleSided: false, backLook: cull ? "cull" : "show" });
     k.setFaceMaterial([f], 0, [1]);
     const m = new PoolMesh(); m.sync(k, envOf(false));
     const A = m.groups.get("plain")!.store.arrays;
@@ -275,7 +275,9 @@ describe("导出：要出几侧就几张面（§2.9 / §9.2½ ①）", () => {
   });
   it("贴图 UV 按那一侧的铺法（各侧从自己那侧看不镜像）", () => {
     const s = new Scene(sceneBox(1, 1)), k = K(s), top = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.z === 1))!, n = k.planeOf(top.id)!.plane.n, back = n.z > 0 ? 1 : 0;
-    applyOp(s, { op: "addMaterial", name: "图", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: new Uint8Array([1, 2, 3]), sizeM: [2, 2] } });
+    const tex = mintGuid();
+    applyOp(s, { op: "addTexture", guid: tex, name: "图", mimeType: "image/png", bytes: new Uint8Array([1, 2, 3]), sizeM: [2, 2] });
+    applyOp(s, { op: "addMaterial", name: "图", color: [1, 1, 1], channels: { color: [tex] } });
     applyOp(s, { op: "paintFaces", at: root(s), faces: [faceKey(k, top.id)], material: 0, sides: [back] });
     const g = glb(s), p = triPrims(g).find((x) => x.material === 0)!, basis = textureBasis(back === 1 ? P(-n.x, -n.y, -n.z) : n);
     const a = g.json.accessors[p.attributes.TEXCOORD_0], bv = g.json.bufferViews[a.bufferView], view = new DataView(g.bin.buffer, g.bin.byteOffset + (bv.byteOffset ?? 0), bv.byteLength);

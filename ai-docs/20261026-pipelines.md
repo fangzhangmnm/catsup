@@ -458,7 +458,7 @@ flowchart LR
 | 导入素材 | 同一个预查 + 同一个弹窗（站在哪 = 编辑器现在站的，贴进哪 = 根）→ `importBlocked` 再查一遍 → `shelfImportOp` | 没摆放；站在要更新的组件里只有更新灰（落在根，留这里的 / 断开不会贴进它自己）；上架在 `paste` 里按落地之后的 GUID 做；一次导入也只比一次内容 + 指令里那一次 |
 | 打开文件 | `materializeDefinitions` 直接装 | 同一份落地；整张表原样、不走 plan |
 | 做成唯一 | `uniqueCopy`：`definitionToDoc` → 声明的 `rewrite + remintOwned` → `materializeDefinitions` | 断开的同一份声明 |
-| 清理 / 资源页 | `scene/resources.ts` 这层壳 → `closure(sceneStore, roots)` + `usage` | 组件按图上的活死；材质按面数（槽表占位不算有人用） |
+| 清理 / 资源页 | `scene/resources.ts` 这层壳 → `closure(sceneStore, roots)` + `usage` | 组件按图上的活死；材质按面数（槽表占位不算有人用）；贴图按几个材质指着它 + 素材架（v0.19.4） |
 
 **每一步**
 
@@ -520,3 +520,18 @@ flowchart LR
 - **锁的入口**：右上角吸附 / X 光下面三行钮（`main.ts renderLockRows`，跟 `syncUi` 一起刷），点 = `toggleAxisLock` / `togglePlaneLock`。左下芯片的锁那一槽（`controller/chips.ts`）、吸附钮菜单里锁的那一段撤了。
 - **压平第 2 步「这圈的朝向」**（`mesh/ops/flatten.ts bestFitNormal`）：以前取协方差矩阵伴随阵行列式最大的那一行就交；现在拿它当起点，再用伴随阵乘、每遍归一（反幂迭代），收敛为止、最多 64 遍。每遍 9 次乘法，比算协方差（每个点一遍）便宜得多，选中再多也看不出来。和 Jacobi 严格解对照（`test/flatten.test.ts`）：新写法四种圈都是 0 偏差；旧写法 轻微起伏 0.014°、胳膊那一圈 0.22°、上下乱得很 10.7°。
 - **v0.19.3（Fable 审后三处）**：Esc（`main.ts` escape）= 没在做手势、这把工具锁着 → 只 `clearToolLock()` 就返回；做手势时 = 取消这一下并且解锁（同前）。`Editor.loadScene`（打开 / 新建）= `locks.clearAll()`。`renderLockRows`：不吃锁的工具上有交接中的锁 → 也出三行（六颗）。
+
+## 追记 2026-11-10 深夜（v0.19.4，Claude Opus 5.5；贴图主线 1-0½）：贴图成为独立的条目——「涂一张图」这一路
+
+一张图 = 贴图表（`Scene.textures`，GUID → 一行，文件里 `CATSUP_textures` 1.0）里的一行；材质不装图，`channels.color` 指它。**问「这个材质用哪张图」只有一个口**：`format/document.ts colorMapIn`（场景里 = `Scene.colorMapOf`），查表、不扫表（每张面都问）。
+
+| 一步 | 干什么 | 碰多少东西 |
+|---|---|---|
+| 蘸图 → 涂 | 编辑器 `materialIndexForPick` → `editor/paint-material.ts materialForPick`：先找**同一份字节对象**、同尺寸的贴图（没有 = `addTexture`，GUID 写在指令里），再找同名、颜色那一槽指它的材质（没有 = `addMaterial { channels }`），然后 `paintFaces`；三条在同一步（撤一次全回去，重做 GUID 不变） | 扫一遍贴图表和材质表（几十行量级），不随模型涨 |
+| 吸色 / 色板 | `pickOfMaterial`（问那个口） | 一个材质 |
+| 渲染 | `stream-provider.refOf`：材质 + 它的图 → 契约 `MaterialRef { color, map?: TextureRef }`，按对象记住（同一个材质同一张图 = 同一个对象）；槽表签名里材质的号带上图的号（图换了 = 那个池重建）。`render3`：解码按 `TextureRef` 缓存（两个材质同一张图只解一次），着色器按 `MaterialRef` 缓存 | 每张面问一次口（查表）；解码 = 每张图一次 |
+| 写盘 | `write.ts`：一张图的字节只落一次，贴图表那一行和标准那一半的 `images[]` 指同一个 bufferView；两个材质用同一张图 = 一条 image；材质扩展写 `channels` + `sizeM`（给老读者的回声）；表空不写扩展、太新原样写回 | 贴图数 + 材质数 |
+| 读盘 | `read.ts`：先读贴图表（`texture-table.ts readTextureRow`），再读材质：有 `channels` 照它（指着表里没有的 = 空、记一笔）；没有、标准那一半有图 = 老文件，现铸一行（`migrate/material.ts`） | 同上 |
+| 粘贴 / 导入素材 | 载荷多带 `textures`（材质指着的那些）；身份层的包里有它们，材质的引用走到它们；`applyPlan` 先落贴图再落材质；`trimClosure` 只留计划要用的 | 走到的条目数 |
+| 清理 | 资源页「贴图」一节 + `purgeTextures`（全家唯一删贴图的地方；被材质指着 / 架上收着的不许删）。清材质不顺手清图 | 贴图数 + 材质数 |
+

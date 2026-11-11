@@ -12,6 +12,7 @@ import type { EdgeId, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import type { ChangeSet, Lineage } from "../kernel/change-log.ts";
 import type { Material } from "../scene/scene.ts";
+import type { ColorMap } from "../format/document.ts";
 import type { GeomView } from "../scene/world-view.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 import { textureBasis } from "../kernel/geom.ts";
@@ -245,6 +246,8 @@ export type TexSide = "front" | "back" | "double";
 export interface PoolMeshEnv {
   /** 槽号 → 材质（scene.materialOfSlot 绑好 definition）。 */
   matOf(slot: number | undefined): Material | null;
+  /** 这个材质贴哪张图（scene.colorMapOf，那个口）：null = 按底色画。 */
+  mapOf(m: Material): ColorMap | null;
   /** 定义的材质槽表签名（每个槽的材质身份，逗号连）：一边是另一边的前缀 = 增量；别的变化 = 全量重建。 */
   slotsSig: string;
   /** 面 / 边烤进顶点的颜色（提供者按调色板算；淡出 / 选中不在这里 = 标记）。 */
@@ -397,9 +400,9 @@ export class PoolMesh {
     const ok0 = this.faceGroups.get(fid), oldKeys = ok0 === undefined ? [] : typeof ok0 === "string" ? [ok0] : ok0;
     const parts: { key: string; mat: Material | null; side: TexSide | null; fill: Fill }[] = [];
     if (rec) {
-      const tF = rec.mF?.texture ? rec.mF : null, tB = rec.mB?.texture ? rec.mB : null;
+      const tF = rec.mF && env.mapOf(rec.mF) ? rec.mF : null, tB = rec.mB && env.mapOf(rec.mB) ? rec.mB : null;
       const tex = (m: Material, side: TexSide): void => {
-        const c = env.faceColor(m), [tw, th] = m.texture!.sizeM;
+        const c = env.faceColor(m), [tw, th] = env.mapOf(m)!.sizeM;
         const qc = c.map(q8);
         parts.push({ key: `tex:${this.matKey(m)}:${side}`, mat: m, side, fill: (a, off) => {
           writeGeom(a, off, rec);

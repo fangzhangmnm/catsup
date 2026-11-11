@@ -4,8 +4,8 @@ import type { HudItem } from "./ui/hud-model.ts";
 export interface BarAction {
     id: string;
     label: string;
-    disabled?: boolean;
-    onClick(): void; /** 色块（CSS background；材质 chip）。 */
+    disabled?: boolean; /** el = 被点的那个按钮（要在它旁边弹菜单的用；W-5）。 */
+    onClick(el?: HTMLElement): void; /** 色块（CSS background；材质 chip）。 */
     swatch?: string; /** 开关态。 */
     active?: boolean;
     title?: string;

@@ -9,7 +9,7 @@ import { canonicalize, toUm } from "./brep-codec.ts";
 import { linearToSrgb, srgbToLinear } from "./color-space.ts";
 import type { BrepSnapshot, Pt3 } from "../kernel/kernel.ts";
 import type { Guid } from "../identity/guid.ts";
-import type { DefinitionDoc, MaterialDoc, MeshDoc } from "./document.ts";
+import type { CarriedJson, DefinitionDoc, MaterialDoc, MeshDoc, TextureDoc } from "./document.ts";
 
 const byKey = <T>(xs: readonly T[], key: (x: T) => string): T[] => { const keyed = xs.map((x) => [key(x), x] as const); keyed.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)); return keyed.map((k) => k[1]); };
 const MATERIAL_LAYERS = new Set(["material", "materialBack"]);
@@ -47,3 +47,17 @@ export function canonDefinition(d: DefinitionDoc, layerGuid: (code: number) => G
 
 /** 材质：整条逐字比（名字 / 贴图字节 ……），颜色先走一遍写盘那道色彩空间换算（来回有 1e-16 的浮点噪声，存过一次之后不再变；不走 = 一边存过一边没存就判不一样）。 */
 export const canonMaterial = (m: MaterialDoc): unknown => ({ ...m, color: m.color.map((c) => linearToSrgb(srgbToLinear(c))) });
+
+/** 自带字节的 JSON 的规范形：每个 `{ bufferView: N }` 换成那段字节本身（N 只是读进来那份文件里的号，两份文件各编各的；views 是 Map，按键比不出东西）。 */
+function canonCarried(c: CarriedJson): unknown {
+  const walk = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(walk);
+    if (typeof x !== "object" || x === null) return x;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(x as Record<string, unknown>)) out[k] = k === "bufferView" && typeof v === "number" ? (c.views.get(v) ?? v) : walk(v);
+    return out;
+  };
+  return walk(c.json);
+}
+/** 贴图：整条逐字比（名字 / value / 尺寸 / 字节……）；不认识的内容和行里不认识的键先把文件里的号换成字节。2026-11-10 Claude Opus 5.5（贴图主线 1-0½）。 */
+export const canonTexture = (t: TextureDoc): unknown => ({ ...t, content: t.content.kind === "other" ? { kind: "other", raw: canonCarried(t.content.raw) } : t.content, extra: t.extra ? canonCarried(t.extra) : undefined });

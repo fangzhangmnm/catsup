@@ -3,7 +3,7 @@
 // 文字不能说「从别的模型拷来的」：剪贴板记的是第几次打开，同一文件重开也算一次，只能说「拷来的版本和这份模型里的不一样」。摆事实，不判谁新：文件里没有版本号（家族同步红线「无 LWW、冲突必 surface」在组件上的同一条）。
 // 一次只选一种（逐个勾会造环）。撤销是安全网不是替代：一步能退回，但只在没存盘关掉之前有效，所以要先问。
 import type { ConflictRow, PasteWays } from "../editor/paste-plan.ts";
-import { DEFINITION, MATERIAL } from "../format/entry-kinds.ts";
+import { DEFINITION, MATERIAL, TEXTURE } from "../format/entry-kinds.ts";
 import type { Decision } from "../identity/graph.ts";
 import { openFormSheet } from "./ui/sheets.ts";
 
@@ -18,9 +18,15 @@ export function conflictLine(r: ConflictRow): string {
     if (r.shelved) here.push("在素材架上");
     return `组件「${r.name}」：${here.join("、")}；这里 ${r.hereFaces ?? 0} 张面、拷来的 ${r.incomingFaces ?? 0} 张面`;
   }
+  if (r.kind === TEXTURE) {   // 贴图自己也成一行（2026-11-10）：名字和尺寸
+    here.push(`${r.placed} 个材质在用`);
+    if (r.shelved) here.push("在素材架上");
+    const size = (t: ConflictRow["hereTexture"]): string => (t?.sizeM ? `${t.sizeM[0]} × ${t.sizeM[1]} m` : "（没有尺寸）");
+    return `贴图「${r.name}」：${here.join("、")}；这里 ${size(r.hereTexture)}、拷来的 ${size(r.incomingTexture)}`;
+  }
   here.push(`这里 ${r.faces} 张面在用`);
   if (r.shelved) here.push("在素材架上");
-  const look = (m: ConflictRow["hereMaterial"]): string => (m ? `${hex(m.color)}${m.texture ? " + 贴图" : ""}` : "");
+  const look = (m: ConflictRow["hereMaterial"]): string => (m ? `${hex(m.color)}${m.channels?.color?.length ? " + 贴图" : ""}` : "");
   return `材质「${r.name}」：${here.join("、")}；这里 ${look(r.hereMaterial)}、拷来的 ${look(r.incomingMaterial)}`;
 }
 const AFTER: Readonly<Record<string, string>> = {
@@ -34,12 +40,12 @@ const AFTER: Readonly<Record<string, string>> = {
  * ways = 三种处理各走不走得通：走不通的灰掉、原因写在下面，默认 = 更新 → 留这里的 → 断开里第一个走得通的（调用方保证至少一个走得通；三个都不通不弹窗，PasteConflict.stuck）。点了之后 pasteBlocked 照旧再查一遍。
  */
 export async function resolvePasteConflict(rows: readonly ConflictRow[], ways: PasteWays): Promise<Decision | null> {
-  const hasDefs = rows.some((r) => r.kind === DEFINITION), hasMats = rows.some((r) => r.kind === MATERIAL), first = (["update", "keep", "detach"] as const).find((w) => !ways[w]) ?? "keep";
+  const hasDefs = rows.some((r) => r.kind === DEFINITION), hasMats = rows.some((r) => r.kind === MATERIAL || r.kind === TEXTURE), first = (["update", "keep", "detach"] as const).find((w) => !ways[w]) ?? "keep";
   const facts = [...rows.slice(0, MAX_ROWS).map(conflictLine), ...(rows.length > MAX_ROWS ? [`还有 ${rows.length - MAX_ROWS} 条没列`] : [])].join("\n");
   const v = await openFormSheet("拷来的版本和这份模型里的不一样", [
     { key: "entries", label: "怎么办", value: first, options: [{ value: "update", label: "用拷来的更新", blocked: ways.update }, { value: "keep", label: "留这份模型的，只多摆一份", blocked: ways.keep }, { value: "detach", label: hasDefs ? "断开，贴成新组件" : "断开，贴成新材质", blocked: ways.detach }] },
     ...(hasDefs && hasMats ? [{ key: "materials", label: "材质也跟着", value: "yes", options: [{ value: "yes", label: "跟" }, { value: "no", label: "不跟（留这里的）" }], hidden: (x: Readonly<Record<string, string>>) => x.entries === "keep" }] : []),
   ], { okLabel: "贴", note: (x) => `${facts}\n${AFTER[x.entries]}` });
   if (!v) return null;
-  return { entries: v.entries as Decision["entries"], ...(v.materials === "no" ? { except: [MATERIAL] } : {}) };
+  return { entries: v.entries as Decision["entries"], ...(v.materials === "no" ? { except: [MATERIAL, TEXTURE] } : {}) };   // 贴图是材质的样子：材质不跟，它指的图也不跟
 }

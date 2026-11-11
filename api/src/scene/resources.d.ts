@@ -35,6 +35,18 @@ export interface MaterialUse {
     orphanFaces: number;
     shelved: boolean;
 }
+export interface TextureCensus {
+    readonly guid: Guid;
+    readonly name: string;
+    /** 自由的图的物理尺寸（米）；单品的画没有。 */
+    readonly sizeM: readonly [number, number] | null;
+    /** 内容：原图 / 分层的画 / 更新版写的（后两种这一版显示成灰色占位）。 */
+    readonly content: "image" | "layered" | "other";
+    /** 几个材质指着它（不管那个材质自己有没有人用）。 */
+    readonly materials: number;
+    /** 素材架收着。 */
+    readonly shelved: boolean;
+}
 /** 素材架一行（资源页按这个顺序画）：文件夹在前、条目在后，按 parent 树展开；depth = 缩进。 */
 export interface ShelfRow {
     readonly type: "folder" | "definition" | "material" | "other";
@@ -47,6 +59,7 @@ export interface ShelfRow {
 export interface Census {
     readonly defs: readonly DefCensus[];
     readonly materials: readonly MaterialCensus[];
+    readonly textures: readonly TextureCensus[];
     readonly shelf: readonly ShelfRow[];
 }
 /** 活着的组件定义（含模型根）：从根和素材架沿「谁摆着谁」走得到的。 */
@@ -61,5 +74,7 @@ export declare function shelfRows(s: Scene): ShelfRow[];
 export declare function materialUse(s: Scene): MaterialUse[];
 /** 能清理的材质（没有任何面用、架子也没收）：清理指令吃这张单子。 */
 export declare const unusedMaterials: (c: Census) => number[];
+/** 能清理的贴图（没有材质指着、架子也没收）：清理指令吃这张单子。 */
+export declare const unusedTextures: (c: Census) => Guid[];
 /** 孤儿组件（够不着的）：清理指令吃这张单子。 */
 export declare const orphanDefs: (c: Census) => DefId[];

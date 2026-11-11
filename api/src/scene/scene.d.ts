@@ -5,24 +5,21 @@ import type { BodyKind } from "./body-kind.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { MirrorSetting } from "../mesh/mirror.ts";
 import type { KernelView } from "./kernel-view.ts";
-import { type LayerDoc, type ShelfDoc } from "../format/document.ts";
+import { type Channels, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc } from "../format/document.ts";
 import { type Guid } from "../format/guid.ts";
 import type { Stamp } from "../format/migrate/index.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
 export type DefId = number;
 export type GroupId = number;
 export type InstId = number;
-/** 材质（文档级，= glTF core material）：颜色（sRGB 0..1）+ 可选贴图（原图字节 + 物理尺寸 米）。面 → 槽号 → 槽表 → 这张表；只有「清理没人用的材质」删（ops.ts purgeMaterials，同一步重排所有槽表）。 */
+/** 材质（文档级，= glTF core material）：颜色（sRGB 0..1）+ channels（通道名 → 一摞贴图 GUID；图在贴图表里，2026-11-10 起材质不装图）。面 → 槽号 → 槽表 → 这张表；只有「清理没人用的材质」删（ops.ts purgeMaterials，同一步重排所有槽表）。 */
 export interface Material {
     /** 身份（文件 / 跨文件都认它）。下标只是这次会话的句柄。 */
     readonly guid: Guid;
     readonly name: string;
     readonly color: readonly [number, number, number];
-    readonly texture?: {
-        readonly mimeType: string;
-        readonly bytes: Uint8Array;
-        readonly sizeM: readonly [number, number];
-    };
+    /** 通道名 → 一摞贴图 GUID（这一版只用 color、一摞一张）。问「用哪张图」只经 Scene.colorMapOf。 */
+    readonly channels?: Channels;
 }
 export interface Group {
     readonly id: GroupId;
@@ -105,6 +102,10 @@ export declare class Scene {
     /** 层表（0.14 契约 §4）：id 0 永远是默认层；进 CATSUP_document.layers。 */
     layers: LayerDoc[];
     nextLayer: number;
+    /** 贴图表（CATSUP_textures；2026-11-10 贴图主线 1-0½）：GUID → 一行。条目不可变（改 = 换一个对象）；撤销的快照浅拷这张表。只经 addTexture 加、只经 op purgeTextures 删。 */
+    readonly textures: Map<Guid, TextureDoc>;
+    /** 文件里的贴图表是更新版写的（major 比本版新）：本版读不出里面有什么、原字节存盘带回。不是 null = 不许加贴图、不许清理（存盘时新加的会和带回的那张表打架）。 */
+    texturesFrozen: Stamp | null;
     /** 素材架（CATSUP_shelf；计划书 §2.8 / §15）。条目只存引用（GUID）；架上的算活着（resources.ts liveDefs）。 */
     shelf: ShelfDoc;
     /** 文件里的素材架是更新版写的（major 比本版新，计划书 §15.1-D）：本版读不出里面有什么（上面的 shelf 是空的）、原字节存盘带回。不是 null = 架子不能改、清理不做（看不见架上收着谁，清理会删到）。 */
@@ -125,6 +126,10 @@ export declare class Scene {
     addMaterial(m: Omit<Material, "guid"> & {
         readonly guid?: Guid;
     }): number;
+    /** 贴图表加一行（同一个 GUID = 换掉那一行：粘贴「更新」走这里）。 */
+    addTexture(t: TextureDoc): void;
+    /** 「这个材质用哪张图」（那个口；全仓问这个，不读材质里的字段）：颜色那一槽的第一张、而且是带尺寸的原图；不是 = null（按底色画）。查表，每张面都会问。 */
+    colorMapOf(m: Material): ColorMap | null;
     def(id: DefId): Definition;
     group(ref: {
         def: DefId;

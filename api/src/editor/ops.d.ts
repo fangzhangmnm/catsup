@@ -1,4 +1,5 @@
 import { type Guid } from "../format/guid.ts";
+import { type TextureDoc } from "../format/document.ts";
 import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
@@ -220,16 +221,28 @@ export type Op =
     group: number;
     xform: Xform;
 }
-/** 新材质（文档级）：颜色 sRGB 0..1；贴图 = 原图字节（运行时 Uint8Array；线协议要走 base64，未做）+ 物理尺寸 米。返回索引 = 当时的 materials.length。 */
+/** 新材质（文档级）：颜色 sRGB 0..1；channels = 通道名 → 一摞贴图 GUID（这一版只用 color、一摞一张；图在贴图表里，先 addTexture）。返回索引 = 当时的 materials.length。
+ *  （v0.19.4 起不再带 texture：旧复现包里带 texture 的这一条重放不了，scripts/replay-repro.mjs 拒绝并停下——统筹 11-10 定：调试用的衍生物不做向后兼容。） */
  | {
     op: "addMaterial";
     name: string;
     color: [number, number, number];
-    texture?: {
-        mimeType: string;
-        bytes: Uint8Array;
-        sizeM: [number, number];
-    };
+    channels?: Record<string, Guid[]>;
+}
+/** 贴图表加一行原图（2026-11-10 贴图主线 1-0½）：guid 在指令里（同一步后面的 addMaterial 要指它；重放同一个身份）；value = 颜色。
+ *  字节 = 运行时 Uint8Array（进复现包 = JSON 里一个键是 0、1、2… 的对象，和以前 addMaterial 的图一样；replay-repro.mjs 转回字节）。 */
+ | {
+    op: "addTexture";
+    guid: Guid;
+    name: string;
+    mimeType: string;
+    bytes: Uint8Array;
+    sizeM: [number, number];
+}
+/** 清理没人用的贴图（用户在资源页点了「清理」才跑）：全家唯一删贴图的地方（守卫 test/textures-table.test.ts）；还有材质指着 / 素材架收着 = 整条拒绝。 */
+ | {
+    op: "purgeTextures";
+    textures: Guid[];
 }
 /** 边层开关（软化 / 硬化 / 隐藏…）：这些边打上 / 去掉若干层。 */
  | {
@@ -474,7 +487,8 @@ export type Op =
     groups?: TransferGroup[];
     mesh?: MeshFragment;
     instances?: TransferInstance[];
-    materials?: readonly Material[];
+    materials?: readonly Material[]; /** 材质指着的贴图（文件形状；2026-11-10）。 */
+    textures?: readonly TextureDoc[];
     closure?: TransferClosure; /** 内容不一样的条目怎么办（设计书 §7–§8；缺 = 留这里的）。 */
     merge?: Decision; /** 素材导入：落地之后这几条上架（断开过的按新身份，所以不能另起一条 shelfPut）。 */
     shelve?: {

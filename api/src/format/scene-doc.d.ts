@@ -1,5 +1,5 @@
-import { Scene, type DefId } from "../scene/scene.ts";
-import type { CatsupDocument, DefinitionDoc } from "./document.ts";
+import { Scene, type DefId, type Material } from "../scene/scene.ts";
+import type { CatsupDocument, DefinitionDoc, MaterialDoc } from "./document.ts";
 import { type Guid } from "./guid.ts";
 import type { DefinitionEntry } from "./entry-kinds.ts";
 /** materializeDefinitions 的两处差别：整份文件 vs 从别的文件搬几条。 */
@@ -22,3 +22,7 @@ export declare function sceneFromDocument(doc: CatsupDocument): Scene;
 export declare function definitionToDoc(scene: Scene, id: DefId, name?: string): DefinitionDoc;
 /** 场景 → 文档（base = 打开时的文档，保留未知携带内容 / 设置 / 视图）。 */
 export declare function documentFromScene(scene: Scene, name: string, base?: CatsupDocument | null): CatsupDocument;
+export declare const materialFromDoc: (m: MaterialDoc) => Omit<Material, "guid"> & {
+    guid: Guid;
+};
+export declare const materialToDoc: (m: Material) => MaterialDoc;

@@ -23,7 +23,7 @@ import { castBody } from "../scene/kinds.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { extractSnapshot, remapSnapshotMaterial, transformSnapshot, type DefId, type EditContext, type GroupId, type InstId, type Instance, type Material, type Scene } from "../scene/scene.ts";
 import { applyPt, compose, transformFrame, type Frame, type Xform } from "../scene/xform.ts";
-import type { DefinitionDoc, LayerDoc } from "../format/document.ts";
+import type { DefinitionDoc, LayerDoc, TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
 import { DEFINITION, LAYER, MATERIAL, defRef, layerRef, type DefinitionEntry } from "../format/entry-kinds.ts";
 import { sceneStore } from "../format/scene-store.ts";
@@ -50,6 +50,8 @@ export interface TransferPayload {
   readonly instances?: TransferInstance[];
   /** 面上材质编号的对照表（brep 面层 / groups 面层 / mesh.faces[].mat 都是它的下标）+ 闭包里定义用到的材质（按 GUID 查）。 */
   readonly materials?: readonly Material[];
+  /** 上面这些材质指着的贴图（文件形状，按 GUID 查；2026-11-10 贴图主线 1-0½：贴图是独立的条目，跟着材质走）。 */
+  readonly textures?: readonly TextureDoc[];
   /** 实例用到的定义（递归）+ 层。有实例才有。 */
   readonly closure?: TransferClosure;
 }
@@ -86,7 +88,11 @@ export function extract(s: Scene, ctx: EditContext, sel: { faces: Iterable<numbe
   const tableCode = (m: Material): number => { let c = table.indexOf(m); if (c < 0) { c = table.length; table.push(m); } return c; };
   /** 文档材质下标 → 载荷对照表的编号。 */
   const codeOf = (matIndex: number): number => { const m = matIndex === BUILTIN_BACK_SLOT ? BUILTIN_BACK : s.materials[matIndex]; return m ? tableCode(m) : -1; };
-  const tableOut = (): { materials?: readonly Material[] } => (table.length ? { materials: table } : {});
+  const tableOut = (): { materials?: readonly Material[]; textures?: readonly TextureDoc[] } => {
+    if (!table.length) return {};
+    const textures = [...new Set(table.flatMap((m) => Object.values(m.channels ?? {}).flat()))].map((g) => s.textures.get(g)).filter((t): t is TextureDoc => !!t);   // 材质指着的贴图跟着走
+    return { materials: table, ...(textures.length ? { textures } : {}) };
+  };
   const instances: TransferInstance[] = [], rootDefs = new Set<DefId>();
   const putInst = (i: Instance, parent: number | null): void => { if (!s.defs.has(i.def)) return; instances.push(instOf(i, parent)); rootDefs.add(i.def); };
   /** 闭包：摆放用到的定义往下走到底（文件形状）；它们的材质进对照表、层进 layerRows。 */
@@ -153,7 +159,7 @@ export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
     }
     const mesh = verts.length ? { verts, faces, edges } : undefined;
     const flat = instances.map((i) => (i.parent === null ? i : { ...i, parent: null }));
-    return { from: p.from, ...(mesh ? { mesh } : {}), ...(flat.length ? { instances: flat } : {}), ...(p.materials ? { materials: p.materials } : {}), ...(p.closure ? { closure: p.closure } : {}) };
+    return { from: p.from, ...(mesh ? { mesh } : {}), ...(flat.length ? { instances: flat } : {}), ...(p.materials ? { materials: p.materials } : {}), ...(p.textures ? { textures: p.textures } : {}), ...(p.closure ? { closure: p.closure } : {}) };
   }
   if (!p.mesh) return p;
   const k = new MeshKernel(), vs = p.mesh.verts.map((q) => k.addVertex(q));
@@ -164,7 +170,7 @@ export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
   // 转硬表面可能新开内置默认背面那一格：对照表跟着长（编号 = 槽号）
   const table = body.materialSlots.map((h, i) => (h === BUILTIN_BACK_SLOT ? BUILTIN_BACK : (p.materials?.[i] ?? BUILTIN_BACK)));
   for (const m of p.materials ?? []) if (!table.includes(m)) table.push(m);   // 闭包按 GUID 查的那些，转换不许丢
-  return { from: p.from, ...(brep ? { brep } : {}), ...(p.groups?.length ? { groups: p.groups } : {}), ...(instances.length ? { instances } : {}), ...(table.length ? { materials: table } : {}), ...(p.closure ? { closure: p.closure } : {}) };
+  return { from: p.from, ...(brep ? { brep } : {}), ...(p.groups?.length ? { groups: p.groups } : {}), ...(instances.length ? { instances } : {}), ...(table.length ? { materials: table } : {}), ...(p.textures ? { textures: p.textures } : {}), ...(p.closure ? { closure: p.closure } : {}) };
 }
 
 /** 世界坐标 → 目标容器本地（Xi = 目标上下文世界变换的逆）。 */
@@ -176,6 +182,7 @@ export function localize(p: TransferPayload, Xi: Xform): TransferPayload {
     ...(p.mesh ? { mesh: { ...p.mesh, verts: p.mesh.verts.map((q) => applyPt(Xi, q)) } } : {}),
     ...(p.instances ? { instances: p.instances.map((i) => ({ ...i, xform: compose(Xi, i.xform) })) } : {}),
     ...(p.materials ? { materials: p.materials } : {}),
+    ...(p.textures ? { textures: p.textures } : {}),
     ...(p.closure ? { closure: p.closure } : {}),   // 定义在自己的坐标里，不跟着换
   };
 }

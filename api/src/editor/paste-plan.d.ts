@@ -1,5 +1,5 @@
 import { type SceneStore } from "../format/scene-store.ts";
-import type { CatsupDocument } from "../format/document.ts";
+import type { CatsupDocument, TextureDoc } from "../format/document.ts";
 import { type Guid } from "../format/guid.ts";
 import { type Bundle, type Decision, type Frontier, type MergePlan } from "../identity/graph.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
@@ -12,7 +12,7 @@ export { KEEP, type Decision } from "../identity/graph.ts";
  * 载荷在身份层眼里的样子（设计书 §1「包」）：闭包 + 对照表成文件形状，从「要摆的、面上用的」往下走（素材导入没有摆放 = closure.roots）。
  * 老复现包：实例的 def / layer 是数字句柄、没有对照表，不进包（landPayload 原样认）。
  */
-export declare function payloadBundle(p: Pick<TransferPayload, "brep" | "groups" | "mesh" | "instances" | "materials" | "closure">): Bundle;
+export declare function payloadBundle(p: Pick<TransferPayload, "brep" | "groups" | "mesh" | "instances" | "materials" | "textures" | "closure">): Bundle;
 type PastePayload = Parameters<typeof payloadBundle>[0];
 /** 这一贴的计划：frontier → plan（applyPlan 在 landPayload）。 */
 export interface PastePlan {
@@ -44,7 +44,9 @@ export interface ConflictRow {
     readonly shelved: boolean; /** 组件两边各几张面。 */
     readonly hereFaces?: number;
     readonly incomingFaces?: number; /** 材质两边的颜色（sRGB 0..1）+ 有没有贴图。 */
-    readonly hereMaterial?: Material;
+    readonly hereMaterial?: Material; /** 贴图两边（名字 / 尺寸；2026-11-10）。 */
+    readonly hereTexture?: TextureDoc;
+    readonly incomingTexture?: TextureDoc;
     readonly incomingMaterial?: Material;
 }
 export declare function conflictRows(f: Frontier): ConflictRow[];

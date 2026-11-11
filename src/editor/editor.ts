@@ -64,8 +64,8 @@ import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from ".
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
 import { REPAIR_STEPS } from "./repairs/index.ts";
+import { materialForPick, pickOfMaterial } from "./paint-material.ts";
 import { frontOf, LOCKED_HINT, mergeOp, opTouchesLocked, previewableIn, previewVariant, withFront } from "./op-locks.ts";
-import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { actionById, commandById, placementsAt, routesOf } from "./commands/registry.ts";
 import type { Surface } from "./commands/action.ts";
 import type { Command, CommandEnv, CommandId, ObjectUnit, Params as CmdParams, PlanOut, PoolUnit, Unit, UnitKind } from "./commands/command.ts";
@@ -2572,18 +2572,13 @@ export class Editor {
   setPaint(p: PaintPick): void { this.paintPick = p; this.host.changed(); }
   /** 文档材质表（只读）。 */
   materials(): readonly import("../scene/scene.ts").Material[] { return this.scene.materials; }
-  /** 蘸的材质在文档材质表里的索引（没有就新建一条 addMaterial op）；null = 默认。 */
+  /** 这个材质当「蘸的」是什么（色板 / 吸色同一份：paint-material.ts）。 */
+  materialPick(m: import("../scene/scene.ts").Material): NonNullable<PaintPick> { return pickOfMaterial(this.scene, m); }
+  /** 蘸的材质在文档材质表里的索引（没有就在这一步里新建：图 = addTexture + addMaterial，paint-material.ts 算）；null = 默认。 */
   private materialIndexForPick(pass: StepPass): number | null {
-    const p = this.paintPick;
-    if (!p) return null;
-    if (p.kind === "back") return BUILTIN_BACK_SLOT;   // 内置默认背面不进材质表
-    const same = (m: import("../scene/scene.ts").Material): boolean => p.kind === "color"
-      ? !m.texture && m.name === p.name && m.color.every((c, i) => Math.abs(c - p.color[i]) < 1e-6)
-      : !!m.texture && m.name === p.name && m.texture.bytes === p.bytes;
-    const i = this.scene.materials.findIndex(same);
-    if (i >= 0) return i;
-    if (p.kind === "color") this.commitIn(pass, { op: "addMaterial", name: p.name, color: p.color });
-    else this.commitIn(pass, { op: "addMaterial", name: p.name, color: [1, 1, 1], texture: { mimeType: p.mimeType, bytes: p.bytes, sizeM: p.sizeM } });
+    const r = materialForPick(this.scene, this.paintPick);
+    if (!("ops" in r)) return r.found;
+    for (const op of r.ops) this.commitIn(pass, op);
     return this.scene.materials.length - 1;
   }
   /** 给活动池里的这些面涂当前材质（op）。 */
@@ -2601,9 +2596,7 @@ export class Editor {
   pickMaterialOf(face: FaceId, side: 0 | 1 = 0): void {
     const k = this.kernel;
     const m = this.scene.materialOfSlot(this.scene.defOfContext(this.ctx), k.faceMaterialOf(face, side));
-    if (!m) { this.setPaint(null); return; }
-    if (m === BUILTIN_BACK) { this.setPaint({ kind: "back", name: m.name }); return; }
-    this.setPaint(m.texture ? { kind: "texture", name: m.name, mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } : { kind: "color", name: m.name, color: [m.color[0], m.color[1], m.color[2]] });
+    this.setPaint(m ? pickOfMaterial(this.scene, m) : null);
   }
   /** 把选区（面）涂上当前材质。 */
   paintSelection(): boolean {

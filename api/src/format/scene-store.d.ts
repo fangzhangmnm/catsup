@@ -16,7 +16,7 @@ export interface Landing {
     guidOf(r: Ref): Guid;
 }
 /**
- * 按计划把条目装进场景（设计书 §6）：材质 / 层先进表，定义走 materializeDefinitions（和打开文件同一份）。
+ * 按计划把条目装进场景（设计书 §6）：贴图先进表（材质指它），再材质 / 层，定义走 materializeDefinitions（和打开文件同一份）。
  * 新建带原 GUID；断开的先铸新（自己 + 附属 + 引用）；更新原地换身体（句柄 / GUID 不变，摆着的每一份自然跟上）、材质原地换条；层永不更新（计划里不会有）。
  * 打开文件不走这里：那是整张表原样装（下标 / 层代号字节级不变），没有要决定的事，直接调 materializeDefinitions。
  */

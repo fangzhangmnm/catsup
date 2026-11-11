@@ -10,6 +10,7 @@ import { applyOp, faceKey, edgeKey } from "../src/editor/ops.ts";
 import { GROUND } from "../src/editor/pick.ts";
 import { translation } from "../src/scene/xform.ts";
 import { newDocument, type CatsupDocument } from "../src/format/index.ts";
+import { mintGuid } from "../src/format/guid.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
 function loop(k: Kernel, pts: Pt3[]): void {
@@ -92,7 +93,9 @@ export const TINY_PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0
 export function scenePainted(): Scene {
   let s = new Scene(sceneBox(2, 1.5));
   s = applyOp(s, { op: "addMaterial", name: "赭石", color: [0x86 / 255, 0x26 / 255, 0x17 / 255] }).scene;
-  s = applyOp(s, { op: "addMaterial", name: "格子", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: TINY_PNG, sizeM: [0.5, 0.5] } }).scene;
+  const tex = mintGuid();   // 贴图是贴图表里的一行（2026-11-10 贴图主线 1-0½），材质用 channels 指它
+  s = applyOp(s, { op: "addTexture", guid: tex, name: "格子", mimeType: "image/png", bytes: TINY_PNG, sizeM: [0.5, 0.5] }).scene;
+  s = applyOp(s, { op: "addMaterial", name: "格子", color: [1, 1, 1], channels: { color: [tex] } }).scene;
   const k = rootK(s);
   const top = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.z === 1.5))!;
   const wall = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.y === 0))!;
@@ -196,7 +199,25 @@ export function sceneSided(): Scene {
   s.mintInstance(s.root, null, d.id, translation({ x: 3, y: 0, z: 0 }));
   return s;
 }
-export const SCENE_DOCS: Record<string, () => Scene> = { sided: sceneSided, grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
+/** 贴图表（CATSUP_textures 1.0，2026-11-10）：两个材质共用一张图各涂一面 + 一张没人用的孤儿图 + 一张分层的画（这一版只带着）。 */
+export function sceneSharedTextures(): Scene {
+  let s = new Scene(sceneBox(1, 1));
+  const shared = mintGuid(), orphan = mintGuid();
+  s = applyOp(s, { op: "addTexture", guid: shared, name: "共用", mimeType: "image/png", bytes: TINY_PNG, sizeM: [0.5, 0.25] }).scene;
+  s = applyOp(s, { op: "addTexture", guid: orphan, name: "孤儿", mimeType: "image/png", bytes: TINY_PNG.slice(), sizeM: [2, 2] }).scene;
+  s.addTexture({ guid: mintGuid(), name: "分层", value: { kind: "color" }, content: { kind: "layered", ora: new Uint8Array([80, 75, 3, 4, 20, 0]) }, sizeM: [1, 1] });
+  s = applyOp(s, { op: "addMaterial", name: "甲", color: [1, 1, 1], channels: { color: [shared] } }).scene;
+  s = applyOp(s, { op: "addMaterial", name: "乙", color: [0.8, 0.7, 0.6], channels: { color: [shared] } }).scene;
+  const k = rootK(s), [f0, f1] = k.faces();
+  s = applyOp(s, { op: "paintFaces", at: { def: s.root, group: null }, faces: [faceKey(k, f0.id)], material: 0 }).scene;
+  s = applyOp(s, { op: "paintFaces", at: { def: s.root, group: null }, faces: [faceKey(k, f1.id)], material: 1 }).scene;
+  const k2 = rootK(s), g1 = k2.faces().find((f) => f.id !== k2.faces()[0].id && k2.faceMaterialOf(f.id, 0) !== null)!;   // 涂了「乙」的那张面
+  s = applyOp(s, { op: "makeComponent", at: { def: s.root, group: null }, faces: [faceKey(k2, g1.id)], edges: [], name: "乙面" }).scene;   // 贴图跨定义用到（槽表在组件里）
+  const defId = [...s.defs.keys()].find((id) => id !== s.root)!;
+  s = applyOp(s, { op: "placeInstance", at: { def: s.root, group: null }, definition: defId, xform: translation({ x: 2, y: 0, z: 0 }) }).scene;
+  return s;
+}
+export const SCENE_DOCS: Record<string, () => Scene> = { sharedTextures: sceneSharedTextures, sided: sceneSided, grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
 /** 参考窗牌组（CATSUP_references 1.0 + desk 1.1 refPanel；2026-10-25 Opus）：清单字节 = @internal/reference-window 0.5.0 encodeDeck 的真实输出
  *  （一张图、一张文字、一张只放内存的视频——后者只在清单里记大小、没有字节），窗开着。format 层不懂清单：这里只钉「目录原样进出」。 */
 export const REF_MANIFEST = '{"version":1,"minor":1,"patch":0,"index":1,"items":[{"kind":"image","src":".catsup/references/r0.png","vp":null,"name":"格子.png"},{"kind":"text","src":".catsup/references/r1.txt","vp":null,"name":"尺寸"},{"kind":"video","vp":null,"name":"walk.webm","mime":"video/webm","ram":{"bytes":10}}]}';
@@ -220,7 +241,8 @@ export const DOC_SAMPLES: Record<string, () => CatsupDocument> = { referenced: d
 export function sceneFingerprint(s: Scene): string {
   const parts: string[] = [];
   const label = (id: number): string => (id === s.root ? "(root)" : s.def(id).name);   // 根 definition 的名字 = 文档名（保存时改写），不进指纹
-  for (const [i, m] of s.materials.entries()) parts.push(`mat ${i} ${m.name} ${m.color.map((c) => c.toFixed(4)).join(",")}${m.texture ? ` tex ${m.texture.mimeType} ${m.texture.bytes.length}B ${m.texture.sizeM.join("x")}` : ""}`);
+  for (const [i, m] of s.materials.entries()) parts.push(`mat ${i} ${m.name} ${m.color.map((c) => c.toFixed(4)).join(",")}${(() => { const t = s.colorMapOf(m); return t ? ` tex ${t.content.mimeType} ${t.content.bytes.length}B ${t.sizeM.join("x")}` : ""; })()}`);
+  parts.push(`texture-table ${s.textures.size}`);   // 贴图表几行（GUID 不进指纹：老样本读进来现铸）
   const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
   const f3 = (p: Pt3): string => `${r6(p.x)},${r6(p.y)},${r6(p.z)}`;
   const guidesFp = (g: { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: { id: number; p: Pt3 }[]; circles?: { id: number; c: Pt3; n: Pt3; r: number }[]; spheres?: { id: number; c: Pt3; r: number }[] }): string =>

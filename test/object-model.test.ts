@@ -9,7 +9,7 @@ import { ROOT_CONTEXT } from "../src/scene/scene.ts";
 import { applyOp, OpTargetError } from "../src/editor/ops.ts";
 import { canCast, KINDS, brepToMesh } from "../src/scene/kinds.ts";
 import { chainVisible, effectiveLayersOfChain } from "../src/scene/layers.ts";
-import { assertImageAsset } from "../src/format/document.ts";
+import { assertSizedImage as assertImageAsset } from "../src/format/document.ts";
 import { documentFromScene, sceneFromDocument, readCatsup, writeCatsup, newDocument } from "../src/format/index.ts";
 import { listFixtures, readFixture } from "./fixtures/format/fixtures.mjs";
 import { SCENES, SCENE_DOCS } from "./format-scenes.ts";

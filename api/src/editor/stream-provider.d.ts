@@ -12,6 +12,11 @@ export declare class EditorStreamProvider implements StreamProvider {
     /** 材质对象 → 小整数（材质槽签名用：槽表只追加 = 池网格增量；别的变化 = 全量）。 */
     private matUids;
     private nextMatUid;
+    /** 交给渲染器的材质引用（契约 MaterialRef）：同一个材质、同一张图 = 同一个对象（渲染器按对象缓存着色器）；图换了 = 新对象。 */
+    private readonly refs;
+    /** 一张图 = 一个 TextureRef（渲染器按它解码一次：两个材质用同一张图只解一次）。 */
+    private readonly texRefs;
+    private refOf;
     /** 世界视图对象 → 小整数（内容键 / 包围球缓存：预演影子每帧是新对象 = 身份变 = 自然失效，和以前 render3 的 kernelId 同构）。 */
     private worldIds;
     private nextWorldId;

@@ -8,6 +8,7 @@
 //   显示它的组件名、菜单和物件行同一个样子（改名… / 炸开 灰着 / 物件设置…）。
 // · 第二页「资源」（标题「层级 ▾」下拉换页；I10 第一版，user「我们没有一个中心化的按引用计数的东西吗？学blender」「到时候也有这种引用和孤儿管理面板」）：scene/resources.ts 清点，
 //   组件摆了几份 / 孤儿、材质用在几处 / 只在孤儿里 / 没人用；「清理没人用的组件…」「清理没人用的材质…」= 确认框列名字 → purgeDefs / purgeMaterials 一步撤销（身份地基 ID-2）。
+//   贴图（2026-11-10 贴图主线 1-0½，第一版，摆法以后磨）：名字 / 尺寸 / 几个材质在用；清掉材质图不跟着走（家规：不许顺手删别的条目）→ 没人用的在这里「清理没人用的贴图…」→ purgeTextures。
 //   素材架（身份地基 ID-3，计划书 §15）：架上有东西才出那一节（按文件夹缩进、行尾「取下」）；组件 / 材质行尾「上架」；底部「从别的模型导入素材…」。架子是更新版写的 = 本版读不出、那一节只有一行说明，上架 / 导入 / 清理都不开（清理会删到看不见的架上的东西）。
 // · 拖一行（I3，user 10-30「hierarchy拖拽同意」；身份地基 ID-2）：通用树拖拽 ui/tree-drag.ts 判落点（一行中间 = 放进去；缝 = 横向定深度）→ object-tree.ts moveRowOp。
 //   换父亲（世界位置不变）= editor.oneStep 里「退到根 → 提交 → 走到新父亲那层 → 选中它」；同一层的缝 = 排到那个位置（文件里按这个顺序存）。都是一步撤销，这一份的 GUID 不变。
@@ -15,7 +16,7 @@
 import type { Editor, PoolPick } from "../editor/editor.ts";
 import { contextPath, hierarchyTree, isHex4, moveRowOp, pathKey, pickKey, setHiddenOp, type HierNode } from "../editor/object-tree.ts";
 import { attachTreeDrag, type TreeDrop } from "./ui/tree-drag.ts";
-import { census, orphanDefs, unusedMaterials } from "../scene/resources.ts";
+import { census, orphanDefs, unusedMaterials, unusedTextures } from "../scene/resources.ts";
 import { createFloatWin, type FloatWin, type MenuWindowSpec } from "./ui/menu-window.ts";
 import type { ShelfActions } from "./shelf-actions.ts";
 import { openPopupMenu } from "./ui/popup-menu.ts";
@@ -196,8 +197,8 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
   /** 资源页：素材架（有东西才出）+ 组件（摆了几份 / 孤儿）+ 材质（用在几处 / 没人用）+ 导入素材 + 清理没人用的组件。 */
   function renderResources(): void {
     const scene = editor.sceneRef, c = census(scene), orphans = orphanDefs(c);
-    const frozen = scene.shelfFrozen !== null;
-    const nextSig = "res" + JSON.stringify([c.defs.map((d) => [d.def, d.name, d.live, d.users.length, d.placed, d.shelved]), c.materials.map((m) => [m.guid, m.name, m.faces, m.orphanFaces, m.shelved]), c.shelf, frozen]);
+    const frozen = scene.shelfFrozen !== null, texFrozen = scene.texturesFrozen !== null;
+    const nextSig = "res" + JSON.stringify([c.defs.map((d) => [d.def, d.name, d.live, d.users.length, d.placed, d.shelved]), c.materials.map((m) => [m.guid, m.name, m.faces, m.orphanFaces, m.shelved]), c.textures.map((t) => [t.guid, t.name, t.materials, t.shelved]), c.shelf, frozen, texFrozen]);
     if (nextSig === sig) return;
     sig = nextSig;
     pane.replaceChildren();
@@ -233,6 +234,13 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     head(`材质（${c.materials.length}）`);
     if (!c.materials.length) row("（还没有材质）", "", { orphan: true });
     for (const m of c.materials) row(m.name, `${m.shelved && (m.faces || m.orphanFaces) ? "在素材架上 · " : ""}${m.faces ? `用在 ${m.faces} 处` : m.orphanFaces ? `只用在没人用的组件里（${m.orphanFaces} 处）` : m.shelved ? "收在素材架上" : frozen ? "没有面在用（可能收在素材架上）" : "没人用"}`, { orphan: !m.faces && !m.shelved, swatch: swatchOf(scene.materials[m.index].color), ...(m.shelved ? {} : putBtn(() => { deps.shelf.putMaterial(m.guid); render(); })) });
+    head(`贴图（${c.textures.length}）`);
+    if (texFrozen) note("这份文件的贴图表是更新版写的：本版读不懂里面有什么、也不能改，保存时原样带回。");
+    else if (!c.textures.length) row("（还没有贴图）", "", { orphan: true });
+    for (const t of c.textures) {
+      const size = t.sizeM ? `${t.sizeM[0]} × ${t.sizeM[1]} m` : "单品的画", look = t.content === "image" ? "" : " · 本版显示成灰色占位";
+      row(t.name || "（没起名）", `${size} · ${t.materials ? `${t.materials} 个材质在用` : t.shelved ? "收在素材架上" : "没人用（清掉材质后图会留下）"}${look}`, { unnamed: !t.name, orphan: !t.materials && !t.shelved });
+    }
     const foot = document.createElement("div"); foot.className = "res-foot";
     const imp = document.createElement("button"); imp.type = "button"; imp.className = "res-import"; imp.disabled = frozen; imp.textContent = "从别的模型导入素材…"; imp.title = "从一份 .catsup 里挑组件放上这份模型的素材架（只读那份文件）";
     imp.addEventListener("click", () => deps.shelf.pickImport());
@@ -259,6 +267,17 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     })());
     foot.append(purgeM);
     if (orphanOnly) { const n = document.createElement("div"); n.className = "res-note"; n.textContent = `另有 ${orphanOnly} 个材质只用在没人用的组件里：先清理这些组件，它们才算没人用。`; foot.append(n); }
+    const unusedT = unusedTextures(c);
+    const purgeT = document.createElement("button"); purgeT.type = "button"; purgeT.className = "res-purge"; purgeT.disabled = frozen || texFrozen || !unusedT.length;
+    purgeT.textContent = texFrozen ? "这份文件先不能清理贴图（贴图表是更新版写的）" : frozen ? "这份文件先不能清理贴图（看不见架上收着什么）" : unusedT.length ? `清理没人用的贴图（${unusedT.length} 张）…` : "没有没人用的贴图";
+    purgeT.addEventListener("click", () => void (async () => {
+      const s1 = editor.sceneRef, ids = unusedTextures(census(s1)), names = ids.map((g) => `「${s1.textures.get(g)?.name || "没起名"}」`);
+      if (!ids.length) return;
+      if (!(await deps.confirm("清理没人用的贴图", `要删 ${ids.length} 张没有材质指着的贴图：\n${names.join("、")}\n\n能撤销（一步）。`, `清理 ${ids.length} 张`))) return;
+      editor.commitOp({ op: "purgeTextures", textures: ids });
+      deps.after(); render();
+    })());
+    foot.append(purgeT);
     pane.append(foot);
   }
 

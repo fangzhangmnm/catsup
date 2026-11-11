@@ -22,19 +22,72 @@ export interface DocumentSettings {
     scaleRef?: string;
     gridSubdiv: number;
 }
-/** 图片资产（贴图与参考卡片共用；契约 ai-docs/20261024-object-model-contract.md §3）：**每张图必须带长度尺度**（user 2026-10-24），sizeM 是真源，像素只是分辨率。 */
-export interface ImageAsset {
-    mimeType: string;
-    bytes: Uint8Array;
-    sizeM: [number, number];
+/** 带尺寸的图不许没尺寸、不许空（贴图导入、贴图表的「原图」都过它；契约 ai-docs/20261024-object-model-contract.md §3：**每张图必须带长度尺度**，user 2026-10-24）。 */
+export declare const assertSizedImage: (img: {
+    readonly mimeType?: string;
+    readonly bytes: Uint8Array;
+    readonly sizeM: readonly [number, number];
+}, what?: string) => void;
+/** 一段带二进制的 JSON（行里不认识的部分 / 不认识的 content）：json 里的 `{ bufferView: N }` 是读进来那份文件里的号，views 按这个号存着字节——
+ *  自带字节，离开那份文件也完整（跨文件粘贴）；写盘时每个号换成新落的 bufferView（write.ts）。 */
+export interface CarriedJson {
+    readonly json: unknown;
+    readonly views: ReadonlyMap<number, Uint8Array>;
 }
-export declare const assertImageAsset: (img: ImageAsset, what?: string) => void;
-/** 材质（= glTF core material）：颜色 sRGB 0..1 + 可选贴图（原图字节 + 物理尺寸 米）。 */
+/** 贴图的内容：原图 / 分层的画（ora 字节，这一层不解释，显示成灰色占位）/ 更新版写的种类（整段原样带回，显示成灰色占位）。 */
+export type TextureContent = {
+    readonly kind: "image";
+    readonly mimeType: string;
+    readonly bytes: Uint8Array;
+} | {
+    readonly kind: "layered";
+    readonly ora: Uint8Array;
+} | {
+    readonly kind: "other";
+    readonly raw: CarriedJson;
+};
+/** 贴图表的一行。表里的先后没有意思；条目不可变（改 = 换一个对象）。 */
+export interface TextureDoc {
+    readonly guid: Guid;
+    readonly name: string;
+    /** 这张图表示什么（开放的普通 JSON，原样带；这一版只写 { kind: "color" }）。 */
+    readonly value: unknown;
+    readonly content: TextureContent;
+    /** 自由的图：物理尺寸 米（两个数都 > 0）。和 layout 正好有一个。 */
+    readonly sizeM?: readonly [number, number];
+    /** 单品的画：{ definition, uvSet }（这一版没有入口造它，原样带）。 */
+    readonly layout?: unknown;
+    /** 行里不认识的键（原样带回）。 */
+    readonly extra?: CarriedJson;
+}
+export declare const COLOR_VALUE: {
+    readonly kind: "color";
+};
+/** 能直接贴到面上的图：原图 + 物理尺寸。 */
+export type ColorMap = TextureDoc & {
+    readonly content: {
+        readonly kind: "image";
+        readonly mimeType: string;
+        readonly bytes: Uint8Array;
+    };
+    readonly sizeM: readonly [number, number];
+};
+export type Channels = Readonly<Record<string, readonly Guid[]>>;
+/** 颜色那一槽的名字（这一版唯一会写的通道）。 */
+export declare const COLOR_CHANNEL = "color";
+/**
+ * 「这个材质用哪张图」全仓唯一的问法（场景 Scene.colorMapOf、写盘烘焙、导出模型都经它）：颜色那一槽的第一张，而且它是带尺寸的原图；不是 = null（按底色画）。
+ * table = GUID → 贴图（查表，不扫表：每张面都会问）。
+ */
+export declare function colorMapIn(table: ReadonlyMap<Guid, TextureDoc>, m: {
+    readonly channels?: Channels;
+}): ColorMap | null;
+/** 材质（= glTF core material）：颜色 sRGB 0..1 + channels（通道名 → 一摞贴图 GUID；这一版只用 color、一摞只放一张；不认识的名字原样带）。 */
 export interface MaterialDoc {
     guid: Guid;
     name: string;
     color: [number, number, number];
-    texture?: ImageAsset;
+    channels?: Channels;
 }
 /** 层（Unity render layer 的管理用法；契约 §4）：文档级表，id 0 = 默认层永远存在；只管可见性，纯管理。 */
 export interface LayerDoc {
@@ -147,6 +200,8 @@ export interface CatsupDocument {
     root: DefinitionDoc;
     /** 文档材质表（glTF materials）。列表顺序没有语义；引用按 GUID。 */
     materials: MaterialDoc[];
+    /** 贴图表（`CATSUP_textures` 1.0，2026-11-10）：空 = 不写这个扩展。列表顺序没有语义；材质按 GUID 指它。 */
+    textures: TextureDoc[];
     /** 素材架（`CATSUP_shelf` 1.0，2026-11-04；计划书 §2.8）：缺 = 没有架子。架子上一格 = 引用，放的是 GUID。 */
     shelf?: ShelfDoc;
     thumbnail?: {
@@ -159,7 +214,8 @@ export interface CatsupDocument {
         extensions: Record<string, unknown>;
         documentExtra: Record<string, unknown>;
         definitionsExtra: Record<string, unknown>;
-        brepKeep?: Record<string, unknown>;
+        brepKeep?: Record<string, unknown>; /** CATSUP_textures 扩展层面不认识的键（行里的不在这里，跟着行走）。 */
+        texturesExtra?: Record<string, unknown>;
         views: Map<number, Uint8Array>;
     };
     /** 读取时攒的拍子判决（不持久化；newDocument 没有）：哪些子结构比本版新一个 minor（宿主提示一次）、desk 是否太新。 */

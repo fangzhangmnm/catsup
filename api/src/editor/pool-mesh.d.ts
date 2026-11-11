@@ -1,6 +1,7 @@
 import type { EdgeId, FaceId, Pt3 } from "../kernel/kernel.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import type { Material } from "../scene/scene.ts";
+import type { ColorMap } from "../format/document.ts";
 /** 属性的存法：f32 = 浮点（位置 / 粗线端点 / uv）；i16n / i8n = 归一化整数（法线 / 面颜色；显卡读成 −1…1 的浮点，省一半到四分之三的内存）。 */
 export type AttrType = "f32" | "i16n" | "i8n";
 export interface AttrSpec {
@@ -117,6 +118,8 @@ export type TexSide = "front" | "back" | "double";
 export interface PoolMeshEnv {
     /** 槽号 → 材质（scene.materialOfSlot 绑好 definition）。 */
     matOf(slot: number | undefined): Material | null;
+    /** 这个材质贴哪张图（scene.colorMapOf，那个口）：null = 按底色画。 */
+    mapOf(m: Material): ColorMap | null;
     /** 定义的材质槽表签名（每个槽的材质身份，逗号连）：一边是另一边的前缀 = 增量；别的变化 = 全量重建。 */
     slotsSig: string;
     /** 面 / 边烤进顶点的颜色（提供者按调色板算；淡出 / 选中不在这里 = 标记）。 */

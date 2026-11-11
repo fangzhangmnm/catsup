@@ -1008,9 +1008,10 @@ function renderMatGrid(): void {
   for (const c of PALETTE_ZH) mk(c.name, c.hex, () => editor.setPaint({ kind: "color", name: c.name, color: hexToRgb(c.hex) }), cur?.kind === "color" && cur.name === c.name, `${c.name} ${c.hex}`);
   // 文档里已有的贴图材质（可再蘸）
   editor.materials().forEach((m) => {
-    if (!m.texture) return;
-    const url = URL.createObjectURL(new Blob([m.texture.bytes as BlobPart], { type: m.texture.mimeType }));
-    mk(m.name, `center / cover url(${url})`, () => editor.setPaint({ kind: "texture", name: m.name, mimeType: m.texture!.mimeType, bytes: m.texture!.bytes, sizeM: [m.texture!.sizeM[0], m.texture!.sizeM[1]] }), cur?.kind === "texture" && cur.bytes === m.texture!.bytes, `${m.name}（${m.texture.sizeM[0]} × ${m.texture.sizeM[1]} m）`);
+    const p = editor.materialPick(m);   // 图在贴图表里：问编辑器（那个口），不读材质的字段
+    if (p.kind !== "texture") return;
+    const url = URL.createObjectURL(new Blob([p.bytes as BlobPart], { type: p.mimeType }));
+    mk(m.name, `center / cover url(${url})`, () => editor.setPaint(p), cur?.kind === "texture" && cur.bytes === p.bytes, `${m.name}（${p.sizeM[0]} × ${p.sizeM[1]} m）`);
   });
 }
 $("matClose").addEventListener("click", () => toggleMatSheet(false));

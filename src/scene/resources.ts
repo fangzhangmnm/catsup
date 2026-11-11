@@ -7,12 +7,14 @@
 // · 身份层（ID-4，2026-11-04 Claude Opus 5.5）：走图和数用量归 src/identity/ + format/scene-store.ts，这里只是资源页要的那个形状。
 // · 材质（身份地基 ID-2，2026-11-04 Claude Opus 5.5）：活着的组件里几张面用它 + 只躺在孤儿组件里几张面 + 素材架收没收。能清理 = 三样都没有（清掉只被孤儿用的，孤儿的颜色就没了：清点 P8）；
 //   要清它们先清孤儿。真正的删在 ops.ts purgeMaterials（同一步重排所有槽表）。
+// · 贴图（贴图主线 1-0½，2026-11-10 Claude Opus 5.5）：图是独立的条目，清掉材质图不跟着走（家规「不许哪个动词顺手删掉别的条目」）→ 这里多一节：几个材质指着它（不管那个材质自己有没有人用）
+//   + 素材架收没收；两样都没有 = 孤儿，资源页给「清理」，真正的删在 ops.ts purgeTextures（被指着的不许删）。
 import type { BodyKind } from "./body-kind.ts";
 import type { Guid } from "../format/guid.ts";
 import type { DefId, InstId, Scene } from "./scene.ts";
 import { closure } from "../identity/graph.ts";
 import type { Ref } from "../identity/kinds.ts";
-import { DEFINITION, defRef, materialRef } from "../format/entry-kinds.ts";
+import { DEFINITION, defRef, materialRef, textureRef } from "../format/entry-kinds.ts";
 import { sceneStore, type SceneStore } from "../format/scene-store.ts";
 
 export interface DefCensus {
@@ -42,9 +44,21 @@ export interface MaterialCensus {
   readonly shelved: boolean;
 }
 export interface MaterialUse { faces: number; orphanFaces: number; shelved: boolean }
+export interface TextureCensus {
+  readonly guid: Guid;
+  readonly name: string;
+  /** 自由的图的物理尺寸（米）；单品的画没有。 */
+  readonly sizeM: readonly [number, number] | null;
+  /** 内容：原图 / 分层的画 / 更新版写的（后两种这一版显示成灰色占位）。 */
+  readonly content: "image" | "layered" | "other";
+  /** 几个材质指着它（不管那个材质自己有没有人用）。 */
+  readonly materials: number;
+  /** 素材架收着。 */
+  readonly shelved: boolean;
+}
 /** 素材架一行（资源页按这个顺序画）：文件夹在前、条目在后，按 parent 树展开；depth = 缩进。 */
 export interface ShelfRow { readonly type: "folder" | "definition" | "material" | "other"; readonly guid: Guid; readonly name: string; readonly depth: number; readonly def?: DefId; readonly material?: number }
-export interface Census { readonly defs: readonly DefCensus[]; readonly materials: readonly MaterialCensus[]; readonly shelf: readonly ShelfRow[] }
+export interface Census { readonly defs: readonly DefCensus[]; readonly materials: readonly MaterialCensus[]; readonly textures: readonly TextureCensus[]; readonly shelf: readonly ShelfRow[] }
 
 /** 这几条引用里的定义 → 句柄。 */
 const defIds = (store: SceneStore, refs: readonly Ref[]): Set<DefId> => { const out = new Set<DefId>(); for (const r of refs) if (r.kind === DEFINITION) { const id = store.defIdOf(r.guid); if (id !== undefined) out.add(id); } return out; };
@@ -58,8 +72,9 @@ export function census(s: Scene): Census {
   const store = sceneStore(s), live = liveDefs(s), users = new Map<DefId, { in: DefId; instance: InstId }[]>();
   for (const d of s.defs.values()) for (const i of d.instances.values()) { const u = users.get(i.def) ?? []; u.push({ in: d.id, instance: i.id }); users.set(i.def, u); }
   const defs = [...s.defs.values()].filter((d) => d.id !== s.root).map((d): DefCensus => { const u = store.usage(defRef(d.guid)); return { def: d.id, name: d.name, kind: s.kindOf(d.id), users: users.get(d.id) ?? [], placed: u.placed, live: live.has(d.id), shelved: u.shelved }; });
-  const materials = s.materials.map((m, index): MaterialCensus => { const u = store.usage(materialRef(m.guid)); return { index, guid: m.guid, name: m.name, textured: !!m.texture, faces: u.faces, orphanFaces: u.orphanFaces, shelved: u.shelved }; });
-  return { defs, materials, shelf: shelfRows(s) };
+  const materials = s.materials.map((m, index): MaterialCensus => { const u = store.usage(materialRef(m.guid)); return { index, guid: m.guid, name: m.name, textured: !!s.colorMapOf(m), faces: u.faces, orphanFaces: u.orphanFaces, shelved: u.shelved }; });
+  const textures = [...s.textures.values()].map((t): TextureCensus => { const u = store.usage(textureRef(t.guid)); return { guid: t.guid, name: t.name, sizeM: t.sizeM ? [t.sizeM[0], t.sizeM[1]] : null, content: t.content.kind, materials: u.placed, shelved: u.shelved }; });
+  return { defs, materials, textures, shelf: shelfRows(s) };
 }
 
 /** 素材架按文件夹树展开成一张顺序表（纯函数）。手改过的文件里成环 / 指不到的文件夹不许让东西看不见：没走到的排在最后、不缩进。 */
@@ -93,5 +108,7 @@ export function materialUse(s: Scene): MaterialUse[] {
 }
 /** 能清理的材质（没有任何面用、架子也没收）：清理指令吃这张单子。 */
 export const unusedMaterials = (c: Census): number[] => c.materials.filter((m) => !m.faces && !m.orphanFaces && !m.shelved).map((m) => m.index);
+/** 能清理的贴图（没有材质指着、架子也没收）：清理指令吃这张单子。 */
+export const unusedTextures = (c: Census): Guid[] => c.textures.filter((t) => !t.materials && !t.shelved).map((t) => t.guid);
 /** 孤儿组件（够不着的）：清理指令吃这张单子。 */
 export const orphanDefs = (c: Census): DefId[] => c.defs.filter((d) => !d.live).map((d) => d.def);

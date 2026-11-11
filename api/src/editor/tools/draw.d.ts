@@ -35,6 +35,7 @@ declare abstract class DrawTool implements ToolHandler {
 }
 export declare class LineTool extends DrawTool {
     readonly tool: "line";
+    readonly sameSpotEnds = true;
     readonly lock: "axis";
     track(ctx: ToolCtx, s: {
         x: number;

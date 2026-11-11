@@ -1,8 +1,8 @@
 // editor/paste-plan.ts —— 这一贴怎么搬（身份层的客户）：载荷 → 包 → frontier → plan → applyPlan，外加能不能贴、指令流留什么、弹窗的事实、提示行。素材导入是同一条路。设计书 ai-docs/20261104-identity-layer-design.md §5–§8。created 2026-11-04 by Claude Opus 5.5（ID-4，从 transfer.ts 分出来：transfer.ts 只管载荷本身）
 // 同一次打开里贴 = 留这里的（KEEP），不比内容、永不问；别的情况内容不一样才问（user 11-04 深夜「2弹窗 3 跟，可开关 4 用」）。
-import { DEFINITION, LAYER, MATERIAL, defRef, layerGuidOfTable, layerRef, materialRef, type DefinitionEntry } from "../format/entry-kinds.ts";
+import { DEFINITION, LAYER, MATERIAL, TEXTURE, defRef, layerGuidOfTable, layerRef, materialRef, textureRef, type DefinitionEntry } from "../format/entry-kinds.ts";
 import { applyPlan, docStore, sceneStore, type SceneStore } from "../format/scene-store.ts";
-import type { CatsupDocument, LayerDoc } from "../format/document.ts";
+import type { CatsupDocument, LayerDoc, TextureDoc } from "../format/document.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
 import { KEEP, bundleOf, docsNeeded, frontier, plan, planWouldCycle, type Bundle, type Decision, type Frontier, type MergePlan } from "../identity/graph.ts";
 import { KINDS, refKey, type Ref } from "../identity/kinds.ts";
@@ -18,14 +18,14 @@ export { KEEP, type Decision } from "../identity/graph.ts";
  * 载荷在身份层眼里的样子（设计书 §1「包」）：闭包 + 对照表成文件形状，从「要摆的、面上用的」往下走（素材导入没有摆放 = closure.roots）。
  * 老复现包：实例的 def / layer 是数字句柄、没有对照表，不进包（landPayload 原样认）。
  */
-export function payloadBundle(p: Pick<TransferPayload, "brep" | "groups" | "mesh" | "instances" | "materials" | "closure">): Bundle {
+export function payloadBundle(p: Pick<TransferPayload, "brep" | "groups" | "mesh" | "instances" | "materials" | "textures" | "closure">): Bundle {
   const layers = p.closure?.layers ?? [], layerGuid = layerGuidOfTable(layers), placed = p.instances ?? [], guids = (xs: readonly (Guid | undefined)[]): Guid[] => xs.filter((g): g is Guid => typeof g === "string");
   const codes = new Set<number>(), collect = (c: number): number => { codes.add(c); return c; };
   for (const snap of [...(p.brep ? [p.brep] : []), ...(p.groups ?? []).map((g) => g.snap)]) remapSnapshotMaterial(snap, collect);
   for (const f of p.mesh?.faces ?? []) if (f.mat >= 0) collect(f.mat);
   const faceMaterials = guids([...codes].map((c) => p.materials?.[c]?.guid));
   return {
-    docs: [...(p.closure?.definitions ?? []).map((def) => ({ kind: DEFINITION, doc: { def, layerGuid } satisfies DefinitionEntry })), ...(p.materials ?? []).map((m) => ({ kind: MATERIAL, doc: m as unknown })), ...layers.map((l) => ({ kind: LAYER, doc: l as unknown }))],
+    docs: [...(p.closure?.definitions ?? []).map((def) => ({ kind: DEFINITION, doc: { def, layerGuid } satisfies DefinitionEntry })), ...(p.materials ?? []).map((m) => ({ kind: MATERIAL, doc: m as unknown })), ...layers.map((l) => ({ kind: LAYER, doc: l as unknown })), ...(p.textures ?? []).map((t) => ({ kind: TEXTURE, doc: t as unknown }))],   // 贴图不进 roots：材质的引用走到它
     roots: [...(p.closure?.roots ?? guids(placed.map((i) => i.def))).map(defRef), ...guids(placed.map((i) => i.layer)).map(layerRef), ...faceMaterials.map(materialRef)],
   };
 }
@@ -62,17 +62,19 @@ export function landPayload(s: Scene, pp: PastePlan, table: readonly Material[] 
 }
 /** 进指令之前：闭包只留这个计划要的定义（指令流永不驱逐，同一个文件里贴一百次不许攒一百份闭包；提示行照用没剪的那份载荷）。重放时场景状态相同，结果相同。 */
 export function trimClosure(s: Scene, p: TransferPayload, d: Decision = KEEP, pp: PastePlan = planPaste(s, p, d)): TransferPayload {
-  if (!p.closure) return p;
-  const need = docsNeeded(pp.bundle, pp.plan);
-  return { ...p, closure: { ...p.closure, definitions: p.closure.definitions.filter((x) => need.has(refKey(defRef(x.guid)))) } };
+  if (!p.closure && !p.textures) return p;
+  const need = docsNeeded(pp.bundle, pp.plan), textures = p.textures?.filter((t) => need.has(refKey(textureRef(t.guid))));   // 贴图字节不小：这边已经有的（走到就停）不进指令
+  const { textures: _t, ...rest } = p; void _t;
+  return { ...rest, ...(textures?.length ? { textures } : {}), ...(p.closure ? { closure: { ...p.closure, definitions: p.closure.definitions.filter((x) => need.has(refKey(defRef(x.guid)))) } } : {}) };
 }
 /** 弹窗的一行（事实，不是「谁新」：文件里没有版本号，机器判不了）。 */
-export interface ConflictRow { readonly kind: string; readonly name: string; readonly placed: number; readonly faces: number; readonly locked: number; readonly shelved: boolean; /** 组件两边各几张面。 */ readonly hereFaces?: number; readonly incomingFaces?: number; /** 材质两边的颜色（sRGB 0..1）+ 有没有贴图。 */ readonly hereMaterial?: Material; readonly incomingMaterial?: Material }
+export interface ConflictRow { readonly kind: string; readonly name: string; readonly placed: number; readonly faces: number; readonly locked: number; readonly shelved: boolean; /** 组件两边各几张面。 */ readonly hereFaces?: number; readonly incomingFaces?: number; /** 材质两边的颜色（sRGB 0..1）+ 有没有贴图。 */ readonly hereMaterial?: Material; /** 贴图两边（名字 / 尺寸；2026-11-10）。 */ readonly hereTexture?: TextureDoc; readonly incomingTexture?: TextureDoc; readonly incomingMaterial?: Material }
 const faceCount = (e: DefinitionEntry): number => (e.def.kind === "mesh" && e.def.mesh ? e.def.mesh.faceLen.length : e.def.brep.faces.length + e.def.groups.reduce((n, g) => n + g.brep.faces.length, 0));
 export function conflictRows(f: Frontier): ConflictRow[] {
   return f.differ.map((x) => {
     const base = { kind: x.ref.kind, name: KINDS.get(x.ref.kind)!.nameOf(x.here), placed: x.usage.placed, faces: x.usage.faces, locked: x.usage.locked, shelved: x.usage.shelved };
     if (x.ref.kind === DEFINITION) return { ...base, hereFaces: faceCount(x.here as DefinitionEntry), incomingFaces: faceCount(x.incoming as DefinitionEntry) };
+    if (x.ref.kind === TEXTURE) return { ...base, hereTexture: x.here as TextureDoc, incomingTexture: x.incoming as TextureDoc };
     return x.ref.kind === MATERIAL ? { ...base, hereMaterial: x.here as Material, incomingMaterial: x.incoming as Material } : base;
   });
 }
@@ -98,8 +100,8 @@ export function pasteConflict(s: Scene, p: TransferPayload, ctx: EditContext = R
 
 /** 从别的文件抠闭包（素材导入：只读那份文件、挑几个组件）：没有摆放，只有 picks 往下走到底的定义 + 材质 + 层。文档的根不算（它不是素材）。 */
 export function payloadFromDocument(doc: CatsupDocument, picks: readonly Guid[]): TransferPayload {
-  const store = docStore(doc), roots = picks.filter((g) => g !== doc.root.guid && store.has(defRef(g))), b = bundleOf(store, roots.map(defRef)), materials = docsOfKind<Material>(b, MATERIAL);
-  return { from: "brep", ...(materials.length ? { materials } : {}), closure: { definitions: docsOfKind<DefinitionEntry>(b, DEFINITION).map((e) => e.def).filter((d) => d.guid !== doc.root.guid), layers: docsOfKind<LayerDoc>(b, LAYER), roots } };
+  const store = docStore(doc), roots = picks.filter((g) => g !== doc.root.guid && store.has(defRef(g))), b = bundleOf(store, roots.map(defRef)), materials = docsOfKind<Material>(b, MATERIAL), textures = docsOfKind<TextureDoc>(b, TEXTURE);
+  return { from: "brep", ...(materials.length ? { materials } : {}), ...(textures.length ? { textures } : {}), closure: { definitions: docsOfKind<DefinitionEntry>(b, DEFINITION).map((e) => e.def).filter((d) => d.guid !== doc.root.guid), layers: docsOfKind<LayerDoc>(b, LAYER), roots } };
 }
 /** 那份文件里能上架的组件（素材架上的东西要有名字，user 10-30：没起名的不列、数出来说一声）。摆了几份 = 那份文件里的总数。 */
 export function importCandidates(doc: CatsupDocument): { rows: { guid: Guid; name: string; kind: BodyKind; placed: number }[]; unnamed: number } {
@@ -114,7 +116,7 @@ export function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Gui
   const payload = payloadFromDocument(doc, picks), roots = payload.closure?.roots ?? [], pp = planPaste(s, payload, d, f);
   const fresh = roots.filter((g) => pp.plan.remint.has(g) || !s.shelf.items.some((it) => it.kind === "definition" && it.ref === g));
   const trimmed = trimClosure(s, payload, d, pp);
-  const paste: Op = { op: "paste", at: { def: s.root, group: null }, ...(trimmed.materials ? { materials: trimmed.materials } : {}), ...(trimmed.closure ? { closure: trimmed.closure } : {}), ...(d.entries !== "keep" ? { merge: d } : {}), ...(fresh.length ? { shelve: fresh.map((ref) => ({ ref, guid: mintGuid() })) } : {}) };
+  const paste: Op = { op: "paste", at: { def: s.root, group: null }, ...(trimmed.materials ? { materials: trimmed.materials } : {}), ...(trimmed.textures ? { textures: trimmed.textures } : {}), ...(trimmed.closure ? { closure: trimmed.closure } : {}), ...(d.entries !== "keep" ? { merge: d } : {}), ...(fresh.length ? { shelve: fresh.map((ref) => ({ ref, guid: mintGuid() })) } : {}) };
   return { op: { op: "batch", label: "导入素材", ops: [paste] }, payload, already: roots.length - fresh.length };
 }
 
@@ -128,7 +130,7 @@ export function preparePaste(s: Scene, ctx: EditContext, at: PoolRef, p: Transfe
   const l = trimClosure(s, localize(p, toLocal), d, pp), before: PasteBefore = { defs: new Set(), plan: pp.plan, bundle: pp.bundle }, def = at.def, isBrep = s.kindOf(def) === "brep";
   const instBefore = new Set(s.def(def).instances.keys()), groupBefore = new Set(isBrep ? s.brep(def).groups.keys() : []), meshBefore = isBrep ? null : new Set(s.mesh(def).kernel.faces());
   return {
-    op: { op: "paste", at, ...(l.brep ? { brep: l.brep } : {}), ...(l.groups ? { groups: l.groups } : {}), ...(l.mesh ? { mesh: l.mesh } : {}), ...(l.instances ? { instances: l.instances } : {}), ...(l.materials ? { materials: l.materials } : {}), ...(l.closure ? { closure: l.closure } : {}), ...(d.entries !== "keep" ? { merge: d } : {}) },
+    op: { op: "paste", at, ...(l.brep ? { brep: l.brep } : {}), ...(l.groups ? { groups: l.groups } : {}), ...(l.mesh ? { mesh: l.mesh } : {}), ...(l.instances ? { instances: l.instances } : {}), ...(l.materials ? { materials: l.materials } : {}), ...(l.textures ? { textures: l.textures } : {}), ...(l.closure ? { closure: l.closure } : {}), ...(d.entries !== "keep" ? { merge: d } : {}) },
     fresh(after) {
       const pools: [string, { kind: "instance"; instance: InstId } | { kind: "group"; group: GroupId }][] = [];
       for (const id of after.def(def).instances.keys()) if (!instBefore.has(id)) pools.push([`i${id}`, { kind: "instance", instance: id }]);

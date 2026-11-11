@@ -10,3 +10,10 @@ export declare function openContextMenuAt(editor: Editor, hud: HudModel, x: numb
 export declare function foldSubmenus(items: readonly HudItem[]): PopupMenuItem[];
 /** 选区的菜单（和右键同一份），挂在一个按钮上弹（笔 / 手指的右下「更多…」；user 10-28 夜「可选操作应该放到右键菜单里而不是全堆在马后炮」）。 */
 export declare function openSelectionMenu(editor: Editor, hud: HudModel, anchor: HTMLElement): void;
+/**
+ * 右键菜单里某个子菜单那几项，单独挂在一个按钮旁边弹（缩放工具右下角「压平…」= 右键「压平 ›」同一份；W-5 2026-11-10 Claude Opus 5.5）。
+ * 工具条点完会整条重画、按钮换掉，所以不挂在按钮上：把右键用的那个 0×0 锚点（ctxAnchor）摆到按钮的位置再弹。没有可做的就不弹。
+ */
+/** 右键菜单里某个子菜单现在有哪几项（露不露 = 放置表的工作台 + 指令数出来的个数，app 层不另判工作台；W-5）。 */
+export declare function submenuItems(hud: HudModel, label: string): PopupMenuItem[];
+export declare function openSubmenuAt(hud: HudModel, btn: HTMLElement, label: string): void;

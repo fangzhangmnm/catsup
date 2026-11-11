@@ -28,7 +28,7 @@ export declare const FORMAT: {
     };
     readonly CATSUP_material: {
         readonly major: 1;
-        readonly minor: 2;
+        readonly minor: 3;
         readonly patch: 0;
     };
     readonly CATSUP_desk: {
@@ -48,6 +48,11 @@ export declare const FORMAT: {
         readonly patch: 0;
     };
     readonly CATSUP_shelf: {
+        readonly major: 1;
+        readonly minor: 0;
+        readonly patch: 0;
+    };
+    readonly CATSUP_textures: {
         readonly major: 1;
         readonly minor: 0;
         readonly patch: 0;
@@ -89,7 +94,10 @@ export interface FormatReadNotes {
     builtinFrontSlots?: number;
     referencesTooNew?: Stamp;
     shelfTooNew?: Stamp;
-    danglingShelfRefs?: number;
+    danglingShelfRefs?: number; /** 贴图表是更新版写的（major 比本版新）：原样带回、材质先按底色显示。 */
+    texturesTooNew?: Stamp; /** 材质的 channels 指着贴图表里没有的 GUID：那一格当空的（不猜、不造）。 */
+    danglingTextureRefs?: number; /** 贴图表里有本版不认识的 content 种类（整行原样带回、显示成灰色占位）。 */
+    unknownTextureKinds?: number;
 }
 export declare const emptyReadNotes: () => FormatReadNotes;
 export type MigrationStep = (json: Record<string, unknown>, ctx?: MigrationCtx) => Record<string, unknown>;

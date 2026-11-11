@@ -6,8 +6,8 @@
 import { Kernel } from "../kernel/kernel.ts";
 import { kernelFromMeshDoc, meshDocFromKernel } from "../mesh/mesh-doc.ts";
 import { DEFAULT_LAYER, defaultLayers, emptyGuidesDoc, emptyShelf, shelfIsEmpty } from "./document.ts";
-import { Scene, type DefId, type GroupId } from "../scene/scene.ts";
-import type { CatsupDocument, DefinitionDoc, GuidesDoc, ShelfDoc } from "./document.ts";
+import { Scene, type DefId, type GroupId, type Material } from "../scene/scene.ts";
+import type { CatsupDocument, Channels, DefinitionDoc, GuidesDoc, MaterialDoc, ShelfDoc } from "./document.ts";
 import { emptyGuides, type Guides } from "../scene/guides.ts";
 import { BUILTIN_BACK_GUID, type Guid } from "./guid.ts";
 import { BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
@@ -111,7 +111,9 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
   const scene = new Scene(Kernel.fromBrep(doc.root.brep), doc.root.guid);
   scene.axes = copyFrame(doc.axes);
   const matIndex = new Map<Guid, number>();
-  for (const m of doc.materials) matIndex.set(m.guid, scene.addMaterial({ guid: m.guid, name: m.name, color: [m.color[0], m.color[1], m.color[2]], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } } : {}) }));
+  for (const t of doc.textures) scene.addTexture(t);   // 贴图条目不可变：文件形状就是场景里那一行
+  scene.texturesFrozen = doc.readNotes?.texturesTooNew ?? null;
+  for (const m of doc.materials) matIndex.set(m.guid, scene.addMaterial(materialFromDoc(m)));
   scene.def(scene.root).name = doc.root.name;
   scene.layers = (doc.layers?.length ? doc.layers : defaultLayers()).map((l) => ({ ...l }));
   if (!scene.layers.some((l) => l.id === 0)) scene.layers.unshift({ ...DEFAULT_LAYER });
@@ -148,18 +150,24 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
   const ids = [...scene.defs.keys()];
   const rootIndex = ids.indexOf(scene.root);
   const definitions: DefinitionDoc[] = ids.map((id) => definitionToDoc(scene, id, id === scene.root ? name : undefined));
-  const materials = scene.materials.map((m) => ({ guid: m.guid, name: m.name, color: [m.color[0], m.color[1], m.color[2]] as [number, number, number], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] as [number, number] } } : {}) }));
+  const materials = scene.materials.map(materialToDoc), textures = [...scene.textures.values()];
   const root = definitions[rootIndex];
   const layers = scene.layers.map((l) => ({ ...l }));
   const shelf = shelfIsEmpty(scene.shelf) ? undefined : copyShelf(scene.shelf);
-  if (base) { const { shelf: _old, ...rest } = base; void _old; return { ...rest, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, axes: copyFrame(scene.axes), layers, ...(shelf ? { shelf } : {}) }; }   // final / finalRev 随 base 带
+  if (base) { const { shelf: _old, ...rest } = base; void _old; return { ...rest, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, textures, axes: copyFrame(scene.axes), layers, ...(shelf ? { shelf } : {}) }; }   // final / finalRev 随 base 带
   const doc = newDocument(root.brep, name);
   doc.axes = copyFrame(scene.axes);
   doc.definitions = definitions;
   doc.rootIndex = rootIndex;
   doc.root = definitions[rootIndex];
   doc.materials = materials;
+  doc.textures = textures;
   doc.layers = layers;
   if (shelf) doc.shelf = shelf;
   return doc;
 }
+
+/** 材质：文件形状 ↔ 场景（channels 深拷一层：一摞是数组）。 */
+const copyChannels = (c: Channels | undefined): { channels?: Record<string, Guid[]> } => (c && Object.keys(c).length ? { channels: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, [...v]])) } : {});
+export const materialFromDoc = (m: MaterialDoc): Omit<Material, "guid"> & { guid: Guid } => ({ guid: m.guid, name: m.name, color: [m.color[0], m.color[1], m.color[2]], ...copyChannels(m.channels) });
+export const materialToDoc = (m: Material): MaterialDoc => ({ guid: m.guid, name: m.name, color: [m.color[0], m.color[1], m.color[2]], ...copyChannels(m.channels) });

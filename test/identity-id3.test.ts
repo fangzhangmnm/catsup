@@ -4,6 +4,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, decodeGlb, mintGuid } from "../src/format/index.ts";
 import { encodeGlb } from "../src/format/glb.ts";
 import { DEFAULT_LAYER_GUID } from "../src/format/guid.ts";
+import { COLOR_VALUE } from "../src/format/document.ts";
 import { ROOT_CONTEXT, Scene, type Instance } from "../src/scene/scene.ts";
 import { applyOp, OpRejected, ShearRejected, describeOp, faceKey, edgeKey, type Op } from "../src/editor/ops.ts";
 import { History, opTier } from "../src/editor/history.ts";
@@ -17,7 +18,7 @@ import { IDENTITY, translation } from "../src/scene/xform.ts";
 
 const rootAt = (s: Scene) => ({ def: s.root, group: null });
 const reopen = (s: Scene): Scene => sceneFromDocument(readCatsup(writeCatsup(documentFromScene(s, "t"))));
-const pasteOp = (s: Scene, p: TransferPayload): Op => { const l = localize(p, IDENTITY); return { op: "paste", at: rootAt(s), ...(l.brep ? { brep: l.brep } : {}), ...(l.groups ? { groups: l.groups } : {}), ...(l.instances ? { instances: l.instances } : {}), ...(l.materials ? { materials: l.materials } : {}), ...(l.closure ? { closure: l.closure } : {}) }; };
+const pasteOp = (s: Scene, p: TransferPayload): Op => { const l = localize(p, IDENTITY); return { op: "paste", at: rootAt(s), ...(l.brep ? { brep: l.brep } : {}), ...(l.groups ? { groups: l.groups } : {}), ...(l.instances ? { instances: l.instances } : {}), ...(l.materials ? { materials: l.materials } : {}), ...(l.textures ? { textures: l.textures } : {}), ...(l.closure ? { closure: l.closure } : {}) }; };
 const copyInst = (s: Scene, inst: Instance): TransferPayload => extract(s, ROOT_CONTEXT, { faces: [], edges: [] }, [{ kind: "instance", instance: inst.id }])!;
 /** 站在 chain 那一层拷（实例句柄只在自己那个定义里唯一，子组件里的不能拿到根上去查）。 */
 const copyIn = (s: Scene, chain: readonly Instance[], inst: Instance): TransferPayload => extract(s, { chain: chain.map((i) => i.id), group: null }, { faces: [], edges: [] }, [{ kind: "instance", instance: inst.id }])!;
@@ -28,7 +29,8 @@ const png = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
 /** 根里一份甲；甲里一份乙（在甲的组里、归「结构」层）；乙里一份丙。甲用「红」（带贴图），丙用「蓝」。 */
 function source() {
   const s = new Scene(sceneBox(1, 1));
-  const red = s.addMaterial({ name: "红", color: [1, 0, 0], texture: { mimeType: "image/png", bytes: png, sizeM: [1, 1] } }), blue = s.addMaterial({ name: "蓝", color: [0, 0, 1] });
+  const tex = mintGuid(); s.addTexture({ guid: tex, name: "红图", value: COLOR_VALUE, content: { kind: "image", mimeType: "image/png", bytes: png }, sizeM: [1, 1] });   // 图在贴图表里（2026-11-10）
+  const red = s.addMaterial({ name: "红", color: [1, 0, 0], channels: { color: [tex] } }), blue = s.addMaterial({ name: "蓝", color: [0, 0, 1] });
   s.addMaterial({ name: "没人用", color: [0, 1, 0] });
   const a = s.mintDef("甲", sceneBox(1, 1)), b = s.mintDef("乙", sceneBox(1, 1)), c = s.mintDef("丙", sceneBox(1, 1));
   const ka = s.brep(a.id).kernel; ka.setFaceMaterial([ka.faces()[0].id], s.slotFor(a.id, red));
@@ -53,7 +55,9 @@ describe("① 载荷自带闭包", () => {
     const names = (p.materials ?? []).map((m) => m.name).sort().join("");
     eq(names, "红蓝", "用到的才带；「没人用」不带");
     const red = p.materials!.find((m) => m.name === "红")!;
-    eq([...red.texture!.bytes].join(), [...png].join(), "贴图字节在");
+    const tex = (p.textures ?? []).find((t) => t.guid === red.channels!.color[0]);
+    assert(!!tex && tex.content.kind === "image", "材质指着的贴图跟着走");
+    eq([...(tex!.content as { bytes: Uint8Array }).bytes].join(), [...png].join(), "贴图字节在");
     eq(p.closure!.layers.map((l) => l.name).join(), "结构", "只带用到的层");
     eq(p.closure!.definitions.find((d) => d.name === "甲")!.groups[0].guid, w.grp.guid, "组的 GUID 在");
     assert(!transferEmpty(p));
@@ -99,7 +103,7 @@ describe("② 跨文件粘贴：第一次新建，之后再贴只多摆一份（
     assert(a.body.kind === "brep" && [...a.body.groups.values()][0].guid === w.grp.guid, "组的 GUID 保留");
     eq([...b.instances.values()][0].guid, w.ic.guid);
     eq(t.materials.map((m) => m.name).sort().join(""), "红蓝", "「没人用」没带过来");
-    eq(t.materials[t.materialByGuid(w.s.materials[w.red].guid)].texture?.bytes, png, "贴图是同一份字节");
+    eq(t.colorMapOf(t.materials[t.materialByGuid(w.s.materials[w.red].guid)])?.content.bytes, png, "贴图是同一份字节");
     eq(rootInsts(t)[0].xform[3], 5, "摆在原来的世界位置");
   });
   it("面上的颜色对：目标的材质表下标和源不一样也对得上", () => {

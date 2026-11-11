@@ -4,7 +4,7 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import { type Guides } from "../scene/guides.ts";
 import { type EditContext, type GroupId, type InstId, type Material, type Scene } from "../scene/scene.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
-import type { DefinitionDoc, LayerDoc } from "../format/document.ts";
+import type { DefinitionDoc, LayerDoc, TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
 import { type Bundle } from "../identity/graph.ts";
 export interface TransferGroup {
@@ -52,6 +52,8 @@ export interface TransferPayload {
     readonly instances?: TransferInstance[];
     /** 面上材质编号的对照表（brep 面层 / groups 面层 / mesh.faces[].mat 都是它的下标）+ 闭包里定义用到的材质（按 GUID 查）。 */
     readonly materials?: readonly Material[];
+    /** 上面这些材质指着的贴图（文件形状，按 GUID 查；2026-11-10 贴图主线 1-0½：贴图是独立的条目，跟着材质走）。 */
+    readonly textures?: readonly TextureDoc[];
     /** 实例用到的定义（递归）+ 层。有实例才有。 */
     readonly closure?: TransferClosure;
 }

@@ -64,7 +64,7 @@ const SCENES = {
   "box-thick-sel-hover-lock": `box(0, 0, 1, 1, 1); frame(); e.setLineWeight(2); e.setTool("select"); const t = sp(P(0.5, 0.5, 1)); await tap(t.x, t.y); e.setTool("move"); e.setAxisLock("x"); const s = sp(P(1, 0.5, 0.5)); await hover(s.x, s.y);`,   // 锁 X：过选区中心的红线和世界红轴错开，看得出是锁轴线（锁 Z 在 iso 里会和世界蓝轴重叠）
   // 贴图：顶面 + 一张侧面刷上格子材质（贴图走后端那条路；探针等贴图解码完才读像素）
   "box-textured": `box(0, 0, 1, 1, 1); frame(); const tb = atob(${JSON.stringify(CHECKER)}), tbytes = new Uint8Array(tb.length); for (let i = 0; i < tbytes.length; i++) tbytes[i] = tb.charCodeAt(i);
-    e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] } });
+    { const tg = crypto.randomUUID(); e.commitOp({ op: "addTexture", guid: tg, name: "格子", mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] }); e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], channels: { color: [tg] } }); }   // 图在贴图表里（2026-11-10 贴图主线 1-0½）
     const mid = [...e.scene.materials.keys()].pop(), k = e.kernel, at = e.activePool();
     const top = k.faces().find((f) => k.faceRings3(f.id).outer.every((p) => Math.abs(p.z - 1) < 1e-6)), side = k.faces().find((f) => k.faceRings3(f.id).outer.every((p) => Math.abs(p.x - 1) < 1e-6));
     e.commitOp({ op: "paintFaces", at, faces: [k.faceRings3(top.id).outer, k.faceRings3(side.id).outer], material: mid });`,
@@ -108,7 +108,7 @@ const SCENES = {
   "style-bronze-house": { fixture: "house.glb", after: `e.renderer3.setPreset("bronze"); e.draw();` },
   // 写实（照模型上色的 PBR）× 贴图：格子贴图进底色 + 海天 + 投影 + 遮蔽
   "style-realistic-textured": `e.renderer3.setPreset("realistic"); box(0, 0, 1, 1, 1); frame(); const tb = atob(${JSON.stringify(CHECKER)}), tbytes = new Uint8Array(tb.length); for (let i = 0; i < tbytes.length; i++) tbytes[i] = tb.charCodeAt(i);
-    e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] } });
+    { const tg = crypto.randomUUID(); e.commitOp({ op: "addTexture", guid: tg, name: "格子", mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] }); e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], channels: { color: [tg] } }); }   // 图在贴图表里（2026-11-10 贴图主线 1-0½）
     const mid = [...e.scene.materials.keys()].pop(), k = e.kernel, at = e.activePool();
     const top = k.faces().find((f) => k.faceRings3(f.id).outer.every((p) => Math.abs(p.z - 1) < 1e-6)), side = k.faces().find((f) => k.faceRings3(f.id).outer.every((p) => Math.abs(p.x - 1) < 1e-6));
     e.commitOp({ op: "paintFaces", at, faces: [k.faceRings3(top.id).outer, k.faceRings3(side.id).outer], material: mid });`,
@@ -127,7 +127,7 @@ const SCENES = {
     fs.forEach((f, i) => { for (const side of [0, 1]) e.commitOp({ op: "paintFaces", at, faces: [k.faceRings3(f.id).outer], material: mats[mats.length - fs.length + i], sides: [side] }); });
     e.cam.projection = "persp"; e.cam.target = P(0.5, -0.4, 0.4); e.cam.yaw = -0.6; e.cam.pitch = 0.08; e.cam.halfH = 1.2; e.draw();`,
   "style-pixel-textured": `e.renderer3.setPreset("pixelOutline"); box(0, 0, 1, 1, 1); frame(); const tb = atob(${JSON.stringify(CHECKER)}), tbytes = new Uint8Array(tb.length); for (let i = 0; i < tbytes.length; i++) tbytes[i] = tb.charCodeAt(i);
-    e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] } });
+    { const tg = crypto.randomUUID(); e.commitOp({ op: "addTexture", guid: tg, name: "格子", mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] }); e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], channels: { color: [tg] } }); }   // 图在贴图表里（2026-11-10 贴图主线 1-0½）
     const mid = [...e.scene.materials.keys()].pop(), k = e.kernel, at = e.activePool();
     const top = k.faces().find((f) => k.faceRings3(f.id).outer.every((p) => Math.abs(p.z - 1) < 1e-6)), side = k.faces().find((f) => k.faceRings3(f.id).outer.every((p) => Math.abs(p.x - 1) < 1e-6));
     e.commitOp({ op: "paintFaces", at, faces: [k.faceRings3(top.id).outer, k.faceRings3(side.id).outer], material: mid });`,
