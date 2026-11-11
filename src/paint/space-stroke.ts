@@ -7,6 +7,7 @@
 // · 落笔时没打中：先把输入的点攒着；第一次打中时定大小、开始这一笔，把攒着的点按原来的时间补给内核（滤抖结果和「一开始就开始」一样：同样的点、同样的时间）。
 //   一直没打中 = 这一笔什么都不发生。
 import type { Pt3 } from "../kernel/geom.ts";
+import { paintMeter } from "./frame-meter.ts";
 import { StrokeCore } from "./kernel/src/backend/stroke-core.ts";
 import type { ResolvedBrush } from "./kernel/src/common/resolved-brush.ts";
 import { type PaintTarget, type TargetGeo, buildTargetGeo, pathUnit, rayHit } from "./space-target.ts";
@@ -75,7 +76,7 @@ export class SpaceStroke {
   cancel(): void { this.core = null; this.placer = null; this.pending = []; this.dead = true; }
 
   private feed(x: number, y: number, p: number, t: number | null): void {
-    if (this.core) { this.core.extend(x, y, p, t); return; }
+    if (this.core) { const tm = paintMeter.now(); this.core.extend(x, y, p, t); paintMeter.add("input", tm); return; }   // 每帧的读数：收点和滤抖（1-4d）
     this.pending.push({ x, y, p, t });
     const h = this.hitAt(x, y);
     if (h?.kind !== "target") return;
@@ -96,12 +97,16 @@ export class SpaceStroke {
     if (!this.core) return [];
     const path = this.core.path() as SpacePath, out: SpaceTip[] = [];
     if (!path.count) return out;
-    let i = -1;
+    let i = -1, reachMs = 0;
+    const tw = paintMeter.now();   // 每帧的读数：走步取笔尖 = 整个 forEachTip 减掉找面（1-4d）
     this.core.forEachTip((seg, x, y, z, size, alpha, strokeDist) => {
       if (++i < from) return;
       const starts = seg < 0 ? [path.hitAt(0)] : [path.hitAt(seg), path.hitAt(Math.min(seg + 1, path.count - 1))];
+      const tr = paintMeter.now();
       out.push({ x, y, z, size, alpha, strokeDist, seg, reach: tipReach(this.geos, { x, y, z, r: size / 2 }, starts, this.opts.maxAngleDeg !== undefined ? { maxAngleDeg: this.opts.maxAngleDeg } : {}) });
+      if (paintMeter.on) reachMs += performance.now() - tr;
     }, path);
+    if (paintMeter.on) { paintMeter.put("reach", reachMs); paintMeter.put("walk", performance.now() - tw - reachMs); }
     return out;
   }
   /** 现在有几颗笔尖（只数，不算碰到哪些三角形）。 */

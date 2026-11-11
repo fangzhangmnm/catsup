@@ -4,6 +4,7 @@
 // 定型：笔尖所在那一段两头的路点都定型了（seg + 1 < 路的定型点数）。抬笔：收笔的渐细这时才知道总长，所以抬笔时定型层清掉、整笔重画一次（只这一次），再落层。
 // 橡皮 = 同一支笔，交给档口时 erase = true。取消 = 档口取消（零痕迹）。
 import { SpaceStroke, type SpaceCamera } from "./space-stroke.ts";
+import { paintMeter } from "./frame-meter.ts";
 import { SpaceLayer } from "./space-layer.ts";
 import type { SpacePrep } from "./space-prep.ts";
 import type { SpaceData, SpaceGpu, SpaceImage } from "./space-gpu.ts";
@@ -133,7 +134,8 @@ export class SpacePaintStroke {
     }
     const t1 = performance.now();
     if (this.finishing) this.layer.resetFrozen();
-    try { this.layer.update(tips, frozenHere); this.peak = { ...this.layer.peak }; }
+    const tl = paintMeter.now();   // 每帧的读数：画薄层（CPU 这边交给显卡的时间；1-4d）
+    try { this.layer.update(tips, frozenHere); this.peak = { ...this.layer.peak }; paintMeter.add("layer", tl); }
     catch (err) { this.broken = true; this.cancel(); this.d.failed?.(err); return; }   // 这一帧才知道的上限（一颗笔尖下同一块挂了八张以上的面、一帧的数据表放不下）：这一笔取消、说那句人话（1-7；数据表那条以后改成分批画）
     this.drawn += frozenHere;
     const t2 = performance.now();

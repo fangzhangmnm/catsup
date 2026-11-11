@@ -32,6 +32,8 @@ export class LiveTextures {
   private uSrc: WebGLUniformLocation | null = null;
   /** 最近一次拷贝（拷 + 生成缩小图）花了多少毫秒（CPU 时间；探针量）。 */
   lastCopyMs = 0;
+  /** 这一帧拷了多久（每次 update 从 0 记起；没拷 = 0）。 */
+  frameCopyMs = 0;
   private readonly gl: WebGL2RenderingContext;
   constructor(gl: WebGL2RenderingContext) { this.gl = gl; }
 
@@ -51,6 +53,7 @@ export class LiveTextures {
 
   /** 画的时候：挨个问 current()（只读准备好的），版本变了的拷进显示图。返回 true = 拷过（调用的人 resetState 一次）。一张都没有 = 什么都不做。 */
   update(): boolean {
+    this.frameCopyMs = 0;
     if (!this.entries.size) return false;
     let touched = false;
     for (const [img, e] of this.entries) {
@@ -61,6 +64,7 @@ export class LiveTextures {
       this.copy(e, cur.gpuImage as WebGLTexture, img.width, img.height);
       touched = true;
       this.lastCopyMs = performance.now() - t0;
+      this.frameCopyMs += this.lastCopyMs;
       e.ver = cur.version;
     }
     return touched;

@@ -12,6 +12,7 @@
 //   以后要再省（编好字节、变冷）等 1-8b 有了编码缓存：先有一份字节挂在所有还回得去的地方，才许放画板。
 // · 整个程序只有一个内核的显卡接口：第一次要用时建在渲染器的画面上（BrowserGl2Port.fromContext），以后所有画板共用。
 import { BrowserGl2Port } from "./kernel/src/shell/browser-gl2-port.ts";
+import { paintMeter } from "./frame-meter.ts";
 import type { Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
 import type { LiveImage, TextureRef } from "../minccino/contract/stream.ts";
 import { decodeOraToPainting } from "./kernel/src/backend/ora.ts";
@@ -118,6 +119,7 @@ export class PaintBoards {
     }
     this.measureSync?.();
     this.lastPrepare = { jobsMs: t1 - t0, composeMs: performance.now() - t1 };
+    paintMeter.put("compose", this.lastPrepare.composeMs);   // 每帧的读数（1-4d；关着不做事）
     if (touched) this.o.touched?.();
   }
   /** 上一次「准备」两段（量；毫秒）：这一帧的准备活（薄层）/ 内核合成（含缩小图）。 */

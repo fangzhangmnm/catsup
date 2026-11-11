@@ -9,6 +9,7 @@
 // 定型：中心线前面不会再变的那些点对应的路算过一次就留着（射线不重打），路的 frozenCount 跟着涨、只增不减；每次只重算尾巴。
 // 一对相邻点里射线的条数有上限（maxRays，默认 4096）：到了 = 剩下的当断开，并在 stats.capped 记一笔。同样的输入 = 路逐位相同。
 import type { Pt3 } from "../kernel/geom.ts";
+import { paintMeter } from "./frame-meter.ts";
 import type { PathPlacer, StrokePath } from "./kernel/src/backend/stroke-core.ts";
 import type { Hit } from "./space-target.ts";
 
@@ -51,6 +52,10 @@ export class SpacePathPlacer implements PathPlacer {
   private cast(sx: number, sy: number): Hit { this.stats.rays++; return this.o.hit(sx, sy); }
 
   place(cx: readonly number[], cy: readonly number[], cp: readonly number[], count: number, frozenCount: number): SpacePath {
+    const tm = paintMeter.now();   // 每帧的读数：打射线（1-4d；关着 = 0、不量）
+    try { return this.placeAll(cx, cy, cp, count, frozenCount); } finally { paintMeter.add("rays", tm); }
+  }
+  private placeAll(cx: readonly number[], cy: readonly number[], cp: readonly number[], count: number, frozenCount: number): SpacePath {
     const fc = Math.min(frozenCount, count);
     const node = (i: number, frozen: boolean): Node => {
       let h: Hit;

@@ -243,7 +243,7 @@ export class Editor {
   readonly cam = new OrbitCamera();
   private r3: RenderProvider; readonly provider: EditorStreamProvider;
   /** 每帧开画之前那一步「准备」（贴图主线 1-4b，统筹 B）：编辑器在渲染之前明着调一次（画板跟大小、合成、这一笔的薄层）；渲染器和拉流只读准备好的结果。app 层接。 */
-  beforeRender: ((view: WorldView) => void) | null = null;   // provider 对外只读：app 层给它接画板登记处（1-3c）
+  beforeRender: ((view: WorldView) => void) | null = null; afterRender: (() => void) | null = null;   // provider 对外只读：app 层给它接画板登记处（1-3c）；画完一帧之后（1-4d 每帧的读数）
   private scene = new Scene();
   private ctx: EditContext = ROOT_CONTEXT;
   private readonly gridState = new GridState();   // 网格设置 + 各工作台的吸附开关（自由建模单独一份，grid-state.ts）
@@ -3679,7 +3679,7 @@ export class Editor {
       ...(this.mode.id === "geometry" && this.grid.shown ? this.unitMarks(view.frame()) : {}),
       ...(this.mode.viewExtras?.() ?? {}),
       ...(this.handlers[this._tool]?.viewExtras?.(this.toolCtx) ?? {}),
-    }, this.provider.layout()));
+    }, this.provider.layout())); this.afterRender?.();
   }
   /**
    * A33 断口提示（user 2026-10-24「如果一根直的线中间断了一截，应该有一个垂直的小线段提示一下这里断了，需要weld，不然到游戏引擎了一堆五边面」）：
