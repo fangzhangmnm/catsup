@@ -23,6 +23,8 @@ export declare class MeshView implements KernelView {
     faces(): Face[];
     face(id: FaceId): Face | undefined;
     planeOf(id: FaceId): PlaneRec | undefined;
+    /** 和内核 triangles()、导出同一份（MeshKernel.faceTriangles；下标 = 环上的位置，face(id).outer.vids 就是环）。问到哪张才切哪张。 */
+    faceTriangles(id: FaceId): readonly (readonly [number, number, number])[] | null;
     curves(): Curve[];
     isSoft(id: EdgeId): boolean;
     isSmooth(id: EdgeId): boolean;

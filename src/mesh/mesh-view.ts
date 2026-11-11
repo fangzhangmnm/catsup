@@ -69,6 +69,8 @@ export class MeshView implements KernelView {
   faces(): Face[] { return [...this.tables().faces.values()]; }
   face(id: FaceId): Face | undefined { return this.tables().faces.get(id); }
   planeOf(id: FaceId): PlaneRec | undefined { return this.tables().planes.get(id); }
+  /** 和内核 triangles()、导出同一份（MeshKernel.faceTriangles；下标 = 环上的位置，face(id).outer.vids 就是环）。问到哪张才切哪张。 */
+  faceTriangles(id: FaceId): readonly (readonly [number, number, number])[] | null { return this.mesh.hasF(id) ? this.mesh.faceTriangles(id) : null; }
   curves(): Curve[] { return []; }
   isSoft(id: EdgeId): boolean { return this.tables().soft.has(id); }
   isSmooth(id: EdgeId): boolean { return this.tables().smooth.has(id); }

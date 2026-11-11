@@ -22,6 +22,8 @@ export interface GeomView {
         outer: Pt3[];
         holes: Pt3[][];
     } | undefined;
+    /** 这张面切成哪几个三角形（下标 = 环上的位置）；网格体的池有（转问那个池的视图），硬表面没有（贴图主线 1-3a 第一节）。 */
+    faceTriangles?(id: FaceId): readonly (readonly [number, number, number])[] | null;
     /** 软边：渲染不画线。 */
     isSoft(id: EdgeId): boolean;
     /** 这个实体在不在正在编辑的池里（合成视图有；单个内核没有 = 不知道）。 */
@@ -81,6 +83,11 @@ export interface SlotPart {
     /** 隐藏的边 / 只连着隐藏边的点（DT49）：图里留着（可见面的环还要查它），列举 / 屏幕索引 / 渲染跳过。隐藏的面直接不进 faces。 */
     hiddenEdges: Set<EdgeId>;
     hiddenVerts: Set<VertexId>;
+    /** 这个槽的视图和编号偏移：问面的三角形时转回去问（问到哪张才切哪张，不在这里整份预先切）。 */
+    src?: {
+        k: KernelView;
+        off: number;
+    };
 }
 /** 本进程累计的 part 重算统计（编辑器把它抄进 perf；scene 层不 import editor）。 */
 export declare const PART_STATS: {
@@ -141,6 +148,7 @@ export declare class WorldView implements GeomView {
     faces(): Face[];
     face(id: FaceId): Face | undefined;
     planeOf(id: FaceId): PlaneRec | undefined;
+    faceTriangles(id: FaceId): readonly (readonly [number, number, number])[] | null;
     faceRings3(id: FaceId): {
         outer: Pt3[];
         holes: Pt3[][];

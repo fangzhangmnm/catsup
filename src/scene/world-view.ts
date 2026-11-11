@@ -28,6 +28,8 @@ export interface GeomView {
   face(id: FaceId): Face | undefined;
   planeOf(id: FaceId): PlaneRec | undefined;
   faceRings3(id: FaceId): { outer: Pt3[]; holes: Pt3[][] } | undefined;
+  /** 这张面切成哪几个三角形（下标 = 环上的位置）；网格体的池有（转问那个池的视图），硬表面没有（贴图主线 1-3a 第一节）。 */
+  faceTriangles?(id: FaceId): readonly (readonly [number, number, number])[] | null;
   /** 软边：渲染不画线。 */
   isSoft(id: EdgeId): boolean;
   /** 这个实体在不在正在编辑的池里（合成视图有；单个内核没有 = 不知道）。 */
@@ -67,6 +69,8 @@ export interface SlotPart {
   centers: Pt3[];
   /** 隐藏的边 / 只连着隐藏边的点（DT49）：图里留着（可见面的环还要查它），列举 / 屏幕索引 / 渲染跳过。隐藏的面直接不进 faces。 */
   hiddenEdges: Set<EdgeId>; hiddenVerts: Set<VertexId>;
+  /** 这个槽的视图和编号偏移：问面的三角形时转回去问（问到哪张才切哪张，不在这里整份预先切）。 */
+  src?: { k: KernelView; off: number };
 }
 /** kernel 对象 → 槽序号 → part（同一 definition 的多个实例 = 同一 kernel、不同槽 / 变换）。 */
 const PART_CACHE = new WeakMap<KernelView, Map<number, SlotPart>>();
@@ -99,7 +103,7 @@ export function regularPolygonCenter(pts: readonly Pt3[]): Pt3 | null {
 function buildPart(index: number, k: KernelView, m: Xform): SlotPart {
   const off = index * ID_STRIDE;
   const ident = isIdentity(m);
-  const part: SlotPart = { rev: k.rev, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set(), fold: new Set(), centers: [], hiddenEdges: new Set(), hiddenVerts: new Set() };
+  const part: SlotPart = { rev: k.rev, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set(), fold: new Set(), centers: [], hiddenEdges: new Set(), hiddenVerts: new Set(), src: { k, off } };
   for (const c of k.curves()) if (c.params && (c.kind === "circle" || c.kind === "arc")) part.centers.push(ident ? { ...c.params.center } : applyPt(m, c.params.center));
   // 正多边形面的中心也算圆心（user 2026-10-25「圆心应该优先于格点」：v0.14.1 之前「做成组件」会把圆丢成一圈普通边——老文件里的轮子没有曲线实体可读，
   // 但盖面还是一个正 N 边形；它的中心就是原来的圆心）。只认 ≥ 6 条边、各顶点到中心等距、各边等长的外环；和曲线圆心重合的去重。
@@ -300,6 +304,7 @@ export class WorldView implements GeomView {
   faces(): Face[] { const out: Face[] = []; for (const p of this.parts) for (const f of p.faces.values()) out.push(f); return out; }
   face(id: FaceId): Face | undefined { return this.partOf(id)?.faces.get(id); }
   planeOf(id: FaceId): PlaneRec | undefined { return this.partOf(id)?.planes.get(id); }
+  faceTriangles(id: FaceId): readonly (readonly [number, number, number])[] | null { const p = this.partOf(id); return p?.src && p.faces.has(id) ? p.src.k.faceTriangles?.(id - p.src.off) ?? null : null; }
   faceRings3(id: FaceId): { outer: Pt3[]; holes: Pt3[][] } | undefined {
     const f = this.face(id);
     if (!f) return undefined;

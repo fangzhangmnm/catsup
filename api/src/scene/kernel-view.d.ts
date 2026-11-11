@@ -31,6 +31,9 @@ export interface KernelView {
     isFaceHidden(id: FaceId): boolean;
     /** 面的材质槽（side 0 正面 / 1 背面；undefined = 默认）。单面的身体（mesh）背面永远 undefined，渲染剔掉背面。 */
     faceMaterialOf(id: FaceId, side?: 0 | 1): number | undefined;
+    /** 这张面切成哪几个三角形（下标 = face(id).outer.vids 里的位置）。网格体给（和内核 triangles()、导出同一份：MeshKernel.faceTriangles）；
+     *  硬表面不给（膜按自己的平面切，各走各的）。显示 / 高亮有它就用它（贴图主线 1-3a 第一节）。 */
+    faceTriangles?(id: FaceId): readonly (readonly [number, number, number])[] | null;
     readonly graph: {
         pt(id: VertexId): Pt3;
         edge(id: EdgeId): Edge;

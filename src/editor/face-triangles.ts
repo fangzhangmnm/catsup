@@ -26,7 +26,8 @@ export function faceTriangles(k: GeomView, id: FaceId): [Pt3, Pt3, Pt3][] {
   let base = 0;
   for (const r of rings) { const len = real ? r.vids.length : r.pts.length; idx.push(Array.from({ length: len }, (_, i) => base + i)); base += len; }
   // 绕向统一成「绕 +n 逆时针」：两个表面（DT8）靠 gl_FrontFacing 分正反，三角的绕向必须一致
-  return triangulateRings(P3, rec.plane, idx[0], idx.slice(1)).map(([a, b, c]) => {
+  const tris = k.faceTriangles?.(id) ?? triangulateRings(P3, rec.plane, idx[0], idx.slice(1));   // 网格体：和主渲染、内核、导出同一份（1-3a 第一节）
+  return tris.map(([a, b, c]) => {
     const A = P3[a], B = P3[b], C = P3[c];
     const cx = (B.y - A.y) * (C.z - A.z) - (B.z - A.z) * (C.y - A.y), cy = (B.z - A.z) * (C.x - A.x) - (B.x - A.x) * (C.z - A.z), cz = (B.x - A.x) * (C.y - A.y) - (B.y - A.y) * (C.x - A.x);
     return cx * n.x + cy * n.y + cz * n.z >= 0 ? [A, B, C] : [A, C, B];
