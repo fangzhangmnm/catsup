@@ -114,11 +114,26 @@ function helpers() {
   };
   H.line = (x0, y0, x1, y1, n = 40) => Array.from({ length: n + 1 }, (_, i) => ({ x: x0 + ((x1 - x0) * i) / n, y: y0 + ((y1 - y0) * i) / n }));
   H.stroke = (tex, pts, o = {}) => C.paint.stroke({ guid: tex, points: pts, size: 14, hardness: 0.5, color: [0.92, 0.12, 0.08], accum: "over", measure: true, ...o });
+  /**
+   * 落层量表（1-4d 第 8 条，只在探针里包一层）：这块画板内核写回（commitBrushStroke = 显卡上合 + 读回 + 交给 CPU 图块）总共多久、其中读回（port.readPixels）多久读了多少字节、
+   * CPU 把读回来的写进图块（apply 回调 = applyRegionDiff）多久。landTake = 交出这一笔攒的数并清零。
+   */
+  H.landMeter = (tex) => {
+    const B = C.paint.boards.get(tex); if (!B || B.__lm) return;
+    const gl = B.gl, port = B.port, m = (B.__lm = { commit: 0, read: 0, reads: 0, bytes: 0, apply: 0, inkCells: 0, cells: 0 });
+    // 读回来的那块里：8 × 8 的格子有几个、其中有墨（透明度不是 0）的有几个——「只读改过的格」能省多少
+    const rp = port.readPixels.bind(port); port.readPixels = (...a) => { const t = performance.now(), r = rp(...a); m.read += performance.now() - t; m.reads++; m.bytes += r.length;
+      const w = a[3], h = a[4], cw = Math.ceil(w / 8), ch = Math.ceil(h / 8), ink = new Uint8Array(cw * ch);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (r[(y * w + x) * 4 + 3]) ink[(y >> 3) * cw + (x >> 3)] = 1;
+      m.cells += cw * ch; for (const v of ink) m.inkCells += v; return r; };
+    const cb = gl.commitBrushStroke.bind(gl); gl.commitBrushStroke = (id, px, ov, w, h, apply) => { const t = performance.now(); const r = cb(id, px, ov, w, h, (...x) => { const t2 = performance.now(); const q = apply(...x); m.apply += performance.now() - t2; return q; }); m.commit += performance.now() - t; return r; };
+  };
+  H.landTake = (tex) => { const m = C.paint.boards.get(tex)?.__lm; if (!m) return null; const o = { commit: +m.commit.toFixed(1), read: +m.read.toFixed(1), reads: m.reads, readKB: Math.round(m.bytes / 1024), apply: +m.apply.toFixed(1), inkCells: m.inkCells, cells: m.cells, inkPct: m.cells ? +((100 * m.inkCells) / m.cells).toFixed(1) : 0 }; m.commit = m.read = m.apply = m.bytes = m.reads = m.inkCells = m.cells = 0; return o; };
   /** 这一笔的数：第一帧（有笔尖的第一帧：移动 + 画，含建这一笔的薄层）、之后每帧的中位数和最大、抬笔。 */
   H.timing = (r) => {
     if (!r?.frames) return null;
     const fs = r.frames, k = fs.findIndex((f) => f.tips > 0), rest = fs.slice(k + 1).map((f) => f.moveMs + f.drawMs).sort((a, b) => a - b);
-    return { first: k < 0 ? null : +(fs[k].moveMs + fs[k].drawMs).toFixed(1), layerBuild: +r.buildMs.toFixed(1), median: rest.length ? +rest[rest.length >> 1].toFixed(1) : null, max: rest.length ? +rest[rest.length - 1].toFixed(1) : null, up: +r.upMs.toFixed(1), tips: r.tips, frames: fs.length };
+    return { first: k < 0 ? null : +(fs[k].moveMs + fs[k].drawMs).toFixed(1), layerBuild: +r.buildMs.toFixed(1), median: rest.length ? +rest[rest.length >> 1].toFixed(1) : null, max: rest.length ? +rest[rest.length - 1].toFixed(1) : null, up: +r.upMs.toFixed(1), upParts: r.up ? { path: +(r.up.pathMs ?? 0).toFixed(1), redraw: +(r.up.redrawMs ?? 0).toFixed(1), land: +(r.up.endMs ?? 0).toFixed(1), drawAfter: +(r.upMs - (r.up.pathMs ?? 0) - (r.up.redrawMs ?? 0) - (r.up.endMs ?? 0)).toFixed(1) } : null, tips: r.tips, frames: fs.length };   // 抬笔分段（1-4d 第 8 条）：收路 / 整笔重画 / 落层（内核写回 = 读回）/ 之后那一帧合成 + 画
   };
   /** 一条屏幕上的线跨了几张面（按 1-3a 的落点问，每隔几个像素问一次）。 */
   H.facesAlong = (tex, pts) => { const s = new Set(); for (const p of pts) { const h = C.paint.cellAt(tex, p.x, p.y); if (h?.face !== undefined) s.add(h.face); } return s.size; };
@@ -192,11 +207,13 @@ async function fullFlow(label, tex, def, o = {}) {
   ];
   for (const [what, pts, opt] of strokes) {
     const before = await S((b) => __H.region(...b), box(pts));
+    await S((t) => { __H.landMeter(t); __H.landTake(t); }, tex);
     const r = await S(([t, p, q]) => __H.stroke(t, p, q), [tex, pts, opt]);
+    const land = await S((t) => __H.landTake(t), tex);
     const after = await S((b) => __H.region(...b), box(pts));
     const many = what.startsWith("跨") ? await S(([t, p]) => __H.facesAlong(t, p), [tex, pts]) : null;
     check(!r?.refused && r?.tips > 0 && after.red > before.red + 10, `${label} ${what}：屏幕上有墨（红像素 ${before.red} → ${after.red}）${many !== null ? `，跨了 ${many} 张面` : ""}`, JSON.stringify({ refused: r?.refused, tips: r?.tips }));
-    say(`${what}：${JSON.stringify(await S((x) => __H.timing(x), r))}`);
+    say(`${what}：${JSON.stringify(await S((x) => __H.timing(x), r))}；落层里：${JSON.stringify(land)}`);
     if (many !== null) check(many >= (o.manyFaces ?? 20), `${label} 那一笔确实跨了很多面（${many} ≥ ${o.manyFaces ?? 20}）`);
   }
   const cmp = await S((b) => __H.compare(b[0], b[1]), [tex, 0.55]);
