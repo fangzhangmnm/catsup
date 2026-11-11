@@ -101,4 +101,12 @@ export class SpaceStroke {
     }, path);
     return out;
   }
+  /** 现在有几颗笔尖（只数，不算碰到哪些三角形）。 */
+  tipCount(): number {
+    if (!this.core) return 0;
+    const path = this.core.path() as SpacePath;
+    if (!path.count) return 0;
+    let n = 0; this.core.forEachTip(() => { n++; }, path);
+    return n;
+  }
 }

@@ -9,15 +9,18 @@ import { tipReach } from "../src/paint/tip-reach.ts";
 import { strokeTruth, strokeTruth8, type InkTip } from "../src/paint/tip-truth.ts";
 import { sphereTriDist } from "../src/paint/tip-reach.ts";
 import { P, gridMesh, laidOut, targetOf } from "./paint-space-kit.ts";
+import type { Xform } from "../src/scene/xform.ts";
 
 /** 一块起伏的网格、一串沿着它走的笔尖（球心落在表面上），每颗笔尖碰到的三角形照 1-4a 找。 */
-function rig(o: { alpha?: number; r?: number } = {}) {
+function rig(o: { alpha?: number; r?: number; xform?: Xform; jitter?: boolean } = {}) {
   const m = gridMesh(6, 2, (x, y) => 0.15 * Math.sin(2 * x) * Math.cos(1.5 * y)), uv = laidOut(m, "uv", m.faces(), { density: 24 });
-  const g = buildTargetGeo(targetOf(m, uv)), tips: { tip: InkTip; reach: ReturnType<typeof tipReach> }[] = [];
+  const g = buildTargetGeo(targetOf(m, uv, o.xform ? { xform: o.xform } : {})), tips: { tip: InkTip; reach: ReturnType<typeof tipReach> }[] = [], X = o.xform;
   for (let i = 0; i < 18; i++) {
-    const x = -0.8 + i * 0.09, y = 0.3 * Math.sin(i * 0.4), z = 0.15 * Math.sin(2 * x) * Math.cos(1.5 * y);
+    const lx = -0.8 + i * 0.09, ly = 0.3 * Math.sin(i * 0.4), lz = 0.15 * Math.sin(2 * lx) * Math.cos(1.5 * ly);
+    const r = (o.r ?? 0.12) * (o.jitter ? 0.5 + ((i * 7) % 5) / 4 : 1), off = o.jitter ? r * 0.6 * Math.sin(i * 1.7) : 0;   // 大小不一、球心离面远近不一（沿 z 偏）
+    const x = X ? X[0] * lx + X[1] * ly + X[2] * (lz + off) + X[3] : lx, y = X ? X[4] * lx + X[5] * ly + X[6] * (lz + off) + X[7] : ly, z = X ? X[8] * lx + X[9] * ly + X[10] * (lz + off) + X[11] : lz + off;
     let best = -1, bd = Infinity; for (let t = 0; t < g.grid.face.length; t++) { const d = sphereTriDist(x, y, z, g.wpos, 9 * t); if (d < bd) { bd = d; best = t; } }
-    const tip: InkTip = { x, y, z, r: o.r ?? 0.12, alpha: o.alpha ?? 0.6 };
+    const tip: InkTip = { x, y, z, r, alpha: o.alpha ?? 0.6 };
     tips.push({ tip, reach: tipReach([g], tip, [{ ti: 0, tri: best }]) });
   }
   return { g, tips, W: g.table.width, H: g.table.height };
@@ -60,6 +63,23 @@ describe("薄层 = 标准答案（三维显卡接口的软件版，1-4b）", () 
       let diff = 0; for (let i = 0; i < once.length; i++) if (once[i] !== steps[i]) diff++;
       eq(diff, 0, `${accum}：逐字节相同`);
     }
+  });
+  it("实例方块只盖笔尖碰得到的格子、不切墨：缩放 + 转 + 镜像的摆放、笔尖大小不一、球心离面远近不一 —— 软件版（按方块裁）= 标准答案", () => {
+    const c = Math.cos(0.5), sn = Math.sin(0.5), sx = -1.4, sy = 0.7, sz = 1.2;   // 先缩放（x 取负 = 镜像）再绕 z 转、再挪
+    const xform: Xform = [c * sx, -sn * sy, 0, 0.3, sn * sx, c * sy, 0, -0.2, 0, 0, sz, 0.5];
+    const color: [number, number, number] = [0.3, 0.8, 0.5];
+    for (const accum of ["max", "over"] as const) {
+      const r = rig({ xform, jitter: true }), { px } = run(r, accum, 0.6, color), { maxd, inked } = compare(r, px, accum, 0.6, color);
+      assert(inked > 50, `吃到墨的格子 ${inked}`);
+      assert(maxd <= 1, `${accum}：和 8 位标准答案最大差 ${maxd} / 255`);
+    }
+    // 方块确实变小了：每颗笔尖的方块面积远小于整块多边形
+    const r = rig(), gpu = new SoftSpaceGpu(); gpu.register(SPACE_TIP);
+    const L = new SpaceLayer(gpu, r.g, 0, { hardness: 0.5, color: [1, 1, 1], accum: "over", origin: r.tips[0].tip });
+    let area = 0; const draw = gpu.draw.bind(gpu); gpu.draw = (d) => { for (let k = 0; k < d.count; k++) area += d.instances[4 * k + 2] * d.instances[4 * k + 3]; draw(d); };
+    L.update(r.tips, r.tips.length);
+    const R = L.range()!;
+    assert(area < 0.5 * r.tips.length * R.w * R.h, `实例方块面积合计 ${area}，整笔范围 ${R.w}×${R.h}`);
   });
   it("每帧画的实例只随这一帧新给的笔尖涨（不随整笔长度涨）", () => {
     const r = rig(), gpu = new SoftSpaceGpu(); gpu.register(SPACE_TIP);

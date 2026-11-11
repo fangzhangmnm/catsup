@@ -69,7 +69,11 @@ export class PaintBoards {
   prepare(scene: Scene): void {
     this.sync(scene);
     if (!this.entries.size) return;
+    this.measureSync?.();
+    const t0 = performance.now();
     for (const job of [...this.jobs]) job();
+    this.measureSync?.();
+    const t1 = performance.now();
     let touched = false;
     for (const e of this.entries.values()) {
       const r = e.board.compose();
@@ -77,8 +81,14 @@ export class PaintBoards {
       if (!e.prepared || e.prepared.version !== r.version) touched = true;
       e.prepared = { gpuImage: gpuImageOf(this.port!, r.fbo), version: r.version };
     }
+    this.measureSync?.();
+    this.lastPrepare = { jobsMs: t1 - t0, composeMs: performance.now() - t1 };
     if (touched) this.o.touched?.();
   }
+  /** 上一次「准备」两段（量；毫秒）：这一帧的准备活（薄层）/ 内核合成（含缩小图）。 */
+  lastPrepare = { jobsMs: 0, composeMs: 0 };
+  /** 只给量的时候用（探针）：每段前后等显卡把活做完，量到的才是显卡真花的时间。平时 null。 */
+  measureSync: (() => void) | null = null;
 
   /** 换文件全销毁；画没了的销毁；其余跟着坐标改大小、垫底色（prepare 的第一步；测试也直接调）。 */
   sync(scene: Scene): void {

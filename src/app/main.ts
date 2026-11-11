@@ -2437,7 +2437,7 @@ void (async () => {
     list: () => paintBoards.guids().map((g) => ({ guid: g, width: paintBoards.get(g)!.width, height: paintBoards.get(g)!.height })),
     stats: () => (editor.renderer3 as unknown as { liveStats(): { images: number; copyMs: number } }).liveStats(),
     /** 一整笔（贴图主线 1-4b；探针用）：屏幕点（CSS 像素）→ 1-4a 控制器 → 薄层（真显卡）→ 档口；每一点画一帧（准备在 draw 里）；cancel = 取消。第一笔时建画板。 */
-    stroke: (o: { guid?: string; points: readonly { x: number; y: number; p?: number }[]; size?: number; hardness?: number; color?: readonly number[]; accum?: "max" | "over"; erase?: boolean; cancel?: boolean; taperOut?: number }) => {
+    stroke: (o: { guid?: string; points: readonly { x: number; y: number; p?: number }[]; size?: number; hardness?: number; color?: readonly number[]; accum?: "max" | "over"; erase?: boolean; cancel?: boolean; taperOut?: number; measure?: boolean }) => {
       const S = editor.sceneRef, g = o.guid ?? [...S.textures.keys()].find((t) => paintPlaceOf(S, t));
       if (!g) throw new Error("no placed paint in this scene");
       const cam = editor.cam, gpu = editor.renderer3.offscreenGpu() as unknown as { texture(img: unknown): WebGLTexture } | null;
@@ -2451,11 +2451,25 @@ void (async () => {
           pixelSize: (p) => { const vp = editor.vp(); if (cam.projection !== "persp") return (2 * cam.halfH) / vp.h; const e = cam.eye(), f = cam.forward(), d = (p.x - e.x) * f.x + (p.y - e.y) * f.y + (p.z - e.z) * f.z; return (2 * Math.tan(cam.fovY / 2) * d) / vp.h; },
         }),
       }, g, { brush, color: [o.color?.[0] ?? 0.1, o.color?.[1] ?? 0.1, o.color?.[2] ?? 0.1], accum: o.accum ?? "over", erase: o.erase });
-      o.points.forEach((p, i) => { if (i === 0) st.down(p.x, p.y, p.p ?? 1, i * 16); else st.move(p.x, p.y, p.p ?? 1, i * 16); editor.draw(); });
-      const range = st.range(), tips = st.tipCount();
+      // measure：每一帧各段（射线 + 走步 = move；准备里的取新笔尖 / 画薄层 / 交给档口；内核合成；拷到显示图；整帧）
+      const frames: Record<string, number>[] = [], R3 = editor.renderer3 as unknown as { liveStats(): { copyMs: number } };
+      const ctx = (document.getElementById("board") as HTMLCanvasElement).getContext("webgl2")!, px1 = new Uint8Array(4);
+      const sync = (): void => { const fb = ctx.getParameter(ctx.READ_FRAMEBUFFER_BINDING); ctx.bindFramebuffer(ctx.READ_FRAMEBUFFER, null); ctx.readPixels(0, 0, 1, 1, ctx.RGBA, ctx.UNSIGNED_BYTE, px1); ctx.bindFramebuffer(ctx.READ_FRAMEBUFFER, fb); };   // 等显卡做完（量的时候才用）
+      if (o.measure) { paintBoards.measureSync = sync; sync(); }
+      o.points.forEach((p, i) => {
+        const a = performance.now();
+        if (i === 0) st.down(p.x, p.y, p.p ?? 1, i * 16); else st.move(p.x, p.y, p.p ?? 1, i * 16);
+        const b = performance.now();
+        editor.draw();
+        if (o.measure) sync();
+        if (o.measure) frames.push({ moveMs: b - a, drawMs: performance.now() - b, tips: st.tipCount(), ...st.lastFrame, gpuLayerMs: paintBoards.lastPrepare.jobsMs - st.lastFrame.tipsMs - st.lastFrame.hostMs, composeMs: paintBoards.lastPrepare.composeMs, copyMs: R3.liveStats().copyMs });
+      });
+      const range = st.range(), tips = st.tipCount(), buildMs = st.buildMs;
+      const u0 = performance.now();
       if (o.cancel) st.cancel(); else st.up();
       editor.draw();
-      return { guid: g, tips, range };
+      if (o.measure) { sync(); paintBoards.measureSync = null; }
+      return { guid: g, tips, range, ...(o.measure ? { frames, buildMs, upMs: performance.now() - u0, up: st.lastUp } : {}) };
     },
     lab: { SpaceLayer, SPACE_TIP, SoftSpaceGpu, buildTargetGeo, tipReach, sphereTriDist, gpu: () => editor.renderer3.offscreenGpu(), targets: (guid: string) => { const b = paintBoards.get(guid); return b ? paintTargets(editor.worldGeom(), editor.sceneRef, guid, { width: b.width, height: b.height }) : []; } },
     /** 屏幕上一点（CSS 像素）按 1-3a 的落点落在这张画的哪一格（探针拿它和屏幕上读到的颜色对）；只看摆在最外层的那一份。 */
