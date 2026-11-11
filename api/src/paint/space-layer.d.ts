@@ -51,6 +51,8 @@ export interface SpaceLayerOpts {
     readonly tables?: FaceTables;
     /** 只在自己建表时用（测试比较用）：表里的位置、笔尖先减去的那一点。不给 = 物件原点 objectOrigin。 */
     readonly origin?: Pt3;
+    /** 一帧的数据表（实例表 / 面单子 / 笔尖表）每张最多多少个数；不给 = 显卡每边上限和 2^24 定的那个。超了 = 分几批画（1-4d 第 4 条）；测试用小的逼出分批。 */
+    readonly maxValues?: number;
 }
 /**
  * 面表 + 三角形表（1-4d 第 3 条，统筹定的：落笔那一下的花费不许跟着模型大小走）：只跟物件、摆放、那一套贴图坐标有关，跟这一笔无关——
@@ -119,11 +121,12 @@ export declare class SpaceLayer {
     lastMarkMs: number;
     /** 上一帧尾巴画过的方框（这一帧要还原成定型层的样子：再标一遍）。 */
     private prevTail;
-    /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）。 */
+    /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）；batches = 一次画最多分了几批（1-4d 第 4 条）。 */
     readonly peak: {
         values: number;
         table: string;
         cap: number;
+        batches: number;
     };
     constructor(gpu: SpaceGpu, g: TargetGeo, ti: number, o: SpaceLayerOpts);
     /** 报给内核的范围（这一笔到现在碰过的所有实例方块的并）；什么都没碰 = null。 */
@@ -149,8 +152,16 @@ export declare class SpaceLayer {
     /** 这颗笔尖在这块多边形上的实例方块（格子）：贴图上的外接框往外放块边那一圈（取样点离格子中心最多 gap/2）再多一格，夹进多边形的格子范围；夹完是空的 = null（画不到）。 */
     private tipRect;
     private grow;
-    /** 这一帧的实例表、笔尖表、面单子（每帧整份重传；条数 = 实例数，小）。 */
-    private perDraw;
+    /** 一帧的数据表每张最多多少个数：显卡每边上限和 2^24 定的，SpaceLayerOpts.maxValues 可以再压小（测试）。 */
+    private dataCap;
+    /**
+     * 把这些 item 画进 target（1-4d 第 4 条：一帧的数据表放不下 = 分几批画，不再取消这一笔）：按先后切成连续的几批，每批的实例表 / 面单子 / 笔尖表都放得下；
+     * 一批一次 draw、按原来的先后画 = 叠出来和一次画完一样（叠色、取最大都只看先后）。每批的表各自从 0 编号（笔尖表只放这一批用到的那一段笔尖，item 按笔尖排着，是连着的一段）。
+     * 软件版的程序读 job.items（不读数据图）：每批换成这一批、u_first = 0，和显卡那一半对上。一颗 item 自己就放不下 = pack 抛人话（实际碰不到：一颗最多 4 + 8 + 8 个数）。
+     */
+    private drawItems;
+    /** 一批的实例表、笔尖表、面单子（每批整份传；实例表里的笔尖编号和面单子的起点都从这一批的开头算）。 */
+    private packBatch;
     private draw;
 }
 export {};
