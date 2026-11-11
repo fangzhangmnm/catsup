@@ -48,6 +48,8 @@ export class SpacePaintStroke {
   private layerId = 0;
   private dirty = false;
   private finishing = false;
+  /** 已经画进定型层的笔尖数（这些不再取、不再算碰到哪些三角形）。 */
+  private drawn = 0;
   private readonly unhook: () => void;
 
   constructor(d: SpacePaintDeps, texture: Guid, o: SpacePaintOpts) {
@@ -71,31 +73,32 @@ export class SpacePaintStroke {
   /** 现在的范围（报给内核的那一块；探针用）。 */
   range(): { x: number; y: number; w: number; h: number } | null { return this.layer?.range() ?? null; }
   tipCount(): number { return this.stroke.tips().length; }
+  /** 落笔那一下建各种表（每格的紧凑表、三角形公式、两张离屏图）花了多少毫秒（量）。 */
+  buildMs = 0;
 
-  private tipsNow(): { tip: InkTip; reach: ReturnType<SpaceStroke["tips"]>[number]["reach"] }[] {
-    return this.stroke.tips().map((t) => ({ tip: { x: t.x, y: t.y, z: t.z, r: t.size / 2, alpha: t.alpha }, reach: t.reach }));
-  }
-  private frozenCount(): number {
-    if (this.finishing) return Infinity;
-    const path = this.stroke.path(), n = path?.frozenCount ?? 0;
-    let k = 0; for (const t of this.stroke.tips()) { if (t.seg + 1 < n) k++; else break; }
-    return k;
-  }
+
 
   /** 这一帧的准备（画板登记处的 prepare 调；合成在它后面）。 */
   private prepare(): void {
     if (!this.dirty) return;
     this.dirty = false;
-    const tips = this.tipsNow();
-    if (!tips.length) return;
+    if (this.finishing) this.drawn = 0;   // 抬笔：收笔渐细这时才知道总长，整笔重画一次（只这一次）
+    const raw = this.stroke.tips(this.drawn), n = this.stroke.path()?.frozenCount ?? 0;
+    const tips = raw.map((t) => ({ tip: { x: t.x, y: t.y, z: t.z, r: t.size / 2, alpha: t.alpha } as InkTip, reach: t.reach }));
+    let frozenHere = 0;
+    if (this.finishing) frozenHere = tips.length; else for (const t of raw) { if (t.seg + 1 < n) frozenHere++; else break; }
+    if (!tips.length && !this.layer) return;
     if (!this.layer) {
+      const t0 = performance.now();
       this.layer = new SpaceLayer(this.gpu, this.stroke.geos[0], 0, { hardness: this.o.brush.hardness, color: this.o.color, accum: this.o.accum, origin: tips[0].tip });
+      this.buildMs = performance.now() - t0;
       this.session = this.board.openStroke();
       this.layerId = this.board.wp.layerTree!.view().activeId!;
       this.ext = this.board.wrapLayer({ ...this.d.external(this.layer.frame), w: this.layer.frame.w, h: this.layer.frame.h, prec: "u8" } as Parameters<PaintBoard["wrapLayer"]>[0]);
     }
     if (this.finishing) this.layer.resetFrozen();
-    this.layer.update(tips, Math.min(this.frozenCount(), tips.length));
+    this.layer.update(tips, frozenHere);
+    this.drawn += frozenHere;
     const r = this.layer.range();
     if (r) this.session!.setHostLayers([{ tex: this.ext!, bx: r.x, by: r.y, bw: r.w, bh: r.h, layerId: this.layerId, opacity: 1, erase: !!this.o.erase, blendMode: "source-over" }]);
     this.board.overlayChanged();

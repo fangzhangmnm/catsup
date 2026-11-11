@@ -6,8 +6,9 @@
 
 /** 离屏图：RGBA 每通道 8 位（和画画内核二维笔尖的累积图同一种精度），第 0 行 = 画布第 0 行，预乘。 */
 export interface OffscreenImage { readonly kind: "offscreen-image"; readonly w: number; readonly h: number }
-/** 数据图：每格一个 32 位浮点（单通道），按格子号取（不插值、不缩小）。 */
-export interface OffscreenData { readonly kind: "offscreen-data"; readonly w: number; readonly h: number }
+/** 数据图（按格子号取，不插值、不缩小）：r32f = 每格一个 32 位浮点；rg16ui = 每格两个 16 位无符号整数（紧凑的编号表；GLSL 里是 usampler2D）。 */
+export type OffscreenDataFormat = "r32f" | "rg16ui";
+export interface OffscreenData { readonly kind: "offscreen-data"; readonly w: number; readonly h: number; readonly format: OffscreenDataFormat }
 
 /** 程序的 JavaScript 版：拿到这一批实例，自己决定每个实例覆盖哪些格、每格写什么（write 按累积规则混进离屏图；裁剪框外的写入被丢掉）。 */
 export interface OffscreenCpuCtx {
@@ -49,11 +50,11 @@ export interface OffscreenGpu {
   /** 登记一个程序（同一个名字登记两次 = 抛）。 */
   register(p: OffscreenProgram): void;
   image(w: number, h: number): OffscreenImage;
-  /** 建 / 换一张数据图（values 长度 = w·h）。 */
-  data(w: number, h: number, values: Float32Array): OffscreenData;
+  /** 建一张数据图：r32f 给 Float32Array（长度 w·h）；rg16ui 给 Uint16Array（长度 2·w·h）。 */
+  data(w: number, h: number, values: Float32Array | Uint16Array, format?: OffscreenDataFormat): OffscreenData;
   draw(d: OffscreenDraw): void;
-  /** 把 src 整张拷到 dst（一样大）：定型层 → 当帧那张。 */
-  copy(src: OffscreenImage, dst: OffscreenImage): void;
+  /** 把 src 拷到 dst（一样大）：定型层 → 当帧那张。rect = 只拷这一块（格子坐标，同一块拷到同一块）；不给 = 整张。 */
+  copy(src: OffscreenImage, dst: OffscreenImage, rect?: { readonly x: number; readonly y: number; readonly w: number; readonly h: number }): void;
   /** 读回（预乘 RGBA 字节，第 0 行 = 第 0 行）。测试 / 探针用。 */
   read(img: OffscreenImage): Uint8Array;
   release(x: OffscreenImage | OffscreenData): void;

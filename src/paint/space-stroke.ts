@@ -88,12 +88,14 @@ export class SpaceStroke {
 
   /** 现在的路（没开始 = null）。 */
   path(): SpacePath | null { return this.core ? (this.core.path() as SpacePath) : null; }
-  /** 现在的笔尖列表，每颗带着碰到哪些三角形。 */
-  tips(): SpaceTip[] {
+  /** 现在的笔尖列表（从第 from 颗起；前面的不算碰到哪些三角形——定型画过的不再算，1-4b「每帧只随新增的笔尖涨」），每颗带着碰到哪些三角形。 */
+  tips(from = 0): SpaceTip[] {
     if (!this.core) return [];
     const path = this.core.path() as SpacePath, out: SpaceTip[] = [];
     if (!path.count) return out;
+    let i = -1;
     this.core.forEachTip((seg, x, y, z, size, alpha, strokeDist) => {
+      if (++i < from) return;
       const starts = seg < 0 ? [path.hitAt(0)] : [path.hitAt(seg), path.hitAt(Math.min(seg + 1, path.count - 1))];
       out.push({ x, y, z, size, alpha, strokeDist, seg, reach: tipReach(this.geos, { x, y, z, r: size / 2 }, starts, this.opts.maxAngleDeg !== undefined ? { maxAngleDeg: this.opts.maxAngleDeg } : {}) });
     }, path);

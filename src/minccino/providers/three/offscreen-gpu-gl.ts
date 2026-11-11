@@ -53,16 +53,18 @@ export class GlOffscreenGpu implements OffscreenGpu {
     return im;
   }
 
-  data(w: number, h: number, values: Float32Array): OffscreenData {
-    if (values.length !== w * h) throw new Error(`OffscreenGpu.data: ${values.length} values for ${w}x${h}`);
+  data(w: number, h: number, values: Float32Array | Uint16Array, format: "r32f" | "rg16ui" = "r32f"): OffscreenData {
+    const u16 = format === "rg16ui";
+    if (values.length !== w * h * (u16 ? 2 : 1)) throw new Error(`OffscreenGpu.data: ${values.length} values for ${w}x${h} ${format}`);
+    if (u16 !== (values instanceof Uint16Array)) throw new Error(`OffscreenGpu.data: ${format} needs ${u16 ? "Uint16Array" : "Float32Array"}`);
     const gl = this.gl, tex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, w, h);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, u16 ? gl.RG16UI : gl.R32F, w, h);
     this.params();
     this.unpackDefaults();
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.FLOAT, values);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, u16 ? gl.RG_INTEGER : gl.RED, u16 ? gl.UNSIGNED_SHORT : gl.FLOAT, values);
     this.restore();
-    const d: GlData = { kind: "offscreen-data", w, h, tex };
+    const d: GlData = { kind: "offscreen-data", w, h, format, tex };
     return d;
   }
 
@@ -85,7 +87,7 @@ export class GlOffscreenGpu implements OffscreenGpu {
     gl.useProgram(P.prog);
     let unit = 0;
     for (const [name, u] of P.uniforms) {
-      if (u.type === gl.SAMPLER_2D) {
+      if (u.type === gl.SAMPLER_2D || u.type === gl.UNSIGNED_INT_SAMPLER_2D) {
         const dd = d.data?.[name] as GlData | undefined;
         if (!dd) throw new Error(`OffscreenGpu ${d.program}: data ${name} not bound`);
         gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, dd.tex); gl.uniform1i(u.loc, unit); unit++;
@@ -109,12 +111,14 @@ export class GlOffscreenGpu implements OffscreenGpu {
     this.lastDrawMs = performance.now() - t0;
   }
 
-  copy(src: OffscreenImage, dst: OffscreenImage): void {
+  copy(src: OffscreenImage, dst: OffscreenImage, rect?: { readonly x: number; readonly y: number; readonly w: number; readonly h: number }): void {
     if (src.w !== dst.w || src.h !== dst.h) throw new Error("OffscreenGpu.copy: size mismatch");
     const gl = this.gl;
+    const x0 = Math.max(0, rect?.x ?? 0), y0 = Math.max(0, rect?.y ?? 0), x1 = Math.min(src.w, rect ? rect.x + rect.w : src.w), y1 = Math.min(src.h, rect ? rect.y + rect.h : src.h);
+    if (x1 <= x0 || y1 <= y0) return;
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, (src as GlImage).fbo); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, (dst as GlImage).fbo);
     gl.disable(gl.SCISSOR_TEST);
-    gl.blitFramebuffer(0, 0, src.w, src.h, 0, 0, dst.w, dst.h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.blitFramebuffer(x0, y0, x1, y1, x0, y0, x1, y1, gl.COLOR_BUFFER_BIT, gl.NEAREST);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
     this.restore();
   }

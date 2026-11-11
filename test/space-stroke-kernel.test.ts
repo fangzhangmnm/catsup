@@ -38,13 +38,15 @@ describe("一笔整条走通（三维软件版 → 内核软件显卡的档口�
       const r = rig(accum), before = r.shot(), steps0 = r.undo.canUndo();
       const s = r.board.openStroke(), layerId = r.board.wp.layerTree!.view().activeId!;
       const ext = r.port.wrapExternal({ pixels: r.gpu.pixels(r.layer.frame), w: r.W, h: r.H, prec: "u8" });
-      for (let k = 4; k <= r.tips.length; k += 4) {   // 一帧一帧往前走（定型的只画一次）
-        r.layer.update(r.tips.slice(0, k), Math.max(0, k - 3));
+      let drawn = 0;
+      for (let k = 4; k <= r.tips.length; k += 4) {   // 一帧一帧往前走（定型的只画一次；每帧只给还没定型画过的）
+        const fz = Math.max(0, k - 3);
+        r.layer.update(r.tips.slice(drawn, k), fz - drawn); drawn = fz;
         const rg = r.layer.range()!;
         s.setHostLayers([{ tex: ext, bx: rg.x, by: rg.y, bw: rg.w, bh: rg.h, layerId, opacity: 1, erase: false, blendMode: "source-over" }]);
         r.board.overlayChanged();
       }
-      r.layer.update(r.tips, r.tips.length);
+      r.layer.update(r.tips.slice(drawn), r.tips.length - drawn);
       const rg = r.layer.range()!;
       s.setHostLayers([{ tex: ext, bx: rg.x, by: rg.y, bw: rg.w, bh: rg.h, layerId, opacity: 1, erase: false, blendMode: "source-over" }]);
       r.board.overlayChanged();

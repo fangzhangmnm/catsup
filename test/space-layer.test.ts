@@ -25,7 +25,8 @@ function rig(o: { alpha?: number; r?: number } = {}) {
 function run(r: ReturnType<typeof rig>, accum: "max" | "over", hardness: number, color: [number, number, number], frozenSteps: number[] = [r.tips.length]) {
   const gpu = new SoftSpaceGpu(); gpu.register(SPACE_TIP);
   const L = new SpaceLayer(gpu, r.g, 0, { hardness, color, accum, origin: r.tips[0].tip });
-  for (const k of frozenSteps) L.update(r.tips.slice(0, Math.max(k, frozenSteps[frozenSteps.length - 1] === k ? r.tips.length : k)), k);
+  let drawn = 0;   // 每帧只给还没定型画过的笔尖（前 k − drawn 颗这一帧定型）
+  for (const k of frozenSteps) { const end = frozenSteps[frozenSteps.length - 1] === k ? Math.max(k, r.tips.length) : Math.min(r.tips.length, k + 3); L.update(r.tips.slice(drawn, end), k - drawn); drawn = k; }   // 中间的帧带 3 颗尾巴
   return { px: gpu.read(L.frame), range: L.range() };
 }
 /** 和标准答案比：8 位版（裁定 ②，放行线 1/255）的最大差 + 连续版（参考值）的最大差（0..255）、吃到墨的格数。 */
@@ -59,6 +60,17 @@ describe("薄层 = 标准答案（三维显卡接口的软件版，1-4b）", () 
       let diff = 0; for (let i = 0; i < once.length; i++) if (once[i] !== steps[i]) diff++;
       eq(diff, 0, `${accum}：逐字节相同`);
     }
+  });
+  it("每帧画的实例只随这一帧新给的笔尖涨（不随整笔长度涨）", () => {
+    const r = rig(), gpu = new SoftSpaceGpu(); gpu.register(SPACE_TIP);
+    const counts: number[] = [], draw = gpu.draw.bind(gpu);
+    gpu.draw = (d) => { counts.push(d.count); draw(d); };
+    const L = new SpaceLayer(gpu, r.g, 0, { hardness: 0.5, color: [1, 1, 1], accum: "over", origin: r.tips[0].tip });
+    const perTip = Math.max(...r.tips.map((t) => t.reach.get(0)?.size ?? 0));
+    let drawn = 0;
+    for (let k = 1; k <= r.tips.length; k++) { const end = Math.min(r.tips.length, k + 2); L.update(r.tips.slice(drawn, end), k - drawn); drawn = k; }
+    assert(Math.max(...counts) <= 3 * perTip, `一次最多画 ${Math.max(...counts)} 个实例（每颗笔尖最多 ${perTip} 块）`);
+    assert(counts.length >= r.tips.length, "每帧都画了");
   });
   it("范围之外全是零；范围 = 碰过的所有实例方块的并", () => {
     const r = rig(), { px, range } = run(r, "over", 0.5, [1, 1, 1]);

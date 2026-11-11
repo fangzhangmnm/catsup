@@ -31,7 +31,8 @@ void main() { v_item = u_first + gl_InstanceID; vec2 p = a_inst.xy + a_quad * a_
 const FS = `#version 300 es
 precision highp float; precision highp int; precision highp sampler2D;
 flat in int v_item;
-uniform sampler2D u_inst, u_tips, u_flist, u_faces, u_tris, u_owner, u_sx, u_sy;
+uniform sampler2D u_inst, u_tips, u_flist, u_faces, u_tris, u_samp;
+uniform highp usampler2D u_cell;   // 每格：R = 画布多边形编号 + 1（0 = 没人要），G = 块边格子在取样点表里的号 + 1（0 = 用格子中心）
 uniform vec2 u_size;
 uniform float u_hardness;
 uniform vec3 u_color;
@@ -54,9 +55,10 @@ float distToTri(vec2 p, vec2 a, vec2 b, vec2 c) {
 void main() {
   int x = int(gl_FragCoord.x), y = int(gl_FragCoord.y);
   int it = 4 * v_item, tip = int(at(u_inst, it)), poly = int(at(u_inst, it + 1)), fs = int(at(u_inst, it + 2)), fn = int(at(u_inst, it + 3));
-  ivec2 xy = ivec2(x, y);   // 每格的三张数据图和画布一样大：按格子坐标取（不是一维折行的那种）
-  if (int(texelFetch(u_owner, xy, 0).r) != poly) discard;
-  vec2 s = vec2(texelFetch(u_sx, xy, 0).r, texelFetch(u_sy, xy, 0).r);
+  uvec2 cv = texelFetch(u_cell, ivec2(x, y), 0).rg;   // 每格的紧凑表和画布一样大：按格子坐标取（不是一维折行的那种）
+  if (int(cv.r) - 1 != poly) discard;
+  int si = int(cv.g) - 1;
+  vec2 s = si < 0 ? vec2(float(x) + 0.5, float(y) + 0.5) : vec2(at(u_samp, 2 * si), at(u_samp, 2 * si + 1));
   int tb = ${TIP_STRIDE} * tip;
   vec3 tc = vec3(at(u_tips, tb), at(u_tips, tb + 1), at(u_tips, tb + 2));
   float r = at(u_tips, tb + 3), al = at(u_tips, tb + 4), best = 1e30;
@@ -128,8 +130,6 @@ export class SpaceLayer {
   /** 每块画布多边形：格子范围 + 它的面在面表里的槽号。 */
   private readonly polyRect = new Map<number, readonly [number, number, number, number]>();
   private readonly faceSlot = new Map<number, number>();
-  private frozenItems: Item[] = [];
-  private frozenTips = 0;
   private bounds: [number, number, number, number] | null = null;
 
   constructor(gpu: SpaceGpu, g: TargetGeo, ti: number, o: SpaceLayerOpts) {
@@ -139,13 +139,18 @@ export class SpaceLayer {
     this.jobId = nextJob++;
     this.job = { g, items: [], hardness: o.hardness, color: o.color };
     jobs.set(this.jobId, this.job);
-    // 每格：归哪块多边形、取样点（只算有主的格子）
-    const owner = new Float32Array(W * H), sx = new Float32Array(W * H), sy = new Float32Array(W * H);
+    // 每格的紧凑表（统筹 11-11「轻量」）：R = 画布多边形编号 + 1，G = 块边格子在取样点表里的号 + 1（取样点和格子中心不一样的只有块边上那一圈；表里是精确的 32 位浮点）
+    if (t.polys.length > 65534) throw new Error(`SpaceLayer: ${t.polys.length} canvas polygons (> 65534)`);
+    const cell = new Uint16Array(W * H * 2), samp: number[] = [];
     for (let c = 0; c < W * H; c++) {
-      owner[c] = t.owner[c];
-      if (t.owner[c] < 0) continue;
-      const s = samplePoint(t, c % W, Math.floor(c / W))!;
-      sx[c] = s[0]; sy[c] = s[1];
+      const o = t.owner[c];
+      if (o < 0) continue;
+      cell[2 * c] = o + 1;
+      const x = c % W, y = Math.floor(c / W), s = samplePoint(t, x, y)!;
+      if (s[0] === x + 0.5 && s[1] === y + 0.5) continue;
+      samp.push(s[0], s[1]);
+      if (samp.length / 2 > 65535) throw new Error("SpaceLayer: too many block-edge cells (> 65535)");
+      cell[2 * c + 1] = samp.length / 2;
     }
     // 每张面的三角形（贴图坐标三个角 + 世界里的公式，减去落笔点）
     const faces: number[] = [], tris: number[] = [];
@@ -168,14 +173,18 @@ export class SpaceLayer {
       const x0 = Math.max(0, Math.floor(mx - Rg - 0.5)), x1 = Math.min(W - 1, Math.ceil(Mx + Rg - 0.5)), y0 = Math.max(0, Math.floor(my - Rg - 0.5)), y1 = Math.min(H - 1, Math.ceil(My + Rg - 0.5));
       this.polyRect.set(p, [x0, y0, x1 - x0 + 1, y1 - y0 + 1]);
     });
-    this.fixed = { u_owner: gpu.data(W, H, owner), u_sx: gpu.data(W, H, sx), u_sy: gpu.data(W, H, sy), u_faces: pack(gpu, faces), u_tris: pack(gpu, tris) };
+    this.fixed = { u_cell: gpu.data(W, H, cell, "rg16ui"), u_samp: pack(gpu, samp.length ? samp : [0, 0]), u_faces: pack(gpu, faces), u_tris: pack(gpu, tris) };
   }
 
   /** 报给内核的范围（这一笔到现在碰过的所有实例方块的并）；什么都没碰 = null。 */
   range(): { x: number; y: number; w: number; h: number } | null { const b = this.bounds; return b ? { x: b[0], y: b[1], w: b[2] - b[0], h: b[3] - b[1] } : null; }
 
-  /** 这一笔到现在的笔尖（按先后）+ 前面几颗定型了。新定型的画进定型层（只画一次）；定型层拷到当帧那张，再画尾巴。 */
-  update(tips: readonly { readonly tip: InkTip; readonly reach: Reach }[], frozenCount: number): void {
+  /**
+   * 这一帧：fresh = 还没画进定型层的笔尖（按先后；前面已经定型画过的不再给），其中前 frozenHere 颗这一帧定型。
+   * 新定型的画进定型层（只画一次）；定型层拷到当帧那张，再画尾巴。上传的实例 / 笔尖 / 面单子只有这一帧要画的（每帧的活只随新增的笔尖涨）。
+   */
+  update(fresh: readonly { readonly tip: InkTip; readonly reach: Reach }[], frozenHere: number): void {
+    const tips = fresh;
     const items = (from: number, to: number): Item[] => {
       const out: Item[] = [];
       for (let i = from; i < to; i++) {
@@ -189,21 +198,19 @@ export class SpaceLayer {
       }
       return out;
     };
-    const newFrozen = items(this.frozenTips, frozenCount), tail = items(frozenCount, tips.length);
-    this.job.items = [...this.frozenItems, ...newFrozen, ...tail];
-    for (const it of [...newFrozen, ...tail]) this.grow(it.rect);
+    const k = Math.max(0, Math.min(frozenHere, tips.length)), newFrozen = items(0, k), tail = items(k, tips.length);
+    this.job.items = [...newFrozen, ...tail];
+    for (const it of this.job.items) this.grow(it.rect);
     const data = this.perDraw(tips);
-    if (newFrozen.length) this.draw(this.frozen, this.frozenItems.length, newFrozen, data, false);
-    this.frozenItems = [...this.frozenItems, ...newFrozen];
-    this.frozenTips = Math.max(this.frozenTips, frozenCount);
-    this.gpu.copy(this.frozen, this.frame);
-    if (tail.length) this.draw(this.frame, this.frozenItems.length, tail, data, false);
+    if (newFrozen.length) this.draw(this.frozen, 0, newFrozen, data, false);
+    const b = this.bounds;   // 只拷这一笔碰过的那一块（内核只读这一块；当帧那张别处从没写过 = 透明）
+    if (b) this.gpu.copy(this.frozen, this.frame, { x: b[0], y: b[1], w: b[2] - b[0], h: b[3] - b[1] });
+    if (tail.length) this.draw(this.frame, newFrozen.length, tail, data, false);
     for (const d of Object.values(data)) this.gpu.release(d);
   }
 
   /** 定型层清掉（抬笔时收笔渐细重画整笔用）：下一次 update 从头画。范围留着（只会更大）。 */
   resetFrozen(): void {
-    this.frozenItems = []; this.frozenTips = 0;
     this.gpu.draw({ program: SPACE_TIP.name, target: this.frozen, clear: true, accum: this.o.accum, instances: new Float32Array(0), count: 0, data: this.fixed, uniforms: { u_size: [this.frozen.w, this.frozen.h], u_first: 0, u_hardness: this.o.hardness, u_color: [...this.o.color], u_job: this.jobId } });
   }
   dispose(): void { jobs.delete(this.jobId); for (const d of Object.values(this.fixed)) this.gpu.release(d); this.gpu.release(this.frozen); this.gpu.release(this.frame); }

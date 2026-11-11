@@ -5,7 +5,7 @@
 import type { SpaceCpuCtx, SpaceData, SpaceDraw, SpaceGpu, SpaceImage, SpaceProgram } from "./space-gpu.ts";
 
 interface SoftImage extends SpaceImage { px: Uint8ClampedArray }
-interface SoftData extends SpaceData { v: Float32Array }
+interface SoftData extends SpaceData { v: Float32Array | Uint16Array }
 
 const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255);
 
@@ -18,9 +18,11 @@ export class SoftSpaceGpu implements SpaceGpu {
     this.programs.set(p.name, p);
   }
   image(w: number, h: number): SpaceImage { const im: SoftImage = { kind: "offscreen-image", w, h, px: new Uint8ClampedArray(w * h * 4) }; return im; }
-  data(w: number, h: number, values: Float32Array): SpaceData {
-    if (values.length !== w * h) throw new Error(`SpaceGpu.data: ${values.length} values for ${w}x${h}`);
-    const d: SoftData = { kind: "offscreen-data", w, h, v: Float32Array.from(values) };
+  data(w: number, h: number, values: Float32Array | Uint16Array, format: "r32f" | "rg16ui" = "r32f"): SpaceData {
+    const per = format === "rg16ui" ? 2 : 1;
+    if (values.length !== w * h * per) throw new Error(`SpaceGpu.data: ${values.length} values for ${w}x${h} ${format}`);
+    if ((format === "rg16ui") !== (values instanceof Uint16Array)) throw new Error(`SpaceGpu.data: ${format} needs ${format === "rg16ui" ? "Uint16Array" : "Float32Array"}`);
+    const d: SoftData = { kind: "offscreen-data", w, h, format, v: values.slice() };
     return d;
   }
   draw(d: SpaceDraw): void {
@@ -33,7 +35,7 @@ export class SoftSpaceGpu implements SpaceGpu {
     const datas = d.data ?? {}, max = d.accum === "max";
     const ctx: SpaceCpuCtx = {
       instances: d.instances, count: d.count, uniforms: d.uniforms ?? {},
-      data: (name, x, y) => { const dd = datas[name] as SoftData | undefined; if (!dd) throw new Error(`SpaceGpu: data ${name} not bound`); return x < 0 || y < 0 || x >= dd.w || y >= dd.h ? 0 : dd.v[y * dd.w + x]; },
+      data: (name, x, y) => { const dd = datas[name] as SoftData | undefined; if (!dd) throw new Error(`SpaceGpu: data ${name} not bound`); return x < 0 || y < 0 || x >= dd.w || y >= dd.h ? 0 : dd.v[(y * dd.w + x) * (dd.format === "rg16ui" ? 2 : 1)]; },
       write: (x, y, r, g, b, a) => {
         if (x < sx0 || y < sy0 || x >= sx1 || y >= sy1) return;
         const o = (y * W + x) * 4;
@@ -44,9 +46,12 @@ export class SoftSpaceGpu implements SpaceGpu {
     };
     p.cpu(ctx);
   }
-  copy(src: SpaceImage, dst: SpaceImage): void {
+  copy(src: SpaceImage, dst: SpaceImage, rect?: { readonly x: number; readonly y: number; readonly w: number; readonly h: number }): void {
     if (src.w !== dst.w || src.h !== dst.h) throw new Error("SpaceGpu.copy: size mismatch");
-    (dst as SoftImage).px.set((src as SoftImage).px);
+    const s = (src as SoftImage).px, d = (dst as SoftImage).px;
+    if (!rect) { d.set(s); return; }
+    const x0 = Math.max(0, rect.x), y0 = Math.max(0, rect.y), x1 = Math.min(src.w, rect.x + rect.w), y1 = Math.min(src.h, rect.y + rect.h);
+    for (let y = y0; y < y1; y++) d.set(s.subarray((y * src.w + x0) * 4, (y * src.w + x1) * 4), (y * src.w + x0) * 4);
   }
   read(img: SpaceImage): Uint8Array { return Uint8Array.from((img as SoftImage).px); }
   release(_x: SpaceImage | SpaceData): void { /* 软件版：交给垃圾回收 */ }
