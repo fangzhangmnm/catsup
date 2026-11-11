@@ -35,6 +35,9 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   // 图块池（额度、压缩的接线）（0-3a，统筹 11-11）
   "src/backend/tiles/app-tile-pool.ts": ["appTilePool", "setTilePoolCodec", "setTilePoolLeakReporter"],   // appTilePool = 图块池（额度、压缩的接线）：开机设一次额度（池上的 setRawQuotaBytes）、空闲时压最老的、切后台全压；另两个 = 图块池的接线（编码器、泄漏上报；照画画仓 tile-jobs.ts）
   "src/backend/tiles/cpu-tile-compression.ts": ["deflateTileCodec"],   // 图块池的接线：压缩用的编码器（和画画软件同一个）
+  // 画存进文件 / 读回来（1-8b，统筹 11-11 批的细则）
+  "src/backend/ora.ts": ["encodeDocToOra", "paintingDataToEncodeDoc", "decodeOraToPainting"],   // 分层字节的编码（存盘）和解开（变热）：和画画软件同一份 .ora 编解码
+  "src/backend/png-codec.ts": ["encodePngFromBytes"],   // 合成图编成 PNG（存盘）；冷的画显示时走浏览器自己的解码，不经内核
   // 公式的文本（笔尖边缘的曲线：GLSL 片段和同一算式的 JavaScript）
   "src/backend/gl/stamp-falloff.ts": ["stampFalloff", "STAMP_FALLOFF_GLSL"],   // 标准答案和薄层着色器用的边缘曲线（和二维同一条）
 };

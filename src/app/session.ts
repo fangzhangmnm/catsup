@@ -79,6 +79,8 @@ export interface SessionDeps {
   /** 参考窗（缺 = 没有参考窗：文件里的牌组原样带着写回）。 */
   refs?: RefsPort;
   captureThumbnail: () => { mimeType: string; bytes: Uint8Array } | null;
+  /** 画存进文件（贴图主线 1-8b，paint/save.ts PaintSaver）：钉点同步、编码异步。缺 = 没有画（测试）。 */
+  paintSave?: { freeze(doc: CatsupDocument, scene: Scene, mode: "save" | "snapshot"): { readonly stale: boolean; finish(): Promise<CatsupDocument> }; cacheKey(): string; refresh(scene: Scene): Promise<void> };
   /** 风格 / 屏幕跟文件走（desk 1.3，T86）：载入 / 新建后套上（null = 用默认）。app 认不出的 id 当没有。 */
   applyView?: (style: string | null, screen: string | null) => void;
   onHomeChanged: () => void;
@@ -112,6 +114,11 @@ const dirOf = (path: string): string => (path.includes("/") ? path.slice(0, path
 
 /** smart save 钮的状态集（WeebPaint save-status 同形）：none = 没东西可存 · dirty = 内存脏 · local-only = 已存本机/文件、云不可达 ·
  *  saving = 在飞 · cloud-off = 未配置云 · unpushed = 已落本机但云腿没成（终态，非在飞）· synced = 上次保存已同步。 */
+/** 存盘没成时提示行说的话（1-8b：编码 / 写盘出错 = 这一轮整个没成）。 */
+export function saveFailedSay(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e), m = /^painting "([^"]*)" \([^)]*\) could not be encoded: (.*)$/s.exec(msg);
+  return m ? `存盘没成：画「${m[1]}」编码出错（${m[2]}）；上一次存好的没动，改动还在` : `存盘没成（${msg}）；上一次存好的没动，改动还在`;
+}
 export type SaveState = "none" | "dirty" | "local-only" | "saving" | "cloud-off" | "unpushed" | "synced";
 
 /** 根没起名（程序占位「model」）= 起一个四位码，和别的组件一样（user 10-30「没起名的根，要不要也和别的组件一样显示四位码 同意」）。
@@ -169,6 +176,8 @@ export class Session {
   /** T-crash 行李牌（file / transient 家才有；gallery 家 = null）+ 上次快照的 revision。 */
   private luggage: LuggageTag | null = null;
   private snapRevision = -1;
+  /** 上一次拍快照时画的缓存版本（缓存一新 = 快照该重拍；1-8b）。 */
+  private snapPaintKey = "";
   private snapRefRev = -1;   // 同上，参考窗牌组那一半（只加了参考卡也要有影子）
   /** 图库当前夹（新建自动安家用；gallery-host 同步）。 */
   currentDir = "";
@@ -278,8 +287,8 @@ export class Session {
     const idle = !this.saving && !this.d.editor.isGestureActive() && Date.now() - this.lastEditAt >= AUTOSAVE_IDLE_MS;
     if (this.home.kind === "gallery" && !this.lazy && this.dirty() && idle) {
       void this.save({ implicit: true });
-    } else if (this.localHomeKind() && this.luggage && this.dirty() && (rev !== this.snapRevision || rr !== this.snapRefRev) && idle) {
-      void this.snapshot("crash");   // file / transient 家：盲快照进 crash-store（附加层，best-effort）
+    } else if (this.localHomeKind() && this.luggage && this.dirty() && this.snapDue() && idle) {
+      void this.refreshThenSnapshot();   // file / transient 家：画的缓存旧了先编（跟自动保存同一个节奏，1-8b），再盲快照进 crash-store（附加层，best-effort）
     } else if (this.home.kind === "gallery" && !this.lazy && !this.dirty() && shouldRetryPush({
       pushPending: this.pushPending, attention: !!this.attention, saving: this.saving, gesture: this.d.editor.isGestureActive(),
       visible: document.visibilityState === "visible", online: isFolderHome() ? folderHomeOnline() : online, signedIn: isFolderHome() || auth.isSignedIn(), lastTryAt: this.lastPushTryAt, now: Date.now(), held: this.d.pushHeld?.(this.home.path) ?? false,
@@ -307,15 +316,16 @@ export class Session {
   private async snapshotOnce(state: "crash" | "pending-adoption"): Promise<boolean> {
     const kind = this.localHomeKind(); const tag = this.luggage, seal = this.seal;
     if (!kind || !tag) return false;
-    const rev = this.d.editor.revision, rr = this.refRev();
+    const rev = this.d.editor.revision, rr = this.refRev(), pk = this.paintKey();
     try {
-      const bytes = this.encode();
+      const frozen = this.freeze("snapshot");   // 不现编画：用缓存里最近一次编好的（画板比缓存新 = stale，恢复时说）
+      const bytes = await frozen.finish();
       if (this.luggage !== tag) return false;   // encode 间隙换了家——别把别的模型写进这张牌
       const frame = await shadowFrame(bytes, seal, this.sealPorts());
-      if (!frame) { this.snapRevision = rev; this.snapRefRev = rr; this.noteShadowSkipped(); return false; }   // 记过这一版：下次改动才再试（tick 一秒一次，别刷屏）
+      if (!frame) { this.snapRevision = rev; this.snapRefRev = rr; this.snapPaintKey = pk; this.noteShadowSkipped(); return false; }   // 记过这一版：下次改动才再试（tick 一秒一次，别刷屏）
       if (this.luggage !== tag || this.seal !== seal) return false;   // 封口间隙换了家 / 口令被忘
-      await crashStore.put(tag, frame, { state, name: this.displayName(), at: Date.now(), homeKind: kind });
-      this.snapRevision = rev; this.snapRefRev = rr;
+      await crashStore.put(tag, frame, { state, name: this.displayName(), at: Date.now(), homeKind: kind, ...(frozen.stale ? { paintStale: true } : {}) });
+      this.snapRevision = rev; this.snapRefRev = rr; this.snapPaintKey = pk;
       return true;
     } catch (e) { reportError(new Error("[t-crash] snapshot failed (best-effort, load-bearing layers unaffected): " + String(e)), "log"); return false; }
   }
@@ -345,7 +355,7 @@ export class Session {
    *  不等空闲、不看手势（encode 读的是 checkpoint = 上次 commit 的世界，手势中途也一致）。file / transient 家脏 → 盲快照。 */
   flushForHide(): void {
     if (this.home.kind === "gallery") { if (!this.lazy && !this.saving && (this.dirty() || (this.pushPending && !this.attention))) void this.save({ implicit: true }); }
-    else this.snapshotIfChanged();
+    else if (this.luggage && this.dirty()) void this.refreshThenSnapshot();   // 切后台：画的缓存旧了再编一次（1-8b）
   }
   /** pagehide（非 bfcache）：页面真要走了，推不一定完成 → **只落本地**（守卫核：这条路上不许有推）；没推的留给下次。fire-and-forget：卸载期没有时间预算。 */
   flushForPageHide(): void {
@@ -353,8 +363,18 @@ export class Session {
     else this.snapshotIfChanged();
   }
   private snapshotIfChanged(): void {
-    if (this.luggage && this.dirty() && (this.d.editor.revision !== this.snapRevision || this.refRev() !== this.snapRefRev)) void this.snapshot("crash");
+    if (this.luggage && this.dirty() && this.snapDue()) void this.snapshot("crash");
   }
+  /** 画的缓存旧了先编一次（只编有画板、比缓存新的那几张；同一时间只一轮），再看快照该不该重拍（1-8b：跟自动保存同一个节奏、切后台时再编）。 */
+  private async refreshThenSnapshot(): Promise<void> {
+    if (this.refreshing) return;
+    this.refreshing = true;
+    try { await this.d.paintSave?.refresh(this.d.editor.sceneRef); }
+    catch (e) { reportError(new Error("[t-crash] paint cache refresh failed (the snapshot keeps the last encoded bytes): " + String(e)), "log"); }
+    finally { this.refreshing = false; }
+    if (this.luggage && this.dirty() && this.snapDue()) await this.snapshot("crash");
+  }
+  private refreshing = false;
   /** 点「有新版本」/ 强制更新前（pwa-shell onBeforeReload；工单 C3 B）：脏的先落本地（不设时限：这步丢了就是丢改动）→ 没推的推一次，最多等 RELOAD_PUSH_WAIT_MS，推不完就走、脏留给库。
    *  **干净的模型什么都不做**：以前这里无条件 save，干净的也重新编码写本地、标脏，刷新后就弹「没同步好」——这是「一更新就有」的直接触发点。 */
   async flushBeforeReload(): Promise<void> {
@@ -427,7 +447,17 @@ export class Session {
     this.d.setStatus(on ? "锁上了：看、选、量、进去走都行，改不了；☰「解锁」放开" : "解锁了");
     if (this.home.kind !== "transient" && !(this.home.kind === "gallery" && this.lazy)) await this.save({ implicit: true });
   }
-  private encode(): Uint8Array {
+  /** 画的缓存版本（没有画 = 空）。 */
+  private paintKey(): string { return this.d.paintSave?.cacheKey() ?? ""; }
+  /** 快照该不该重拍：模型 / 参考窗 / 画的缓存，哪个变了都算。 */
+  private snapDue(): boolean { return this.d.editor.revision !== this.snapRevision || this.refRev() !== this.snapRefRev || this.paintKey() !== this.snapPaintKey; }
+  /** 一口气编完（钉点 + 编码；导出 / 另存这些不清脏的路用）。 */
+  private encodeNow(): Promise<Uint8Array> { return this.freeze("save").finish(); }
+  /**
+   * 钉点（同步，中间不 await）：模型、桌面态、参考窗、缩略图和每张画都钉在这一刻（贴图主线 1-8b；照画画仓：编码的同步那一段就是钉点）。
+   * finish() 异步：画编码（只碰钉下来的拷贝），然后写成字节。编码期间用户接着画、接着切，写出去的仍然是这一刻的。出错 = 抛（说是哪张画）。
+   */
+  private freeze(mode: "save" | "snapshot"): { readonly stale: boolean; finish(): Promise<Uint8Array> } {
     const name = this.displayName();
     const doc: CatsupDocument = documentFromScene(this.d.editor.sceneRef, name, this.loaded);
     doc.settings = scaleRefsToSettings(settingsFromGrid(doc.settings, this.d.editor.docGrid), this.d.editor.scaleRefs);   // 绝对网格（0.11 ⑤）住编辑器、存进文档 settings（不进 undo）
@@ -435,8 +465,11 @@ export class Session {
     if (this.d.refs) doc.references = { files: this.d.refs.files(), extra: this.loaded?.references.extra ?? {} };   // 参考窗目录（接缝编好的字节；太新时 = 原样那份，写入器另走 carry）
     const thumb = this.d.captureThumbnail();
     if (thumb) doc.thumbnail = thumb; else delete doc.thumbnail;
-    this.loaded = doc;
-    return writeCatsup(doc);
+    const paint = this.d.paintSave?.freeze(doc, this.d.editor.sceneRef, mode) ?? null;
+    return {
+      stale: paint?.stale ?? false,
+      finish: async () => { const full = paint ? await paint.finish() : doc; this.loaded = full; return writeCatsup(full); },
+    };
   }
   /** desk 存盘形状：参考窗的窗以接缝为准（开过窗才有；这个文件里没开过 = 文件里原来那份）。 */
   private deskForSave(): DeskDoc {
@@ -850,7 +883,8 @@ export class Session {
     try {
       if (this.d.refs) await this.d.refs.settled();   // 刚加的参考卡字节还在编：等它，别存一份缺卡的
       const revAtStart = this.d.editor.revision, refRevAtStart = this.refRev();
-      const bytes = this.encode();
+      const frozen = this.freeze("save");   // 钉点：紧跟着记下的版本号，中间不 await（贴图主线 1-8b）
+      const bytes = await frozen.finish();   // 编码期间画的、切的让版本号往前走：存完仍然算改过
       if (home.kind === "file") {
         let out: Uint8Array | Blob = bytes;
         if (this.sealFile) {   // 这个文件是加密的（另存时选的）：写容器；口令忘掉了就不写（规则书 §1 第 5 条：绝不把明文写回）
@@ -894,7 +928,7 @@ export class Session {
       if (r.pushed) this.attention = null;   // 推上去了 = 和云端对上了（2.2.1 起谱系丢了也会先问云端再推，没人动过就直接成）
       if (!opts.implicit) this.d.setStatus(r.pushed ? `已保存并同步 ${bareName(home.path)}` : `已保存到本机 ${bareName(home.path)}${auth.isSignedIn() ? "（稍后同步）" : ""}`);
       return true;
-    } catch (e) { reportError(e); return false; }
+    } catch (e) { reportError(e); this.d.setStatus(saveFailedSay(e), true); return false; }   // 编码 / 写盘出错：这一轮整个没成、明说（上一份文件没动，改动还在内存；1-8b）
     finally { replaceCover?.close(); this.saving = false; this.d.onHomeChanged(); }
   }
   /** 另存到磁盘（安家仪式）：FSA → 文件家；无 FSA → 下载（不安家、不清 dirty）。 */
@@ -917,7 +951,7 @@ export class Session {
       if (ok && seal) this.d.setStatus(sealed ? `已存为 ${h.name}（加密的，原口令才能打开）` : `已存为 ${h.name}（${PLAIN_NOTE}，原来的加密文件没动）`);
       return ok;
     }
-    const bytes = this.encode();
+    const bytes = await this.encodeNow();
     const out = sealed ? await shadowFrame(bytes, seal, this.sealPorts()) : bytes;
     if (!out) { this.d.setStatus("打不出加密文件（口令已经忘掉）：这次没有下载", true); return false; }
     this.download(out, suggested);
@@ -939,7 +973,7 @@ export class Session {
   }
   /** 加密作品此刻的容器字节。图库家 = 库里 at-rest 的那份（搬容器原样，和全部导出同一个做法），先把没落本机的落下；解开的本地件 = 同一口令封一份。拿不到 = null，调用方说人话。 */
   private async containerNow(): Promise<Blob | null> {
-    if (this.seal?.pw) return shadowFrame(this.encode(), this.seal, this.sealPorts());
+    if (this.seal?.pw) return shadowFrame(await this.encodeNow(), this.seal, this.sealPorts());
     if (!this.encrypted || this.home.kind !== "gallery") return null;
     const path = this.home.path;
     while (this.saving) await this.inflight;
@@ -962,7 +996,7 @@ export class Session {
         return name;
       }
     }
-    const bytes = this.encode(), name = `${stem}${DOC_EXT}`;
+    const bytes = await this.encodeNow(), name = `${stem}${DOC_EXT}`;
     this.download(bytes, name);
     this.d.setStatus(`${name} 已下载（工程原样，可以开回 CatsUp${this.plainExportNote()}）`);
     return name;

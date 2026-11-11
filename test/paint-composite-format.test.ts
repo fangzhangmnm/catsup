@@ -7,6 +7,7 @@ import { encodeGlb } from "../src/format/glb.ts";
 import { compositeFits, paintBytesSum, type TextureDoc } from "../src/format/document.ts";
 import { sceneUvPaintedComposite, sceneUvPainted, COMPOSITE_TWO_LAYERS_PNG, ORA_TWO_LAYERS_1024x256 } from "./format-scenes.ts";
 
+type Rows = { extensions: Record<string, { list: Record<string, unknown>[] }> };
 const paintRow = (doc: { textures: readonly TextureDoc[] }): TextureDoc => doc.textures.find((t) => t.content.kind === "layered")!;
 const same = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
 
@@ -18,19 +19,19 @@ describe("画的合成图进文件（textures 1.1，1-8b）", () => {
     eq(JSON.stringify([t.composite!.of, t.composite!.base]), JSON.stringify([{ bytes: ORA_TWO_LAYERS_1024x256.length, sum: paintBytesSum(ORA_TWO_LAYERS_1024x256) }, [0.9, 0.85, 0.7]]), "记号和底色");
     assert(same(writeCatsup(documentFromScene(sceneFromDocument(doc), "t")), bytes), "读进场景再写：逐字节相同");
     const plain = decodeGlb(writeCatsup(documentFromScene(sceneUvPainted(), "t")));
-    const rows = ((plain.json.extensions as Record<string, { list: Record<string, unknown>[] }>).CATSUP_textures).list;
+    const rows = (plain.json as Rows).extensions.CATSUP_textures.list;
     assert(rows.every((r) => !("composite" in r)), "没有合成图的行不写 composite");
   });
   it("形状不对的 composite：不认、当不认识的键原样带回（不拒开），再写一遍逐字节相同", () => {
     const g = decodeGlb(writeCatsup(documentFromScene(sceneUvPainted(), "t")));
-    const row = (g.json.extensions as Record<string, { list: Record<string, unknown>[] }>).CATSUP_textures.list.find((r) => (r.content as { kind: string }).kind === "layered")!;
+    const row = (g.json as Rows).extensions.CATSUP_textures.list.find((r) => (r.content as { kind: string }).kind === "layered")!;
     row.composite = { png: "以后的形状", of: 3 };
     const bytes = encodeGlb(g.json, g.bin);
     const doc = readCatsup(bytes), t = paintRow(doc);
     eq(t.composite, undefined, "不认");
     assert(!!t.extra && JSON.stringify(t.extra.json).includes("以后的形状"), "原样带着");
     const again = decodeGlb(writeCatsup(doc));
-    const row2 = (again.json.extensions as Record<string, { list: Record<string, unknown>[] }>).CATSUP_textures.list.find((r) => (r.content as { kind: string }).kind === "layered")!;
+    const row2 = (again.json as Rows).extensions.CATSUP_textures.list.find((r) => (r.content as { kind: string }).kind === "layered")!;
     eq(JSON.stringify(row2.composite), JSON.stringify({ png: "以后的形状", of: 3 }), "写回去原样");
   });
   it("compositeFits：记号对得上 + 底色一样才算数", () => {

@@ -72,6 +72,7 @@ import type { ModeId } from "../editor/mode.ts";
 import { Renderer3 } from "../minccino/providers/three/render3.ts";
 import { browserPaintBoards, PAINT_UNDO_KIND, type PaintRec } from "../paint/boards.ts";
 import { initPaintTileJobs } from "../paint/tile-jobs.ts";
+import { PaintSaver } from "../paint/save.ts";
 import { PAINT_STEP_LABELS } from "../editor/step-labels.ts";   // 画板登记处（贴图主线 1-3c）：一张贴图一块画板；这一张只有调试钩子 __catsup.paint 建
 import { paintPlaceOf } from "../scene/paint.ts";
 import { buildTriGrid, pickSurface } from "../paint/surface-pick.ts";   // 调试钩子 __catsup.paint.cellAt：1-3a 的落点
@@ -279,7 +280,8 @@ const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => e
     editor.dropUndoRecords(PAINT_UNDO_KIND, (d) => (d as PaintRec).tex === texture);
     if (tell) notify({ text: `「${editor.sceneRef.textures.get(texture)?.name ?? "画"}」这张画的撤销记录清掉了：${why}`, level: "warning" });
   },
-  (on) => paintTileJobs.driver.setActive(on));   // 有画板才跑空闲压缩（0-3a）
+  (on) => { paintTileJobs.driver.setActive(on); if (!on) paintSaver.clear(); });   // 有画板才跑空闲压缩（0-3a）；画板全扔了（换文件）= 画的存盘缓存也清（1-8b）
+const paintSaver = new PaintSaver({ boards: paintBoards, wroteWith: `catsup ${APP_VERSION}` });   // 画存进文件（1-8b）：钉点同步、编码异步
 editor.registerUndoComponent(paintBoards.undoComponent());
 paintAfterCommit = () => { paintBoards.follow(editor.sceneRef); for (const r of paintBoards.takePending()) editor.recordUndo(PAINT_UNDO_KIND, r); };
 paintBeforeHistoryMove = () => paintBoards.cancelOpen();
@@ -1685,6 +1687,7 @@ new MutationObserver(syncRefBtn).observe(refHost.el, { attributes: true, attribu
 syncRefBtn();
 const session = new Session({
   editor,
+  paintSave: paintSaver,
   pushHeld: (path) => pushHoldAll || heldNeverUploaded.has(path),
   onExplicitSave: (path) => { heldNeverUploaded.delete(path); },
   refs: refHost,

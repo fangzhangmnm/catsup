@@ -19,7 +19,7 @@ export interface CrashRecoveryDeps {
   closeGallery: () => void;
 }
 
-const putBack = (m: CrashRecordMeta, bytes: Blob) => crashStore.put(m.tag, bytes, { state: m.state, name: m.name, at: m.at, homeKind: m.homeKind }).catch(() => {});
+const putBack = (m: CrashRecordMeta, bytes: Blob) => crashStore.put(m.tag, bytes, { state: m.state, name: m.name, at: m.at, homeKind: m.homeKind, ...(m.paintStale ? { paintStale: true } : {}) }).catch(() => {});
 
 async function recover(d: CrashRecoveryDeps, m: CrashRecordMeta, gate: boolean): Promise<boolean> {
   const bytes = await crashStore.adopt(m.tag);
@@ -31,6 +31,7 @@ async function recover(d: CrashRecoveryDeps, m: CrashRecordMeta, gate: boolean):
     note("boot", `t-crash recovered → ${where} "${d.session.displayName()}"`);
     d.closeGallery();
     d.notify({ text: where === "gallery" ? `已接回「${m.name}」，存进图库为「${d.session.displayName()}」` : `已接回「${m.name}」（还没有家：记得保存到磁盘）`, level: "info" });
+    if (m.paintStale) d.notify({ text: `「${m.name}」里的画可能少了最后几笔：崩溃前还没来得及存进快照`, level: "warning" });   // 贴图主线 1-8b
     return true;
   } catch (e) {
     void putBack(m, bytes);

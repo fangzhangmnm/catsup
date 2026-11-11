@@ -144,6 +144,19 @@ export class PaintBoard {
    * 和画画仓 WeebPaintBackend.dispose 同一手：换 1×1 空根 = 现在的内容还池；装载顺手清栈 = 步里攒着的旧图块也还池（交给三维的栈的步也在内：HostedSteps.clear 逐步释放、发 onReset）；
    * 图块账退租；显卡上那份退租（内核 v0.14.77 的 GLBoard.dispose：建的纹理全删、借的离屏图全还，0-3a）。开着的一笔要宿主先取消（登记处 disposeAll 先 cancelOpen；令牌开着时装载会抛）。只做一次。
    */
+  /**
+   * 合成图读回来（存盘的钉点用，1-8b）：和显示用的是同一张（compose），垫着现在的底色、不透明；只读前 rows 行（裁高用，缺省整张）。
+   * 同步：真显卡上是一次读回（会等显卡做完）。显卡画面丢了 / 扔过 = null。
+   */
+  composeBytes(rows = this.height): Uint8ClampedArray | null {
+    const r = this.compose();
+    if (!r) return null;
+    const px = this.port.readPixels(r.fbo, 0, 0, this.width, Math.min(rows, this.height));
+    return new Uint8ClampedArray(px.buffer, px.byteOffset, px.byteLength);
+  }
+  /** 现在的底色（sRGB 0..1，三个数）。 */
+  get background(): readonly [number, number, number] { return [this.bg[0], this.bg[1], this.bg[2]]; }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.last = null; this.hostOverlays = [];
@@ -161,7 +174,8 @@ export class PaintBoard {
   }
 
   /** 所有图层内容的并（紧的）：null = 全空。 */
-  private contentBounds(): { x: number; y: number; w: number; h: number } | null {
+  /** 所有图层有内容的范围合在一起（全空 = null）；存盘裁高用（1-8b）。 */
+  contentBounds(): { x: number; y: number; w: number; h: number } | null {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     const walk = (ns: readonly TreeNode[]): void => {
       for (const n of ns) {

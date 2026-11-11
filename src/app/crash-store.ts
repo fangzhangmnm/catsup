@@ -19,6 +19,8 @@ export interface CrashRecordMeta {
   name: string;                       // 展示名——给恢复通知看，不是身份
   at: number;                         // 快照时刻（ms）
   homeKind: "file" | "transient";     // 家提示（恢复文案用；gallery 家不进本库）
+  /** 这份快照里的画比模型旧（拍的时候有画板比最近一次编好的字节新；贴图主线 1-8b）。缺 = 没有画或者画是新的。 */
+  paintStale?: boolean;
 }
 export interface CrashRecord extends CrashRecordMeta { bytes: Blob }
 
@@ -60,7 +62,7 @@ export function createCrashStore(kv: CrashKV): CrashStore {
     async discard(tag) { await kv.delete(tag); },
     async listAtBoot() {
       const all = await kv.list();
-      return all.map(({ tag, state, name, at, homeKind }) => ({ tag, state, name, at, homeKind })).sort((a, b) => b.at - a.at);
+      return all.map(({ tag, state, name, at, homeKind, paintStale }) => ({ tag, state, name, at, homeKind, ...(paintStale ? { paintStale: true } : {}) })).sort((a, b) => b.at - a.at);
     },
     async adopt(tag) { const r = await kv.take(tag); return r?.bytes ?? null; },
   };

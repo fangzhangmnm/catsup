@@ -165,6 +165,7 @@ import "./paint-undo-leak.test.ts";   // 同上：画板的图块不漏（截断
 import "./paint-memory.test.ts";   // 画的内存额度（0-3a）：图块池接上压缩、撤销栈对「画」现问字节；压缩之后撤销逐字节对
 import "./paint-memory-undo.test.ts";   // 同上之二：压缩之后撤销逐字节对；歇着的画板被压下去、撤回来画还在（拆开跑）
 import "./paint-composite-format.test.ts";   // 画的合成图进文件（textures 1.1，1-8b）：来回、形状不对原样带回、记号对不上 = 当没有
+import "./paint-save.test.ts";   // 画存进文件（1-8b）：来回一格不差、没动过逐字节相同、钉在同一刻、编码抛 = 整轮失败、撤销栈不动、裁高、空白、快照不现编
 import "./scene-ops.test.ts";
 import "./offset.test.ts";   // offset 几何（0.8，2026-10-21）
 import "./followme.test.ts";   // follow-me 扫掠 + 像表 XOR（0.8，2026-10-21）
