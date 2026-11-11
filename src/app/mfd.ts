@@ -1,5 +1,5 @@
 // mfd.ts —— 键名芯片（MFD）的渲染器：左下角提示行上面一排固定槽位（数据 = controller/chips.ts chipsOf；账本 UX19）。created 2026-10-28 by Claude Opus 5.5
-// 规矩（UX19 推荐）：槽位固定（锁轴 · Shift · Ctrl · Alt · 确认 · 取消，空槽占位不显示）；芯片印键名 + 意思；触屏上能点的（锁轴 / 确认 / 取消）= 按了那个键（走同一个 resolveKey）；
+// 规矩（UX19 推荐）：槽位固定（Shift · Ctrl · Alt · 确认 · 收 · 取消，空槽占位不显示；锁轴那一槽 W-6 搬去右上角，「收」W-7 加的）；芯片印键名 + 意思；触屏上能点的（锁轴 / 确认 / 取消）= 按了那个键（走同一个 resolveKey）；
 // 修饰键芯片只显示（触屏上「按住」要做成锁定式，另算）；电脑上默认开、左边小钮收起（记在这台设备），笔 / 手指的设备不许收。
 // 2026-10-28 晚（user「实时响应按键」「有context的时候才显示」「ipad的时候能不能不显示键位」）：亮着的芯片（锁着 / 按着）加 .on；没键盘不印键名；闲着整排不出（规则在 chips.ts）。
 import { CHIP_SLOTS, chipsOf, type ChipLive } from "../controller/chips.ts";
@@ -13,6 +13,8 @@ export interface MfdDeps {
   live(): ChipLive;
   /** 点了能按的芯片：按这个和弦（app 走 resolveKey → runKeyAction）。 */
   press(chord: string): void;
+  /** 点了动作芯片（不是键）：finish = 编辑器的「收」（W-7）。 */
+  act(a: "finish"): void;
   /** 点了修饰键开关（没键盘时）：锁住 / 放开。 */
   latch(m: "shift" | "ctrl" | "alt"): void;
   /** 这台设备收起了吗（电脑上）。 */
@@ -45,12 +47,12 @@ export function mountMfd(parent: HTMLElement, d: MfdDeps): Mfd {
         const c = collapsed ? undefined : chips.find((x) => x.slot === s);
         el.classList.toggle("empty", !c);
         for (const it of c?.items ?? []) {
-          const tappable = !!(it.press || it.latch);
+          const tappable = !!(it.press || it.latch || it.act);
           const b = document.createElement(tappable ? "button" : "span");
-          b.className = "mfd-chip" + (tappable ? " pressable" : "") + (it.latch ? " latch" : "") + (it.on ? " on" : "") + (L.keys ? "" : " nokeys");
-          if (b instanceof HTMLButtonElement) { b.type = "button"; const ch = it.press, la = it.latch; b.setAttribute("aria-pressed", String(it.on)); b.addEventListener("click", (ev) => { ev.stopPropagation(); if (la) d.latch(la); else if (ch) d.press(ch); }); }
+          b.className = "mfd-chip" + (tappable ? " pressable" : "") + (it.latch ? " latch" : "") + (it.on ? " on" : "") + (it.solid ? " solid" : "") + (L.keys ? "" : " nokeys");
+          if (b instanceof HTMLButtonElement) { b.type = "button"; const ch = it.press, la = it.latch, act = it.act; b.setAttribute("aria-pressed", String(it.on)); b.addEventListener("click", (ev) => { ev.stopPropagation(); if (la) d.latch(la); else if (act) d.act(act); else if (ch) d.press(ch); }); }
           const t = document.createElement("span"); t.textContent = it.label;
-          if (L.keys) { const k = document.createElement("kbd"); k.textContent = it.keys; b.append(k); }
+          if (L.keys && it.keys) { const k = document.createElement("kbd"); k.textContent = it.keys; b.append(k); }
           b.append(t); el.appendChild(b);
         }
       }

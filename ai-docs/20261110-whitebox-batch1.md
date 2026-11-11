@@ -440,3 +440,15 @@
   - 手机竖屏 390×844：`/home/fangzhangmnm/.claude/jobs/2e86e0d4/tmp/shots/phone-portrait-390x844.png`
   - 看下来：不挤，没盖住别的东西。右上那一列从上到下 = ☰ 那一行 → 视图方块 → 手 / 放大镜 → 吸附 / X 光 → 锁的三行，整列底边离顶 331 像素（两种屏一样；iPad 屏高 1180、手机 844）。左柱在另一边，手机上左柱的横向范围 14–62 像素、锁的三行 300–382 像素，不重叠；右下「复制」、左下提示行都离得很远。手机上那一列占了屏高的四成上下，往下还空着。
 - **和你写的不一样的地方**：镜像会话开着、这把工具又锁着时，第一下 Esc 也只解锁，第二下才取消镜像——照「没在做手势」那条字面做的（镜像会话不算手势）。要改成一下就取消镜像并解锁，请说。
+
+### W-7 「收」的钮（v0.19.5，11-10 夜，Claude Opus 5.5）
+
+- **做了什么**：照第三节 W-7 和 Fable 补的细节。左下芯片那一排，「取消」前面加一格实心的「收笔」/「收刀」：声明了 `sameSpotEnds` 的工具（画线、刀）定了至少一个点、正在等下一个点时才出（按着没松不出）；点它 = 编辑器 `finishChain()` → 和「同一处再点一下」同一个 `endChain()`（画好的线、切好的刀口留着，只是不再接下一段）。
+- **改了的文件**：`src/editor/tool-handler.ts`（工具声明 `finishLabel`）、`tools/draw.ts`（收笔）、`tools/mesh-knife.ts`（收刀）、`editor.ts`（`finishLabel()` / `finishChain()` / `endChain()`，同一处再点一下改调 `endChain()`）、`src/controller/chips.ts`（槽位 `finish`，排在 `cancel` 前；芯片可以是「动作」不是键 `act: "finish"`、实心 `solid`；`ChipLive.finish`）、`src/app/mfd.ts`（画实心、点了交给宿主；没键名的不画空键帽）、`src/app/main.ts`（接 `editor.finishLabel()` / `finishChain()`）、`styles.css`（`.mfd-chip.solid`）、新 `src/editor/step-labels.ts`（见下）、`test/chips.test.ts`、新探针 `test/probes/probe-finish-chip.mjs`、UI 版图（芯片那一行）、工具定义表（「收」一条）。
+- **editor.ts 行数**：本体卡在棘轮 4114，加这三个方法要先腾地方——把「一步的标签」那张表（`OP_TITLES` + `opLabel` + `labelText`，只管撤销 / 重做时提示行叫什么，和编辑器状态无关）搬去 `editor/step-labels.ts`，现在 4107。
+- **顺带补的 1-0½ 漏处**：那张标签表里没有 `addTexture` / `purgeTextures`，第一次把图涂上去那一步的第一条指令是 `addTexture`，撤销 / 重做时提示行会显示英文指令名「addTexture」——补成「加贴图」「清理贴图」。另外编辑器里「只动骨架的指令」那张名单（复现包「上一步」用）也补上这两条。
+- **测试**：`npm test` 1796 + 内核 549 全过，45 秒；`tsc` 干净；`chips.test.ts` 加一条：编辑器说在等下一点才出、排在取消前面、实心、点它是动作不是按键、拖着没松不出、一个点都没定不出、没键盘也出。新探针 `probe-finish-chip`（全用笔的指针事件）：刀——一个点都没定没有钮；定了起点就有「收刀」；切一刀（面 +1）还在、实心、排在「取消」前；点它 = 刀收了、面还是 +1、提示行空、钮没了；画线——起点之前没有；画一段（边 +1）有「收笔」；点它 = 线还在、不再拖着橡皮筋、钮没了；手指——见过笔之后等过防手掌的 600 ms，手指轻点（通用的取消）仍能收刀。另外跑了 `probe-mfd`、`probe-ipad-pen`、`probe-mesh-knife`、`probe-pen-tap`、`probe-tool-locks`、`probe-input-gate`（编辑器多的公开方法自动进了它的枚举，锁着调一遍模型不变）、`probe-textures-table`，都绿。
+- **和施工单不一样的地方 / 我定的**：
+  1. 刀是 W-3 改成「按下、滑动、松手」写法（direct）的工具，它的「同一处再点一下」在工具自己松手那一段里（刀放掉 + 清锚点 / 光标 / 吸附 / 提示行）；「在不在等下一点」问它自己的 `awaitsClick()`。点钮走编辑器的 `endChain()`：`cancelGesture()` 里会调工具的 `cancel()` 并清同样那几样，效果一样，但不是刀里那几行代码本身。画线是多步写法，钮和同一处再点一下走的是同一个 `endChain()`。
+  2. 「收」没有键盘快捷键（芯片上不印键名）；键盘照旧是 Esc 收（Esc 是取消，对画线和刀效果一样：做成的都已经提交了）。要不要给它绑个键，你定。
+

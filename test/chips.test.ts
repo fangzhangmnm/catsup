@@ -10,8 +10,8 @@ const at = (o: Partial<KeyContext>, L: Partial<Omit<ChipLive, "held" | "latched"
 const FF_MOVE = { mode: "freeform" as const, tool: "move" as const, lockStyle: "axis" as const };
 
 describe("键名芯片（chips.ts）", () => {
-  it("槽位顺序固定：Shift · Ctrl · Alt · 确认 · 取消；结果按这个顺序（锁那一槽 2026-11-10 搬去右上角，白模 W-6）", () => {
-    eq(CHIP_SLOTS.join(","), "shift,ctrl,alt,confirm,cancel");
+  it("槽位顺序固定：Shift · Ctrl · Alt · 确认 · 收 · 取消；结果按这个顺序（锁那一槽 2026-11-10 搬去右上角，白模 W-6；「收」W-7）", () => {
+    eq(CHIP_SLOTS.join(","), "shift,ctrl,alt,confirm,finish,cancel");
     for (const o of [{ gesture: true }, { ...FF_MOVE, gesture: true }, { mode: "geometry" as const, tool: "move" as const, lockStyle: "axis" as const, gesture: true }]) { const s = at(o).map((c) => CHIP_SLOTS.indexOf(c.slot)); eq(JSON.stringify(s), JSON.stringify([...s].sort((a, b) => a - b))); }
   });
   it("闲着（没手势、没锁、什么都没按）= 一枚都不出（user「没有context的时候不显示」）；画线这类不对选区做事的工具有选区也不出", () => {
@@ -68,6 +68,16 @@ describe("键名芯片（chips.ts）", () => {
       const s = stanceOf(m, t); if (!s) continue;
       for (const k of ["shift", "ctrl", "alt"] as const) assert(!/§|UX\d|要改|要搬/.test(stanceShown(s[k])), `${m}/${t} ${k}：界面上会出代号「${stanceShown(s[k])}」`);
     }
+  });
+  it("「收」（W-7）：编辑器说定了点、在等下一点（finish 有字）才出，排在取消前面、实心、点它 = 动作 finish 不是按键；拖着没松不出；没键盘也出", () => {
+    const knife = { mode: "freeform" as const, tool: "knife" as const, lockStyle: null, gesture: true };
+    const c = at(knife, { finish: "收刀" });
+    eq(c.map((x) => x.slot).join(","), "finish,cancel");
+    const f = c[0].items[0];
+    eq(f.label, "收刀"); eq(f.act, "finish"); eq(f.press, null); assert(f.solid === true, "实心"); eq(f.keys, "", "没有键名");
+    assert(!at(knife, { finish: "收刀", pressing: true }).some((x) => x.slot === "finish"), "拖着没松不出");
+    assert(!at(knife, { finish: null }).some((x) => x.slot === "finish"), "一个点都没定 = 不出");
+    eq(at({ mode: "geometry", tool: "line", lockStyle: "axis", gesture: true }, { finish: "收笔", keys: false }).find((x) => x.slot === "finish")?.items[0].label, "收笔", "笔 / 手指的设备也出");
   });
   it("镜像会话：确认 = Enter 应用镜像、取消 = Esc", () => {
     const c = at({ mirrorSession: true });

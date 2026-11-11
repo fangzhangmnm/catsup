@@ -64,6 +64,7 @@ import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from ".
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
 import { REPAIR_STEPS } from "./repairs/index.ts";
+import { labelText, opLabel } from "./step-labels.ts";
 import { materialForPick, pickOfMaterial } from "./paint-material.ts";
 import { frontOf, LOCKED_HINT, mergeOp, opTouchesLocked, previewableIn, previewVariant, withFront } from "./op-locks.ts";
 import { actionById, commandById, placementsAt, routesOf } from "./commands/registry.ts";
@@ -234,19 +235,8 @@ declare const STEP_PASS_BRAND: unique symbol;
 export interface StepPass { readonly [STEP_PASS_BRAND]: true }
 const STEP_PASS = Object.freeze({}) as StepPass;
 
-/** op → 一步的默认标签（中文动词；显式给了 step() 标签的用那个）。开放集：没登记的用 op 名。 */
-const OP_TITLES: Readonly<Record<string, string>> = {
-  addEdges: "画线", eraseEdges: "擦边", eraseFaces: "擦面", eraseSelection: "删除", move: "移动", pushpull: "推拉", followme: "跟随", absorb: "合并", weldEdges: "焊接", dissolveVertices: "溶解点",
-  explodeCurves: "炸开曲线", setEdgeLayers: "软化 / 硬化", paintFaces: "上色", flipFaceSides: "翻面", plugin: "修复", mirror: "镜像", setHidden: "隐藏 / 显示", unhideAll: "全部显示", transformInstance: "移动物件", placeInstance: "放置",
-  eraseInstance: "删除物件", moveInstance: "挪物件", purgeDefs: "清理组件", purgeMaterials: "清理材质", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
-  setAxes: "改原点", setDrawFrame: "坐标架", castDefinition: "转换身体", addGuide: "参考线", eraseGuides: "删参考线", clearGuides: "清参考线", makeGroup: "建组", makeComponent: "建组件", explode: "炸开",
-  shelfPut: "放上素材架", shelfTake: "从素材架取下", shelfMove: "挪素材", shelfFolderAdd: "建素材文件夹", shelfFolderRename: "改素材文件夹名", shelfFolderRemove: "删素材文件夹", copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
-  meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshSymmetrize: "对称", setMeshMirror: "镜像设置", meshSymmetrySnap: "对称对齐", meshSubdivide: "细分", meshMerge: "合并", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
-};
 /** 只记骨架（内核没动）的 op：复现包「上一步」的内核 = 现在这份。 */
-const SKELETON_ONLY: ReadonlySet<string> = new Set(["setMeshMirror", "transformInstance", "placeInstance", "eraseInstance", "moveInstance", "purgeMaterials", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
-function opLabel(op: Op): StepLabel { return { title: OP_TITLES[op.op] ?? op.op }; }
-function labelText(l: StepLabel | undefined): string { return l ? (l.count ? `${l.title}（${l.count}）` : l.title) : "一步"; }
+const SKELETON_ONLY: ReadonlySet<string> = new Set(["setMeshMirror", "transformInstance", "placeInstance", "eraseInstance", "moveInstance", "purgeMaterials", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "addTexture", "purgeTextures", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
 
 export class Editor {
   readonly cam = new OrbitCamera();
@@ -3744,6 +3734,10 @@ export class Editor {
   }
   // ---------- 输入：工具指针 ----------
   pointerDown(ev: ToolPointer): void { this.step(() => this.pointerDownStep(ev)); }
+  /** 「收」（W-7）：声明了 sameSpotEnds 的工具定了点、在等下一点时 = 左下芯片那颗钮的字（工具给）；不是这时候 = null。点它 = finishChain = 和「同一处再点一下」同一条路（endChain）：做成的留着，只是不接下一段。 */
+  finishLabel(): string | null { const H = this.handlers[this._tool], waiting = H?.grammar === "steps" ? this.armed && H.active() && !!this.anchor3 : !!H?.awaitsClick?.(); return H?.sameSpotEnds && waiting ? (H.finishLabel ?? "收") : null; }   // direct 工具（刀）自己说在不在等下一点
+  finishChain(): void { this.step(() => { if (this.finishLabel() !== null) { this.endChain(); this.draw(); } }); }
+  private endChain(): void { this.cancelGesture(); this.host.hint(null); this.host.changed(); }
   private pointerDownStep(ev: ToolPointer): void {
     if (!isReadOnlyTool(this._tool) && this.refuse()) return;   // 第三层（输入闸）：改模型的工具的指针在这一个口全拒——鼠标 / 笔 / 手指 / 键盘起手 / 回车落定都从这进；相机不走这里；只读工具照用
     this.lastPtrType = ev.pointerType;   // 键盘起手的那一下带的也是真设备（keyboardStart 填的）
@@ -3761,7 +3755,7 @@ export class Editor {
         // （屏上只有 6 px，世界长度却过了 MIN_GESTURE_LEN 1 cm）。根因（锚点附近不该推竖直线）在求解器，归 Fable（总账记了）；这里是手势层的护栏。探针 probe-pen-tap。
         // 半径 = 吸附半径（点按容差 4 px 拦不住：Pencil「同一处」点两下常差 5–8 px）——这么近本来就该吸回锚点本身，不该另起一段；要画更短的线就放大或输长度。
         if (this.anchor3 && this.frame().distTo(s.x, s.y, this.anchor3, this.fvp()) <= Math.max(this.eps().tap, this.eps().snap)) {
-          if (H.sameSpotEnds) { this.cancelGesture(); this.host.hint(null); this.host.changed(); }
+          if (H.sameSpotEnds) this.endChain();
           this.draw();
           return;
         }

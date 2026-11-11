@@ -459,6 +459,8 @@ body.doc-locked #selBar, body.doc-locked .left-dial { pointer-events: none; opac
 .mfd-chip.nokeys { padding: 4px 9px; }   /* 没键盘（笔 / 手指）：不印键名，只剩意思；手指要点得中 */
 .mfd-chip.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }   /* 锁着的轴 / 按着或锁住的修饰键 */
 .mfd-chip.on kbd { color: var(--accent); border-color: var(--accent); }
+.mfd-chip.solid { color: #fff; background: var(--accent); border-color: var(--accent); font-weight: 600; }   /* 主要的动作（「收笔」「收刀」，W-7）：实心 */
+.mfd-chip.solid:active { filter: brightness(0.92); }
 .mfd-toggle { border: 0; background: transparent; border-radius: 6px; font: inherit; font-size: 12px; padding: 4px 6px; cursor: pointer; color: var(--muted); }
 .mfd-toggle[hidden] { display: none; }
 /* 指令板（ui/command-board.ts；UX 心智模型 §8 补 4）：浮在画面上、按住标题拖、长按标题归位；手机竖屏 = 底部不锁屏抽屉（和物品栏同一个位置） */

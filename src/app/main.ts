@@ -1433,7 +1433,8 @@ var mfdRef: { render(): void } | null = null;
 mfdRef = mountMfd($("hintWrap"), {
   ctx: () => keyContext(),
   stance: () => stanceOf(editor.modeId, shownTool()),
-  live: () => ({ held: { ...heldMods }, keys: lastPointerType === "mouse", pressing: canvasPresses.size > 0, latched: { ...latchedMods } }),
+  live: () => ({ held: { ...heldMods }, keys: lastPointerType === "mouse", pressing: canvasPresses.size > 0, finish: editor.finishLabel(), latched: { ...latchedMods } }),
+  act: (a) => { if (a === "finish") editor.finishChain(); syncUi(); },   // 「收笔」「收刀」（W-7）= 和同一处再点一下同一条路
   latch: (m) => { setLatch(m, !latchedMods[m]); syncUi(); },   // 键鼠才印键名（user「ipad的时候能不能不显示键位」）
   press: (chord) => {   // 点芯片 = 按了这个键：和真按键走同一条（resolveKey → runKeyAction）
     const p = chord.split("+"), n = p[p.length - 1], code = /^[a-z]$/.test(n) ? `Key${n.toUpperCase()}` : n === "escape" ? "Escape" : n === "enter" ? "Enter" : n === "arrowright" ? "ArrowRight" : n === "arrowleft" ? "ArrowLeft" : n === "arrowup" ? "ArrowUp" : n;

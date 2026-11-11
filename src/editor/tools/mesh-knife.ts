@@ -44,6 +44,7 @@ export class MeshKnifeTool implements ToolHandler {
   readonly grammar = "direct" as const;
   /** 同一处再点一下 = 收刀（和画线的收笔一样）。direct 工具底座不管这一下，刀在 up 里自己认；W-7 的「收」钮也认这个标记。 */
   readonly sameSpotEnds = true;
+  readonly finishLabel = "收刀";   // 左下芯片那颗「收」（W-7）
   private start: KnifePoint | null = null;
   private startW: Pt3 | null = null;
   private startKind: SnapKind = "endpoint";

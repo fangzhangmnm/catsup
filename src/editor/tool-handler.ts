@@ -254,6 +254,8 @@ export interface ToolHandler {
   readonly draws?: boolean;
   /** steps 工具：等下一点时在锚点附近（吸附半径内）又按一下 = 收（画线 = 收笔、刀 = 收刀）；没有 = 底座吞掉这一下。W-2 2026-11-10：以前底座按工具名只认画线，刀要的是「递给工具、同一条边点两下 = 环切」（user 同意环切只走自己的入口）。 */
   readonly sameSpotEnds?: boolean;
+  /** 声明了 sameSpotEnds 的工具：左下芯片那颗「收」的钮上写什么（画线 = 「收笔」、刀 = 「收刀」；W-7 2026-11-10）。没写 = 「收」。 */
+  readonly finishLabel?: string;
   /** steps 工具的「点一下（没拖）」：有它 = 不进「再点一下落定」，交给工具（自由建模：点空处 = 取消选择、点东西 = 选它；只有拖才是操作——user 10-27）。 */
   tap?(ctx: ToolCtx, ev: ToolPointer): void;
   /** 键盘起手（Blender G / R / S / E；自由建模）：用选区当目标、以光标处为起点开始一次手势（不用按下）；之后跟着鼠标走、点一下落定、Esc / 右键取消。没选区 = false。 */
