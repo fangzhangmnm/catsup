@@ -234,7 +234,7 @@ const R5 = await p2.evaluate((W) => { const q = (s) => [...document.querySelecto
 check(R5.heads[0] === "素材架" && /更新版写的/.test(R5.notes[0]), `那一节只有说明：${JSON.stringify(R5.notes)}`);
 check(R5.acts === 0, "没有「上架」「取下」");
 check(R5.orphan.length === 1 && /可能收在素材架上/.test(R5.orphan[0]) && !/孤儿/.test(R5.orphan[0]), `看不见架子就不说它是孤儿：${R5.orphan}`);
-check(R5.btns.length === 3 && R5.btns.every((b) => b.off), `导入 / 清理都不开：${JSON.stringify(R5.btns)}`);
+check(R5.btns.length === 4 && R5.btns.every((b) => b.off), `导入 / 清理都不开：${JSON.stringify(R5.btns)}`);   // 导入 + 清理组件 / 材质 / 贴图（贴图那颗 v0.19.4 加的）
 const r5 = await p2.evaluate(() => { const C = globalThis.__catsup, e = C.editor, s = e.sceneRef, i = [...s.def(s.root).instances.values()][0]; e.deselectAll(); e.selectedPools.set(`i${i.id}`, { kind: "instance", instance: i.id }); const menu = e.commandMenu("objectMenu").map((m) => m.id); e.commitOp({ op: "shelfFolderAdd", name: "x", parent: null, guid: crypto.randomUUID() }); const hintAfter = C.hud.status(); const toast = [...document.querySelectorAll(".toast-error .toast-text")].map((t) => t.textContent); return { menu, hintAfter, toast, folders: e.sceneRef.shelf.folders.length }; });
 check(!r5.menu.includes("shelve") && !r5.menu.includes("unshelve"), "物件菜单不露上架");
 check(/更新版/.test(r5.hintAfter) && r5.toast.length === 0 && r5.folders === 0, `硬改也拒：提示行说、不弹错误：${JSON.stringify(r5)}`);
