@@ -44,6 +44,11 @@ export interface FloatDesc {
 // 文档背景接缝（对齐 2D compositeLayers 的 bg + board._drawCheckerboard）：
 //   undefined = 透明（present 时 void 色透出）；[r,g,b,a] = 预乘纯色（doc 背景色）；"checker" = 透明棋盘。
 export type Background = [number, number, number, number] | "checker";
+/** 底色量化成 8 位色（每个分量 round(c × 255) / 255，夹进 [0, 1]）：写进累积器的两条路（清屏 / fill 着色器）都写精确值。 */
+export function quantizeBg(c: readonly [number, number, number, number]): [number, number, number, number] {
+  const q = (v: number): number => Math.round(Math.min(1, Math.max(0, v)) * 255) / 255;
+  return [q(c[0]), q(c[1]), q(c[2]), q(c[3])];
+}
 
 // 可变 ping-pong 对（pass-through 组要在同一累积器上续 pass，故按引用传递）。
 export interface Acc { read: PooledFBO; write: PooledFBO; }
@@ -343,12 +348,20 @@ export class GLCompositor {
     this.fillBg(base, docW, docH, bg);
     return acc;
   }
-  /** 把累积器铺底（bg 缺省 = 透明；"checker" = 棋盘）：整幅，或者增量时只铺那几块（别处不碰）。 */
+  /**
+   * 把累积器铺底（bg 缺省 = 透明；"checker" = 棋盘）：整幅，或者增量时只铺那几块（别处不碰）。
+   * 底色先量化成 8 位（k / 255，四舍五入）：整幅用清屏、增量用 fill 着色器，两条路对恰好落在半格上的值往哪边取整不保证一样——
+   *   0.3 × 255 = 76.5，SwiftShader 上清屏得 77、着色器得 76（往偶数）；CatsUp 的底色 [0.3, 0.5, 0.7] 三个分量全落在半格上，增量 ≠ 整张差 1（2026-11-11 CatsUp probe-space-rules 抓到）。
+   *   量化之后两边写的都是精确值，哪家显卡都一样；从十六进制来的底色本来就是 k / 255，不变。
+   * 规矩（不只底色）：同一个值经两条不同的显卡路写进去（清屏 / 着色器 / 上传……），先量化成目标的精度再写——各家显卡对半格值往哪边取整不保证一样。
+   *   以后铺透明、铺别的底、加别的「整张一条路、几块另一条路」，照这个办。
+   */
   fillBg(f: PooledFBO, docW: number, docH: number, bg?: Background): void {
     if (bg === "checker") { this._drawChecker(f, docW, docH); return; }
-    if (!this._rects) { this._glctx.clearFBO(f, bg ?? [0, 0, 0, 0]); return; }
+    const c = quantizeBg(bg ?? [0, 0, 0, 0]);
+    if (!this._rects) { this._glctx.clearFBO(f, c); return; }
     this._glctx.program("fill", COMPOSITE_VERT, FILL_FRAG);
-    this._glctx.draw({ program: "fill", target: f, uniforms: { u_color: bg ?? [0, 0, 0, 0] }, rects: this._rects });
+    this._glctx.draw({ program: "fill", target: f, uniforms: { u_color: c }, rects: this._rects });
   }
 
   // 收口：还 write，交出 read（caller 负责 returnFBO(read)）。

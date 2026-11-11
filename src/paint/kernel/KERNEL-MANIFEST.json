@@ -2,8 +2,8 @@
   "about": "Paint kernel copied verbatim from WeebPaint by scripts/pull-paint-kernel.sh. Do not edit here: change it in WeebPaint, then pull again. test/paint-kernel-guard.test.ts checks every hash.",
   "source": {
     "repo": "WeebPaint",
-    "commit": "6ddcd7641fcf66431f1ff64a44546b0eaec62ffb",
-    "version": "v0.14.80-2026-11-11"
+    "commit": "3f99b99f22399c8954ebc8e09653142c532d27b4",
+    "version": "v0.14.81-2026-11-11"
   },
   "files": {
     "src/backend/algorithms/README.md": "07faa259a0e864acc853614fc284f75fda2d259efacf5483ff993f75323fa434",
@@ -33,7 +33,7 @@
     "src/backend/format/migrate.ts": "580f74dc35b4414fcc26dbe07102db4d45fae75b5c05a51fd8dbd3e5b7cfb130",
     "src/backend/gl/blend-glsl.ts": "6c58dccae524d40e30f36f2aea7eece8a2f97f26928442d1421fe43324f607c1",
     "src/backend/gl/frame-demand.ts": "29239a834de045e46894b3e43c3946876d35dfd35d5cdd81a271935c2926a90f",
-    "src/backend/gl/gl-compositor.ts": "da0ce5cb77d676ac7a36bc596c1710e8f24a97899f81a5c77aad11303e5e024b",
+    "src/backend/gl/gl-compositor.ts": "f0c3e303a860b5a4e45ee50bee4d69236ebaf731cc42201c49510b699891ad9d",
     "src/backend/gl/gl-doc-bridge.ts": "3b0852c167f4c664cd14c1ccc54bc730f3fef66ece662f4c48625fa33d9a6081",
     "src/backend/gl/gl-room.ts": "030618db05abc005758256c0c6221fe97c53789312ed5a1f0c6f60a683dac9a3",
     "src/backend/gl/gl-stamp.ts": "e3be13ceac6f5bb68dec321eba5055967e9da966db65da41d2a7b2d74885018b",
@@ -42,7 +42,7 @@
     "src/backend/gl/region-programs.ts": "2f087a931325a4fbb956e0b2938d96b6d9cbc483ca5ab912be6fa5189cc9812c",
     "src/backend/gl/region-stroke.ts": "a9596a21c4739e2a87bb423b060188c383ea8f8e5b44e6d691225b3a81839203",
     "src/backend/gl/render-plan.ts": "c3fdf01b425a99d96e5a665b846fc600afcd7f03036d46ed8864bfb186716b9c",
-    "src/backend/gl/render-tree.ts": "8d0e3b26536030e600c074a14167743b3326e2c9bcd90f3426053fe22395a0f2",
+    "src/backend/gl/render-tree.ts": "d50fc9aa31f81c65761367370b7b0dc2a0567fe8ad284b635bd6c9786c9ec399",
     "src/backend/gl/stamp-falloff.ts": "9998662d4838ceeb354b577b9c3d196f67c6c50950bdf45c2f011fee0e867563",
     "src/backend/gl/tile-bridge.ts": "a0455b5029ca2d3477f1accdbbc8175cad2f4d3085582f684c81b69e6f49e565",
     "src/backend/jpeg-codec.ts": "9dfc17a0ddd46864c52bfb7a0e733801b0371d3996c150aaf8190150ecb69693",
@@ -134,7 +134,7 @@
     "test/host-external.test.mjs": "a69828840d6509efde35783bd1e1723e48d47df1b9f6e8f1272528ced9464c13",
     "test/host-overlay.test.mjs": "0a8aa8b6bbd76830c93e9d55eacd5092103a87e9558c879a4da11b00a205e86d",
     "test/hosted-steps.test.mjs": "9f17e687ff0ee209eb266d458e89620361ed46bf0f017cc148eb60899810ada7",
-    "test/incremental-composite.test.mjs": "0d829e4e1b2d05d8e27f8da6715c89f50dc318afe5552525819b89ab413c0119",
+    "test/incremental-composite.test.mjs": "14a333bd116fdc9c14d6e6fd553c7ff02b4b8e43afecc316002be8555894969f",
     "test/kernel-shim.mjs": "dcf663ec7e7cebcc1c07e5f3d8002b12baf04b615de90c0d7600b8c119d46f19",
     "test/kernel-tests.json": "95982e0de307305f50dbba98815adb08902983c6cd0c92bfa45684c3c46c92fe",
     "test/layer-cap-budget.test.mjs": "71050c769b32c2895933fc0c7dc0757ef37277d7c96fe62be599dc47f833fc7a",

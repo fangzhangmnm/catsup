@@ -48,6 +48,8 @@ export class RenderTree {
   private _display: PooledFBO | null = null;      // 上帧合成结果（视口无关）→ pan/zoom 只 present
   private _displaySig: string | null = null;
   private _dirty = true;                          // markDirty（commit/undo/结构变）→ 段全失效
+  /** 缓存段建的时候用的底色（底色烤进最底下那段；段的键只认底色的种类，不认颜色）：变了 = 段全失效（2026-11-11：纯色换纯色以前不失效，最底下那段留着旧颜色）。 */
+  private _segBg: string | null = null;
   private _lastDocW = -1; private _lastDocH = -1;
   private _lastPlan: Plan | null = null;
 
@@ -162,6 +164,8 @@ export class RenderTree {
     if (!this._dirty && updated.size === 0 && this._display && this._displaySig === sig) { room.comp.setRects(null); this.lastPath.path = "same"; return this._display; }
     if (rects !== "full" && (this._displaySig !== sig || !onlyKnownSteps(plan.rootSteps))) rects = this._dropRects(stampOverlays, docW, docH);
 
+    const segBg = JSON.stringify(bg ?? null);
+    if (segBg !== this._segBg) { this._invalidateSegs(); this._segBg = segBg; }   // 换底色：烤着旧底色的段作废
     if (this._dirty) {
       this._invalidateSegs();                        // undo/redo/commit → 重算树（spec:134）
       // 删层对账：树上已不存在的叶丢记录（gpu tile 变孤儿，下帧 frameMaintain 回收）。

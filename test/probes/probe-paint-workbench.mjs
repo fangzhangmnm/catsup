@@ -353,6 +353,8 @@ check(await S(() => document.getElementById("walkBtn").textContent) === "开始�
 const paints12 = await S(() => [...globalThis.__catsup.editor.sceneRef.textures.values()].filter((t) => t.content.kind === "layered").length);
 await page.click("#walkBtn");
 await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-label")].filter((l) => /\d+ × \d+$/.test(l.firstChild?.textContent ?? "")).length === 5 && /^加进已有的画/.test(document.querySelector("#sheetChoices .sheet-row-label")?.firstChild?.textContent ?? "") && !document.getElementById("sheet").hidden);
+// 「加进已有的画」那一行放不放得下是后台试出来的（先照常露、试完才灰掉）：等「在算」都没了再读（2026-11-11 偶发红：读早了，行还没灰；不是墙上钟）
+await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-note")].every((n) => !/在算/.test(n.textContent)), null, { timeout: 20000 });
 const rows12 = await sheetRows();
 check(/^加进已有的画：/.test(rows12[0].label) && rows12[0].disabled && /这张画定的是 256 × 256，放不下了/.test(rows12[0].note) && sizeOnly(rows12).length === 5 && sizeOnly(rows12).every((r) => /^新开一张画：\d+ × \d+$/.test(r.label)) && rows12.some((r) => /^新开一张画：一格 /.test(r.label)),
   `按总大小开的画（256 × 256，一张面已经占满）：「${rows12[0].label}」灰掉、写「${rows12[0].note}」；下面新开一张（按总大小五行 + 按一格多大）`, JSON.stringify(rows12.map((r) => [r.label, r.disabled])));

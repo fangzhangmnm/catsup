@@ -1,6 +1,6 @@
 // 增量合成（CatsUp 贴图主线 1-4d 第 6 条）：外来薄层报了改哪几块 → 内核只在那些脏格里就地重合。证明 = 增量出来的 = 整张重合出来的，逐像素相同。
 // 两块画板吃同一份层像素、同一份薄层像素：一块走增量（薄层 markChanged 报块），另一块每一步都 markContentDirty 强制整张（它的薄层从不报 = 内核每次都当整张变了）。
-// 随机：层栈（12 种混合、剪切、组〔穿透 / 隔离〕、透明度、隐藏）、底（颜色 / 棋盘 / 透明）、每一步做一件事——画几块（重叠的、贴边的、出界的、一帧二十多块的）、
+// 随机：层栈（12 种混合、剪切、组〔穿透 / 隔离〕、透明度、隐藏）、底（十六进制 / 落在半格上的浮点 / 棋盘 / 透明；中途换底色不报 dirty）、每一步做一件事——画几块（重叠的、贴边的、出界的、一帧二十多块的）、
 //   方框长大、什么都不变、改一大片（过半 → 整张）、换叠法 / 透明度 / 橡皮 / 锁透明、方框缩小、薄层所在那层的像素被改了没报、别的层改了并报 dirty（缓存段重建）、丢上下文。
 // 每一步两边读回整张比；最后数三条路（rects / same / full）各走了几次，增量真的走到了。
 // 内核自己的测试：只 import 内核和测试工具。created 2026-11-11 by Claude Opus 5.5
@@ -35,7 +35,9 @@ function trial(seed, counts, size = null, nSteps = 24) {
   const layers = stack(0);
   const leaves = []; const walk = (ns) => { for (const n of ns) { if (n.isGroup) walk(n.children); else leaves.push(n); } }; walk(layers);
   const target = pick(leaves);
-  const bg = pick(["#ffffff", "#336699", "checker", null]);
+  // 底色：十六进制 / 落在半格上的浮点（0.3 × 255 = 76.5，CatsUp 的底色就是这种）/ 棋盘 / 透明；中途还会换（「换底色」那一步）
+  const BGS = ["#ffffff", "#336699", [0.3, 0.5, 0.7, 1], [0.1, 0.9, 0.5, 1], "checker", null];
+  let bg = pick(BGS);
   const doc = { layers, width: W, height: H };
 
   const A = new SoftGl2Port(), B = new SoftGl2Port(), inc = new GLBoard(A, 64), ref = new GLBoard(B, 64);
@@ -73,7 +75,8 @@ function trial(seed, counts, size = null, nSteps = 24) {
       else if (k < 0.79) { ov.bw = Math.max(1, ov.bw - 3); step("方框缩小"); }
       else if (k < 0.84) { target.pixels.putRegion(0, 0, 1, 1, new Uint8ClampedArray([255, 0, 0, 255])); step("薄层那层的像素改了没报"); }
       else if (k < 0.9) { const l = pick(leaves), w = Math.min(3, W), h = Math.min(3, H); l.pixels.putRegion(Math.floor(R() * (W - w + 1)), Math.floor(R() * (H - h + 1)), w, h, new Uint8ClampedArray(w * h * 4).fill(200)); inc.markContentDirty(); step("别的层改了、报 dirty（缓存段重建）"); }
-      else if (k < 0.95) { inc.markContentDirty(); step("只报 dirty"); }
+      else if (k < 0.93) { inc.markContentDirty(); step("只报 dirty"); }
+      else if (k < 0.95) { bg = pick(BGS); step("换底色（不报 dirty）"); }
       else { A._invalidated.forEach((f) => f()); step("丢上下文"); }
     }
   } finally {
