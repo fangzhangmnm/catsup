@@ -12,10 +12,10 @@ export type ChunkKind = "tris" | "lines" | "points";
 export interface TextureRef { readonly mimeType: string; readonly bytes: Uint8Array; readonly sizeM: readonly number[] }
 /**
  * 一张活的图（贴图主线 1-3c）：别人（画画内核）已经放在同一个显卡画面里的图。渲染器每帧开画之前问一遍 `current()`（要重新合成的在这时候合成），
- * 问完统一作废一次自己的显卡状态缓存；`version` 变了就把 `handle`（那张图的显卡句柄）拷进渲染器自己的专用显示图（带多级缩小图、放大最近邻、夹边）。
+ * 问完统一作废一次自己的显卡状态缓存；`version` 变了就把 `gpuImage`（那张图的显卡句柄）拷进渲染器自己的专用显示图（带多级缩小图、放大最近邻、夹边）。
  * 那张图归别人：不许改采样设置、不许长期拿着。宽高 = 现在的实际大小（会变）。null = 现在没有（画面丢了）。和 TextureRef 一样按对象当缓存键。
  */
-export interface LiveImage { readonly kind: "live"; readonly width: number; readonly height: number; current(): { readonly handle: unknown; readonly version: number } | null }
+export interface LiveImage { readonly kind: "live"; readonly width: number; readonly height: number; current(): { readonly gpuImage: unknown; readonly version: number } | null }
 /**
  * 对材质模块的引用：提供者从场景的材质 + 「这个材质用哪张图」那个口拼出来、按对象记住（同一个材质每次给同一个对象）；引擎拿它当着色器缓存键、拿 map 当解码缓存键。
  * 渲染器不认识场景（不知道贴图表、GUID）。颜色过渡期还由提供者烤进顶点色（提供者自己按调色板算，不再问后端）；材质模块落地后换成槽表（material/）。

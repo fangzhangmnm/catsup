@@ -98,6 +98,8 @@ export interface FaceRec {
     readonly v: Pt3;
     readonly ub: Pt3;
     readonly vb: Pt3;
+    /** 每个三角顶点是这张面的第几个角（外环；洞上的点 = 外环角数之后接着数）。画的贴图坐标按它取角上存的数（贴图主线 1-3c）。 */
+    readonly corner: Int32Array;
 }
 export declare function buildFaceRec(k: KernelView, fid: FaceId, matOf: (slot: number | undefined) => Material | null): FaceRec | null;
 export interface EdgeRec {
@@ -120,6 +122,16 @@ export interface PoolMeshEnv {
     matOf(slot: number | undefined): Material | null;
     /** 这个材质贴哪张图（scene.colorMapOf，那个口）：null = 按底色画。 */
     mapOf(m: Material): ColorMap | null;
+    /**
+     * 这张面显示画吗（贴图主线 1-3c）：走画（Scene.facePaint）、那张画有画板、角上在那一套坐标里有位置 → 每角两个数（画布像素）+ 画板**实际**宽高 + 那张贴图的 GUID；
+     * 差一样 = null（照旧按底色 / 原图那条路）。k = 正在同步的那个内核（预演影子也一样）。只有网格体给。
+     */
+    paintOf?(k: KernelView, fid: FaceId, m: Material): {
+        readonly values: ArrayLike<number>;
+        readonly w: number;
+        readonly h: number;
+        readonly key: string;
+    } | null;
     /** 定义的材质槽表签名（每个槽的材质身份，逗号连）：一边是另一边的前缀 = 增量；别的变化 = 全量重建。 */
     slotsSig: string;
     /** 面 / 边烤进顶点的颜色（提供者按调色板算；淡出 / 选中不在这里 = 标记）。 */

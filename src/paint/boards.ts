@@ -27,7 +27,8 @@ export class PaintBoards {
   private port: Gl2Port | null = null;
   private epochSeen: number;
   private sigCache = "";
-  constructor(private readonly o: PaintBoardsOpts) { this.epochSeen = o.epoch(); }
+  private readonly o: PaintBoardsOpts;
+  constructor(o: PaintBoardsOpts) { this.o = o; this.epochSeen = o.epoch(); }
 
   get count(): number { return this.entries.size; }
   get(texture: Guid): PaintBoard | undefined { return this.entries.get(texture)?.board; }
@@ -48,7 +49,7 @@ export class PaintBoards {
       kind: "live",
       get width() { return board.width; },
       get height() { return board.height; },
-      current: () => { const r = board.compose(); return r ? { handle: handleOf(port, r.fbo), version: r.version } : null; },
+      current: () => { const r = board.compose(); return r ? { gpuImage: gpuImageOf(port, r.fbo), version: r.version } : null; },
     };
     this.entries.set(texture, { board, image });
     this.resig();
@@ -94,7 +95,7 @@ export class PaintBoards {
 }
 
 /** 合成好的那张图的显卡句柄（真显卡 = WebGLTexture；软件显卡 = 它自己）。 */
-function handleOf(port: Gl2Port, fbo: PooledFBO): unknown {
+function gpuImageOf(port: Gl2Port, fbo: PooledFBO): unknown {
   const p = port as { glTextureOf?(f: PooledFBO): WebGLTexture };
   return p.glTextureOf ? p.glTextureOf(fbo) : fbo;
 }

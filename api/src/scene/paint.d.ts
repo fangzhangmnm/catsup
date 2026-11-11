@@ -1,10 +1,19 @@
-import type { DefId, Material, Scene } from "./scene.ts";
+import type { DefId, Material, Scene, UvSetRow } from "./scene.ts";
 import { type TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
 /** 第六节那几种动作碰到走画的面时的原因（拒绝之后场景一个字节不变）。 */
 export declare const PAINT_CANT_MOVE = "\u5E26\u7740\u753B\u7684\u9762\u73B0\u5728\u8FD8\u642C\u4E0D\u4E86\uFF08\u753B\u8DDF\u7740\u9762\u642C\u5BB6\u662F\u540E\u9762\u7684\u4E00\u5F20\u5DE5\u5355\uFF09";
 /** 这张面走哪一套贴图坐标（走画 = 那一套的 GUID；不走 = null）。 */
 export declare function paintUvOf(s: Scene, def: DefId, f: number): Guid | null;
+/**
+ * 这张画铺在哪（画板登记处跟着坐标改大小、垫底色用；贴图主线 1-3c）：贴图表里这一行是画、有材质的颜色那一槽指着它、它铺的那个定义的 uvSets 里有那一套
+ * → 定义、那一套、指着它的第一个材质（底色）；差一样 = null。layout 照旧只经 paintIn 读。
+ */
+export declare function paintPlaceOf(s: Scene, texture: Guid): {
+    def: DefId;
+    uvSet: UvSetRow;
+    material: Material;
+} | null;
 /**
  * 规矩（进场景的自检，和 MeshKernel.check() 一起跑；1-3b 第一节）：uvSets 表里每一行，内核里有同 GUID、每角两个数的列；这一列上有值的角都落在画布里
  * （横 0 到宽、纵 0 到高）。返回毛病（空 = 好）。

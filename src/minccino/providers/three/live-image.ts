@@ -32,7 +32,8 @@ export class LiveTextures {
   private uSrc: WebGLUniformLocation | null = null;
   /** 最近一次拷贝（拷 + 生成缩小图）花了多少毫秒（CPU 时间；探针量）。 */
   lastCopyMs = 0;
-  constructor(private readonly gl: WebGL2RenderingContext) {}
+  private readonly gl: WebGL2RenderingContext;
+  constructor(gl: WebGL2RenderingContext) { this.gl = gl; }
 
   get size(): number { return this.entries.size; }
 
@@ -58,7 +59,7 @@ export class LiveTextures {
       if (!cur) continue;
       if (cur.version === e.ver && e.disp && e.w === img.width && e.h === img.height) continue;
       const t0 = performance.now();
-      this.copy(e, cur.handle as WebGLTexture, img.width, img.height);
+      this.copy(e, cur.gpuImage as WebGLTexture, img.width, img.height);
       this.lastCopyMs = performance.now() - t0;
       e.ver = cur.version;
     }

@@ -188,6 +188,18 @@ export declare class Renderer3 implements RenderProvider {
     private texUniform;
     /** 贴图异步解好后的回调（app 层接 editor.draw）。 */
     onTextureReady: (() => void) | null;
+    /** 活的图（画）的专用显示图：第一次用到时建；显卡画面丢了忘掉原始 GL 对象、恢复后重拷。 */
+    private live;
+    private liveTextures;
+    /** 画画内核共用的显卡画面（契约 RenderProvider.paintGl）。 */
+    paintGl(): WebGL2RenderingContext | null;
+    /** 内核动过显卡了：three 作废自己缓存的状态。 */
+    resetPaintState(): void;
+    /** 探针：上一次拷活的图花了多少毫秒；现在登记着几张。 */
+    liveStats(): {
+        images: number;
+        copyMs: number;
+    };
     /** 线稿风格（视图菜单「粗线稿」）：池的边换粗线 / 像素线 = 重拉一次（块不变，槽节点换几何）。 */
     setLineStyle(style: LineStyle): void;
     /** 这一帧的 pass 声明：白模 = 膜 + 边直接画进 frame；风格 = 场景画进小图 → 后处理 → 放大（minccino/preset presetPasses）。地面网格 / 叠加层 / X 光往 frame 上追加画。开关 = 在不在表里。

@@ -1,6 +1,20 @@
-import type { StreamFrame, StreamProvider, StreamQuery, Vec3 } from "../minccino/index.ts";
+import type { LiveImage, StreamFrame, StreamProvider, StreamQuery, Vec3 } from "../minccino/index.ts";
 import { type WorldView } from "../scene/world-view.ts";
+import { type Scene } from "../scene/scene.ts";
 import type { MarkLayout } from "./highlight.ts";
+/**
+ * 画板登记处在编辑器这边看到的样子（贴图主线 1-3c；实现 = src/paint/boards.ts，编辑器不认识画画内核）。
+ * sync = 每次拉流之前：跟着场景改画板大小、换了文件全部销毁；board = 这张贴图的画板（实际宽高 + 活的图）；sig = 有哪些画板、多大（变了 = 用到画的池整份重建）。
+ */
+export interface PaintImages {
+    sync(scene: Scene): void;
+    board(texture: string): {
+        readonly width: number;
+        readonly height: number;
+        readonly image: LiveImage;
+    } | null;
+    sig(): string;
+}
 export declare class EditorStreamProvider implements StreamProvider {
     private world;
     private revision;
@@ -20,6 +34,12 @@ export declare class EditorStreamProvider implements StreamProvider {
     /** 世界视图对象 → 小整数（内容键 / 包围球缓存：预演影子每帧是新对象 = 身份变 = 自然失效，和以前 render3 的 kernelId 同构）。 */
     private worldIds;
     private nextWorldId;
+    /** 画板登记处（1-3c；没接 = 没有画显示）。 */
+    private paint;
+    setPaint(p: PaintImages | null): void;
+    /** 画的那一组交给渲染器的材质引用：同一个材质 + 同一张活的图 = 同一个对象。 */
+    private readonly paintRefs;
+    private paintRef;
     /** 上一次 pull 每个槽画的是哪份身体（标记的布局按它找块 / 段）。 */
     private slotBody;
     private boundsCache;
@@ -46,6 +66,11 @@ export declare class EditorStreamProvider implements StreamProvider {
     /** 槽 s 用哪份池网格（同步到 s 的内核）。同一帧同一个内核只同步一次。 */
     private bodyFor;
     private env;
+    /**
+     * 这张面显示画吗（1-3c，规矩在 PoolMeshEnv.paintOf）：走不走画只问 Scene.facePaint；角上的数从正在同步的那个内核拿（预演影子也对）；
+     * 有一个角没有位置 = 这张面还没铺上 = 按底色画。
+     */
+    private paintOf;
     /** 池网格同步完 → 块：改过的段（takeDirty）/ 数组换过 / 组没了 = 新版本；没动 = 原块原版本。 */
     private refreshChunks;
 }

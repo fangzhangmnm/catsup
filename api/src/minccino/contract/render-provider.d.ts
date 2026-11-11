@@ -119,6 +119,10 @@ export interface RenderProvider {
     onMeasured: ((b: BudgetReport | null, m: Measurement) => void) | null;
     onRedrawWanted: (() => void) | null;
     onTextureReady: (() => void) | null;
+    /** 显卡画面（WebGL2）；没有 = null（不是 WebGL2 的供货商）。 */
+    paintGl(): WebGL2RenderingContext | null;
+    /** 内核动过显卡了：渲染器作废自己缓存的显卡状态。 */
+    resetPaintState(): void;
     lastBudget: BudgetReport | null;
     lastMeasurement: Measurement | null;
     lastPlan: {

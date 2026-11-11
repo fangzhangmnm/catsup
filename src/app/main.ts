@@ -71,7 +71,9 @@ import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { Renderer3 } from "../minccino/providers/three/render3.ts";
 import { browserPaintBoards } from "../paint/boards.ts";   // 画板登记处（贴图主线 1-3c）：一张贴图一块画板；这一张只有调试钩子 __catsup.paint 建
-import { paintPlaceOf } from "../scene/paint.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
+import { paintPlaceOf } from "../scene/paint.ts";
+import { buildTriGrid, pickSurface } from "../paint/surface-pick.ts";   // 调试钩子 __catsup.paint.cellAt：1-3a 的落点
+import { applyDir, applyPt, invert } from "../scene/xform.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
 import { PALETTE, PRESETS, PRESET_IDS, isPresetId, isDarkPaper, SCREENS, SCREEN_IDS, isScreenId, type Preset, type MarkAccent } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
 import { makeBudgetWatch } from "./budget-notice.ts";
 import { KEYS_TABLE, README_SECTIONS } from "./readme-docs.ts";
@@ -2425,6 +2427,15 @@ void (async () => {
     fill: (guid: string, rgba: ArrayLike<number>) => { const b = paintBoards.get(guid); if (!b) throw new Error(`no board for ${guid}`); b.load({ width: b.width, height: b.height, nodes: [{ name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: { rect: { x: 0, y: 0, w: b.width, h: b.height }, bytes: new Uint8ClampedArray(rgba) } }] }); editor.draw(); },
     list: () => paintBoards.guids().map((g) => ({ guid: g, width: paintBoards.get(g)!.width, height: paintBoards.get(g)!.height })),
     stats: () => (editor.renderer3 as unknown as { liveStats(): { images: number; copyMs: number } }).liveStats(),
+    /** 屏幕上一点（CSS 像素）按 1-3a 的落点落在这张画的哪一格（探针拿它和屏幕上读到的颜色对）；只看摆在最外层的那一份。 */
+    cellAt: (guid: string, sx: number, sy: number) => {
+      const S = editor.sceneRef, place = paintPlaceOf(S, guid), body = place ? S.def(place.def).body : null;
+      const inst = place ? [...S.def(S.root).instances.values()].find((i) => i.def === place.def) : undefined;
+      if (!place || !body || body.kind !== "mesh" || !inst) return null;
+      const r = editor.cam.ray(sx, sy, editor.vp()), X = invert(inst.xform);
+      const hit = pickSurface(body.kernel, buildTriGrid(body.kernel), place.uvSet.guid, applyPt(X, r.origin), applyDir(X, r.dir));
+      return hit && hit.inPaint ? { face: hit.face, cell: hit.cell, uv: hit.uv } : hit ? { face: hit.face } : null;
+    },
   }, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore, test: { openConfirmSheet, openInputSheet, toggleHelp, toggleMatSheet, openDebugLogSheet, openSyncGate, withBusy, inputGate },
   gate: { cloudGate, tune: gateTune, isUserOffline },
   // 图库的家（探针 test/probes/probe-folder-home.mjs 用）：openGallery = 用户点「图库」那条路；legacyFiles = 另开一个离线实例数以前那个库（不看退役旗）

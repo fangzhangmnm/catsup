@@ -18,6 +18,7 @@ import { type LockAxis, type PlaneLock } from "./locks.ts";
 import { type Ladder, type ScaleTipView } from "./scale-ref.ts";
 import { type ViewState } from "./view-state.ts";
 import { type LineStyle, type RenderProvider } from "../minccino/index.ts";
+import { EditorStreamProvider } from "./stream-provider.ts";
 import { type Op } from "./ops.ts";
 import { type ImportScene } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
@@ -321,7 +322,7 @@ export declare class Editor {
     private host;
     readonly cam: OrbitCamera;
     private r3;
-    private readonly provider;
+    readonly provider: EditorStreamProvider;
     private scene;
     private ctx;
     private readonly gridState;
@@ -756,7 +757,7 @@ export declare class Editor {
     redo(): void;
     /** 装载一个场景当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始，上下文回根，选区/充能/手势全清。 */
     /** 第几个模型（换模型 = 加一）：粘贴提示据此说「这是从别的模型拷来的、用的是本文件这版」（clipboard.ts）。 */
-    private docEpoch;
+    docEpoch: number;
     loadScene(s: Scene, label?: string): void;
     /** 兼容：单内核当根池装载。 */
     loadKernel(k: Kernel, label?: string): void;
