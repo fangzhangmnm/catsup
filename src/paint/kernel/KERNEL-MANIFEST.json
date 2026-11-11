@@ -2,8 +2,8 @@
   "about": "Paint kernel copied verbatim from WeebPaint by scripts/pull-paint-kernel.sh. Do not edit here: change it in WeebPaint, then pull again. test/paint-kernel-guard.test.ts checks every hash.",
   "source": {
     "repo": "WeebPaint",
-    "commit": "871cd5b8619f3cd561c7ad90538700615bbc5a78",
-    "version": "v0.14.77-2026-11-11"
+    "commit": "8f4d2cfdbc82548d986d5d537347ba0219a4bd87",
+    "version": "v0.14.78-2026-11-11"
   },
   "files": {
     "src/backend/algorithms/README.md": "07faa259a0e864acc853614fc284f75fda2d259efacf5483ff993f75323fa434",
@@ -54,7 +54,7 @@
     "src/backend/selection.ts": "05dddfe16276823f083087d50c564bf1497fb103b0e30d23072218191339a4aa",
     "src/backend/soft-gl2-port.ts": "a19e45d41ff9b0beab815c587b20e48edc2b1387b7f0d43ae10af96f3e3e076c",
     "src/backend/soft-shaders.ts": "aed2b17251b73d342efb24f71de9ceca169c9a0afd8a0aa2ad0bbfcd504008b7",
-    "src/backend/stroke-core.ts": "dc761d1bdcc439058ee363bb197dd802b24ce1c745ba550e4c4c4199f159dacb",
+    "src/backend/stroke-core.ts": "1b3cd471a5bb2d86606288d039bc1b5cc99c3c021383ceca385daaa741683463",
     "src/backend/stroke-session.ts": "094587e61719ad58d0ce0520fa6bc28d1dad505ffd291069d32dd9f9a30cf15e",
     "src/backend/stroke-smoother.ts": "06eb1338c5aab4859b02e0c7dcf5fca820d722d76b900c062b0e417ba3d4c2c0",
     "src/backend/tiles/app-tile-pool.ts": "496559a9ea49add9250f32a1038c8fcb45b7cebd2594ad8829c76eb58d05dc8f",
@@ -160,7 +160,7 @@
     "test/settle-hold.test.ts": "8c095ff1a320a641a72bee64d13425445c24ca92b4290b9c6bad75f32fde9930",
     "test/soft-gl2-port.test.mjs": "8e6982b5f171cb992cc0431b6545e5a4e0a526cb93330b3f6ad1f77b5a883f7d",
     "test/stroke-core-golden.test.mjs": "05a838fb818cb684064ff686442dd672c94cc84fd93f7faa1dba28f4015743cd",
-    "test/stroke-core.test.mjs": "179b6f155c2dfe344781d0b52ad16888bb40165ff0bec94c6a3171febcea2b39",
+    "test/stroke-core.test.mjs": "e6e0f45fe943b82d9bf7dc1b5b6f67f94be0a21a2b1ddded2930b8b4e85d249a",
     "test/stroke-session-region.test.mjs": "f0cc8203ef31a5908707f4f41cca883cc307d97e3c6222e50484574eebf5c159",
     "test/stroke-smoother.test.mjs": "f8042040af04393cac70bb05598fcac80deedd6ed8bcdf4c0e7eadb7d723a429",
     "test/tile-bridge.test.mjs": "8b4bf02473345253262b4a013367898b3d8f51188376120450ccae6c789ea1af",

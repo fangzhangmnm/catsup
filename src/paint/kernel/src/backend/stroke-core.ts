@@ -140,6 +140,31 @@ function centerlinePath(sm: StrokeSmoother): StrokePath {
   return { dim: 2, count: sm.count, coord: (i, k) => (k === 0 ? cx[i] : cy[i]), pressure: (i) => cp[i], breakBefore: () => false, frozenCount: Math.max(0, sm.frozenIndex() + 1) };
 }
 
+/**
+ * 走步的定型缓存（CatsUp 贴图主线 1-4d 第 2 条，2026-11-11 Claude Opus 5.5）：路上前 frozenCount 个点不会再变，所以从头走到「最后一个不会再变的点」时的游标、
+ * 和这一段交出的笔尖也不会再变——记下来，下一帧从那里接着走，只重走还会变的尾巴。交出去的每一个数逐位不变（同一串算式从同一个状态接着算；
+ * 存的是 Float64，原样取回）。前提 = 喂进来的路都是这一笔自己的 path()（前 frozenCount 个点逐位不变、只增不减）；路说定型的变少了 = 丢掉缓存从头走（保底）。
+ */
+interface WalkCache {
+  /** 走到这里的游标：ci = 最后一个不会再变的点（frozen − 1）。还没走 = freshWalk()。 */
+  walk: Walk;
+  /** 上次看到的定型点数（min(frozenCount, count)）。 */
+  frozen: number;
+  /** 这一段走出来的原料：每颗 6 个数（第几段, x, y, z, 压感, 走了多远）。 */
+  raw: Float64Array; rawN: number;
+  /** 原料按收笔总长 taper 算成的笔尖：每颗 7 个数（第几段, x, y, z, 大小, 浓度, 走了多远），太淡跳过的不在里面；tipsFrom = 原料算到第几颗。taper 变了（抬笔）= 重算。 */
+  tips: Float64Array; tipN: number; tipsFrom: number; taper: number | null;
+}
+const RAW_W = 6, TIP_W = 7;
+const newWalkCache = (): WalkCache => ({ walk: freshWalk(), frozen: 0, raw: new Float64Array(0), rawN: 0, tips: new Float64Array(0), tipN: 0, tipsFrom: 0, taper: null });
+/** 放得下 need 个数（不够就翻倍长，旧的原样拷过去）。 */
+function room(a: Float64Array, need: number): Float64Array {
+  if (need <= a.length) return a;
+  const b = new Float64Array(Math.max(need, a.length * 2, 256));
+  b.set(a);
+  return b;
+}
+
 /** 一笔的手感（不认识图层）：落笔建一个，喂点、收集、抬笔。 */
 export class StrokeCore {
   readonly settings: ResolvedBrush;
@@ -147,6 +172,7 @@ export class StrokeCore {
   readonly sm: StrokeSmoother;
   private readonly _pLPF: PressureLPF;
   private readonly _placer: PathPlacer | null;
+  private _wc: WalkCache = newWalkCache();
   /** 抬笔时量的总长（给收笔渐细）；没抬笔 = null（live 不做收笔渐细）。 */
   taperTotal: number | null = null;
 
@@ -179,49 +205,96 @@ export class StrokeCore {
     return this._placer ? this._placer.place(sm.cx, sm.cy, sm.cp, sm.count, Math.max(0, sm.frozenIndex() + 1)) : centerlinePath(sm);
   }
 
-  /**
-   * 一颗一颗交出这一笔到现在的全部笔尖（每次从头走一遍，纯读；抬笔后自动含收笔渐细）：emit(第几段, x, y, z, 大小, 浓度, 走了多远)。
-   * 二维的 BrushEngine.collectStamps 直接用它拼笔尖对象（不经过中间数组：画画软件每帧都收集一遍）。
-   */
-  forEachTip(emit: (seg: number, x: number, y: number, z: number, size: number, alpha: number, strokeDist: number) => void, path: StrokePath = this.path()): void {
+  /** 走一步多远（这一笔的笔、压感整形、单位都定了）。 */
+  private _step = (p: number): number => stepFor(this.settings, p, this.pShape, this.unit);
+
+  /** 定型缓存跟到这条路：从上次的游标接着走到最后一个不会再变的点，新走出来的笔尖原料记下；再把原料按现在的收笔总长算成笔尖（只算新的；总长变了全算）。 */
+  private _advance(path: StrokePath): WalkCache {
+    const F = Math.min(path.frozenCount, path.count);
+    let c = this._wc;
+    if (F < c.frozen) c = this._wc = newWalkCache();   // 保底：定型的变少了（不该发生）= 从头走
+    c.frozen = F;
+    if (F >= 1) {   // 一个都没定型时连起点那一颗也不记（起点那颗读第 0 个点）
+      walkPath(path, c.walk, F - 1, this._step, (seg, x, y, z, p, sd) => {
+        const o = c.rawN * RAW_W;
+        const r = (c.raw = room(c.raw, o + RAW_W));
+        r[o] = seg; r[o + 1] = x; r[o + 2] = y; r[o + 3] = z; r[o + 4] = p; r[o + 5] = sd;
+        c.rawN++;
+      });
+    }
+    if (c.taper !== this.taperTotal) { c.taper = this.taperTotal; c.tipN = 0; c.tipsFrom = 0; }
+    const s = this.settings, shape = this.pShape, unit = this.unit, raw = c.raw;
+    for (; c.tipsFrom < c.rawN; c.tipsFrom++) {
+      const i = c.tipsFrom * RAW_W;
+      const params = stampParamsOf(s, shape, raw[i + 4], raw[i + 5], c.taper, unit);
+      if (!params) continue;
+      const o = c.tipN * TIP_W;
+      const t = (c.tips = room(c.tips, o + TIP_W));
+      t[o] = raw[i]; t[o + 1] = raw[i + 1]; t[o + 2] = raw[i + 2]; t[o + 3] = raw[i + 3]; t[o + 4] = params.size; t[o + 5] = params.stampAlpha; t[o + 6] = raw[i + 5];
+      c.tipN++;
+    }
+    return c;
+  }
+
+  /** 尾巴：从定型的游标（拷一份）接着走到路的最后一个点，每颗算好交出去。 */
+  private _walkTail(path: StrokePath, c: WalkCache, emit: (seg: number, x: number, y: number, z: number, size: number, alpha: number, strokeDist: number) => void): void {
     const s = this.settings, unit = this.unit, shape = this.pShape, taperTotal = this.taperTotal;
-    walkPath(path, freshWalk(), path.count - 1, (p) => stepFor(s, p, shape, unit), (seg, x, y, z, p, sd) => {
+    const w: Walk = { ci: c.walk.ci, started: c.walk.started, accumDist: c.walk.accumDist, lastP: c.walk.lastP, strokeDist: c.walk.strokeDist };
+    walkPath(path, w, path.count - 1, this._step, (seg, x, y, z, p, sd) => {
       const params = stampParamsOf(s, shape, p, sd, taperTotal, unit);
       if (params) emit(seg, x, y, z, params.size, params.stampAlpha, sd);
     });
   }
 
-  /** 收集这一笔到现在的全部笔尖（StrokeTips，含定型的前缀）。 */
-  collect(): StrokeTips {
-    const path = this.path(), s = this.settings, dim = path.dim;
-    const out: number[] = [];
-    let n = 0, frozenTips = 0, frozenOpen = true, lastFrozenSd = -Infinity;
-    const segFrozen = (seg: number): boolean => (seg < 0 ? path.frozenCount >= 1 : seg + 1 < path.frozenCount);
-    const sds: number[] = [];
-    this.forEachTip((seg, x, y, z, size, alpha, sd) => {
-      if (dim === 3) out.push(x, y, z); else out.push(x, y);
-      out.push(size, alpha, sd);
-      if (frozenOpen && segFrozen(seg)) { frozenTips++; sds.push(sd); lastFrozenSd = sd; } else frozenOpen = false;
-      n++;
-    }, path);
-    // 收笔渐细：总长只会变长（路上不会再变的那部分固定），离这部分的最后一颗超过渐细长度的笔尖不会再被它改
-    if (s.taperOut > 0 && frozenTips > 0) {
-      const taperLen = s.size * s.taperOut;
-      let k = 0;
-      while (k < frozenTips && lastFrozenSd - sds[k] >= taperLen) k++;
-      frozenTips = k;
-    }
-    return { dim, count: n, data: Float64Array.from(out), frozenCount: frozenTips };
+  /**
+   * 一颗一颗交出这一笔到现在的全部笔尖（纯读；抬笔后自动含收笔渐细）：emit(第几段, x, y, z, 大小, 浓度, 走了多远)。
+   * 定型的那一段从缓存里原样交出，只重走还会变的尾巴（每帧的走步只和尾巴有关，1-4d）；交出去的和每次从头走一遍逐位相同。
+   * path 要给就给这一笔自己的 path()（缓存靠它的前 frozenCount 个点不变）。
+   * 二维的 BrushEngine.collectStamps 直接用它拼笔尖对象（不经过中间数组：画画软件每帧都收集一遍）。
+   */
+  forEachTip(emit: (seg: number, x: number, y: number, z: number, size: number, alpha: number, strokeDist: number) => void, path: StrokePath = this.path()): void {
+    const c = this._advance(path), t = c.tips;
+    for (let k = 0, o = 0; k < c.tipN; k++, o += TIP_W) emit(t[o], t[o + 1], t[o + 2], t[o + 3], t[o + 4], t[o + 5], t[o + 6]);
+    this._walkTail(path, c, emit);
   }
 
-  /** 抬笔：平滑器收尾（把直线桥换成带动量的弧尾、钉终点）；有收笔渐细就沿整条路干走一遍量总长。之后 collect() 含收笔渐细。 */
+  /** 收集这一笔到现在的全部笔尖（StrokeTips，含定型的前缀）。 */
+  collect(): StrokeTips {
+    const path = this.path(), s = this.settings, dim = path.dim, W = dim + 3;
+    const c = this._advance(path), t = c.tips;
+    const tail: number[] = [];
+    this._walkTail(path, c, (_seg, x, y, z, size, alpha, sd) => {
+      if (dim === 3) tail.push(x, y, z); else tail.push(x, y);
+      tail.push(size, alpha, sd);
+    });
+    const n = c.tipN + tail.length / W, data = new Float64Array(n * W);
+    for (let k = 0, o = 0, d = 0; k < c.tipN; k++, o += TIP_W) {
+      data[d++] = t[o + 1]; data[d++] = t[o + 2]; if (dim === 3) data[d++] = t[o + 3];
+      data[d++] = t[o + 4]; data[d++] = t[o + 5]; data[d++] = t[o + 6];
+    }
+    data.set(tail, c.tipN * W);
+    // 定型的笔尖 = 缓存里那些（全来自不会再变的段；尾巴上的段都碰到会变的点）。
+    // 收笔渐细：总长只会变长（路上不会再变的那部分固定），离这部分的最后一颗超过渐细长度的笔尖不会再被它改
+    let frozenTips = c.tipN;
+    if (s.taperOut > 0 && frozenTips > 0) {
+      const taperLen = s.size * s.taperOut, lastFrozenSd = t[(frozenTips - 1) * TIP_W + 6];
+      // 走了多远只增不减 → 「离最后一颗够远」是一段前缀：二分找第一颗不够远的（和一颗一颗数的结果一样）
+      let lo = 0, hi = frozenTips;
+      while (lo < hi) { const mid = (lo + hi) >>> 1; if (lastFrozenSd - t[mid * TIP_W + 6] >= taperLen) lo = mid + 1; else hi = mid; }
+      frozenTips = lo;
+    }
+    return { dim, count: n, data, frozenCount: frozenTips };
+  }
+
+  /** 抬笔：平滑器收尾（把直线桥换成带动量的弧尾、钉终点）；有收笔渐细就沿整条路干走一遍量总长（定型的那一段从缓存的游标接着走）。之后 collect() 含收笔渐细。 */
   finish(): void {
     this.sm.update();
     this.sm.finish();
     const path = this.path(), last = path.count - 1;
     if (last >= 0 && this.settings.taperOut > 0) {
-      const dry = freshWalk();
-      walkPath(path, dry, last, (p) => stepFor(this.settings, p, this.pShape, this.unit), () => {});
+      const c = this._advance(path);
+      const dry: Walk = { ci: c.walk.ci, started: c.walk.started, accumDist: c.walk.accumDist, lastP: c.walk.lastP, strokeDist: c.walk.strokeDist };
+      walkPath(path, dry, last, this._step, () => {});
       this.taperTotal = dry.strokeDist;
     }
   }

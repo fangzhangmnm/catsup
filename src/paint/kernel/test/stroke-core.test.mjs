@@ -1,8 +1,9 @@
 // 一笔的手感不管几维（贴图主线 0-6；施工单 CatsUp ai-docs/20261110-paint-workorders-5.md 第二节第 3–7 条）。created 2026-11-10 by Claude Opus 5.5
 // A 三维的间距（假落点：屏幕上的点落到球面上）  B 单位（世界、笔的大小、unit 一起放大十倍）  C 断开  D 定型  E 停顿
+// F 走步只走尾巴（CatsUp 贴图主线 1-4d 第 2 条，2026-11-11 Claude Opus 5.5）：交出去的和每次从头走一遍逐位相同；一笔越画越长，每帧读路上的点数不跟着涨
 // 内核自己的测试：只 import 内核和测试工具，不读仓里的文件（守卫在 stroke-core-guard.test.mjs）。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { StrokeCore } from "../src/backend/stroke-core.ts";
+import { StrokeCore, walkPath, freshWalk, stepFor, stampParamsOf } from "../src/backend/stroke-core.ts";
 import { resolveBrush } from "../src/common/resolved-brush.ts";
 
 const base = { color: "#000000", hardness: 0.8, spacing: 0.2, flow: 1, opacity: 1, sizeCoeff: 0, flowCoeff: 0, opaCoeff: 0, pressureGamma: 1, pressureLPF: 0, taperIn: 0, taperOut: 0, streamline: 0, stabilization: 0 };
@@ -109,6 +110,52 @@ describe("一笔的手感不管几维（0-6）", () => {
       }
       assert(prev > 10, `收笔渐细 ${taperOut}、${placer ? "三维" : "二维"}：真的定型了（${prev} 颗）`);
     }
+  });
+
+  it("F1 走步只走尾巴、结果不变：每一帧 forEachTip 交出的每一个数 == 同一条路从头走一遍（二维 / 三维、有断开、有无收笔渐细，边画边收、抬笔后再收）", () => {
+    /** 参照：不经过任何缓存，从头走一遍（和缓存之前的 forEachTip 同一串算式）。 */
+    const fresh = (core, path) => {
+      const s = core.settings, out = [];
+      walkPath(path, freshWalk(), path.count - 1, (p) => stepFor(s, p, core.pShape, core.unit), (seg, x, y, z, p, sd) => {
+        const q = stampParamsOf(s, core.pShape, p, sd, core.taperTotal, core.unit);
+        if (q) out.push(seg, x, y, z, q.size, q.stampAlpha, sd);
+      });
+      return out;
+    };
+    const got = (core, path) => { const out = []; core.forEachTip((...a) => { out.push(...a); }, path); return out; };
+    let frames = 0;
+    for (const placer of [null, () => spherePlacer(), () => spherePlacer({ breakAt: 25 })]) for (const taperOut of [0, 0.6]) {
+      const pts = Array.from({ length: 60 }, (_, i) => [40 + i * 2.5 + Math.sin(i / 3) * 4, 50 + Math.cos(i / 5) * 9, 0.3 + 0.6 * Math.abs(Math.sin(i / 7)), i * 16]);
+      const brush = B({ size: placer ? 0.05 : 20, sizeCoeff: 0.7, taperIn: 0.8, taperOut });
+      const core = new StrokeCore(brush, pts[0][0], pts[0][1], pts[0][2], { tau: 60, deadzone: 1 }, pts[0][3], placer ? placer() : null);
+      const same = (when) => { const path = core.path(), a = got(core, path), b = fresh(core, path); if (a.length !== b.length || a.some((v, j) => !Object.is(v, b[j]))) throw new Error(`${placer ? "三维" : "二维"}、收笔渐细 ${taperOut}：${when}和从头走不一样（${a.length / 7} 颗 vs ${b.length / 7} 颗）`); frames++; };
+      for (const [x, y, p, t] of pts.slice(1)) { core.extend(x, y, p, t); same("边画边收"); same("同一帧再收一次"); }
+      core.finish(); same("抬笔后"); same("抬笔后再收一次");
+      if (taperOut > 0) assert(core.taperTotal > 0, "抬笔量了总长");
+    }
+    assert(frames > 300, `比了 ${frames} 次`);
+  });
+
+  it("F2 一笔越画越长，每帧读路上的点数只和还会变的尾巴有关：一万颗笔尖时和两千颗时差不多（数走步读了几次路上的点）", () => {
+    // 计数的落点：路就是中心线本身（二维），只是每次读一个点记一次数
+    let reads = 0;
+    const counting = { dim: 2, unit: 1, place(cx, cy, cp, count, frozenCount) {
+      return { dim: 2, count, frozenCount, coord: (i, k) => { reads++; return k === 0 ? cx[i] : cy[i]; }, pressure: (i) => { reads++; return cp[i]; }, breakBefore: () => false };
+    } };
+    const core = new StrokeCore(B({ size: 10, spacing: 0.2, sizeCoeff: 0.5, taperIn: 0.5, taperOut: 0.5 }), 0, 0, 0.5, { tau: 30, deadzone: 1 }, 0, counting);
+    const perFrame = {};
+    let i = 0;
+    for (const mark of [2000, 10000]) {
+      for (;;) {
+        i++; core.extend(i * 1.2, Math.sin(i / 40) * 200, 0.4 + 0.4 * Math.sin(i / 17) ** 2, i * 8);
+        if (i % 100) continue;
+        const path = core.path(); let n = 0; reads = 0; core.forEachTip(() => { n++; }, path);
+        if (n >= mark) { perFrame[mark] = { reads, tips: n, points: path.count }; break; }
+      }
+    }
+    const a = perFrame[2000], b = perFrame[10000];
+    assert(b.points > 4 * a.points, `后一帧的路长得多（${a.points} → ${b.points} 个点）`);
+    assert(b.reads < 4000 && b.reads < 2 * a.reads + 200, `每帧读点数不随这一笔的长度涨：两千颗时 ${a.reads} 次、一万颗时 ${b.reads} 次（路上 ${b.points} 个点）`);
   });
 
   it("E 停顿：落笔后原地停一会儿再走，三维的假落点下前面那段笔尖的大小和「不停直接走」逐颗一样", () => {
