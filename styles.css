@@ -85,10 +85,14 @@ svg.ico use { color: inherit; }
 .gizmo-snaplock .ico { width: 12px; height: 12px; }
 .gizmo-subdiv { position: absolute; right: -2px; top: -3px; padding: 0 2px; border-radius: 4px; font: 700 9px/12px system-ui, sans-serif; color: var(--ink); background: var(--panel); pointer-events: none; font-variant-numeric: tabular-nums; }   /* 吸附细分（硬表面；v0.17.61） */
 .gizmo-snap:not(.on) .gizmo-subdiv { opacity: .55; }
-.gizmo-badge { position: absolute; left: 1px; top: 1px; min-width: 13px; height: 13px; padding: 0 2px; border-radius: 7px; font: 700 9px/13px system-ui, sans-serif; color: #fff; background: #555; pointer-events: none; }
-.gizmo-badge[data-axis="x"] { background: #d9342b; }
-.gizmo-badge[data-axis="y"] { background: #2e8b57; }
-.gizmo-badge[data-axis="z"] { background: #1e6fd9; }
+/* 锁的三行（白模 W-6）：每行「方向锁｜面锁」两颗带字的钮，靠右对齐（只吃面锁的工具只剩右边那颗）；字按轴色，锁着 = 底色是那根轴的颜色 */
+.gizmo-locks { margin-top: 4px; align-self: flex-end; }
+.gizmo-lock-row { display: flex; gap: 2px; justify-content: flex-end; }
+.gizmo-lock { width: auto; min-width: 34px; height: 30px; padding: 0 6px; font: 700 12px/1 system-ui, sans-serif; letter-spacing: .02em; }
+.gizmo-lock.lock-x { color: #d9342b; } .gizmo-lock.lock-y { color: #2e8b57; } .gizmo-lock.lock-z { color: #1e6fd9; }
+.gizmo-lock.lock-plane { min-width: 40px; }
+.gizmo-lock.on { color: #fff; }
+.gizmo-lock.lock-x.on { background: #d9342b; } .gizmo-lock.lock-y.on { background: #2e8b57; } .gizmo-lock.lock-z.on { background: #1e6fd9; }
 /* 文字类 HUD：无背景、白描边（游戏字幕式），指针穿透 */
 .hud-text { position: absolute; z-index: 5; pointer-events: none; font-size: 12px; color: var(--hud-text); line-height: 1.45;
   text-shadow: 0 0 2px var(--halo), 0 0 2px var(--halo), 0 0 4px var(--halo), 0 1px 3px var(--halo-soft); }

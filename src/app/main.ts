@@ -894,7 +894,7 @@ function renderCrumbs(): void {
   }
 }
 // 「单位」页 + 吸附钮菜单的选项 id（user 10-30「把显示长度单位，grid制式，格距收成一个东西。就是单位」）
-type GridMenuId = `sys:${string}` | `snap:${number}` | `plane:${string}` | "off" | "on" | `lock:${"x" | "y" | "z" | "none"}` | `plock:${"x" | "y" | "z"}`;
+type GridMenuId = `sys:${string}` | `snap:${number}` | `plane:${string}` | "off" | "on";
 /** 左上编辑模式下拉框（硬表面建模 / 表面；以后 + 有机体建模）。 */
 function renderModeSelect(): void {
   modeField?.refresh();
@@ -922,33 +922,10 @@ function snapMenuItems(): { id: GridMenuId | "gridSettings"; label: string; chec
   // 栅格面（user 10-30「栅格面要不要也放到这里」→「do it 以及不显示选项也有对吧」）：画立面时要来回切，和吸附长度一样是手上的；☰ 单位页照留一份
   const g = editor.grid, planes = [...GRID_PLANES.map((p, i) => ({ id: `plane:${p.id}` as GridMenuId, label: p.label, checked: g.shown && g.plane === p.id, ...(i === 0 ? { sectionBefore: "栅格面", ...(sub.length ? { separatorBefore: true } : {}) } : {}) })),
     { id: "plane:off" as GridMenuId, label: "关（不显示网格）", checked: !g.shown, hint: "吸附照旧" }];
-  const locks = lockMenuItems();
-  return [...sub, ...planes, ...locks.map((it, i) => (i === 0 ? { ...it, separatorBefore: true } : it)), { id: "gridSettings", label: "单位设置…", separatorBefore: true, hint: "☰ · 单位" }];
+  return [...sub, ...planes, { id: "gridSettings", label: "单位设置…", separatorBefore: true, hint: "☰ · 单位" }];   // 锁的几项搬到右上角锁的三行（白模 W-6，2026-11-10）
 }
-/** 锁的菜单段（按当前工具的锁种：沿轴走的工具 = 方向锁 + 面锁；先定平面的工具 = 只有面锁；不吃锁 = 不出这段）。键位提示 = 方向键。 */
-function lockMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hint?: string; sectionBefore?: string; separatorBefore?: boolean }[] {
-  const style = editor.lockStyle(), a = editor.axisLock, p = editor.planeLock, none = a === null && p === null;
-  if (style === "plane") return [
-    { id: "lock:none", label: "不锁", checked: none, sectionBefore: "面锁（矩形 / 圆 / 弧 / 旋转）", hint: "↓" },
-    { id: "plock:x", label: "面锁 YZ", checked: p === "x", hint: "→" },
-    { id: "plock:y", label: "面锁 XZ", checked: p === "y", hint: "←" },
-    { id: "plock:z", label: "面锁 XY", checked: p === "z", hint: "↑" },
-  ];
-  if (style === "axis") return [
-    { id: "lock:none", label: "不锁", checked: none, sectionBefore: "方向锁 / 面锁（画线 / 移动 / 卷尺）", hint: "↓" },
-    { id: "lock:x", label: "方向锁 X", checked: a === "x", hint: "→" },
-    { id: "lock:y", label: "方向锁 Y", checked: a === "y", hint: "←" },
-    { id: "lock:z", label: "方向锁 Z", checked: a === "z", hint: "↑" },
-    { id: "plock:x", label: "面锁 YZ", checked: p === "x", hint: "Shift+→", separatorBefore: true },
-    { id: "plock:y", label: "面锁 XZ", checked: p === "y", hint: "Shift+←" },
-    { id: "plock:z", label: "面锁 XY", checked: p === "z", hint: "Shift+↑" },
-  ];
-  return [];
-}
-const isGridId = (id: string): id is GridMenuId => /^(sys|snap|plane|lock|plock):/.test(id) || id === "on" || id === "off";
+const isGridId = (id: string): id is GridMenuId => /^(sys|snap|plane):/.test(id) || id === "on" || id === "off";
 function onGridPick(id: GridMenuId): "keep" | void {
-    if (id.startsWith("lock:")) { const a = id.slice(5); editor.setAxisLock(a === "none" ? null : (a as "x" | "y" | "z")); syncUi(); return "keep"; }
-    if (id.startsWith("plock:")) { editor.setPlaneLock(id.slice(6) as "x" | "y" | "z"); syncUi(); return "keep"; }
     if (id === "on") { editor.setGrid({ on: true }); syncUi(); return "keep"; }
 
     if (id === "off") { editor.setGrid({ on: false }); syncUi(); return; }
@@ -964,6 +941,7 @@ function syncNight(): void { document.body.classList.toggle("ui-night", isDarkPa
 function syncUi(): void {
   syncNight();
   renderSnapWidget();
+  renderLockRows();
   refreshMachineBoard();   // 指令板上的数跟着模型变
   viewWin?.refresh(); brushWin?.refresh(); hierWin?.refresh();   // 常驻浮窗（视图 / 雕刻笔刷 / 层级）：内容变了才重画
   releaseLatchesOnToolChange(); mfdRef?.render();   // 键名芯片（UX19）；换了工具 = 锁住的修饰键放开
@@ -1308,16 +1286,33 @@ function openViewMenu(tab?: ViewTab): void {
 viewMenuBtn.addEventListener("click", () => openViewMenu());
 void viewGizmo;
 // 视图侧挂件条（user 2026-10-24「以后视图侧会有很多挂件。snap只是其中第一个」）：gizmo 下面一列；第一个 = 吸附——点一下开 / 关栅格吸附，
-// 右键 / 长按 = 菜单（方向锁、制式、栅格面、格距、细分）；钮角标 = 当前方向锁。
+// 右键 / 长按 = 菜单（制式、栅格面、格距、细分）。锁不在这里：在下面锁的三行（白模 W-6）。
 const widgets = document.createElement("div"); widgets.className = "gizmo-btns gizmo-widgets"; $("viewGizmo").appendChild(widgets);
 const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapBtn.className = "gizmo-btn gizmo-snap"; snapBtn.title = "格点吸附 · 长按：更多";   // 提示精简（user 10-30「格点吸附和xray的tooltip精简一下」）；细节在长按菜单 / 状态行
-snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span><span class="gizmo-subdiv" hidden></span><span class="gizmo-snaplock"></span>';   // 锁 = 这是「吸附」不是「显示栅格」（user「吸附的话得图标加一个锁」）：开着锁上、关着打开
+snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-subdiv" hidden></span><span class="gizmo-snaplock"></span>';   // 锁 = 这是「吸附」不是「显示栅格」（user「吸附的话得图标加一个锁」）：开着锁上、关着打开
 widgets.appendChild(snapBtn);
 // X 光快捷钮（2026-10-29 user「xray开关放一个快捷键到视图快捷键区的锁快捷键旁边」；纪元账本 FM51「X 光开关放右上角锁旁边」）：点一下开 / 关，亮着 = 开；Alt+Z 同一个开关，视图菜单里那一行照留
 const xrayBtn = document.createElement("button"); xrayBtn.type = "button"; xrayBtn.className = "gizmo-btn gizmo-xray"; xrayBtn.title = "X 光（Alt+Z）";
 xrayBtn.innerHTML = iconHtml("xray"); widgets.appendChild(xrayBtn);
 xrayBtn.addEventListener("click", () => { editor.setXray(!editor.xray); syncUi(); });
 xrayBtnRef = xrayBtn;
+// 锁的入口（白模第一批 W-6，2026-11-10；user「all lock entries are organized to the right top」）：吸附 / X 光那一行下面三行，每行两颗带字的钮
+// 「X｜YZ」「Y｜XZ」「Z｜XY」= 方向锁那根轴｜法向是它的面锁。只在这把工具吃锁时出现，只吃面锁的工具（矩形 / 圆 / 弧 / 旋转）只出右边那颗。
+// 点 = 开 / 关这把工具记着的锁（每个工具各记各的，W-4）；键盘的方向键 / X Y Z 照旧。左下芯片里的锁和吸附钮长按菜单里的锁都撤了。
+const lockBox = document.createElement("div"); lockBox.className = "gizmo-btns gizmo-locks"; $("viewGizmo").appendChild(lockBox);
+const LOCK_AXES = ["x", "y", "z"] as const;
+lockRowsRef = LOCK_AXES.map((a) => {
+  const row = document.createElement("div"); row.className = "gizmo-lock-row"; lockBox.appendChild(row);
+  const mk = (plane: boolean): HTMLButtonElement => {
+    const b = document.createElement("button"); b.type = "button"; b.className = `gizmo-btn gizmo-lock lock-${a}${plane ? " lock-plane" : ""}`;
+    b.textContent = plane ? planeLockLabel(a) : a.toUpperCase();
+    b.title = plane ? `面锁 ${planeLockLabel(a)}：只在这个面里动（再点一下解开）` : `方向锁 ${a.toUpperCase()}：只沿 ${a.toUpperCase()} 走（再点一下解开）`;
+    b.addEventListener("click", () => { if (plane) editor.togglePlaneLock(a); else editor.toggleAxisLock(a); syncUi(); });
+    row.appendChild(b); return b;
+  };
+  return { row, axis: mk(false), plane: mk(true) };
+});
+lockBoxRef = lockBox;
 // 物体窗口的钮（UX 心智模型 §2.1：一个窗口只看一个指针——这一颗 = 你所在的这一层；子组件的物体菜单「物体设置…」也从这里开，当前换成它们）
 // 2026-10-28 夜挪到左上、工作台下拉旁边（user「物体属性不在视图那边，可以放在工作流左边」）：右边那一列只管视图
 const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "tb-btn gizmo-object"; objectBtn.title = "物件：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
@@ -1353,6 +1348,22 @@ snapBtn.addEventListener("contextmenu", (ev) => { ev.preventDefault(); snapPress
 var snapBtnRef: HTMLButtonElement | undefined;
 // eslint-disable-next-line no-var
 var xrayBtnRef: HTMLButtonElement | undefined;
+// eslint-disable-next-line no-var
+var lockBoxRef: HTMLElement | undefined;
+// eslint-disable-next-line no-var
+var lockRowsRef: { row: HTMLElement; axis: HTMLButtonElement; plane: HTMLButtonElement }[] | undefined;
+/** 锁的三行跟着这把工具：吃什么锁出什么钮、锁着的那颗亮；走路时不出。 */
+function renderLockRows(): void {
+  if (!lockBoxRef || !lockRowsRef) return;
+  const style = locomotion?.isWalking() ? null : editor.lockStyle(), a = editor.axisLock, p = editor.planeLock;
+  lockBoxRef.hidden = !style;
+  lockRowsRef.forEach((r, i) => {
+    const ax = (["x", "y", "z"] as const)[i];
+    r.axis.hidden = style !== "axis";
+    r.axis.classList.toggle("on", a === ax); r.axis.setAttribute("aria-pressed", a === ax ? "true" : "false");
+    r.plane.classList.toggle("on", p === ax); r.plane.setAttribute("aria-pressed", p === ax ? "true" : "false");
+  });
+}
 function renderSnapWidget(): void {
   if (xrayBtnRef) { xrayBtnRef.classList.toggle("on", editor.xray); xrayBtnRef.setAttribute("aria-pressed", editor.xray ? "true" : "false"); }   // X 光钮跟着同一次刷新
   const btn = snapBtnRef;
@@ -1364,9 +1375,6 @@ function renderSnapWidget(): void {
   sd.hidden = !look.length; sd.textContent = snapLabel(editor.grid.snap, editor.grid.system);
   const lk = btn.querySelector(".gizmo-snaplock") as HTMLElement, want = editor.grid.on ? "lock" : "unlock";
   if (lk.dataset.icon !== want) { lk.dataset.icon = want; lk.innerHTML = iconHtml(want); }
-  const badge = btn.querySelector(".gizmo-badge") as HTMLElement;
-  const a = editor.axisLock, p = editor.planeLock, axis = a ?? (p === "face" ? null : p);
-  badge.hidden = !a && !p; badge.textContent = a ? a.toUpperCase() : p ? planeLockLabel(p) : ""; badge.dataset.axis = axis ?? "";
 }
 window.addEventListener("keyup", (ev) => { if (ev.key === "Shift") editor.setShiftHeld(latchedMods.shift); if (modPeek && ev.key === modPeek.key) endModPeek(); });   // DT51：松开 Shift = 格点吸附回到右上锁钮的状态
 window.addEventListener("blur", () => { editor.setShiftHeld(latchedMods.shift); endModPeek(); });
@@ -1422,7 +1430,7 @@ var mfdRef: { render(): void } | null = null;
 mfdRef = mountMfd($("hintWrap"), {
   ctx: () => keyContext(),
   stance: () => stanceOf(editor.modeId, shownTool()),
-  live: () => ({ held: { ...heldMods }, axisLock: editor.axisLock, planeLock: editor.planeLock, keys: lastPointerType === "mouse", pressing: canvasPresses.size > 0, latched: { ...latchedMods } }),
+  live: () => ({ held: { ...heldMods }, keys: lastPointerType === "mouse", pressing: canvasPresses.size > 0, latched: { ...latchedMods } }),
   latch: (m) => { setLatch(m, !latchedMods[m]); syncUi(); },   // 键鼠才印键名（user「ipad的时候能不能不显示键位」）
   press: (chord) => {   // 点芯片 = 按了这个键：和真按键走同一条（resolveKey → runKeyAction）
     const p = chord.split("+"), n = p[p.length - 1], code = /^[a-z]$/.test(n) ? `Key${n.toUpperCase()}` : n === "escape" ? "Escape" : n === "enter" ? "Enter" : n === "arrowright" ? "ArrowRight" : n === "arrowleft" ? "ArrowLeft" : n === "arrowup" ? "ArrowUp" : n;
@@ -1524,6 +1532,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "undo": editor.undo(); return;
     case "redo": editor.redo(); return;
     case "escape":
+      editor.clearToolLock();   // 键盘 Esc 解这把工具记着的锁（W-4：锁不再随手势落定 / 换工具解；手指轻点的「取消」不解）
       // 菜单 / 帮助 / 材质 / 调试日志开着时 Esc 到不了这里（输入闸的 escape：只关最上面那个面）
       // 自由建模的手势中（拖着 / 键盘起手 / 打数）→ 只取消这次操作、选区留着（Blender：G / S 里 Esc 只退回去；2026-10-28 晚「S Z 0」接线时改，硬表面照旧）
       if (editor.modeId === "freeform" && editor.isGestureActive() && !editor.mirrorActive()) { editor.abortGesture(); syncUi(); return; }

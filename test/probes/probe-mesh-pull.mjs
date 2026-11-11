@@ -53,6 +53,7 @@ const res = await page.evaluate(async () => {
   const st3 = stat(), newE = [...e.selection.edges][0], nb = newE !== undefined ? [m().edgeA[newE], m().edgeB[newE]].map((v) => m().pt(v)) : [];
   out.pullEdge = { d: { f: st3.f - st0.f, v: st3.v - st0.v }, selEdges: e.selection.edges.size, onlyZ: nb.length === 2 && nb.every((p) => ea.some((o) => Math.abs(o.x - p.x) < 1e-9 && Math.abs(o.y - p.y) < 1e-9 && p.z > o.z)), check: m().check().join(";") };
   key("z"); await sleep(30);
+  out.ppLockKept = e.axisLock; e.clearToolLock();   // 白模 W-4：挤出锁的 Z 撤销后照样记着；= 键盘 Esc 解掉，下面两步要自由拖
   // ③b 拖手柄中心（= 边的中点，正好是按下处）拉同一条边 = 沿垂直方向（默认 = 屏幕空间自由拖，中心 = 换一种拖法）：顶面前沿那条边两侧是顶面（+Z）和前面（−Y）→ 新点沿 (0, −1, 1)/√2 走
   out.edgeSelAgain = e.selection.edges.size;
   e.config.set("handles", "show", true);
@@ -85,7 +86,7 @@ const ok = res.rail === "select,pp,move,rotate,scale,knife,erase,softErase,offse
   && res.pullFace.st1.f === res.pullFace.st0.f + 4 && res.pullFace.st1.v === res.pullFace.st0.v + 4 && res.pullFace.steps === 1 && res.pullFace.selFaces === 0 && res.pullFace.topZ > 1 && res.pullFace.check === ""
   && res.pullWithSel.selFaces === 1 && res.pullWithSel.f === 10 && res.thenMove.up && res.undo2.back
   && res.edgeSel === 1 && res.pullEdge.d.f === 1 && res.pullEdge.d.v === 2 && res.pullEdge.selEdges === 1 && res.pullEdge.onlyZ && res.pullEdge.check === ""
-  && res.edgeSelAgain === 1 && res.pullEdgePerp.diag && res.pullVert.perp
+  && res.edgeSelAgain === 1 && res.pullEdgePerp.diag && res.pullVert.perp && res.ppLockKept === "z"
   && res.vertSel === 1 && res.pullVert.dv === 1 && res.pullVert.de === 1 && res.pullVert.df === 0 && res.pullVert.selVerts === 1
   && res.zero.same && !res.zero.armed && !res.zero.activeAfterEsc   // 自由建模：点一下 = 选 / 取消选择，不进「再点一下落定」（user 10-27）
   && !res.undoRedoAll.threw && errs.length === 0;

@@ -29,18 +29,20 @@ await page.mouse.move(box.x + base.x, box.y + base.y - 120, { steps: 6 }); await
 res.lockZ = await snap();
 await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 res.lockAfterEsc = await page.evaluate(() => globalThis.__catsup.editor.axisLock);
-// ③ 挂件：点一下 = 栅格开 / 关；右键 = 菜单里有轴锁项
+// ③ 挂件：点一下 = 栅格开 / 关；右键 = 菜单里不再有锁的选项（白模 W-6，2026-11-10：锁都在右上角那三行）；画线工具吃方向锁 → 锁的三行看得见、左边那颗也在
 const g0 = await page.evaluate(() => globalThis.__catsup.editor.grid.on);
 await page.locator(".gizmo-snap").click(); await page.waitForTimeout(100);
 const g1 = await page.evaluate(() => globalThis.__catsup.editor.grid.on);
 await page.locator(".gizmo-snap").click({ button: "right" }); await page.waitForTimeout(150);
-const menuText = await page.evaluate(() => [...document.querySelectorAll("button")].map((x) => x.textContent ?? "").filter((t) => /方向锁/.test(t)).join("|"));
-res.widget = { g0, g1, menuText };
+const menuText = await page.evaluate(() => [...document.querySelectorAll("button")].map((x) => x.textContent ?? "").filter((t) => /方向锁|面锁/.test(t)).join("|"));
+await page.keyboard.press("Escape"); await page.waitForTimeout(80);
+const rows = await page.evaluate(() => { const box = document.querySelector(".gizmo-locks"), vis = (el) => !!el && !el.closest("[hidden]") && el.getClientRects().length > 0; return { box: vis(box), x: vis(document.querySelector(".gizmo-lock.lock-x:not(.lock-plane)")), yz: vis(document.querySelector(".gizmo-lock.lock-x.lock-plane")), xText: document.querySelector(".gizmo-lock.lock-x:not(.lock-plane)")?.textContent, yzText: document.querySelector(".gizmo-lock.lock-x.lock-plane")?.textContent }; });
+res.widget = { g0, g1, menuText, rows };
 console.log(JSON.stringify(res));
 const near = (a, b2) => Math.abs(a - b2) < 1e-6;
 const seg = res.afterX.edges.find((e) => near(e[1], 0.5) && near(e[4], 0.5) && near(e[2], 0) && near(e[5], 0) && Math.abs(e[3] - e[0]) > 0.5);
 const ok = res.lockX.lock === "x" && res.lockX.kind === "axis-x" && /方向锁 X/.test(res.lockX.label) && /方向锁 Z/.test(res.lockZ.label) && res.lockX.p && near(res.lockX.p[1], 0.5) && near(res.lockX.p[2], 0) && !!seg && res.afterX.lock === null
   && res.lockZ.lock === "z" && res.lockZ.p && near(res.lockZ.p[0], -1) && near(res.lockZ.p[1], -1) && res.lockZ.p[2] > 0.05 && res.lockAfterEsc === null
-  && res.widget.g0 === false && res.widget.g1 === true && /方向锁 X/.test(res.widget.menuText);
+  && res.widget.g0 === false && res.widget.g1 === true && res.widget.menuText === "" && res.widget.rows.box && res.widget.rows.x && res.widget.rows.yz && res.widget.rows.xText === "X" && res.widget.rows.yzText === "YZ";
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

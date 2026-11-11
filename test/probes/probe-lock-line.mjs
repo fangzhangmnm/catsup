@@ -1,6 +1,6 @@
 // 锁看得见（controller/lock-guide.ts + render3 lockLines；created 2026-10-28 by Claude Opus 5.5）。user 10-28 晚「轴锁的时候能不能看到小轴线，blender就是这么做的」。
 // ① 转过的网格体组件里、全选、移动工具、锁 Z：画一根线，方向 = 组件自己的 Z（不是世界 Z）、过选区中心 ② 拖的过程中：线过按下的那一点（锚点）
-// ③ 解锁：线没了 ④ 面锁 XY：两根（X、Y）⑤ 硬表面画线：点了起点、按 ↑ 锁 Z：线过起点、沿世界 Z。跑法：python3 -m http.server 8765 后 node test/probes/probe-lock-line.mjs [截图路径]
+// ③ 解锁：线没了 ④ 面锁 XY：两根（X、Y）⑤ 硬表面画线：点了起点、按 ↑ 锁 Z：线过起点、沿世界 Z。跑法：python3 -m http.server 8765 后 node test/probes/probe-lock-line.mjs [url | 截图路径]
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
@@ -8,7 +8,7 @@ const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
 page.setDefaultTimeout(4000);
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
 const shot = process.argv[2] && !process.argv[2].startsWith("http") ? process.argv[2] : null;
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
+await page.goto(process.argv[2]?.startsWith("http") ? process.argv[2] : "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
 const res = await page.evaluate(async () => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const c = document.getElementById("board"), r = c.getBoundingClientRect(), S = () => e.scene, px = (p) => e.cam.angularPx(p, e.vp());

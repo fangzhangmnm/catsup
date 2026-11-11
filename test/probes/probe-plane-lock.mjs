@@ -37,20 +37,20 @@ await hoverTo({ x: 0, y: 0.75, z: 0.5 });
 await page.keyboard.press("Shift+ArrowDown");
 res.faceLock = await st();
 await page.keyboard.press("Escape"); await page.waitForTimeout(80);
-// ④ 吸附钮菜单按工具换锁种：矩形只有面锁、画线两种都有
-await page.evaluate(() => globalThis.__catsup.hud.pick("rect"));
+// ④ 右上角锁的三行按工具换锁种（白模 W-6，2026-11-10；以前在吸附钮菜单里）：矩形只出右边的面锁、画线两种都出；矩形在 ① 锁的面 YZ 一直记着（W-4）→ 亮；吸附菜单里不再有锁
+const lockBtns = () => page.evaluate(() => [...document.querySelectorAll(".gizmo-lock")].filter((b) => !b.closest("[hidden]") && b.getClientRects().length > 0).map((b) => b.textContent + (b.classList.contains("on") ? "*" : "")).join(" "));
+await page.evaluate(() => globalThis.__catsup.hud.pick("rect")); await page.waitForTimeout(80);
+res.rectMenu = await lockBtns();
+await page.evaluate(() => globalThis.__catsup.hud.pick("line")); await page.waitForTimeout(80);
+res.lineMenu = await lockBtns();
 await page.locator(".gizmo-snap").click({ button: "right" }); await page.waitForTimeout(150);
-res.rectMenu = await page.evaluate(() => [...document.querySelectorAll(".popup-menu button")].map((x) => x.textContent ?? "").filter((t) => /锁/.test(t)).join("|"));
-await page.keyboard.press("Escape"); await page.waitForTimeout(80);
-await page.evaluate(() => globalThis.__catsup.hud.pick("line"));
-await page.locator(".gizmo-snap").click({ button: "right" }); await page.waitForTimeout(150);
-res.lineMenu = await page.evaluate(() => [...document.querySelectorAll(".popup-menu button")].map((x) => x.textContent ?? "").filter((t) => /锁/.test(t)).join("|"));
+res.snapMenuLocks = await page.evaluate(() => [...document.querySelectorAll(".popup-menu button")].map((x) => x.textContent ?? "").filter((t) => /锁/.test(t)).join("|"));
 console.log(JSON.stringify(res));
 const near = (a, b2, e = 1e-6) => Math.abs(a - b2) < e;
 const rectOnX0 = res.rectEdges.length >= 4 && res.rectEdges.every((e) => near(e[0], 0) && near(e[3], 0)) && res.rectEdges.some((e) => e[2] > 0.5 || e[5] > 0.5);
-const ok = res.rectArmed.plane === "x" && res.rectLive.cur && near(res.rectLive.cur[0], 0) && res.rectLive.cur[2] > 0.5 && rectOnX0 && res.rectAfter.plane === null
+const ok = res.rectArmed.plane === "x" && res.rectLive.cur && near(res.rectLive.cur[0], 0) && res.rectLive.cur[2] > 0.5 && rectOnX0 && res.rectAfter.plane === "x"   // W-4：画完不解锁
   && res.lineLive.plane === "x" && /面锁 YZ/.test(res.lineLive.label) && res.lineLive.cur && near(res.lineLive.cur[0], 0.5) && res.lineLive.cur[2] > 0.3 && res.lineAfterEsc.plane === null
   && res.faceLock.plane === "face"
-  && /面锁 YZ/.test(res.rectMenu) && !/方向锁 X/.test(res.rectMenu) && /方向锁 X/.test(res.lineMenu) && /面锁 XY/.test(res.lineMenu);
+  && res.rectMenu === "YZ* XZ XY" && res.lineMenu === "X YZ Y XZ Z XY" && res.snapMenuLocks === "";
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

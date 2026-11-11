@@ -10,31 +10,23 @@ const at = (o: Partial<KeyContext>, L: Partial<Omit<ChipLive, "held" | "latched"
 const FF_MOVE = { mode: "freeform" as const, tool: "move" as const, lockStyle: "axis" as const };
 
 describe("键名芯片（chips.ts）", () => {
-  it("槽位顺序固定：锁轴 · Shift · Ctrl · Alt · 确认 · 取消；结果按这个顺序", () => {
-    eq(CHIP_SLOTS.join(","), "lock,shift,ctrl,alt,confirm,cancel");
+  it("槽位顺序固定：Shift · Ctrl · Alt · 确认 · 取消；结果按这个顺序（锁那一槽 2026-11-10 搬去右上角，白模 W-6）", () => {
+    eq(CHIP_SLOTS.join(","), "shift,ctrl,alt,confirm,cancel");
     for (const o of [{ gesture: true }, { ...FF_MOVE, gesture: true }, { mode: "geometry" as const, tool: "move" as const, lockStyle: "axis" as const, gesture: true }]) { const s = at(o).map((c) => CHIP_SLOTS.indexOf(c.slot)); eq(JSON.stringify(s), JSON.stringify([...s].sort((a, b) => a - b))); }
   });
   it("闲着（没手势、没锁、什么都没按）= 一枚都不出（user「没有context的时候不显示」）；画线这类不对选区做事的工具有选区也不出", () => {
     eq(at({}).length, 0); eq(at(FF_MOVE).length, 0); eq(at({ mode: "geometry", tool: "line", lockStyle: "axis", anySelection: true, actableSelection: true }).length, 0);
   });
-  it("对选区做事的工具（移动 / 旋转 / 缩放…）有选区 = 有事可做：锁轴出（iPad 上先点锁再拖）；有键盘时修饰键照旧不出（按住才出）", () => {
-    const c = at({ ...FF_MOVE, anySelection: true, actableSelection: true });
-    eq(c.map((x) => x.slot).join(","), "lock");
-    eq(at({ mode: "geometry", tool: "move", lockStyle: "axis", anySelection: true, actableSelection: true }).map((x) => x.slot).join(","), "lock");
+  it("锁不在芯片里（白模 W-6：锁的入口都在右上角那三行）：手势中 / 有选区 / 两种工作台都没有锁那一槽；有键盘时修饰键照旧不出（按住才出）", () => {
+    eq(at({ ...FF_MOVE, anySelection: true, actableSelection: true }).length, 0);
+    eq(at({ mode: "geometry", tool: "move", lockStyle: "axis", anySelection: true, actableSelection: true }).length, 0);
+    for (const o of [{ ...FF_MOVE, gesture: true }, { mode: "geometry" as const, tool: "move" as const, lockStyle: "axis" as const, gesture: true }, { mode: "geometry" as const, tool: "rect" as const, lockStyle: "plane" as const, gesture: true }])
+      for (const k of [true, false]) assert(at(o, { keys: k }).every((x) => x.items.every((i) => !/锁/.test(i.label))), `${o.mode}/${o.tool}：芯片里还有锁`);
   });
-  it("自由建模移动、手势中：锁轴 = X / Y / Z（能点）、Shift = 吸附（立场表那一格、只显示）、Esc 取消", () => {
+  it("自由建模移动、手势中：Shift = 吸附（立场表那一格、只显示）、Esc 取消", () => {
     const c = at({ ...FF_MOVE, gesture: true });
-    const lock = c.find((x) => x.slot === "lock")!;
-    eq(lock.items.slice(0, 3).map((i) => i.keys).join(" "), "X Y Z"); assert(lock.items.every((i) => i.press && /锁/.test(i.label) && !i.on));
     eq(c.find((x) => x.slot === "shift")?.items[0].label, chipLabel(stanceOf("freeform", "move")!.shift)); eq(c.find((x) => x.slot === "shift")?.items[0].press, null);
     assert(c.some((x) => x.slot === "cancel"), "点了一下在等第二下 / 键盘起手 = 有取消");
-  });
-  it("面锁 XY / YZ / XZ 跟在轴后面（user「xy yz xz的锁做了吗」）：键名 = 键表里那个和弦；锁着哪个面哪个亮、轴都不亮", () => {
-    const ff = at({ ...FF_MOVE, gesture: true }, { planeLock: "z" }).find((x) => x.slot === "lock")!;
-    eq(ff.items.map((i) => `${i.label}${i.on ? "*" : ""}`).join(" "), "锁 X 锁 Y 锁 Z 锁 XY* 锁 YZ 锁 XZ");
-    eq(ff.items.slice(3).map((i) => i.press).join(" "), "shift+z shift+x shift+y");
-    const hard = at({ mode: "geometry", tool: "move", lockStyle: "axis", gesture: true }, { planeLock: "x" }).find((x) => x.slot === "lock")!;
-    eq(hard.items.slice(3).map((i) => `${i.press}${i.on ? "*" : ""}`).join(" "), "shift+arrowup shift+arrowright* shift+arrowleft");
   });
   it("取消只在「操作开着、手是空的」时出：拖着没松 = 不出（松手就是决定）；闲着不出；镜像会话出", () => {
     assert(!at({ ...FF_MOVE, gesture: true }, { pressing: true }).some((x) => x.slot === "cancel"));
@@ -42,11 +34,7 @@ describe("键名芯片（chips.ts）", () => {
     assert(!at(FF_MOVE).some((x) => x.slot === "cancel"));
     assert(at({ mirrorSession: true }, { pressing: true }).some((x) => x.slot === "cancel"));
   });
-  it("实时：锁着 Z = 闲着也出锁轴那一槽、Z 亮别的不亮；锁着面 = 三根轴都不亮、那个面亮；按着 Shift = Shift 那枚出来并亮", () => {
-    const z = at(FF_MOVE, { axisLock: "z" }).find((x) => x.slot === "lock")!;
-    eq(z.items.slice(0, 3).map((i) => `${i.keys}${i.on ? "*" : ""}`).join(" "), "X Y Z*"); assert(z.items.slice(3).every((i) => !i.on), "锁的是轴 = 面都不亮");
-    assert(at({ mode: "geometry", tool: "move", lockStyle: "axis" }, { axisLock: "x" }).find((x) => x.slot === "lock")!.items[0].on, "硬表面 → = 锁 X");
-    { const pl = at(FF_MOVE, { planeLock: "z" }).find((x) => x.slot === "lock")!.items; assert(pl.slice(0, 3).every((i) => !i.on) && pl[3].on && pl[3].label === "锁 XY", "锁着面 = 三根轴都不亮、那个面亮"); }
+  it("实时：按着 Shift = Shift 那枚出来并亮", () => {
     const sh = at({}, { held: { shift: true } });
     eq(sh.map((x) => x.slot).join(","), "shift"); assert(sh[0].items[0].on);
   });
@@ -54,7 +42,7 @@ describe("键名芯片（chips.ts）", () => {
     const g = at({ ...FF_MOVE, gesture: true }, { keys: false });
     const sh = g.find((x) => x.slot === "shift")!.items[0];
     eq(sh.latch, "shift"); eq(sh.press, null); assert(!sh.on);
-    assert(g.some((x) => x.slot === "lock") && g.some((x) => x.slot === "cancel"), "等下一点时锁轴 / 取消照旧能点");
+    assert(g.some((x) => x.slot === "cancel"), "等下一点时取消照旧能点");
     assert(at({ ...FF_MOVE, anySelection: true, actableSelection: true }, { keys: false }).some((x) => x.slot === "shift"), "有选区 = 先点开关再拖");
     eq(at(FF_MOVE, { keys: false }).length, 0);
     const l = at(FF_MOVE, { keys: false, latched: { shift: true } });

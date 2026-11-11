@@ -513,3 +513,10 @@ flowchart LR
 - **守**：`test/paint-kernel-guard.test.ts`：每个文件的哈希对清单、不多不少（手改 = 红）；`src/` 里只有 `src/paint/` 能 import 内核。画画仓那边 `test/kernel-boundary.test.mjs` 守内核的 import 边界、界面全局和名单不过时。
 - **测**：`npm test` 末尾跑 `node --expose-gc src/paint/kernel/test/run-kernel.mjs`（62 个文件 549 条、约 4 秒、末尾查图块句柄泄漏）。拷来的测试不做类型检查（`tsconfig` exclude `src/paint/kernel/test`，画画仓自己也不查测试）；内核源码照常查。
 - **进包**：现在没有任何地方 import 它，包不变大。往后经 `src/paint/` 里自己的接缝用（施工方案的「空间层」），内核的改动只在画画仓做，这边重新拉。
+
+## 追记 2026-11-10 深夜（v0.19.2，Claude Opus 5.5；白模第一批 W-4 / W-6 + W-5 的两处补丁）：锁跟着工具记；压平的「这圈的朝向」改严格解
+
+- **锁不再随「每步之后」解**：以前 `endStepGesture` 落定时把方向锁 / 面锁清掉（SU 同款）、`cancelGesture` 也清、`setTool` 把手势外按好的锁带到新工具。现在锁住在 `editor/tool-locks.ts`（按工具名一份），编辑器读写都经 `this.lk` / `locks.set(this._tool, …)`：落定不清、换工具不清；唯一清的地方 = 键盘 Esc（和左下芯片的「取消」同一条）走 `editor.clearToolLock()`，只清当前这把。例外一条：不吃锁的工具（选择）上先按好的锁，`setTool` 时交给下一把、这边不留（「先按 Y 再按 G」）。碰的东西 = 一张小表，不随模型涨。
+- **锁的入口**：右上角吸附 / X 光下面三行钮（`main.ts renderLockRows`，跟 `syncUi` 一起刷），点 = `toggleAxisLock` / `togglePlaneLock`。左下芯片的锁那一槽（`controller/chips.ts`）、吸附钮菜单里锁的那一段撤了。
+- **压平第 2 步「这圈的朝向」**（`mesh/ops/flatten.ts bestFitNormal`）：以前取协方差矩阵伴随阵行列式最大的那一行就交；现在拿它当起点，再用伴随阵乘、每遍归一（反幂迭代），收敛为止、最多 64 遍。每遍 9 次乘法，比算协方差（每个点一遍）便宜得多，选中再多也看不出来。和 Jacobi 严格解对照（`test/flatten.test.ts`）：新写法四种圈都是 0 偏差；旧写法 轻微起伏 0.014°、胳膊那一圈 0.22°、上下乱得很 10.7°。
+

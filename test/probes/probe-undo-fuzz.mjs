@@ -3,14 +3,14 @@
 //   ① stepViolations 永远 0（没有步外提交）② 一个动作最多长一步（没有幻影步）③ 从装载态重放整条指令流的指纹 == 活场景（差分 oracle）
 //   ④ 选区里的东西都还在活动视图里 ⑤ 工作台管得了活动池的身体（不变量 I5，2026-10-28 Opus）、全程没有 DRIFT 记录。
 //   每个种子最后：撤到种子开头、再重做到底，指纹、选区和全部永久编号（GUID）逐字回来（计划书 §4 守卫 2：撤销 / 重做不重铸；2026-11-04 Claude Opus 5.5）；再（能进就先进一个网格体）重开模型，工作台得跟上（user 10-28 黑匣子那一案）。
-// 跑法：python3 -m http.server 8765 后 node test/probes/probe-undo-fuzz.mjs [seeds=4] [actions=28]
+// 跑法：python3 -m http.server 8765 后 node test/probes/probe-undo-fuzz.mjs [seeds=4] [actions=28]（别的端口：PROBE_URL=http://127.0.0.1:端口/）
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const SEEDS = Number(process.argv[2] ?? 4), ACTIONS = Number(process.argv[3] ?? 28);
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await b.newPage({ viewport: { width: 900, height: 700 } });
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
+await page.goto(process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
 const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const S = () => e.scene;
