@@ -73,6 +73,20 @@ if (rows.length === ROUNDS) {
   for (const k of ["boards", "live", "prep", "tiles", "tex", "fb", "geos"]) check(String(a[k]) === String(z[k]), `${k}：第 2 份 ${a[k]} = 第 ${ROUNDS} 份 ${z[k]}（不随开过几份涨）`);
   check(z.buf <= a.buf + 12, `还被引用着的缓冲区：第 2 份 ${a.buf}、第 ${ROUNDS} 份 ${z.buf}（不随开过几份涨；差一点 = 上一份还没回收完）`);
 }
+console.log("正在存的时候点「新建」（统筹 11-11 卡住的根：以前这一下被吞掉、什么都不说）");
+for (let r = 0; r < 3; r++) {
+  await S(() => { const C = globalThis.__catsup, e = C.editor, P = (x, y, z = 0) => ({ x, y, z }); e.commitOp({ op: "addEdges", at: e.activePool(), segs: [[P(0.1 + 0.1 * Math.random(), 0.2, 2), P(0.8, 0.8, 2)]] }); });   // 脏一下
+  const t0 = Date.now();
+  await S(async () => { const C = globalThis.__catsup; void C.session.save(); await C.galleryHost.open(); });   // 一份在存，同时开图库
+  await page.waitForFunction(() => !document.getElementById("galleryFull").hidden, null, { timeout: 30000 });
+  const during = await S(() => globalThis.__catsup.session.saveState?.() ?? "");
+  await page.click("#galleryNew");
+  let ok = true;
+  try { await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden, null, { timeout: 15000 }); } catch { ok = false; }
+  check(ok, `第 ${r + 1} 次：存着的时候点「新建」= 等它存完、照样新建（${((Date.now() - t0) / 1000).toFixed(1)} 秒；点的时候 ${during}）`);
+  if (!ok) break;
+  await S(() => { for (const n of [...document.querySelectorAll("#noticeStack > *")]) n.remove(); });
+}
 check(errs.length === 0, "没有报错", errs.slice(0, 3).join(" | "));
 console.log(`\nprobe-ten-files ${failN ? "FAIL" : "OK"}（${pass} ✓ / ${failN} ✗）`);
 await browser.close();

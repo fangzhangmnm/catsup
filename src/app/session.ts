@@ -1051,6 +1051,9 @@ export class Session {
   /** 离开当前文档前的挽留：图库家 = 自动保存（WeebPaint 图库模式 UX）；文件家 / transient 且脏 = 三键。 */
   async leaveGate(): Promise<boolean> {
     if (this.adopting) await this.adopting;
+    // 上一份正在存：等它存完再判（2026-11-11 Opus，统筹 11-11「图库新建卡住」第三次查出来的根）：以前这里直接走隐式保存，撞上 saving 立刻返回 false
+    // = 点「新建」/ 打开别的什么都没发生、也不说（大文件、慢机器上自动保存要好几秒，点的那一下正好落在里面）。等完再看还脏不脏，脏了照旧存一次。
+    while (this.saving) await this.inflight;
     if (!this.dirty()) return true;
     if (this.home.kind === "gallery") return this.lazy ? true : this.save({ implicit: true });   // lazy ∧ dirty 不可能（有内容即安家）；防御：空白可弃
     const isFile = this.home.kind === "file";
