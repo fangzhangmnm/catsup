@@ -9,7 +9,7 @@ const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftsha
 const page = await b.newPage({ viewport: { width: 900, height: 700 } });
 const errs = []; page.on("pageerror", (e) => errs.push(String(e).slice(0, 300)));
 await page.addInitScript(() => { HTMLCanvasElement.prototype.requestPointerLock = function () {}; });   // 无头锁鼠标会掉帧（见 probe-walk）
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(800);
+await page.goto(process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(800);
 const box = await page.locator("#board").boundingBox();
 const res = await page.evaluate(async () => {
   const { editor: e, hud, locomotion: L } = globalThis.__catsup, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), out = {};

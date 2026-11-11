@@ -1,7 +1,7 @@
 // 自由建模的 Blender 键位 + 删除（2026-10-27 Claude Opus 5.5；user「然后能不能blender 快捷键无缝接上」）：网格体盒子里——
 // ① 选顶面按 G：光标一动顶面跟着走（不用按下）、点一下落定；Ctrl+Z 回来 ② G 中按 Z = 锁 Z ③ G 中 Esc / 右键 = 取消 ④ 没选区按 G = 只切到移动工具
 // ⑤ 选顶面按 E = 挤出跟鼠标 ⑥ X 删选中的面 ⑦ 选两个对角点按 J = 连线 ⑧ Ctrl+R 再点一条竖边 = 环切 ⑨ 删除工具点一张面 = 删、Shift 点一条边 = 溶解。
-// 跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-keymap.mjs
+// 跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-keymap.mjs [地址]
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
@@ -93,14 +93,14 @@ const res = await page.evaluate(async () => {
   const rc = async (p) => { const s = px(p); fire("pointermove", s.x, s.y, 0); await sleep(20); c.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + s.x, clientY: r.top + s.y, button: 2 })); await sleep(40); };
   await rc(P(0.9, 0.9, 1));
   out.rInsetItem = hud.edits().some((it) => it.id === "action:mesh.inset" && !it.hidden);
-  { const f0 = stat().f; hud.pick("action:mesh.inset"); await sleep(20); document.querySelectorAll(".popup-menu").forEach((x) => x.remove());
+  { const f0 = stat().f; hud.pick("action:mesh.inset"); await sleep(20); kd("Escape", { code: "Escape" }); await sleep(20);   // 关菜单走输入闸（v0.18.38 起只删 DOM 闸还当菜单开着：后面的 Ctrl+Z 和第一下点画布会被吞——W-9 查出来的两条老红就是这个）
     out.rInset = { active: e.isGestureActive(), tool: e.tool, df: stat().f - f0, sel: e.selection.faces.size, check: m().check().join(";"), panel: !!document.querySelector(".param-panel, .afterthought, [data-afterthought]") }; }
   kd("z", { ctrl: true }); await sleep(40);
   // ⑪b 右键面 → 「设置原点到选择中心」：世界里不动，原点到了那张面的中心
   e.deselectAll(); await sleep(400); await rc(P(0.5, 0.5, 1));
   out.rOriginItem = hud.edits().some((it) => it.id === "action:mesh.originToSelection" && !it.hidden);
   { const W = () => { const I = root().instances.get(inst.id), X = I.xform; return m().verts().map((v) => { const p = m().pt(v); return [q(X[0] * p.x + X[1] * p.y + X[2] * p.z + X[3]), q(X[4] * p.x + X[5] * p.y + X[6] * p.z + X[7]), q(X[8] * p.x + X[9] * p.y + X[10] * p.z + X[11])].join(","); }).sort().join(" "); };
-    const w0 = W(); hud.pick("action:mesh.originToSelection"); await sleep(20); document.querySelectorAll(".popup-menu").forEach((x) => x.remove());
+    const w0 = W(); hud.pick("action:mesh.originToSelection"); await sleep(20); kd("Escape", { code: "Escape" }); await sleep(20);
     const X = root().instances.get(inst.id).xform;
     out.rOrigin = { same: W() === w0, origin: [q(X[3]), q(X[7]), q(X[11])], tool: e.tool, mode: e.modeId };
     kd("z", { ctrl: true }); await sleep(40);

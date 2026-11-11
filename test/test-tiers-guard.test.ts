@@ -2,6 +2,7 @@
 // ① 不许有写了却没人跑的测试（原来在 test/run.mjs 末尾，2026-10-29 Opus 立；挪到这里，串跑和并行都算一条测试）
 // ② 测试文件之间不互相 import（被 import 的那一份的测试会被并行运行器多登记、多跑一遍——kernel-fuzz 的公共检查就这么多跑过两条）
 // ③ 探针表里的探针、路径都存在 ④ test/par.mjs 里两张表（全套触发、贵的读文件测试）指的东西都存在
+// ⑤ 探针不把地址写死（命令行里 http 开头的参数 / 环境变量 PROBE_URL 能改；2026-11-11 W-9 加，Claude Opus 5.5）
 import { describe, it, eq } from "./runner.mjs";
 import { REGISTRY, unregistered, FULL_TRIGGERS, EXPENSIVE_FILE_READERS } from "./par.mjs";
 const fs = (await import("node:fs" as string)) as { readFileSync(p: string, enc: string): string; existsSync(p: string): boolean; readdirSync(p: string): string[]; statSync(p: string): { isDirectory(): boolean } };
@@ -40,5 +41,9 @@ describe("测试分档守卫", () => {
     const exp = EXPENSIVE_FILE_READERS as Record<string, string[]>;
     eq(Object.keys(exp).filter((f) => !REGISTRY.includes(f)).join("、"), "", "没登记");
     eq(Object.values(exp).flat().filter((w) => !prefixExists(w)).join("、"), "", "管的地方不存在");
+  });
+  it("探针不把地址写死：page.goto 的地址能从命令行或环境变量 PROBE_URL 改（分支构建要在别的端口上跑）", () => {
+    const bad = fs.readdirSync("test/probes").filter((n) => /\.(mjs|mts)$/.test(n) && /page\.goto\(\s*["'`]http/.test(fs.readFileSync(`test/probes/${n}`, "utf8")));
+    eq(bad.join("、"), "");
   });
 });

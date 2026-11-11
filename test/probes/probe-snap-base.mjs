@@ -7,7 +7,7 @@ const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProje
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await b.newPage({ viewport: { width: 1000, height: 800 } }); page.setDefaultTimeout(4000);
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
+await page.goto(process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
 const out = {}, ok = (k, v) => { out[k] = v; if (!v) process.exitCode = 1; };
 // 一块 4×4 平板细分三次、顶视图、移动工具、锁钮开
 const def = await page.evaluate(async () => {

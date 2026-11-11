@@ -13,7 +13,7 @@ for (const [name, vp] of [["竖屏", { width: 744, height: 1133 }], ["横屏", {
     HTMLCanvasElement.prototype.requestPointerLock = function () {};   // 触屏设备锁不上鼠标（无头锁了还会掉帧）
     const mm = window.matchMedia.bind(window); window.matchMedia = (q) => (q.includes("coarse") ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} } : mm(q));
   });
-  await page.goto("http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(600);
+  await page.goto(process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(600);
   results[name] = await page.evaluate(async () => {
     const L = globalThis.__catsup.locomotion, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), out = {};
     const root = document.querySelector(".touch-ctl"), left = root.querySelector(".tc-left"), right = root.querySelector(".tc-right");

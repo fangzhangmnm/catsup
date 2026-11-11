@@ -43,9 +43,10 @@ const res = await page.evaluate(async () => {
 });
 await b.close();
 res.errs = errs;
+// 面数 × 2：盒子是用边搭的、没定朝向，两侧都是默认正面 = 转过去两侧都出（v0.18.31 单面 / 双面那一版的规矩，提示行照实说；W-9 查的老红）
 const ok = res.setup.kind === "brep" && res.setup.groups === 1 && res.setup.instParent !== null && res.setup.groupFaces === 6
   && !res.menuEmpty.some((l) => /转成网格体/.test(l)) && /最外层/.test(res.who) && /硬表面体/.test(res.who) && res.menu.some((l) => /转成网格体/.test(l)) && res.clicked && /最外层/.test(res.who2) && /网格体/.test(res.who2)
-  && res.after.kind === "mesh" && res.after.mode === "freeform" && res.after.faces === res.setup.rootFaces + res.setup.groupFaces && res.after.instParent === null && res.after.samePos
+  && res.after.kind === "mesh" && res.after.mode === "freeform" && res.after.faces === 2 * (res.setup.rootFaces + res.setup.groupFaces) && /两侧都出/.test(res.after.hint) && res.after.instParent === null && res.after.samePos
   && res.undone.kind === "brep" && res.undone.groups === 1 && res.undone.instParent !== null && res.undone.mode !== "freeform"
   && res.menu2.some((l) => /转回硬表面体/.test(l)) && res.clicked2 && res.back.kind === "brep" && res.back.mode !== "freeform"
   && errs.length === 0;

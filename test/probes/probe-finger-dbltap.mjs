@@ -7,7 +7,7 @@ const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftsha
 const ctx = await b.newContext({ viewport: { width: 900, height: 900 }, hasTouch: true, isMobile: true });
 const page = await ctx.newPage(); page.setDefaultTimeout(4000);
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
+await page.goto(process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
 const c = await page.evaluate(() => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z });
   const B = [[0, 0], [1, 0], [1, 1], [0, 1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], 1), P(d[0], d[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); }

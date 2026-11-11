@@ -11,7 +11,7 @@ const openViewWin = async () => { if (!(await page.evaluate(() => !!document.que
 const errs = []; page.on("pageerror", (e) => errs.push(e.message)); page.on("console", (m) => { if (m.type() === "error") errs.push(m.text()); });
 // 无头 Chromium 锁上鼠标会把动画帧压到每秒 6 帧（真浏览器不会；2026-10-28 实测 60 → 6）：探针当「锁不上鼠标的设备」（触屏那条路：右键拖看），只记有没有请求锁
 await page.addInitScript(() => { globalThis.__lockRequests = 0; HTMLCanvasElement.prototype.requestPointerLock = function () { globalThis.__lockRequests++; }; });
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(500); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
+await page.goto(process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(500); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
 const fails = [];
 const check = (ok, msg) => { console.log((ok ? "  ✓ " : "  ✗ ") + msg); if (!ok) fails.push(msg); };
 

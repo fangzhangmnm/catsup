@@ -3,7 +3,7 @@
 // 「现状原样搬进去、画面一个像素不变」= 每个场景在同一台 swiftshader 上读回画布像素，和冻结在 test/fixtures/render-baseline/ 的图逐像素比。
 // 读的是 WebGL 画布本身（gl.readPixels 紧跟 editor.draw()），不是页面截图：HUD / 芯片 / gizmo 是 DOM，不进基线；选中 / 悬停 / 锁轴线 /
 // 面点 / 参考线 / 轴这些叠加层是画布画的，进基线（第 6 步搬叠加层契约时就靠它盯「样子不变」）。
-// 用法：python3 -m http.server 8765 → node test/probes/probe-render-baseline.mjs [--update] [scene …]
+// 用法：python3 -m http.server 8765 → node test/probes/probe-render-baseline.mjs [--update] [scene …]（PROBE_URL = 地址；PROBE_JOBS = 几个浏览器同时跑，默认 4）
 //   --update = 重新冻结（只在画面**本来就该变**时用，并在第一刀日志 ai-docs/20261029-minccino-first-cut.md 里写一行为什么）。差图写到 $PROBE_OUT（默认 /tmp）。
 // created 2026-10-29 by Claude Fable 5.1
 import { createRequire } from "node:module";
@@ -134,14 +134,14 @@ const SCENES = {
 };
 
 const BENIGN = /Not signed in|CloudNetworkError|Failed to fetch|net::ERR|msal|favicon|GPU stall due to ReadPixels|not persisted yet/i;
-const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const ctx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: DPR });
+const LAUNCH = { args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] };
+const JOBS = Math.max(1, Number(process.env.PROBE_JOBS ?? 4));   // 几个浏览器同时跑（每个一份 swiftshader）；场景之间互不相干，结果和一个一个跑逐张一样（W-9：19 个场景串着跑 1 分 36 秒）
 mkdirSync(BASE, { recursive: true }); mkdirSync(out, { recursive: true });
 const manifestPath = path.join(BASE, "manifest.json");
 const manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, "utf8")) : { note: "截图基线：test/probes/probe-render-baseline.mjs 冻结 / 比对。重冻只在画面本来就该变时（--update），并在 Tron 账本写一行。", viewport: VIEWPORT, dpr: DPR, scenes: {} };
 let failed = 0, version = "";
-for (const [name, def] of Object.entries(SCENES)) {
-  if (only.length && !only.includes(name)) continue;
+/** 一个场景：新页面里摆好、读回画布、和冻结的图比（或冻结）。 */
+async function runScene(ctx, name, def) {
   const page = await ctx.newPage();
   const errs = [];
   page.on("pageerror", (e) => errs.push("pageerror: " + e.message));
@@ -154,7 +154,7 @@ for (const [name, def] of Object.entries(SCENES)) {
   let shot;
   try {
     shot = await page.evaluate(`(async () => { ${pageLib} ${body} await sleep(30); ${def.noTexWait ? "" : "await waitTextures();"} await waitShadows(); return capture(); })()`);
-  } catch (e) { console.log(`  ✗ ${name}: 场景摆不出来 ${String(e).slice(0, 200)}`); failed++; await page.close(); continue; }
+  } catch (e) { console.log(`  ✗ ${name}: 场景摆不出来 ${String(e).slice(0, 200)}`); failed++; await page.close(); return; }
   const rgba = new Uint8Array(Buffer.from(shot.b64, "base64"));
   const file = path.join(BASE, `${name}.png`);
   if (update || !existsSync(file)) {
@@ -176,7 +176,13 @@ for (const [name, def] of Object.entries(SCENES)) {
   if (errs.some((x) => /pageerror/.test(x))) { console.log(`  ✗ ${name}: 页面报错 ${errs.join(" | ").slice(0, 300)}`); failed++; }   // 报错的页面上比出来的像素不算数
   await page.close();
 }
-await browser.close();
+const todo = Object.entries(SCENES).filter(([name]) => !only.length || only.includes(name));
+const worker = async () => {
+  const browser = await chromium.launch(LAUNCH), ctx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: DPR });
+  for (let job = todo.shift(); job; job = todo.shift()) await runScene(ctx, job[0], job[1]);
+  await browser.close();
+};
+await Promise.all(Array.from({ length: Math.min(JOBS, todo.length) }, worker));
 if (update || Object.keys(manifest.scenes).length) writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 if (failed) { console.log(`FAILED: ${failed}`); process.exit(1); }
 console.log(update ? "baseline frozen" : "baseline ok");

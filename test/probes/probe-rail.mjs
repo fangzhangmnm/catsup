@@ -8,7 +8,7 @@ const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftsha
 const page = await b.newPage({ viewport: { width: 1000, height: 900 } });
 page.setDefaultTimeout(4000);
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
+await page.goto(process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
 const rail = () => page.evaluate(() => [...document.getElementById("toolbar").children].map((el) => el.classList.contains("rail-sep") ? "|" : el.classList.contains("rail-more") ? "⌄" : (el.querySelector(".tool-label")?.textContent ?? "?") + (el.querySelector(".tool-flyout") ? "▾" : "")).join(" "));
 const titles = () => page.evaluate(() => [...document.getElementById("toolbar").querySelectorAll("button.tool")].map((el) => el.title).join(" | "));
 const r = {};

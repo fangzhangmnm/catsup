@@ -10,7 +10,7 @@ const run = async (ua, touch) => {
   const ctx = await b.newContext({ viewport: { width: 1000, height: 800 }, userAgent: ua, acceptDownloads: true, ...(touch ? { hasTouch: true } : {}) });
   await ctx.addInitScript(() => { window.__shared = 0; Object.defineProperty(navigator, "share", { value: async () => { window.__shared++; }, configurable: true }); Object.defineProperty(navigator, "canShare", { value: () => true, configurable: true }); });
   const page = await ctx.newPage(); page.setDefaultTimeout(5000); page.on("pageerror", (e) => errs.push(String(e).slice(0, 200)));
-  await page.goto("http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
+  await page.goto(process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
   await page.click("#btnMenu"); await page.waitForTimeout(100);
   await page.click('.popup-menu [data-menu-tab="help"]'); await page.waitForTimeout(80);
   await page.evaluate(() => [...document.querySelectorAll(".popup-menu [data-menu-id]")].find((x) => /调试日志/.test(x.textContent ?? ""))?.dispatchEvent(new MouseEvent("click", { bubbles: true }))); await page.waitForTimeout(150);

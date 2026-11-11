@@ -9,7 +9,7 @@ const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftsha
 const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
 page.setDefaultTimeout(4000);
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
+await page.goto(process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
 const state = () => page.evaluate(() => { const e = globalThis.__catsup.editor; return { kind: e.activeKind(), mode: e.modeId, faces: e.layerHasGeometry() ? e.scene.viewOf(e.activePool()).faces().length : 0 }; });
 const dropdown = async () => { await page.click("#modeSelect"); await page.waitForTimeout(80); const t = await page.evaluate(() => [...document.querySelectorAll(".popup-menu, .choice-layer, [role=listbox], [role=menu]")].map((x) => x.textContent).join(" | ")); await page.keyboard.press("Escape"); await page.waitForTimeout(60); return t; };
 const r = {};

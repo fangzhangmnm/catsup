@@ -7,7 +7,7 @@ const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProje
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 let page = await b.newPage({ viewport: { width: 1000, height: 800 } }); page.setDefaultTimeout(4000);
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
+await page.goto(process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
 const setup = (mesh) => page.evaluate(async (mesh) => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), H = 0.4;   // 扁盒子：单位立方体在这个等轴角度下底面中心正好压在一个顶点上（顶点优先）
   const B = [[0, 0], [1, 0], [1, 1], [0, 1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], H), P(d[0], d[1], H)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], H)]); }
@@ -33,10 +33,10 @@ await setup(true);
 r.meshOff = await clickBottom();
 await page.evaluate(() => globalThis.__catsup.editor.setXray(true)); await page.waitForTimeout(60);
 r.meshOn = await clickBottom();
-if (process.argv[2]) { await page.evaluate(() => globalThis.__catsup.editor.draw()); await page.screenshot({ path: process.argv[2] }); }
+const shot = process.argv.slice(2).find((a) => !a.startsWith("http")); if (shot) { await page.evaluate(() => globalThis.__catsup.editor.draw()); await page.screenshot({ path: shot }); }
 await page.close();
 page = await b.newPage({ viewport: { width: 1000, height: 800 } }); page.setDefaultTimeout(4000); page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));   // 硬表面那段另开一页（重新加载会被「没保存」挡住）
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
+await page.goto(process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
 await setup(false);
 await page.evaluate(() => globalThis.__catsup.editor.setXray(true)); await page.waitForTimeout(60);
 r.brepOn = await clickBottom();

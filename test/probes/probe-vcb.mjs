@@ -1,6 +1,6 @@
 // test/probes/probe-vcb.mjs —— 数值小窗 headless 探针（0.9 #11，2026-10-21，Claude Fable 5.1）：
 // 推拉后打「2」↵ = 顶面正好 2 m、再打「150cm」= 1.5 m；矩形「2,1」；圆「0.5」+「12s」；移动复制后「3x」阵列 / 「/2」内分；小窗 DOM 出现 / 隐藏。
-// 用法：先 python3 -m http.server 8765；node test/probes/probe-vcb.mjs（借 WeebPaint 的 playwright）。
+// 用法：先 python3 -m http.server 8765；node test/probes/probe-vcb.mjs [地址]（借 WeebPaint 的 playwright）。
 import { createRequire } from "node:module";
 const { chromium } = createRequire(new URL("../../../20260524 WeebPaint/package.json", import.meta.url))("playwright");
 const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
@@ -24,11 +24,12 @@ const res = await page.evaluate(async () => {
   // ① 2×2 方 → 推拉往上拖一点 → 小窗亮 → 「2」↵ 顶面正好 2 → 「150cm」↵ 1.5
   e.addSegments([[Pt(0, 0), Pt(2, 0)], [Pt(2, 0), Pt(2, 2)], [Pt(2, 2), Pt(0, 2)], [Pt(0, 2), Pt(0, 0)]], "probe");
   e.cam.setView("iso"); e.zoomExtents();
-  out.vcbHiddenBefore = vcbEl.hidden;
+  // 数值那一格开始时收着（v0.14.7 起这块面板也装工具的选项条：开机默认「选择」，它的「选区 / 空处拖」那一条亮着，所以整块面板不再是收着的——W-9 查的老红）
+  out.vcbHiddenBefore = vcbEl.querySelector(".vcb-field").hidden && vcbEl.querySelector(".vcb-label").hidden;
   e.setTool("pp");
   const c0 = px(Pt(1, 1, 0));
   await drag(c0, { x: c0.x, y: c0.y - 70 });
-  out.vcbShownAfterPP = !vcbEl.hidden && e.vcbState().kind === "pp";
+  out.vcbShownAfterPP = !vcbEl.hidden && !vcbEl.querySelector(".vcb-field").hidden && e.vcbState().kind === "pp";
   // ①' 小键盘单位键跟单位走（user 2026-10-25「小键盘应该跟着公制英制度变换」）
   const unitKeys = () => [...vcbEl.querySelectorAll(".vcb-pad-units .vcb-key")].map((b) => b.textContent).join(" ");
   vcbEl.querySelector(".vcb-field").click(); await sleep(30);

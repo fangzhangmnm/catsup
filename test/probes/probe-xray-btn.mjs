@@ -5,7 +5,7 @@ const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProje
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await b.newPage({ viewport: { width: 1000, height: 800 } }); page.setDefaultTimeout(4000);
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
+await page.goto(process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
 const look = () => page.evaluate(() => { const x = document.querySelector(".gizmo-widgets .gizmo-xray"); return { there: !!x, afterSnap: x?.previousElementSibling?.classList.contains("gizmo-snap") ?? false, icon: x?.querySelector("use")?.getAttribute("href") ?? "", on: !!x?.classList.contains("on"), xray: globalThis.__catsup.editor.xray }; });
 const r = {};
 r.one = await look();
