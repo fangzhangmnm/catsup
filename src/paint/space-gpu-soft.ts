@@ -17,10 +17,10 @@ export class SoftSpaceGpu implements SpaceGpu {
     if (typeof p.cpu !== "function") throw new Error(`SpaceGpu: program ${p.name} has no CPU version (programs that write into textures come in pairs)`);
     this.programs.set(p.name, p);
   }
-  image(w: number, h: number): SpaceImage { const im: SoftImage = { kind: "space-image", w, h, px: new Uint8ClampedArray(w * h * 4) }; return im; }
+  image(w: number, h: number): SpaceImage { const im: SoftImage = { kind: "offscreen-image", w, h, px: new Uint8ClampedArray(w * h * 4) }; return im; }
   data(w: number, h: number, values: Float32Array): SpaceData {
     if (values.length !== w * h) throw new Error(`SpaceGpu.data: ${values.length} values for ${w}x${h}`);
-    const d: SoftData = { kind: "space-data", w, h, v: Float32Array.from(values) };
+    const d: SoftData = { kind: "offscreen-data", w, h, v: Float32Array.from(values) };
     return d;
   }
   draw(d: SpaceDraw): void {

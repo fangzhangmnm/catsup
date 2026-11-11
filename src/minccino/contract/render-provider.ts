@@ -110,6 +110,8 @@ export interface RenderProvider {
   paintGl(): WebGL2RenderingContext | null;
   /** 内核动过显卡了：渲染器作废自己缓存的显卡状态。 */
   resetPaintState(): void;
+  /** 画进离屏图的那个小显卡接口（契约 offscreen-gpu.ts；贴图主线 1-4b）：真显卡版，建在这个画面上；不是 WebGL2 = null。每个动作做完自己归位并作废 three 的状态缓存。 */
+  offscreenGpu(): import("./offscreen-gpu.ts").OffscreenGpu | null;
   lastBudget: BudgetReport | null;
   lastMeasurement: Measurement | null;
   lastPlan: { order: readonly string[]; pruned: readonly string[] } | null;

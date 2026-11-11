@@ -44,7 +44,8 @@ import { OverlayMarksDrawer } from "./overlay-marks.ts";
 import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
 import type { RenderProvider, MarkAccent, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput, Mark, FaceSlot, LineSlot } from "../../index.ts";
 import { DEFAULT_VIEW_BUDGET, GRID_FINEST_PX, ladderWindow, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type Frame3, type MaterialRef, type TextureRef, type LiveImage, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
-import { LiveTextures } from "./live-image.ts";   // 活的图（画；贴图主线 1-3c）：专用显示图 + 拷贝那一遍
+import { LiveTextures } from "./live-image.ts";
+import { GlOffscreenGpu } from "./offscreen-gpu-gl.ts";   // 画进离屏图的小显卡接口（1-4b 薄层）   // 活的图（画；贴图主线 1-3c）：专用显示图 + 拷贝那一遍
 import { PALETTE } from "../../palette.ts";
 import { hexToLinear } from "../../overlay/index.ts";
 import { NOOP_PERF, type PerfSink } from "../../perf.ts";
@@ -919,6 +920,16 @@ export class Renderer3 implements RenderProvider {
   paintGl(): WebGL2RenderingContext | null { const gl = this.renderer.getContext(); return typeof WebGL2RenderingContext !== "undefined" && gl instanceof WebGL2RenderingContext ? gl : null; }
   /** 内核动过显卡了：three 作废自己缓存的状态。 */
   resetPaintState(): void { this.renderer.resetState(); }
+  private offscreen: GlOffscreenGpu | null = null;
+  /** 画进离屏图的小显卡接口（契约 RenderProvider.offscreenGpu）：第一次要的时候建；画面丢了忘掉原始 GL 对象（程序和图由用的人重建）。 */
+  offscreenGpu(): GlOffscreenGpu | null {
+    if (this.offscreen) return this.offscreen;
+    const gl = this.paintGl();
+    if (!gl) return null;
+    const og = new GlOffscreenGpu(gl, () => this.renderer.resetState());
+    this.renderer.domElement.addEventListener?.("webglcontextlost", () => og.lost());
+    return (this.offscreen = og);
+  }
   /** 探针：上一次拷活的图花了多少毫秒；现在登记着几张。 */
   liveStats(): { images: number; copyMs: number } { return { images: this.live?.size ?? 0, copyMs: this.live?.lastCopyMs ?? 0 }; }
 
