@@ -25,7 +25,7 @@ describe("演示锁：desk.locked 往返（desk 1.2）", () => {
     assert(bad.style === undefined && bad.screen === undefined, "坏值 = 没有");
   });
   it("拍子 = desk 1.2；没锁不写键；锁着写 locked:true 并读回；文件里 locked:false / 坏值 = 没锁", () => {
-    eq(`${FORMAT.CATSUP_desk.major}.${FORMAT.CATSUP_desk.minor}`, "1.4");   // 1.3 = 风格 / 屏幕跟文件走（2026-10-29 Opus）；1.4 = 导出表单的选择跟文件走（2026-11-04）
+    eq(`${FORMAT.CATSUP_desk.major}.${FORMAT.CATSUP_desk.minor}`, "1.5");   // 1.5 = 画画工作台的笔跟文件走（2026-11-11）；1.3 = 风格 / 屏幕跟文件走（2026-10-29 Opus）；1.4 = 导出表单的选择跟文件走（2026-11-04）
     const plain = jsonOf(writeCatsup(fresh()));
     assert(!("locked" in plain.json.extensions.CATSUP_desk), "没锁不写键");
     assert(readCatsup(writeCatsup(fresh())).desk.locked === undefined, "读回没有键");
