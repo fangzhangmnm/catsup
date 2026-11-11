@@ -90,4 +90,42 @@ export interface HostOverlayInput {
 
 ## 施工记录
 
-（小弟写）
+### 2026-11-10 夜 · Catsup小弟（Claude Opus 5.5）：交审，停在分支没合
+
+画画仓分支 `kernel-host-overlay`，最后一个提交 `3e21b6b`（前面两个 WIP `5093396`、`367bdfd`）。版本号没升（等第 5 步和 0-2、0-6 一起升一次）。
+
+**做了什么**（照第一节的形状）
+
+1. `gl-room.ts`：`HostOverlayInput`（kind `"host"`）进 `OverlayInput`。`_addOverlay` 的宿主一支直接进 `_addPremulOverlay(tex, owned, ov, docW, docH)`；二维笔尖画完之后也进它——预乘转直值、带选区、登记只有这一份。宿主的图 `owned = false`：不归还。空不空 = 原来的 `overlayEmpty`（范围宽或高 ≤ 0）。`bakeStamps`、`compositeOnce`、取色都没另开入口。
+2. `stroke-session.ts`：preview `"host"`；deps 多两个可选口 `setHostOverlays` / `commitHost`，开 host 时缺了就先于开令牌抛。`setHostLayers(list)`：每层最多一张、必须是这一笔的图层，锁透明 = 图层的、选区 = 现在的 `bboxMask()`，转给 `setHostOverlays`。抬笔逐张 `commitHost`；有一张没落成 → 取消令牌、通知重画、抛 `HOST_COMMIT_FAILED (n/m …)`。取消 = 撤显示 + 取消令牌。现有四种方式一行没改。
+3. `render-tree.ts`：`compositeFrame(...)` 返回 `_display`（快路径直接交出上一张），`renderFrame` = 它 + `_present`。`gl-board.ts`：`composite(doc, docBg, floats, overlays, liveSyncLeaf, surrogates)`，GL 丢了返回 null。`gl-board.ts` 进了 `kernelFiles`，内核边界守卫过（它不碰页面，只引用内核）。
+4. 新文件 `src/backend/gl/stamp-falloff.ts`：`STAMP_FALLOFF_GLSL`（`float stampFalloff(dist, radius, innerR)`）+ 同算式 JS `stampFalloff`。`gl-stamp.ts` 的累积着色器、`region-programs.ts` 两处、`soft-shaders.ts` 三处、笔刷预览 `brush-rack-view.ts` 都改成用它；`soft-shaders.ts` 也 `export { stampFalloff }`。`GLStampRasterizer.colorize(accum, color, ow, oh, scissor?)` 公开，`rasterize` 自己调它。
+
+**门**
+
+- 画画仓 `npm test` 1742 过、1 红 = 副本路径下总账 lint 找不到 `../ai-docs/…`（老问题，主 checkout 不红）；`tsc` 干净；内核子集 569 过、泄漏 0；全量层 3 过；显卡冒烟过，逐像素基线没变。现有测试文件只改了显卡冒烟（第 7 条要改的）和内核边界守卫头注释一行。
+- A / B / C / D = `test/host-overlay.test.mjs`（进内核名单，软件显卡全链，0.6 秒）：
+  - A 十种（淡彩、叠色、橡皮、锁透明 + 正片叠底、锁透明 + 橡皮、带选区、滤色、叠加、浓度 0.55、椭圆笔尖 + 选区 + 浓度 0.7）：一次性合成、显示那一侧的合成、落层后的图层，宿主薄层和二维笔尖逐像素相同。
+  - B 十帧（干净、什么都没变 = 同一张图、挂宿主薄层、宿主薄层 + 二维笔尖两层各一张、改底下的图层、撤薄层、不透明底色 → 处处 α = 255、`#336699`、棋盘格、实时叶）：`GLBoard.composite` 每帧 = 另一个房间的 `compositeOnce` 读回。
+  - C 七条：一步撤销 + 撤销重做像素对 + 落的 = 直接落那张；一笔两个图层一步撤销；取消零痕迹、下一笔照常；落层失败两种（返回没落成 / 自己抛）都是整笔取消、已落的那张跟着回滚、抛、下一笔照常；锁透明和选区由档口补、透明度一个像素没变；空的薄层不算失败；五种响亮拒绝；收尾强制回收后小块池零泄漏。
+  - D 放在 A、B 里：盯着端口的 `returnFBO` 和每次画的采样设置，宿主借的图一次都没出现。
+  - 拿五处故意改坏验过测试会红：宿主一支丢掉橡皮、落层抛错不取消、不补锁透明、宿主的图被归还、合成交出旧图——各自都红。
+- 守卫 `test/host-overlay-guard.test.mjs`（读源码，不进内核名单）：`gl-room.ts` 里 `presentTo` 只一处且在 `_addPremulOverlay` 里、两支各调一次、宿主那支 `owned = false`；同一个 smoothstep 多项式全仓只许白名单几处；内置 `smoothstep()` 只在点网格；拿 `innerR` 做加减除只在 `stamp-falloff.ts`；GLSL 里调 `stampFalloff` 的都插了片段。
+- 第 7 条：四个画屏幕的用例原样留在独占那一轮，各加一份「只合成」版（`compositeFrame` 拿图直接读），两轮都跑；共用画面那一轮现在比 25 个用例、154 次读回，和独占那一轮逐字节一样；四个画屏幕的照旧验「共用画面下被拒绝」。
+- `api/` 重打；画画仓流程图加「一帧」「一笔的第五种预览方式」两节（放在「还随整张画涨的点」前面——0-6 的「一笔」在文件末尾，合的时候不撞）。
+
+**和施工单不一样的地方**
+
+1. 落层那一步**自己抛**（不是返回 false）也当没落成：先取消令牌（已落的跟着回滚），再把原错误抛出去。施工单只写了「没落成」；不这样的话令牌一直开着，下一笔撞单令牌墙。**区域笔那一支有同一个洞**（`commitRegion` 抛了不取消令牌），现有四种不许动，没改，记给你定要不要补。
+2. **空的薄层**（范围宽或高 ≤ 0）抬笔时跳过，不算没落成——不然 `bakeStamps` 对空的返回 false，整笔被丢掉。空判据直接写在档口里（同 `overlayEmpty` 的 host 判据），没从 `gl-room.ts` 引值，档口照旧只引类型。
+3. `GLBoard.composite` 的底色除了 `"#hex"` / `"checker"` / null，还收 `[r, g, b, a]`（0..1）——`render` 只收字符串，三维要直接给材质底色。
+4. D 没单独写一节，放进了 A、B（同一笔里盯着）。
+5. 液化的形变强度（`region-programs.ts` / `soft-shaders.ts` 各一处）用的也是 smoothstep 多项式（1 − r/R，不带硬度），不是笔尖边缘，没并进来（并了液化的字节会动）；守卫白名单里写明了。
+6. `region-programs.ts` 第二处原来 `u_R == u_innerR` 时是除以零，现在按 1；那个情况之前在半径外就被丢掉了，实际走不到，区域笔的逐位样本全过。
+
+**不放心的**
+
+- **宿主给的范围必须盖住它画的全部像素**：预览把整张薄层都显示出来，落层只读回范围那一块。二维笔尖是靠光栅化时按范围裁剪保证的；宿主那边内核只能信它。范围小了 = 预览看得见、落层丢了。1-4 的空间层要保证；要不要内核这边也把预览限在范围里（要动合成着色器的取样范围，不是小改），你定。
+- 每帧每张宿主薄层整幅做一次预乘转直值（和二维笔尖现在一样）。三维贴图大（比如 4096²）、一笔跨好几张图层时，这一步按「张数 × 整幅」涨；1-4 量一下。
+- C 里「零泄漏」那条靠强制回收后几拍内收到回收通知，时机不保证；真正的门是内核子集收尾那道泄漏门（0）。
+- 第 5 步合的时候 `test/kernel-tests.json` 会冲突（三条分支都往测试名单里加），合并 = 两边都留；流程图自动合得上（预演过）。
