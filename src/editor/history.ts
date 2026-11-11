@@ -387,7 +387,8 @@ export class History<M = unknown> {
   /** 从最老端整步驱逐到配额之内；最新一步永不驱逐。驱逐 = 丢撤销记录、游标之前不能再撤；指令流留着。 */
   private evictToQuota(): void {
     const lastStart = ((): number => { let s = this.cursor; do s--; while (s > 0 && this.joins[s]); return s; })();
-    let usage = this.usageBytes();   // 一次算清（字节会变的现问），之后每驱逐一步减掉它的（以前每一圈都全扫一遍）
+    let usage = this.usageBytes();   // 一次算清（字节会变的现问），之后每驱逐一步减掉它的（以前每一圈都全扫一遍）。
+    // 这个数在这一圈之内是近似的：被挤掉的步和别的步共用图块时，剩下那些步分摊到的字节会变大（画），这里不重问；下一次提交全算一遍就对了（统筹 0-3a 审查）。
     while (usage > this.quota && this.evicted < lastStart) {
       let j = this.evicted + 1;
       while (j < this.ops.length && this.joins[j]) j++;

@@ -23,11 +23,30 @@ export declare class TileJobs {
     /** 切到后台：全压（用户看不见，卡也无妨）。 */
     hidden(): void;
 }
-/** 开机调一次（第一块画板之前）：额度 + 编码器 + 泄漏上报 + 空闲 / 切后台。第二次调 = 抛（额度只在开机设一次）。返回拆的口（真 app 不调）。 */
+/** 定时器和监听从哪来（浏览器 = window / document；测试 = 假的）。每个口返回「撤掉」。 */
+export interface TileJobsEnv {
+    every(fn: () => void, ms: number): () => void;
+    onInput(fn: () => void): () => void;
+    onHidden(fn: () => void): () => void;
+}
+/** 只在有画板时跑：setActive(true) 挂定时器和监听（已经挂着 = 不动），setActive(false) 全撤。 */
+export declare class TileJobsDriver {
+    private off;
+    private readonly jobs;
+    private readonly env;
+    private readonly log;
+    constructor(jobs: TileJobs, env: TileJobsEnv, log: (msg: string) => void);
+    get running(): boolean;
+    setActive(on: boolean): void;
+}
+/** 浏览器里的定时器和监听（输入 = 按下 / 挪 / 滚轮 / 键盘 / 触摸，捕获阶段、被动；后台 = visibilitychange 变 hidden）。 */
+export declare function browserTileJobsEnv(): TileJobsEnv;
+/** 开机调一次（第一块画板之前）：额度 + 编码器 + 泄漏上报（开机就做）；空闲 / 切后台交给返回的 driver（画板登记处在有没有画板变了时调 setActive）。第二次调 = 抛（额度只在开机设一次）。 */
 export declare function initPaintTileJobs(o: {
     readonly log: (msg: string) => void;
     readonly quotaBytes?: number;
+    readonly env?: TileJobsEnv;
 }): {
     readonly jobs: TileJobs;
-    dispose(): void;
+    readonly driver: TileJobsDriver;
 };

@@ -16,6 +16,8 @@ export interface PaintBoardsOpts {
     readonly touched?: () => void;
     /** 内核说这张画以前的步全作废（装载 / 状态不可信）：三维的撤销栈把它的记录摘掉（History.dropRecords）；tell = 状态不可信那一种，要在提示行告诉用户 why。刚建画板那一次不叫。 */
     readonly undoReset?: (texture: Guid, why: string, tell: boolean) => void;
+    /** 有没有画板变了（第一块建出来 = true；换文件全扔了 = false）：图块池的空闲压缩只在有画板时跑（tile-jobs.ts TileJobsDriver.setActive，0-3a）。 */
+    readonly active?: (on: boolean) => void;
 }
 /** 「画」这种撤销记录：哪张贴图 + 内核封的那一步（内核的对象，三维不看里面）。 */
 export interface PaintRec {
@@ -86,4 +88,4 @@ export declare class PaintBoards {
     private resig;
 }
 /** 浏览器里：内核的显卡接口建在渲染器的画面上（整个程序一个）。 */
-export declare function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void, touched?: () => void, undoReset?: (texture: Guid, why: string, tell: boolean) => void): PaintBoards;
+export declare function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void, touched?: () => void, undoReset?: (texture: Guid, why: string, tell: boolean) => void, active?: (on: boolean) => void): PaintBoards;

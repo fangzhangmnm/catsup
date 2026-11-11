@@ -7,7 +7,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { appTilePool, setTilePoolCodec } from "../src/paint/kernel/src/backend/tiles/app-tile-pool.ts";
 import { deflateTileCodec } from "../src/paint/kernel/src/backend/tiles/cpu-tile-compression.ts";
-import { TileJobs, IDLE_QUOTA_TABLE } from "../src/paint/tile-jobs.ts";
+import { TileJobs, TileJobsDriver, IDLE_QUOTA_TABLE, type TileJobsEnv } from "../src/paint/tile-jobs.ts";
 import { rig, rng } from "./paint-undo-kit.ts";
 
 const pool = appTilePool();
@@ -24,6 +24,27 @@ describe("空闲时压缩的表（0-3a）", () => {
     jobs.noteInput(); t = 30_500; eq(jobs.tick(), "busy", "有输入：空闲时钟归零");
     jobs.hidden(); eq(calls[calls.length - 1], "all", "切后台全压");
     eq(IDLE_QUOTA_TABLE.map((r) => `${r.afterIdleMs}:${r.quotaMs}`).join(","), "1000:5,5000:15,30000:50", "和画画仓 background-sync-jobs 同一张表");
+  });
+});
+
+describe("空闲压缩只在有画板时跑（0-3a 统筹审查）", () => {
+  /** 假的定时器和监听：数挂着几个。 */
+  const fakeEnv = () => { const live = { every: 0, input: 0, hidden: 0 }; const env: TileJobsEnv = { every: () => { live.every++; return () => { live.every--; }; }, onInput: () => { live.input++; return () => { live.input--; }; }, onHidden: () => { live.hidden++; return () => { live.hidden--; }; } }; return { live, env }; };
+  it("没建过画板：定时器没起；建了一块：起了（再建一块不多起）；换文件全扔：停了；再建：再起", () => {
+    const { live, env } = fakeEnv(), driver = new TileJobsDriver(new TileJobs({ compactOldest: () => "done", compactAll: () => {} }), env, () => {});
+    let ep = 0;
+    const r = rig(2, { epoch: () => ep, active: (on) => driver.setActive(on) }), rnd = rng(51), texs = r.defs.map((d) => r.startPaint(d, 20));
+    r.boards.prepare(r.cur());
+    eq(JSON.stringify(live), JSON.stringify({ every: 0, input: 0, hidden: 0 }), "没建过画板：什么都没挂");
+    r.stroke([texs[0]], rnd);
+    eq(JSON.stringify(live), JSON.stringify({ every: 1, input: 1, hidden: 1 }), "建了一块：定时器、输入、切后台各挂一个");
+    r.stroke([texs[1]], rnd);
+    eq(live.every, 1, "再建一块：不多起");
+    ep = 1; r.boards.sync(r.cur());
+    eq(JSON.stringify(live), JSON.stringify({ every: 0, input: 0, hidden: 0 }), "换文件全扔：全撤了");
+    r.stroke([texs[0]], rnd);
+    eq(live.every, 1, "再建：再起");
+    r.boards.disposeAll(); eq(live.every, 0);
   });
 });
 

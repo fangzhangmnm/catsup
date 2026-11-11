@@ -715,8 +715,9 @@ SpaceStroke（paint/space-stroke.ts；目标名单 + 相机两个函数 + 内核
 - **0-3a 内存的额度接上（同日，统筹定）**：
   ```
   开机（第一块画板之前）：initPaintTileJobs → 图块池额度 128 MB（池上的 setRawQuotaBytes，只设一次）+ 压缩编码器 + 泄漏上报（调试日志）
-  每 250 ms：停够 1 / 5 / 30 秒 → compactOldest(5 / 15 / 50 ms)（画画仓 background-sync-jobs 同一张表；有输入归零）
-  切到后台：compactAll
+  只在有画板时（第一块建出来起、换文件全扔了停；画板登记处 active → TileJobsDriver.setActive）：
+    每 250 ms：停够 1 / 5 / 30 秒 → compactOldest(5 / 15 / 50 ms)（画画仓 background-sync-jobs 同一张表；有输入归零）
+    切到后台：compactAll
   没压缩的图块超额度：落层时内核当场压最老的（宁卡不爆）
   三维撤销栈：每次提交 evictToQuota → usageBytes 一次（「画」= volatileBytes：现问内核，压缩后记压缩后的大小、没压缩记 0）→ 超额从最老端整步驱逐、驱逐一步减一步
   ```

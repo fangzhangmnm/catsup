@@ -32,6 +32,8 @@ export interface PaintBoardsOpts {
   readonly touched?: () => void;
   /** 内核说这张画以前的步全作废（装载 / 状态不可信）：三维的撤销栈把它的记录摘掉（History.dropRecords）；tell = 状态不可信那一种，要在提示行告诉用户 why。刚建画板那一次不叫。 */
   readonly undoReset?: (texture: Guid, why: string, tell: boolean) => void;
+  /** 有没有画板变了（第一块建出来 = true；换文件全扔了 = false）：图块池的空闲压缩只在有画板时跑（tile-jobs.ts TileJobsDriver.setActive，0-3a）。 */
+  readonly active?: (on: boolean) => void;
 }
 /** 「画」这种撤销记录：哪张贴图 + 内核封的那一步（内核的对象，三维不看里面）。 */
 export interface PaintRec { /** 哪张贴图（GUID；字段不叫 texture：守卫 textures-table 不许「点 texture」）。 */ readonly tex: Guid; readonly step: Parameters<HostedSteps["flip"]>[0] }
@@ -76,6 +78,7 @@ export class PaintBoards {
       current: () => entry.prepared,   // 只读准备好的结果（合成在 prepare 里）
     };
     this.entries.set(texture, entry);
+    if (this.entries.size === 1) this.o.active?.(true);
     this.resig();
     return board;
   }
@@ -218,7 +221,7 @@ export class PaintBoards {
     const all = [...this.entries.values()];
     this.entries.clear(); this.pending = []; this.opens.clear();
     for (const e of all) this.kill(e.board);
-    if (all.length) this.port?.clearPool();   // 一块画板都不剩了：内核显卡接口池子里空着的离屏图也删掉（池是几块画板共用的，只有它们用；扔光了才清）
+    if (all.length) { this.port?.clearPool(); this.o.active?.(false); }   // 一块画板都不剩了：内核显卡接口池子里空着的离屏图也删掉（池是几块画板共用的，只有它们用；扔光了才清）；空闲压缩停
     this.resig();
   }
 
@@ -239,9 +242,9 @@ function gpuImageOf(port: Gl2Port, fbo: PooledFBO): unknown {
 }
 
 /** 浏览器里：内核的显卡接口建在渲染器的画面上（整个程序一个）。 */
-export function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void, touched?: () => void, undoReset?: (texture: Guid, why: string, tell: boolean) => void): PaintBoards {
+export function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void, touched?: () => void, undoReset?: (texture: Guid, why: string, tell: boolean) => void, active?: (on: boolean) => void): PaintBoards {
   return new PaintBoards({
     port: () => { const g = gl(); if (!g) throw new Error("PaintBoards: renderer has no WebGL2 context"); return BrowserGl2Port.fromContext(g); },
-    epoch, log, touched, ...(undoReset ? { undoReset } : {}),
+    epoch, log, touched, ...(undoReset ? { undoReset } : {}), ...(active ? { active } : {}),
   });
 }

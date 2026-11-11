@@ -13,12 +13,12 @@ import { sceneBox, sceneFingerprint } from "./format-scenes.ts";
 export const hash = (u: Uint8Array): string => { let h = 2166136261; for (let i = 0; i < u.length; i++) { h ^= u[i]; h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
 export const rng = (seed: number) => { let s = seed >>> 0; return () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296; };
 
-export function rig(nMesh = 1, opts: { quota?: number; epoch?: () => number } = {}) {
+export function rig(nMesh = 1, opts: { quota?: number; epoch?: () => number; active?: (on: boolean) => void } = {}) {
   const s0 = new Scene(sceneBox(2, 1.5)), defs: number[] = [];
   for (let i = 0; i < nMesh; i++) { const d = s0.mintDef(`画盒${i}`, sceneBox(1, 1)); d.body = brepToMesh(s0.brep(d.id)); s0.mintInstance(s0.root, null, d.id, translation({ x: 3 + 2 * i, y: 0, z: 0 })); defs.push(d.id); }
   const port = new SoftGl2Port(), resets: string[] = [];
   let h!: History<string>;
-  const boards = new PaintBoards({ port: () => port, epoch: opts.epoch ?? (() => 0), undoReset: (tex, why, tell) => { resets.push(`${tex.slice(0, 4)} ${tell ? "说了" : "没说"} ${why}`); h.dropRecords(PAINT_UNDO_KIND, (d) => (d as PaintRec).tex === tex); } });
+  const boards = new PaintBoards({ port: () => port, epoch: opts.epoch ?? (() => 0), ...(opts.active ? { active: opts.active } : {}), undoReset: (tex, why, tell) => { resets.push(`${tex.slice(0, 4)} ${tell ? "说了" : "没说"} ${why}`); h.dropRecords(PAINT_UNDO_KIND, (d) => (d as PaintRec).tex === tex); } });
   h = new History<string>(s0, opts.quota ? { quotaBytes: opts.quota } : undefined);
   h.registerComponent(boards.undoComponent() as unknown as UndoComponent);
   const cur = (): Scene => (h as unknown as { current: Scene }).current;

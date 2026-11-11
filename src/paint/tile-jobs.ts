@@ -4,6 +4,8 @@
 // 空闲怎么算 = 画画仓 background-sync-jobs 那张表（停 1 秒给 5 毫秒、停 5 秒给 15 毫秒、停 30 秒以上给 50 毫秒；有输入 = 空闲时钟归零）。这里只有一件活，所以只搬了表和规矩，没搬整个调度器。
 // 图块池全仓只有画用（src/ 里只有 src/paint/ 能 import 内核），压缩碰不到别的东西。
 // TileJobs 是纯逻辑（零 DOM、时钟可注入，测试用）；DOM 接线在 initPaintTileJobs（main.ts 开机、第一块画板之前调）。
+// 什么时候在跑（统筹 0-3a 审查）：设额度、接编码器、泄漏上报开机就做（不花时间）；那个每 250 ms 看一次的定时器、切后台和输入的监听**只在有画板时挂着**——
+//   第一块画板建出来才起，换文件画板全扔了就停（画板登记处的 active 回调 → TileJobsDriver.setActive）。用户根本没画画，三维不多一个常驻的定时器。
 import { appTilePool, setTilePoolCodec, setTilePoolLeakReporter } from "./kernel/src/backend/tiles/app-tile-pool.ts";
 import { deflateTileCodec } from "./kernel/src/backend/tiles/cpu-tile-compression.ts";
 
@@ -38,9 +40,47 @@ export class TileJobs {
   hidden(): void { this.pool.compactAll(); }
 }
 
+/** 定时器和监听从哪来（浏览器 = window / document；测试 = 假的）。每个口返回「撤掉」。 */
+export interface TileJobsEnv {
+  every(fn: () => void, ms: number): () => void;
+  onInput(fn: () => void): () => void;
+  onHidden(fn: () => void): () => void;
+}
+/** 只在有画板时跑：setActive(true) 挂定时器和监听（已经挂着 = 不动），setActive(false) 全撤。 */
+export class TileJobsDriver {
+  private off: (() => void)[] | null = null;
+  private readonly jobs: TileJobs;
+  private readonly env: TileJobsEnv;
+  private readonly log: (msg: string) => void;
+  constructor(jobs: TileJobs, env: TileJobsEnv, log: (msg: string) => void) { this.jobs = jobs; this.env = env; this.log = log; }
+  get running(): boolean { return this.off !== null; }
+  setActive(on: boolean): void {
+    if (on === this.running) return;
+    if (!on) { for (const f of this.off!) f(); this.off = null; return; }
+    this.jobs.noteInput();   // 刚建了画板 = 刚有动作：空闲时钟从现在算
+    this.off = [
+      this.env.every(() => { try { this.jobs.tick(); } catch (e) { this.log(`[tile-pool] compact threw: ${String(e)}`); } }, TILE_TICK_MS),
+      this.env.onInput(() => this.jobs.noteInput()),
+      this.env.onHidden(() => { try { this.jobs.hidden(); } catch (e) { this.log(`[tile-pool] compactAll threw: ${String(e)}`); } }),
+    ];
+  }
+}
+/** 浏览器里的定时器和监听（输入 = 按下 / 挪 / 滚轮 / 键盘 / 触摸，捕获阶段、被动；后台 = visibilitychange 变 hidden）。 */
+export function browserTileJobsEnv(): TileJobsEnv {
+  const inputEvents = ["pointerdown", "pointermove", "wheel", "keydown", "touchstart"] as const;
+  return {
+    every: (fn, ms) => { const t = setInterval(fn, ms); return () => clearInterval(t); },
+    onInput: (fn) => {
+      for (const ev of inputEvents) window.addEventListener(ev, fn, { capture: true, passive: true });
+      return () => { for (const ev of inputEvents) window.removeEventListener(ev, fn, { capture: true } as EventListenerOptions); };
+    },
+    onHidden: (fn) => { const h = (): void => { if (document.visibilityState === "hidden") fn(); }; document.addEventListener("visibilitychange", h); return () => document.removeEventListener("visibilitychange", h); },
+  };
+}
+
 let wired = false;
-/** 开机调一次（第一块画板之前）：额度 + 编码器 + 泄漏上报 + 空闲 / 切后台。第二次调 = 抛（额度只在开机设一次）。返回拆的口（真 app 不调）。 */
-export function initPaintTileJobs(o: { readonly log: (msg: string) => void; readonly quotaBytes?: number }): { readonly jobs: TileJobs; dispose(): void } {
+/** 开机调一次（第一块画板之前）：额度 + 编码器 + 泄漏上报（开机就做）；空闲 / 切后台交给返回的 driver（画板登记处在有没有画板变了时调 setActive）。第二次调 = 抛（额度只在开机设一次）。 */
+export function initPaintTileJobs(o: { readonly log: (msg: string) => void; readonly quotaBytes?: number; readonly env?: TileJobsEnv }): { readonly jobs: TileJobs; readonly driver: TileJobsDriver } {
   if (wired) throw new Error("initPaintTileJobs: already wired (the paint tile pool quota is set once at boot)");
   wired = true;
   const pool = appTilePool();
@@ -48,18 +88,5 @@ export function initPaintTileJobs(o: { readonly log: (msg: string) => void; read
   setTilePoolCodec(deflateTileCodec);
   setTilePoolLeakReporter((info) => o.log(`[tile-pool] ${info}`));
   const jobs = new TileJobs(pool);
-  const noteInput = (): void => jobs.noteInput();
-  const inputEvents = ["pointerdown", "pointermove", "wheel", "keydown", "touchstart"] as const;
-  for (const ev of inputEvents) window.addEventListener(ev, noteInput, { capture: true, passive: true });
-  const onVis = (): void => { if (document.visibilityState === "hidden") jobs.hidden(); };
-  document.addEventListener("visibilitychange", onVis);
-  const timer = setInterval(() => { try { jobs.tick(); } catch (e) { o.log(`[tile-pool] compact threw: ${String(e)}`); } }, TILE_TICK_MS);
-  return {
-    jobs,
-    dispose: () => {
-      clearInterval(timer);
-      for (const ev of inputEvents) window.removeEventListener(ev, noteInput, { capture: true } as EventListenerOptions);
-      document.removeEventListener("visibilitychange", onVis);
-    },
-  };
+  return { jobs, driver: new TileJobsDriver(jobs, o.env ?? browserTileJobsEnv(), o.log) };
 }
