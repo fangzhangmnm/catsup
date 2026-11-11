@@ -2,7 +2,8 @@
 journals/
 journal/
 .claude/
-node_modules/
+# 不带斜杠：工作副本（.claude/worktrees/）里的 node_modules 是指回主目录的符号链接，带斜杠只认文件夹、链接会被 git add -A 收进去（2026-11-11 出过：主目录的 node_modules 被换成了链接，Claude Opus 5.5）
+node_modules
 # /tools/（只匹配仓根）= 构建工具（esbuild 二进制跨 OS 不通用，build.sh 自动 curl）；区别于运行时 vendor。2026-10-24 前写成 tools/ 把 src/editor/tools/ 也吞了（工具模块自 0.9.11 起从未进 git），Claude Fable 5.1 修
 /tools/
 *.log
