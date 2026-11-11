@@ -15,20 +15,27 @@ export function mergeVerts(k: MeshKernel, ids: readonly number[], target: "cente
   // 记下被并顶点的裸线（另一端不在并集里的）：之后挂到幸存者上
   const wires: [number, number, number][] = [];
   for (const v of gone) for (const e of k.vEdges(v)) if (k.edgeFlags[e] & F_WIRE) { const o = k.edgeA[e] === v ? k.edgeB[e] : k.edgeA[e]; if (!gone.has(o) && o !== survivor) wires.push([survivor, o, k.edgeFlags[e]]); }
+  // 角上的数（贴图主线 1-2，Fable 裁定 ③）：并完的环 = 原来那张的一份；每个角带着「从原来哪几个角来」（src），跟着去重 / 剪刺 / 去捏点一起走。
+  // 几个角挤成一个角：原位置和落点 to 逐位相同的那个优先（那个位置上的画留在原地），没有就取原环里靠前的那个。
+  const pick = (orig: readonly number[], grp: readonly number[]): number => {
+    for (const i of grp) { const p = k.pt(orig[i]); if (p.x === to.x && p.y === to.y && p.z === to.z) return i; }
+    return Math.min(...grp);
+  };
   for (const f of [...faces].sort((a, b) => a - b)) {
-    const r = k.faceVerts(f).map((v) => (gone.has(v) ? survivor : v));
-    const ring: number[] = [];
-    for (const v of r) if (!ring.length || ring[ring.length - 1] !== v) ring.push(v);
-    while (ring.length > 1 && ring[0] === ring[ring.length - 1]) ring.pop();
+    const orig = k.faceVerts(f), r = orig.map((v) => (gone.has(v) ? survivor : v));
+    const ring: number[] = [], src: number[][] = [];
+    r.forEach((v, i) => { if (!ring.length || ring[ring.length - 1] !== v) { ring.push(v); src.push([i]); } else src[src.length - 1].push(i); });
+    while (ring.length > 1 && ring[0] === ring[ring.length - 1]) { ring.pop(); const last = src.pop()!; src[0] = [...last, ...src[0]]; }
     if (new Set(ring).size < 3) { k.removeFace(f); continue; }
-    cutSpurs(ring);   // 两次出现之间只夹着不到 3 个不同点的那段 = 零面积的刺（并点落在自己这张面的一条边上），剪掉（2026-10-28 Opus；镜像设计稿 §5.5）
+    cutSpurs(ring, src);   // 两次出现之间只夹着不到 3 个不同点的那段 = 零面积的刺（并点落在自己这张面的一条边上），剪掉（2026-10-28 Opus；镜像设计稿 §5.5）
     if (new Set(ring).size < 3) { k.removeFace(f); continue; }
+    const of = k.shapeOf(f);
     if (new Set(ring).size !== ring.length) {   // 环里还有不相邻的重复（并出一个捏点 = 两边都是像样的环，蝴蝶结）：按第一次出现的位置去重——面还成立，拓扑上是捏点，留给自检报
-      const seen = new Set<number>(), r2: number[] = []; for (const v of ring) if (!seen.has(v)) { seen.add(v); r2.push(v); }
+      const seen = new Set<number>(), r2: number[] = [], s2: number[][] = []; ring.forEach((v, i) => { if (!seen.has(v)) { seen.add(v); r2.push(v); s2.push(src[i]); } });
       if (r2.length < 3) { k.removeFace(f); continue; }
-      k.setFaceRing(f, r2); continue;
+      k.setFaceRing(f, r2, { kind: "copy", of, corners: s2.map((g) => pick(orig, g)) }); continue;
     }
-    k.setFaceRing(f, ring);
+    k.setFaceRing(f, ring, { kind: "copy", of, corners: src.map((g) => pick(orig, g)) });
   }
   // 被并顶点剩下的边（裸线 / 面已删留下的）全删，再删顶点
   for (const v of gone) { for (const e of [...k.vEdges(v)]) { if (k.eFaces(e).length) throw new Error("mergeVerts: internal: face still references merged vertex"); k.removeEdge(e); } k.removeVertex(v); }
@@ -54,21 +61,21 @@ function dedupeFacesAround(k: MeshKernel, v: number): void {
 }
 
 /**
- * 剪刺（原地改 ring）：某个点在环里出现两次（不相邻），两次之间那段（或绕回来的另一段）不到 3 个不同的点 = 零面积的一根刺（来回走同一条线），剪掉那段、留一次。
+ * 剪刺（原地改 ring；aux = 和 ring 平行的「每个角从原来哪几个角来」，跟着同样删改——挨着重复并成一个时两组并起来）：某个点在环里出现两次（不相邻），两次之间那段（或绕回来的另一段）不到 3 个不同的点 = 零面积的一根刺（来回走同一条线），剪掉那段、留一次。
  * 例：A X M B M（把 X 对面的角并到自己这张面的边 AB 的中点 M 上）→ A X M。两段都像样（蝴蝶结）的不碰。
  */
-function cutSpurs(ring: number[]): void {
+function cutSpurs(ring: number[], aux: number[][]): void {
   for (let guard = 0; guard < 64; guard++) {
     let cut = false;
     outer: for (let i = 0; i < ring.length; i++) for (let j = i + 1; j < ring.length; j++) {
       if (ring[i] !== ring[j]) continue;
       const inner = ring.slice(i, j), outerArc = [...ring.slice(j), ...ring.slice(0, i)];
-      if (new Set(inner).size < 3) { ring.splice(i + 1, j - i); cut = true; break outer; }          // 里面那段是刺：留 ring[i]，去掉 i+1..j
-      if (new Set(outerArc).size < 3) { const keep = ring.slice(i, j); ring.length = 0; ring.push(...keep); cut = true; break outer; }   // 外面那段是刺：只留里面
+      if (new Set(inner).size < 3) { ring.splice(i + 1, j - i); aux.splice(i + 1, j - i); cut = true; break outer; }          // 里面那段是刺：留 ring[i]，去掉 i+1..j
+      if (new Set(outerArc).size < 3) { const keep = ring.slice(i, j), keepA = aux.slice(i, j); ring.length = 0; ring.push(...keep); aux.length = 0; aux.push(...keepA); cut = true; break outer; }   // 外面那段是刺：只留里面
     }
     if (!cut) return;
-    for (let i = ring.length - 1; i > 0; i--) if (ring[i] === ring[i - 1]) ring.splice(i, 1);   // 剪完可能又挨着重复
-    while (ring.length > 1 && ring[0] === ring[ring.length - 1]) ring.pop();
+    for (let i = ring.length - 1; i > 0; i--) if (ring[i] === ring[i - 1]) { ring.splice(i, 1); aux[i - 1] = [...aux[i - 1], ...aux[i]]; aux.splice(i, 1); }   // 剪完可能又挨着重复
+    while (ring.length > 1 && ring[0] === ring[ring.length - 1]) { ring.pop(); const last = aux.pop()!; aux[0] = [...last, ...aux[0]]; }
   }
 }
 

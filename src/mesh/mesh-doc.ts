@@ -2,6 +2,7 @@
 // 存：去空位、id 重编（user 10-27「catsup rule: organize in export/save」）；坐标 f64 逐字；只列带标记的边。读：坏环（< 3 个不同顶点 / 下标越界）= 文件坏了，抛人话、不静默丢。
 import type { MeshDoc } from "../format/document.ts";
 import { MeshKernel } from "./mesh-kernel.ts";
+import { FRESH } from "./corner-columns.ts";
 
 export function meshDocFromKernel(m: MeshKernel): MeshDoc {
   const alive = m.verts(), map = new Map<number, number>();
@@ -25,7 +26,7 @@ export function kernelFromMeshDoc(d: MeshDoc, where = "mesh"): MeshKernel {
     const ring = Array.from(d.loopVert.subarray(s, s + n));
     for (const v of ring) if (v < 0 || v >= nV) throw new Error(`${where}: face ${f} references vertex ${v} (have ${nV})`);
     let fid: number;
-    try { fid = m.addFace(ring, d.faceMat[f]); } catch (e) { throw new Error(`${where}: face ${f} invalid (${e instanceof Error ? e.message : String(e)})`); }
+    try { fid = m.addFace(ring, d.faceMat[f], FRESH); }   /* 读文件 = 凭空来的（角上的数这一版不进文件，1-2½） */ catch (e) { throw new Error(`${where}: face ${f} invalid (${e instanceof Error ? e.message : String(e)})`); }
     if (d.faceFlags[f]) m.setFaceFlags(fid, d.faceFlags[f], true);
   }
   if (d.edgeFlags.length * 2 !== d.edgePairs.length) throw new Error(`${where}: edgePairs / edgeFlags disagree`);

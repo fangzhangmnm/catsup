@@ -1301,6 +1301,10 @@ export declare class Editor {
     private updateTip;
     private targetBounds;
     pointerDown(ev: ToolPointer): void;
+    /** 「收」（W-7）：声明了 sameSpotEnds 的工具定了点、在等下一点时 = 左下芯片那颗钮的字（工具给）；不是这时候 = null。点它 = finishChain = 和「同一处再点一下」同一条路（endChain）：做成的留着，只是不接下一段。 */
+    finishLabel(): string | null;
+    finishChain(): void;
+    private endChain;
     private pointerDownStep;
     /** 手势中 = 工具的 dims；否则选中面的面积合计 / 选中边的长度合计；都没有 = ""。 */
     readoutText(): string;

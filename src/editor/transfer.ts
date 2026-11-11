@@ -17,6 +17,7 @@
 import type { Pt3 } from "../kernel/geom.ts";
 import { Kernel, type BrepSnapshot } from "../kernel/kernel.ts";
 import { MeshKernel, F_WIRE } from "../mesh/mesh-kernel.ts";
+import { FRESH } from "../mesh/corner-columns.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { cloneGuides, emptyGuides, transformGuides, type Guides } from "../scene/guides.ts";
 import { castBody } from "../scene/kinds.ts";
@@ -163,7 +164,7 @@ export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
   }
   if (!p.mesh) return p;
   const k = new MeshKernel(), vs = p.mesh.verts.map((q) => k.addVertex(q));
-  for (const f of p.mesh.faces) k.addFace(f.ring.map((i) => vs[i]), f.mat);
+  for (const f of p.mesh.faces) k.addFace(f.ring.map((i) => vs[i]), f.mat, FRESH);   // 经过剪贴板：这一张先当凭空来的（贴图坐标进文件那一张一起做）
   for (const e of p.mesh.edges) { const id = k.ensureEdge(vs[e.a], vs[e.b]); k.setEdgeFlags(id, e.flags); }
   const body = castBody({ kind: "mesh", kernel: k, materialSlots: slots() }, "brep");
   const brep = body.kind === "brep" ? body.kernel.toBrep() : undefined;

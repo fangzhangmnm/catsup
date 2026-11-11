@@ -21,7 +21,7 @@ export function joinFaces(k: MeshKernel, e: number): number {
   const mid = B.slice(0, B.length - 2);
   const ring = [...A.slice(0, A.length - 1), ...(sameDir ? [...mid].reverse() : mid), y];
   if (new Set(ring).size !== ring.length || ring.length < 3) throw new Error("joinFaces: the two faces share more than one edge (result would not be a simple ring)");
-  k.setFaceRing(fa, ring);
+  k.setFaceRing(fa, ring, { kind: "joined", of: [k.shapeOf(fa), k.shapeOf(fb)] });   // 几张面并成的：公共点两边值一样才算数，不然整张没值（内核记「丢了几张」）
   k.removeFace(fb);
   if (k.hasE(e)) { if (k.eFaces(e).length) throw new Error("joinFaces: internal: edge still used"); k.removeEdge(e); }
   return fa;
@@ -38,7 +38,7 @@ export function dissolveVertex(k: MeshKernel, v: number): number {
   const f0 = k.edgeFlags[es[0]], f1 = k.edgeFlags[es[1]], flags = ((f0 | f1) & ~MARKS) | (f0 & f1 & MARKS);
   const faces = new Set<number>([...k.eFaces(es[0]), ...k.eFaces(es[1])]);
   for (const f of faces) if (k.faceVerts(f).length <= 3) throw new Error(`dissolveVertex: face ${f} would drop below 3 vertices`);
-  for (const f of faces) k.setFaceRing(f, k.faceVerts(f).filter((x) => x !== v));
+  for (const f of faces) { const r = k.faceVerts(f), keep = r.map((_, i) => i).filter((i) => r[i] !== v); k.setFaceRing(f, keep.map((i) => r[i]), { kind: "copy", of: k.shapeOf(f), corners: keep }); }   // 溶解点 = 是它的一份（少掉的那个角不在表里）
   const wire = !faces.size;
   for (const e of es) if (k.hasE(e)) { if (k.eFaces(e).length) throw new Error("dissolveVertex: internal"); k.removeEdge(e); }
   k.removeVertex(v);

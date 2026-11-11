@@ -16,6 +16,7 @@ export declare class MeshKnifeTool implements ToolHandler {
     readonly grammar: "direct";
     /** 同一处再点一下 = 收刀（和画线的收笔一样）。direct 工具底座不管这一下，刀在 up 里自己认；W-7 的「收」钮也认这个标记。 */
     readonly sameSpotEnds = true;
+    readonly finishLabel = "\u6536\u5200";
     private start;
     private startW;
     private startKind;

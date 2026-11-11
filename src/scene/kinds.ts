@@ -7,6 +7,7 @@ import type { Body, BrepBody, DefId, MeshBody, Scene } from "./scene.ts";
 import { reachableDefs } from "./resources.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 import { MeshKernel, F_SOFT, F_SMOOTH, F_HIDDEN, F_WIRE, FF_HIDDEN } from "../mesh/mesh-kernel.ts";
+import { FRESH } from "../mesh/corner-columns.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import { BUILTIN_BACK_SLOT } from "./builtin-materials.ts";
 import { edgeSoft, keepLookUnderAngle } from "../mesh/edge-smooth.ts";
@@ -100,7 +101,7 @@ function addBrepPool(m: MeshKernel, k: Kernel, isBack: (slot: number) => boolean
     const F = k.face(f.id)!, rec = k.planeOf(f.id)!, n = rec.plane.n, hidden = k.isFaceHidden(f.id);
     const sides = ([[1, k.faceMaterialOf(f.id, 0) ?? -1], [-1, k.faceMaterialOf(f.id, 1) ?? -1]] as const).filter(([, slot]) => !isBack(slot));
     if (!sides.length) continue;   // 两侧都是默认背面：这张面没了（brepSideCounts.neither 报数）
-    const add = (ring: number[]): void => { for (const [sgn, slot] of sides) { const r = dot(newell(ring.map((v) => m.pt(v))), n) * sgn < 0 ? [...ring].reverse() : ring; const fid = m.addFace(r, slot); if (hidden) m.setFaceFlags(fid, FF_HIDDEN, true); } };
+    const add = (ring: number[]): void => { for (const [sgn, slot] of sides) { const r = dot(newell(ring.map((v) => m.pt(v))), n) * sgn < 0 ? [...ring].reverse() : ring; const fid = m.addFace(r, slot, FRESH);   /* 硬表面转网格体 = 凭空来的 */ if (hidden) m.setFaceFlags(fid, FF_HIDDEN, true); } };
     if (!F.holes.length) { add(F.outer.vids.map(vi)); continue; }
     const outer = F.outer.vids, holes = F.holes.map((h) => h.vids), all = [...new Set([...outer, ...holes.flat()])];
     const local = new Map<number, number>(all.map((v, i) => [v, i]));

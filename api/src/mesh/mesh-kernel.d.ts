@@ -1,5 +1,7 @@
 import type { Pt3 } from "../kernel/geom.ts";
 import { ChangeLog } from "../kernel/change-log.ts";
+import { type ColumnDef, type CornerColumn, type FaceOrigin, type FaceShape } from "./corner-columns.ts";
+export type { ColumnDef, CornerColumn, FaceOrigin, FaceShape } from "./corner-columns.ts";
 export declare const F_SOFT = 1, F_SMOOTH = 2, F_SEAM = 4, F_HIDDEN = 8, F_WIRE = 16;
 /** 手标硬边（2026-10-28 Claude Opus 5.5；纪元账本 FM129 / FM131）：压过网格体的「默认平滑」，这条边永远是棱（画线、明暗断开）。和 F_SOFT / F_SMOOTH 互斥（标的时候清掉另两位）。 */
 export declare const F_SHARP = 32;
@@ -21,6 +23,12 @@ export interface MeshSnapshot {
     readonly faces: number[][];
     readonly faceMat: number[];
     readonly edges: [number, number, number][];
+    /** 角上的列（有列才有这个键）：每列每张面一项 = 角数 × arity 个数，或 null（这张面在这一列上没值）。 */
+    readonly columns?: readonly {
+        readonly guid: string;
+        readonly arity: number;
+        readonly faces: readonly (readonly number[] | null)[];
+    }[];
 }
 export declare class MeshKernel {
     pos: Float64Array<ArrayBuffer>;
@@ -53,6 +61,10 @@ export declare class MeshKernel {
     smoothDefault: SmoothDefault;
     /** 改动日志（编号 + 族谱，kernel/change-log.ts 同一份实现）：每个原语记下碰到的点 / 边 / 面；渲染缓存据此只重建改过的；clone = 分叉。 */
     changes: ChangeLog;
+    /** 角上的列（贴图主线 1-2）：先后没有意思、认 GUID；data 和 loopVert 平行。只经 addColumn / ensureColumns 加。 */
+    columns: CornerColumn[];
+    /** 这些算子里有几张面在某一列上丢了值（并面对不上）：算子的调用方 takeDroppedFaces() 拿走并清零。不许悄悄丢。 */
+    private dropped;
     vertexCount(): number;
     edgeCount(): number;
     faceCount(): number;
@@ -72,15 +84,32 @@ export declare class MeshKernel {
     /** 面的朝向法向（Newell，**不**规范化符号：单面网格里环的绕向就是朝向；planeOfRing 的 canonical 会丢符号，别用它判朝向）。 */
     faceNormal(f: number): Pt3;
     addVertex(p: Pt3): number;
-    /** 加一张面（顶点环）；相邻顶点对没有边的自动补边。环 < 3 个不同顶点 / 有重复 / 顶点不活 → 抛（人话）。 */
-    addFace(ring: readonly number[], mat?: number): number;
+    /** 加一张面（顶点环）；相邻顶点对没有边的自动补边。环 < 3 个不同顶点 / 有重复 / 顶点不活 → 抛（人话）。origin = 这张面从哪来（必填：角上的数怎么来，corner-columns.ts）。 */
+    addFace(ring: readonly number[], mat: number, origin: FaceOrigin): number;
     /** 删面；它独占的边（没别的面、不是裸线）一起删；孤立的顶点留着（Blender 同款：删面留点线，要删干净用 ops 的 deleteFaces(onlyFaces=false)）。 */
     removeFace(f: number): void;
     removeEdge(e: number): void;
     removeVertex(v: number): void;
     ensureEdge(a: number, b: number): number;
-    /** 原地改一张面的环（劈面 / 并面 / 并点用）：旧环独占的边删掉、新环缺的边补上。 */
-    setFaceRing(f: number, ring: readonly number[]): void;
+    /** 原地改一张面的环（劈面 / 并面 / 并点用）：旧环独占的边删掉、新环缺的边补上。origin = 新环从哪来（必填；旧样子要在改之前 shapeOf 记下）。 */
+    setFaceRing(f: number, ring: readonly number[], origin: FaceOrigin): void;
+    /** 环接在 loopVert 末尾（旧环的槽作废）；有列就按来历写角上的数（corner-columns.ts writeCorners，全仓唯一的那一段）。 */
+    private writeRing;
+    /** 加一列（已经有同一个 GUID = 不动；arity 对不上 = 抛）。原有的面在这一列上全没值。 */
+    addColumn(def: ColumnDef): void;
+    /** 别的内核的列在这边补上（整张面搬过来之前；原有的面在补上的列上全没值）。 */
+    ensureColumns(defs: readonly ColumnDef[]): void;
+    columnDefs(): ColumnDef[];
+    /** 面的旧样子（改之前记）：没有列 = 只记材质。 */
+    shapeOf(f: number): FaceShape;
+    /** 这张面在这一列上各角的值（角数 × arity，拷一份）；没值 / 没这一列 = null。 */
+    cornerValues(f: number, guid: string): Float32Array | null;
+    /** 这张面在每一列上的值（GUID → 角数 × arity）；没值的列不在表里。整张面搬到别的内核时交给 fresh。 */
+    faceValues(f: number): Map<string, Float32Array>;
+    /** 给一张面在一列上整张写值（values = 角数 × arity；null = 清成没值）。进改动日志、rev 动。往角上放数的只有 1-3 的铺法和测试。 */
+    setFaceValues(f: number, guid: string, values: ArrayLike<number> | null): void;
+    /** 上一次拿走之后有几张面在某一列上丢了值（并面对不上 / 缺值）；拿走即清零。 */
+    takeDroppedFaces(): number;
     setPos(v: number, p: Pt3): void;
     setFlags(e: number, mask: number, on: boolean): void;
     /** 整字节写边标记（算子搬标记用）；记日志。 */

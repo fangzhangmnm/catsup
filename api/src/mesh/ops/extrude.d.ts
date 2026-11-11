@@ -1,4 +1,5 @@
 import { MeshKernel } from "../mesh-kernel.ts";
+import type { Pt3 } from "../../kernel/geom.ts";
 export interface ExtrudeResult {
     newVerts: Map<number, number>;
     sides: number[];
@@ -7,7 +8,11 @@ export interface ExtrudeResult {
  * inheritMarks（2026-10-28 Claude Opus 5.5；硬软边设计稿 §3）：挤出来的那块是原来那几张面的复制，所以它的边（帽子那一圈 + 区域里面的边）带上原来那些边的手标；
  * 侧面的竖边不标；原来的边界留在老面和侧面之间，手标不动。插入传 false（新的一圈在面里，夹角 0，交给默认平滑）。
  */
-export declare function extrudeFaces(k: MeshKernel, fs: readonly number[], inheritMarks?: boolean): ExtrudeResult;
+/**
+ * insetTo（2026-11-10 贴图主线 1-2，Fable 裁定）：内缩交进来「原来的点 → 往里收之后的位置」。给了 = 里面那张面和中间那圈都是「原面的一块」，
+ * 角上的数在这些位置上取（新点照旧先建在原位、调用方最后再挪）；不给 = 挤出：原面搬到新点 = 是它的一份、侧面 = 新长出来的。
+ */
+export declare function extrudeFaces(k: MeshKernel, fs: readonly number[], inheritMarks?: boolean, insetTo?: ReadonlyMap<number, Pt3>): ExtrudeResult;
 /**
  * 挤出边（2026-10-27 Claude Opus 5.5；设计稿 §2-2「选中的一条边拉成一堵墙」、FM15）：边的端点各复制一份（相连的边共用），每条边长一张四边形 (a, b, b', a')；
  * 绕向跟它原来那张面相反（共用边上方向相反 = 法向一致）：边属于恰一张面且那张面里是 a→b → 新面走 b→a。没有面 / 两张面的边按 a→b。不挪：挪归调用方。

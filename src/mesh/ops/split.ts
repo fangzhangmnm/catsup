@@ -10,9 +10,9 @@ export function splitEdge(k: MeshKernel, e: number, t = 0.5): number {
   const flags = k.edgeFlags[e];
   const faces = [...k.eFaces(e)];
   for (const f of faces) {
-    const r = k.faceVerts(f), out: number[] = [];
+    const r = k.faceVerts(f), out: number[] = [], of = k.shapeOf(f);
     for (let i = 0; i < r.length; i++) { out.push(r[i]); const n = r[(i + 1) % r.length]; if ((r[i] === a && n === b) || (r[i] === b && n === a)) out.push(v); }
-    k.setFaceRing(f, out);
+    k.setFaceRing(f, out, { kind: "piece", of });   // 劈边：两边的面都是原来那张的一块（新点在边上，按原面的三角形插值）
   }
   if (!faces.length) { k.removeEdge(e); }   // 裸线：原边删、两半各成裸线
   for (const [x, y] of [[a, v], [v, b]] as const) { const ne = k.ensureEdge(x, y); k.setEdgeFlags(ne, flags | (faces.length ? 0 : F_WIRE)); }
@@ -28,9 +28,9 @@ export function splitFace(k: MeshKernel, f: number, va: number, vb: number): num
   const ring1: number[] = [], ring2: number[] = [];
   for (let i = ia; ; i = (i + 1) % r.length) { ring1.push(r[i]); if (i === ib) break; }
   for (let i = ib; ; i = (i + 1) % r.length) { ring2.push(r[i]); if (i === ia) break; }
-  const mat = k.faceMat[f];
-  k.setFaceRing(f, ring1);
-  return k.addFace(ring2, mat);
+  const mat = k.faceMat[f], of = k.shapeOf(f);
+  k.setFaceRing(f, ring1, { kind: "piece", of });   // 劈面：两半都是原来那张的一块（角都是原来的角 = 原值）
+  return k.addFace(ring2, mat, { kind: "piece", of });
 }
 
 /** 刀：面 f 上按顺序一串落点，每个落点 = 已有顶点 { v } 或边上的点 { e, t }；相邻两点之间连边劈面。返回沿刀口的顶点序列。 */
