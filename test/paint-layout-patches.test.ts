@@ -4,7 +4,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { FRESH } from "../src/mesh/corner-columns.ts";
 import { addBox } from "../src/mesh/ops/build.ts";
-import { layoutFaces, patchesOf, gapForCanvas, PATCH_MAX_DEG, type Block } from "../src/paint/layout.ts";
+import { layoutFaces, patchesOf, gapForCanvas, PATCH_MAX_DEG, PATCH_MIN_FILL, type Block } from "../src/paint/layout.ts";
 import { buildTexelTable, type PaintFace } from "../src/paint/texel-table.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
@@ -118,6 +118,55 @@ describe("开始画的铺法：按朝向连成片（施工单十五）", () => {
     const back = (g: number): number => fs[n - 1 - m2.faces().indexOf(g)];
     const sets2 = patchesOf(m2, m2.faces()).map((u) => u.faces.map(back).sort((a, b) => a - b).join(",")).sort().join(" | ");
     eq(sets2, setsOf(m, fs), "片一样");
+  });
+});
+
+/** 一条斜着的平行四边形带：沿 x 排 n 个，每个底边 1、斜边从 (s, H) 起（斜边最长 → 种子的方向是斜的，片的包围盒按种子摆就松）。 */
+function slantStrip(n: number, s: number, H: number): MeshKernel {
+  const m = new MeshKernel(), lo: number[] = [], hi: number[] = [];
+  for (let i = 0; i <= n; i++) { lo.push(m.addVertex(P(i, 0, 0))); hi.push(m.addVertex(P(i + s, H, 0))); }
+  for (let i = 0; i < n; i++) m.addFace([lo[i], lo[i + 1], hi[i + 1], hi[i]], -1, FRESH);
+  return m;
+}
+/** 一片（铺好以后）：面压平后的面积 ÷ 坐标的包围盒面积。 */
+function fillOf(values: ReadonlyMap<number, Float64Array>, faces: readonly number[]): number {
+  let a = 0, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const f of faces) { const v = values.get(f)!, n = v.length / 2; let s = 0; for (let i = 0; i < n; i++) { const j = (i + 1) % n; s += v[2 * i] * v[2 * j + 1] - v[2 * j] * v[2 * i + 1]; x0 = Math.min(x0, v[2 * i]); x1 = Math.max(x1, v[2 * i]); y0 = Math.min(y0, v[2 * i + 1]); y1 = Math.max(y1, v[2 * i + 1]); } a += Math.abs(s) / 2; }
+  return a / ((x1 - x0) * (y1 - y0));
+}
+/** 一张面在画布上的绕向（有向面积的正负）。 */
+const windOf = (v: Float64Array): number => { const n = v.length / 2; let s = 0; for (let i = 0; i < n; i++) { const j = (i + 1) % n; s += v[2 * i] * v[2 * j + 1] - v[2 * j] * v[2 * i + 1]; } return Math.sign(s); };
+
+describe("连成片收紧（施工单十六第三节）", () => {
+  it("片太空就不收：两张面以上的片，铺好以后（面积 ÷ 包围盒）都不低于门槛；门槛是 0 时片更少（收得更多）", () => {
+    for (const [name, m] of [["起伏", hills(16, 2, (x, y) => 0.5 * Math.sin(2 * x) * Math.cos(1.5 * y))], ["马鞍", hills(8, 2, (x, y) => 0.9 * x * y)], ["螺旋", spiral()]] as const) {
+      const units = patchesOf(m, m.faces()), r = layoutFaces(m, m.faces(), { base: 256, gap: 1, style: "patches" });
+      assert(r.ok, r.ok ? "" : r.reason); if (!r.ok) continue;
+      for (const u of units) if (u.faces.length > 1) { const f = fillOf(r.values, u.faces); assert(f >= PATCH_MIN_FILL - 1e-9, `${name}：种子 ${u.seed} 那片 ${u.faces.length} 张面，满 ${f.toFixed(3)} < ${PATCH_MIN_FILL}`); }
+      const loose = patchesOf(m, m.faces(), { minFill: 0 });
+      assert(loose.length <= units.length, `${name}：不限 ${loose.length} 片 ≤ 限了 ${units.length} 片`);
+      eq(audit(r.values, r.width, r.height).overlap, 0, `${name}：不叠`);
+    }
+  });
+  it("片的朝向取包围盒最小的：斜的平行四边形带（种子最长的边是斜的）转成顺着带子摆；不镜像（每张面的绕向和按种子摆的一样）；比按种子摆的满", () => {
+    const m = slantStrip(10, 1.5, 3), fs = m.faces();
+    const units = patchesOf(m, fs, { minFill: 0 });
+    eq(units.length, 1, "一片"); const fr = units[0].frame!;
+    assert(Math.abs(Math.abs(fr.e.x) - 1) < 1e-9 && Math.abs(fr.e.y) < 1e-9, `横轴顺着带子：e = (${fr.e.x}, ${fr.e.y}, ${fr.e.z})`);
+    const tight = layoutFaces(m, fs, { base: 1024, gap: 4, style: "patches", minFill: 0 }), seed = layoutFaces(m, fs, { base: 1024, gap: 4, style: "patches", minFill: 0, orient: "seed" });
+    assert(tight.ok && seed.ok, "都铺得下"); if (!tight.ok || !seed.ok) return;
+    for (const f of fs) eq(windOf(tight.values.get(f)!), windOf(seed.values.get(f)!), `面 ${f} 绕向不变`);
+    const a = fillOf(tight.values, fs), b = fillOf(seed.values, fs);
+    assert(a > b + 0.05, `转了以后满 ${a.toFixed(3)}，按种子摆 ${b.toFixed(3)}`);
+    const s = stretch(m, tight.values, tight.density);
+    assert(Math.abs(s.lo - 1) < 1e-9 && Math.abs(s.hi - 1) < 1e-9, `平的带子零拉伸 ${s.lo}…${s.hi}`);
+  });
+  it("转了朝向只会更紧：起伏网格每一片，按包围盒最小摆的满 ≥ 按种子摆的满", () => {
+    const m = hills(12, 2, (x, y) => 0.3 * Math.sin(2 * x + y)), fs = m.faces();
+    const units = patchesOf(m, fs);
+    const a = layoutFaces(m, fs, { base: 1024, gap: 4, style: "patches" }), b = layoutFaces(m, fs, { base: 1024, gap: 4, style: "patches", orient: "seed" });
+    assert(a.ok && b.ok, "都铺得下"); if (!a.ok || !b.ok) return;
+    for (const u of units) if (u.faces.length > 1) assert(fillOf(a.values, u.faces) >= fillOf(b.values, u.faces) - 1e-9, `种子 ${u.seed} 那片`);
   });
 });
 

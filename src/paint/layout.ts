@@ -6,6 +6,9 @@
 // 2026-11-11（施工单十五，Claude Opus 5.5）：多一种铺法 style = "patches"（按朝向连成片 = 自动展开 0.1）：面按面积从大到小当种子，沿公共的边收朝向和种子夹角
 //   小于 PATCH_MAX_DEG 的邻面、压平后不和片里已有的面叠在一起（共边共点不算）；整片用种子的 e / t 压平、当一块排。只有一张面的片和「一张面一块」逐位相同。
 //   空隙跟着画布走：gapForCanvas（128 / 256 留 1、512 留 2、1024 留 4、2048 留 8）；铺的空隙和归属表往外延的 2 格是两回事（texel-table.ts 照旧传 4）。
+// 2026-11-11（施工单十六第三节，Claude Opus 5.5）：连成片收紧两条——① 片太空就不往里收面：收了之后（片压平后的面积 ÷ 片的包围盒面积）低于 PATCH_MIN_FILL 就不收，
+//   留给后面的种子（按种子的方向量；只看几何，不看画布大小）；② 片的朝向取包围盒最小的：候选 = 片外沿上每条边的方向，一样小留种子最长的边（两张面以上的片才换；
+//   只有一张面的片不动，和「一张面一块」逐位相同）。
 import type { Pt3 } from "../kernel/geom.ts";
 
 /** 铺法要的那一点内核（MeshKernel 满足；测试可以给假的）。 */
@@ -32,9 +35,15 @@ export interface LayoutOptions {
   readonly style?: "faces" | "patches";
   /** 连成片的门槛（度；默认 PATCH_MAX_DEG；量门槛时用）。 */
   readonly maxDeg?: number;
+  /** 片太空就不收面的门槛（默认 PATCH_MIN_FILL；0 = 不限 = 施工单十五的铺法；量门槛时用）。 */
+  readonly minFill?: number;
+  /** 片的朝向：box = 包围盒最小的（默认，施工单十六）；seed = 种子最长的边（施工单十五；量的时候对照用）。 */
+  readonly orient?: "box" | "seed";
 }
 /** 连成片的门槛：和种子的朝向夹角小于它才收进这一片（施工单十五第五节：先定 45°，量过可能调）。 */
 export const PATCH_MAX_DEG = 45;
+/** 片太空就不收面（施工单十六第三节）：收了这张面之后，片压平后的面积 ÷ 片的包围盒面积 低于它 = 不收。量过 0.5 / 0.6 / 0.7 定的（施工记录）。 */
+export const PATCH_MIN_FILL = 0.5;
 /** 铺的时候块之间、块和画布边留几格：画布基准边长 ÷ 256 四舍五入、最少 1、最多 8（user 11-11「所以 4 格能减：留的格数跟着画布走。 同意」）。1024 = 4（和以前一样）。 */
 export function gapForCanvas(side: number): number { return Math.min(8, Math.max(1, Math.round(side / 256))); }
 export interface Block { readonly face: number; readonly x: number; readonly y: number; readonly w: number; readonly h: number }
@@ -102,16 +111,19 @@ function placeUnit(m: LayoutMesh, u: Unit, density: number): { w: number; h: num
 }
 
 /**
- * 按朝向连成片（施工单十五第五节；同样的输入永远同样的结果、和面的列表先后无关）：面按面积从大到小（一样大看编号），还没归片的面里最大的当种子；
- * 从种子沿公共的边往外走（先进先出、邻面按编号），邻面在这批面里、还没归片、不是退化的、朝向和**种子**的朝向夹角小于 maxDeg、按种子的方向压平之后不和片里
- * 已有的面叠在一起（共边共点不算），就收进来。退化的面各自一片（照 flatten 占一格）。
+ * 按朝向连成片（施工单十五第五节；同样的输入永远同样的结果、和面的列表先后无关、和面的编号无关）：面按面积从大到小当种子（一样大看面心的位置），还没归片的面里最大的；
+ * 从种子沿公共的边往外长，**离种子近的先试**（面心到种子面心的距离；一样近看面心的位置——施工单十六改：以前先进先出、邻面按编号，加了「片太空就不收」以后
+ * 试的先后会改结果，按编号就和面的编号有关了；按远近长还让片更圆、更满）。邻面在这批面里、还没归片、不是退化的、每个三角形和片压平到的面夹角小于 maxDeg、
+ * 压平之后不和片里已有的面叠在一起（共边共点不算）、收了之后片不太空（minFill），就收进来；被拒的面以后从别的邻面再碰到会再试。退化的面各自一片（照 flatten 占一格）。
  */
-export function patchesOf(m: LayoutMesh, faces: readonly number[], maxDeg = PATCH_MAX_DEG): Unit[] {
+export function patchesOf(m: LayoutMesh, faces: readonly number[], opts: { readonly maxDeg?: number; readonly minFill?: number; readonly orient?: "box" | "seed" } = {}): Unit[] {
+  const maxDeg = opts.maxDeg ?? PATCH_MAX_DEG, minFill = opts.minFill ?? PATCH_MIN_FILL, orient = opts.orient ?? "box";
   if (!m.faceVerts || !m.faceTriangles) throw new Error("patchesOf: mesh lacks faceVerts / faceTriangles");
   const fv = m.faceVerts.bind(m), ft = m.faceTriangles.bind(m);
-  const batch = new Set(faces), area = new Map<number, number>();
-  for (const f of batch) area.set(f, areaOf(m.facePts(f)));
-  const sorted = [...batch].sort((a, b) => area.get(b)! - area.get(a)! || a - b);
+  const batch = new Set(faces), info = new Map<number, { a: number; c: Pt3; k: [number, number, number] }>();
+  for (const f of batch) { const pts = m.facePts(f), c = centroid(pts); info.set(f, { a: Number(areaOf(pts).toPrecision(10)), c, k: [q(c.x), q(c.y), q(c.z)] }); }
+  const byPos = (a: number, b: number): number => { const A = info.get(a)!.k, B = info.get(b)!.k; return A[0] - B[0] || A[1] - B[1] || A[2] - B[2] || a - b; };
+  const sorted = [...batch].sort((a, b) => info.get(b)!.a - info.get(a)!.a || byPos(a, b));
   // 公共的边 → 面（按点编号认，小号在前）
   const byEdge = new Map<string, number[]>();
   for (const f of sorted) { const vs = fv(f); for (let i = 0; i < vs.length; i++) { const a = vs[i], b = vs[(i + 1) % vs.length], k = a < b ? `${a},${b}` : `${b},${a}`; const l = byEdge.get(k); if (l) l.push(f); else byEdge.set(k, [f]); } }
@@ -125,19 +137,24 @@ export function patchesOf(m: LayoutMesh, faces: readonly number[], maxDeg = PATC
     const nRaw = cross(fr.e, fr.t), nl = len(nRaw), nS = { x: nRaw.x / nl, y: nRaw.y / nl, z: nRaw.z / nl }, members = [seed];
     const tris = new PatchTris(fr.e, fr.t, fr.bl);
     tris.add(m.facePts(seed), ft(seed));
-    const queue = [seed];
-    for (let qi = 0; qi < queue.length; qi++) {
-      const f = queue[qi], vs = fv(f), nbs = new Set<number>();
-      for (let i = 0; i < vs.length; i++) { const a = vs[i], b = vs[(i + 1) % vs.length]; for (const g of byEdge.get(a < b ? `${a},${b}` : `${b},${a}`) ?? []) if (g !== f) nbs.add(g); }
-      for (const g of [...nbs].sort((a, b) => a - b)) {
-        if (done.has(g) || !frameOf(m, g)) continue;
-        const pts = m.facePts(g), tg = ft(g);
-        if (!trisWithin(pts, tg, nS, cosMax)) continue;   // 夹角不小于门槛（按这张面的每个三角形比：导入的四边形常常不平，面的平均朝向在门槛里、某个三角形可能不在）
-        if (tris.overlaps(pts, tg)) continue;   // 压平之后叠在一起：留给后面的种子
-        done.add(g); members.push(g); queue.push(g); tris.add(pts, tg);
-      }
+    const fill = new PatchFill(fr.e, fr.t);
+    fill.add(m.facePts(seed), ft(seed));
+    const c0 = info.get(seed)!.c, near = new FaceHeap((a, b) => a.d - b.d || byPos(a.f, b.f));
+    const pushNbs = (f: number): void => {
+      const vs = fv(f);
+      for (let i = 0; i < vs.length; i++) { const a = vs[i], b = vs[(i + 1) % vs.length]; for (const g of byEdge.get(a < b ? `${a},${b}` : `${b},${a}`) ?? []) if (g !== f && !done.has(g)) { const c = info.get(g)!.c; near.push({ f: g, d: q(Math.hypot(c.x - c0.x, c.y - c0.y, c.z - c0.z)) }); } }
+    };
+    pushNbs(seed);
+    for (let it = near.pop(); it; it = near.pop()) {
+      const g = it.f;
+      if (done.has(g) || !frameOf(m, g)) continue;
+      const pts = m.facePts(g), tg = ft(g);
+      if (!trisWithin(pts, tg, nS, cosMax)) continue;   // 夹角不小于门槛（按这张面的每个三角形比：导入的四边形常常不平，面的平均朝向在门槛里、某个三角形可能不在）
+      if (tris.overlaps(pts, tg)) continue;   // 压平之后叠在一起：留给后面的种子
+      if (minFill > 0 && fill.after(pts, tg) < minFill) continue;   // 收了片就太空（施工单十六）：先不收，别的面收进来以后可能再试
+      done.add(g); members.push(g); tris.add(pts, tg); fill.add(pts, tg); pushNbs(g);
     }
-    out.push({ seed, faces: members, frame: fr });
+    out.push({ seed, faces: members, frame: members.length > 1 && orient === "box" ? tightFrame(m, members, fr, nS, fv) : fr });
   }
   return out;
 }
@@ -179,6 +196,81 @@ class PatchTris {
     }
     return false;
   }
+}
+/** 坐标、距离量到 0.1 微米（米为单位）再比：面的编号换了、环的起点换了，加法的先后变了也不会差出一位，先后不跟着变。 */
+const q = (x: number): number => Math.round(x * 1e7);
+const centroid = (pts: readonly Pt3[]): Pt3 => { let x = 0, y = 0, z = 0; for (const p of pts) { x += p.x; y += p.y; z += p.z; } const n = Math.max(1, pts.length); return { x: x / n, y: y / n, z: z / n }; };
+/** 最小堆（连成片时「离种子近的先试」）。 */
+class FaceHeap {
+  private readonly a: { f: number; d: number }[] = [];
+  private readonly less: (x: { f: number; d: number }, y: { f: number; d: number }) => number;
+  constructor(less: (x: { f: number; d: number }, y: { f: number; d: number }) => number) { this.less = less; }
+  push(x: { f: number; d: number }): void { const a = this.a; a.push(x); for (let i = a.length - 1; i > 0;) { const p = (i - 1) >> 1; if (this.less(a[i], a[p]) >= 0) break; [a[i], a[p]] = [a[p], a[i]]; i = p; } }
+  pop(): { f: number; d: number } | undefined {
+    const a = this.a; if (!a.length) return undefined;
+    const top = a[0], last = a.pop()!;
+    if (a.length) { a[0] = last; for (let i = 0; ;) { const l = 2 * i + 1, r = l + 1; let s = i; if (l < a.length && this.less(a[l], a[s]) < 0) s = l; if (r < a.length && this.less(a[r], a[s]) < 0) s = r; if (s === i) break; [a[i], a[s]] = [a[s], a[i]]; i = s; } }
+    return top;
+  }
+}
+/** 一片压平（按种子的方向，没乘密度）之后的面积和包围盒：查「收了这张面之后片有多满」。 */
+class PatchFill {
+  private area = 0; private u0 = Infinity; private u1 = -Infinity; private v0 = Infinity; private v1 = -Infinity;
+  private readonly e: Pt3; private readonly t: Pt3;
+  constructor(e: Pt3, t: Pt3) { this.e = e; this.t = t; }
+  /** 这张面压平后的面积（按显示用的三角形）和包围盒。 */
+  private measure(pts: readonly Pt3[], tris: readonly (readonly number[])[]): { a: number; u0: number; u1: number; v0: number; v1: number } {
+    const u = pts.map((p) => dot(p, this.e)), v = pts.map((p) => -dot(p, this.t));
+    let a = 0;
+    for (const [i, j, k] of tris) a += Math.abs((u[j] - u[i]) * (v[k] - v[i]) - (u[k] - u[i]) * (v[j] - v[i])) / 2;
+    return { a, u0: Math.min(...u), u1: Math.max(...u), v0: Math.min(...v), v1: Math.max(...v) };
+  }
+  add(pts: readonly Pt3[], tris: readonly (readonly number[])[]): void {
+    const r = this.measure(pts, tris);
+    this.area += r.a; this.u0 = Math.min(this.u0, r.u0); this.u1 = Math.max(this.u1, r.u1); this.v0 = Math.min(this.v0, r.v0); this.v1 = Math.max(this.v1, r.v1);
+  }
+  /** 收了这张面之后：面积 ÷ 包围盒面积（包围盒是零面积 = 1，不拦）。 */
+  after(pts: readonly Pt3[], tris: readonly (readonly number[])[]): number {
+    const r = this.measure(pts, tris), box = (Math.max(this.u1, r.u1) - Math.min(this.u0, r.u0)) * (Math.max(this.v1, r.v1) - Math.min(this.v0, r.v0));
+    return box > 1e-300 ? (this.area + r.a) / box : 1;
+  }
+}
+/**
+ * 片的朝向取包围盒最小的（施工单十六第三节）：在种子的平面里（法向 nS）转，候选 = 片外沿上每条边（只属于片里一张面的边）的方向；
+ * 包围盒按片的凸包算。比种子的方向（最长的边）严格小才换，一样小留种子的——所以结果只会比原来紧、不会更松。新的 t = nS × e（和原来同一个手性，不会镜像）。
+ */
+function tightFrame(m: LayoutMesh, members: readonly number[], fr: { e: Pt3; t: Pt3 }, nS: Pt3, fv: (f: number) => number[]): { e: Pt3; t: Pt3 } {
+  const P: [number, number][] = [], uses = new Map<string, number>(), dirs: [number, number][] = [];
+  for (const f of members) { const vs = fv(f); for (let i = 0; i < vs.length; i++) { const a = vs[i], b = vs[(i + 1) % vs.length], k = a < b ? `${a},${b}` : `${b},${a}`; uses.set(k, (uses.get(k) ?? 0) + 1); } }
+  for (const f of members) {
+    const vs = fv(f), pts = m.facePts(f), uv = pts.map((p) => [dot(p, fr.e), -dot(p, fr.t)] as [number, number]);
+    for (const q of uv) P.push(q);
+    for (let i = 0; i < vs.length; i++) {
+      const a = vs[i], b = vs[(i + 1) % vs.length];
+      if (uses.get(a < b ? `${a},${b}` : `${b},${a}`) !== 1) continue;   // 片里两张面共用 = 不在外沿
+      const j = (i + 1) % vs.length, du = uv[j][0] - uv[i][0], dv = uv[j][1] - uv[i][1], l = Math.hypot(du, dv);
+      if (l > 1e-12) dirs.push([du / l, dv / l]);
+    }
+  }
+  const hull = convexHull(P);
+  const boxArea = (cx: number, cy: number): number => { let s0 = Infinity, s1 = -Infinity, w0 = Infinity, w1 = -Infinity; for (const [x, y] of hull) { const s = x * cx + y * cy, w = -x * cy + y * cx; s0 = Math.min(s0, s); s1 = Math.max(s1, s); w0 = Math.min(w0, w); w1 = Math.max(w1, w); } return (s1 - s0) * (w1 - w0); };
+  let best: [number, number] = [1, 0], bestA = boxArea(1, 0);
+  for (const [cx, cy] of dirs) { const a = boxArea(cx, cy); if (a < bestA * (1 - 1e-9)) { bestA = a; best = [cx, cy]; } }
+  if (best[0] === 1 && best[1] === 0) return fr;
+  // 压平坐标 (u, v) = (p·e, −p·t)：方向 (du, dv) 在空间里 = du·e − dv·t
+  const [cx, cy] = best, e = { x: cx * fr.e.x - cy * fr.t.x, y: cx * fr.e.y - cy * fr.t.y, z: cx * fr.e.z - cy * fr.t.z }, el = len(e);
+  const eN = { x: e.x / el, y: e.y / el, z: e.z / el }, t = cross(nS, eN), tl = len(t);
+  return { e: eN, t: { x: t.x / tl, y: t.y / tl, z: t.z / tl } };
+}
+/** 平面上的凸包（单调链；共线的点不留）。 */
+function convexHull(pts: readonly [number, number][]): [number, number][] {
+  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const crossZ = (o: [number, number], a: [number, number], b: [number, number]): number => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo: [number, number][] = [], hi: [number, number][] = [];
+  for (const q of p) { while (lo.length >= 2 && crossZ(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (hi.length >= 2 && crossZ(hi[hi.length - 2], hi[hi.length - 1], q) <= 0) hi.pop(); hi.push(q); }
+  return lo.slice(0, -1).concat(hi.slice(0, -1));
 }
 /** 两个三角形的里面叠在一起（分离轴：六条边的法向上投影区间重叠超过 tol 才算；共边 / 共点 = 区间只碰到 = 不算）。 */
 function triOverlap(a: readonly number[], B: readonly number[], o: number, tol: number): boolean {
@@ -230,7 +322,7 @@ export function layoutFaces(m: LayoutMesh, faces: readonly number[], opts: Layou
   const gap = Math.max(0, Math.round(opts.gap ?? 4)), maxSize = opts.maxSize ?? 4096, base = opts.base ?? 1024;
   const fs = [...new Set(faces)].sort((a, b) => a - b);
   if (!fs.length) return { ok: true, width: base, height: 256, density: opts.density ?? 0, blocks: [], values: new Map() };
-  const units = opts.style === "patches" ? patchesOf(m, fs, opts.maxDeg ?? PATCH_MAX_DEG) : unitsByFace(fs);
+  const units = opts.style === "patches" ? patchesOf(m, fs, { maxDeg: opts.maxDeg, minFill: opts.minFill, orient: opts.orient }) : unitsByFace(fs);
   const what = opts.style === "patches" ? "片" : "面";
   if (opts.density !== undefined) {
     const d = opts.density, flat = units.map((u) => ({ face: u.seed, ...placeUnit(m, u, d) }));
