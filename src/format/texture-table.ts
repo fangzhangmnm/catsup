@@ -5,13 +5,13 @@
 // · sizeM 和 layout 正好有一个；两个都有或都没有 = 读取失败、说是哪一行。
 import { collectBufferViewRefs, remapBufferViewRefs } from "./carry.ts";
 import type { ViewSink } from "./brep-codec.ts";
-import type { CarriedJson, TextureContent, TextureDoc } from "./document.ts";
+import type { CarriedJson, PaintComposite, TextureContent, TextureDoc } from "./document.ts";
 import type { FormatReadNotes } from "./migrate/index.ts";
 import { ownGuid, type Guid } from "./guid.ts";
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 /** 行里本版认识的键（其余的原样带回）。 */
-const ROW_KEYS = new Set(["guid", "name", "value", "content", "sizeM", "layout"]);
+const ROW_KEYS = new Set(["guid", "name", "value", "content", "sizeM", "layout", "composite"]);
 const fail = (msg: string): never => { throw new Error(`readCatsup: CATSUP_textures ${msg}`); };
 
 /** 一段 JSON 连同它引用的字节（按文件里的号）拷出来。 */
@@ -47,6 +47,9 @@ export function readTextureRow(raw: unknown, i: number, view: (bv: number) => Ui
   if (hasSize === hasLayout) fail(`${what} must have exactly one of sizeM / layout`);
   const extraJson: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(r)) if (!ROW_KEYS.has(k)) extraJson[k] = v;
+  // 合成图（1.1）：形状对 = 认；形状不对（以后的版本改了形状、或者坏了）= 不认、当不认识的键原样带回（不拒开、不丢）。
+  let composite: PaintComposite | undefined;
+  if (r.composite !== undefined) { composite = readComposite(r.composite, view) ?? undefined; if (!composite) extraJson.composite = r.composite; }
   return {
     guid: ownGuid(r.guid, seen, reminted),
     name,
@@ -54,14 +57,22 @@ export function readTextureRow(raw: unknown, i: number, view: (bv: number) => Ui
     content,
     ...(hasSize ? { sizeM: sizeOf(r.sizeM, what) } : { layout: r.layout }),
     ...(Object.keys(extraJson).length ? { extra: carryJson(extraJson, view) } : {}),
+    ...(composite ? { composite } : {}),
   };
+}
+/** 合成图那一格：{ png: { bufferView }, of: { bytes, sum }, base: [r, g, b] }；不是这个形状 = null。 */
+function readComposite(x: unknown, view: (bv: number) => Uint8Array): PaintComposite | null {
+  if (!isObj(x) || !isObj(x.png) || typeof x.png.bufferView !== "number" || !isObj(x.of)) return null;
+  const of = x.of as Record<string, unknown>, base = x.base;
+  if (typeof of.bytes !== "number" || typeof of.sum !== "string" || !Array.isArray(base) || base.length !== 3 || !base.every((v) => typeof v === "number" && Number.isFinite(v))) return null;
+  return { png: new Uint8Array(view(x.png.bufferView)), of: { bytes: of.bytes, sum: of.sum }, base: [base[0], base[1], base[2]] };
 }
 
 /** 写一行。imageView = 原图那份字节的 bufferView（和标准那一半的 images[] 共用一条；write.ts 记着每张图落在哪）。不认识的键先铺、认识的后铺（已知键永远赢）。 */
 export function writeTextureRow(t: TextureDoc, sink: ViewSink, imageView: (t: TextureDoc) => number): Record<string, unknown> {
   const c = t.content;
-  // 新建的画还没有字节（贴图主线 1-3b）：画的字节进文件是 1-8，在那之前写盘碰到它 = 抛、写明原因，不许悄悄丢（守卫 test/paint-start-guard.test.ts）。
-  if (c.kind === "layered" && c.ora === null) throw new Error(`texture "${t.name}" (${t.guid}): this painting has no bytes yet (a new painting is encoded on its first save, which lands with work order 1-8); refusing to write a file that would silently drop it`);
+  // 新建的画还没有字节：存盘的钉点（1-8b，paint/save.ts）会先给它编一份空白的再交给这里；走到这里还是 null = 那一步漏了 → 抛、写明原因，不许悄悄丢（守卫 test/paint-start-guard.test.ts）。
+  if (c.kind === "layered" && c.ora === null) throw new Error(`texture "${t.name}" (${t.guid}): this painting has no bytes (the save freeze should have encoded a blank one); refusing to write a file that would silently drop it`);
   const content = c.kind === "image" ? { kind: "image", mimeType: c.mimeType, bytes: { bufferView: imageView(t) } }
     : c.kind === "layered" ? { kind: "layered", ora: { bufferView: sink.add(c.ora!) } }
     : landCarried(c.raw, sink);
@@ -73,5 +84,6 @@ export function writeTextureRow(t: TextureDoc, sink: ViewSink, imageView: (t: Te
     content,
     ...(t.sizeM ? { sizeM: [t.sizeM[0], t.sizeM[1]] } : {}),
     ...(t.layout !== undefined ? { layout: t.layout } : {}),
+    ...(t.composite ? { composite: { png: { bufferView: sink.add(t.composite.png) }, of: { bytes: t.composite.of.bytes, sum: t.composite.of.sum }, base: [t.composite.base[0], t.composite.base[1], t.composite.base[2]] } } : {}),
   };
 }

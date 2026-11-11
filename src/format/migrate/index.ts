@@ -77,6 +77,8 @@ import { definitionsV6toV7, type MigrationCtx } from "./definitions.ts";
 //
 // 贴图成为独立的条目（2026-11-10，Claude Opus 5.5；贴图主线 1-0½，施工单 ai-docs/20261110-paint-workorders-2.md，Fable 定的形状）：
 //   CATSUP_textures    1.0（新，可选顶层扩展）：贴图表，一行 = { guid, name, value, content, sizeM | layout, …不认识的键 }。表空 = 不写这个扩展。
+//                      1.1（2026-11-11，贴图主线 1-8b）：行上可选键 composite = { png: { bufferView }, of: { bytes, sum }, base: [r, g, b] }——分层的画存盘时另存的合成图
+//                      （底色上、不透明）；of = 照哪份分层字节做的（长度 + FNV-1a 32 位 十六进制）；对不上 / 底色变了 = 当它没有（document.ts compositeFits）。形状不认识 = 当不认识的键带回。
 //                      content.kind = image（{ mimeType, bytes: { bufferView } }）/ layered（{ ora: { bufferView } }，这一版不解释）/ 不认识的（整行和字节原样带回，readNotes 记一笔）。
 //                      字节一律写成 `{ "bufferView": N }`（不许写图片下标）：老版本不认识这个扩展、原样带回时只会改 bufferView 的号（carry.ts）。
 //                      sizeM（自由的图，两个数 > 0）和 layout（单品的画）正好有一个，否则读取失败、报哪一行。行里不认识的键原样带回；表里的先后没有意思。
@@ -115,7 +117,7 @@ export const FORMAT = {
   /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
   CATSUP_mesh: { major: 2, minor: 0, patch: 0 },   // 2.0（2026-11-11，1-2½）：uvSets 贴图坐标（只有带它的网格体盖 2.0，见 MESH_STAMP_NO_UV）；1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）
   CATSUP_shelf: { major: 1, minor: 0, patch: 0 },   // 1.0（2026-11-04）：素材架（可选扩展）
-  CATSUP_textures: { major: 1, minor: 0, patch: 0 },   // 1.0（2026-11-10）：贴图表（可选扩展）
+  CATSUP_textures: { major: 1, minor: 1, patch: 0 },   // 1.0（2026-11-10）：贴图表（可选扩展）；1.1（2026-11-11，贴图主线 1-8b）：行上可选键 composite = 画的合成图（PNG + 照哪份分层字节做的 + 底色），旧读者当不认识的键原样带回
 } as const satisfies Record<string, Stamp>;
 export type CatsupExtension = keyof typeof FORMAT;
 export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references", "CATSUP_mesh", "CATSUP_shelf", "CATSUP_textures"];
