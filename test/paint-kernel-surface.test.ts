@@ -24,6 +24,8 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   // 画板 = 内核的一份作品（1-3c）
   "src/backend/workpiece/painting-workpiece.ts": ["PaintingWorkpiece", "PaintingData"],   // 一张贴图的画 = 内核的一份作品；PaintingData = 灌进 / 读出的形状
   "src/backend/workpiece/layer-tree.ts": ["isGroupNode", "TreeNode"],   // 图层树的只读视图（以后图层面板要用）；「合成输入由内核自己出」记成以后动内核时顺手减的一项
+  "src/backend/workpiece/painting-view.ts": ["PaintingView"],   // 档口要的那一层（档口的叶从它拿）
+  "src/backend/tiles/tile-layer.ts": ["LayerPixels"],   // 落层回调的参数类型，只当类型用
   // 撤销步（0-2）
   "src/backend/workpiece/undo-stack.ts": ["StepSink", "UndoStack"],   // StepSink = 步的去处；UndoStack = 内核自带的栈，到期：1-8 换成 HostedSteps 时删
   "src/backend/workpiece/hosted-steps.ts": ["HostedSteps", "StepHost"],   // 宿主管撤销（1-8 用）
@@ -33,11 +35,8 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   // 公式的文本（笔尖边缘的曲线：GLSL 片段和同一算式的 JavaScript）
   "src/backend/gl/stamp-falloff.ts": ["stampFalloff", "STAMP_FALLOFF_GLSL"],   // 标准答案和薄层着色器用的边缘曲线（和二维同一条）
 };
-/** 待定：src 里现在用着、统筹还没裁定的（照样放行，跑的时候点名）。 */
-const PENDING: Readonly<Record<string, readonly string[]>> = {
-  "src/backend/workpiece/painting-view.ts": ["PaintingView"],   // 档口要的叶（ViewLeaf）从它拿（1-4b 画板开档口）
-  "src/backend/tiles/tile-layer.ts": ["LayerPixels"],   // 档口落层回调里那一层的像素（只是类型）
-};
+/** 待定：src 里现在用着、统筹还没裁定的（照样放行，跑的时候点名）。11-11 起清空：以后再出现表外的名字，照规矩先红、去问统筹。 */
+const PENDING: Readonly<Record<string, readonly string[]>> = {};
 /** 只是说明（不查）：测试里用到、src 里不用的内核名字。 */
 export const TEST_ONLY: Readonly<Record<string, readonly string[]>> = {
   "src/backend/soft-gl2-port.ts": ["SoftGl2Port"],   // 不带浏览器时交薄层、走预览 / 落层 / 撤销（space-stroke-kernel、paint-board、space-vs-kernel2d）
