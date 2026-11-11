@@ -85,7 +85,7 @@ export class SpacePaintStroke {
   move(x: number, y: number, p: number, t: number | null = null): void { this.stroke.move(x, y, p, t); this.dirty = true; }
   /** 抬笔：整笔重画一次（收笔渐细）→ 落层（内核一步）。在下一次「准备」里做完；这里先把它准备好。 */
   up(): void {
-    if (this.failedToOpen) return;   // 建表时出过错、已经取消：抬笔什么都不做
+    if (this.broken) return;   // 建表 / 某一帧出过错、已经取消：抬笔什么都不做
     const t0 = performance.now();
     this.stroke.up(); this.finishing = true; this.dirty = true;
     const t1 = performance.now();
@@ -109,9 +109,9 @@ export class SpacePaintStroke {
 
   /** 这一帧的准备（画板登记处的 prepare 调；合成在它后面）。 */
   /** 建这一笔的表时出过错（已经取消、零痕迹）。 */
-  private failedToOpen = false;
+  private broken = false;
   private prepare(): void {
-    if (!this.dirty || this.failedToOpen) return;
+    if (!this.dirty || this.broken) return;
     this.dirty = false;
     if (this.finishing) this.drawn = 0;   // 抬笔：收笔渐细这时才知道总长，整笔重画一次（只这一次）
     const t0 = performance.now();
@@ -123,7 +123,7 @@ export class SpacePaintStroke {
     if (!this.layer) {
       const t0 = performance.now();
       try { this.layer = new SpaceLayer(this.gpu, this.stroke.geos[0], 0, { hardness: this.o.brush.hardness, color: this.o.color, accum: this.o.accum, origin: tips[0].tip, cells: this.cells }); }
-      catch (err) { this.failedToOpen = true; this.cancel(); this.d.failed?.(err); return; }   // 建表出错：这一笔取消（零痕迹）、告诉宿主；不让它在每帧的「准备」里一直抛（1-7）
+      catch (err) { this.broken = true; this.cancel(); this.d.failed?.(err); return; }   // 建表出错：这一笔取消（零痕迹）、告诉宿主；不让它在每帧的「准备」里一直抛（1-7）
       this.buildMs = performance.now() - t0;
       this.session = this.board.openStroke();
       this.layerId = this.board.wp.layerTree!.view().activeId!;
@@ -131,7 +131,8 @@ export class SpacePaintStroke {
     }
     const t1 = performance.now();
     if (this.finishing) this.layer.resetFrozen();
-    this.layer.update(tips, frozenHere);
+    try { this.layer.update(tips, frozenHere); }
+    catch (err) { this.broken = true; this.cancel(); this.d.failed?.(err); return; }   // 这一帧才知道的上限（一颗笔尖下同一块挂了八张以上的面、一帧的数据表放不下）：这一笔取消、说那句人话（1-7；数据表那条以后改成分批画）
     this.drawn += frozenHere;
     const t2 = performance.now();
     const r = this.layer.range();

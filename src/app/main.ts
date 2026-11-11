@@ -2490,7 +2490,7 @@ const paintColorSheet = mountPaintColorSheet({ root: $("paintColorSheet"), grid:
 inputGate.face({ kind: "face", label: "画笔颜色", rank: 502, root: "#paintColorSheet", up: () => paintColorSheet.isOpen(), esc: () => { paintColorSheet.close(); return true; } });
 paintColor.subscribe(() => syncUi());
 // eslint-disable-next-line no-var
-var paintWb: PaintWorkbench | null = new PaintWorkbench({ editor, boards: paintBoards, strokeDeps: (chain) => paintStrokeDeps(chain), gate: (t) => paintStrokeGate(t), color: paintColor, hint: (t) => { hintEl.textContent = t; } });
+var paintWb: PaintWorkbench | null = new PaintWorkbench({ editor, boards: paintBoards, strokeDeps: (chain) => paintStrokeDeps(chain), gate: (t) => paintStrokeGate(t), color: paintColor, prep: paintPrep, hint: (t) => { hintEl.textContent = t; } });
 function paintStrokeGate(texture: string): "warming" | "view-only" | null {
   const st = paintBoards.stateOf(editor.sceneRef, texture);
   if (st === "cold" || st === "warming") {

@@ -4,7 +4,9 @@
 //   只能看不能画 = 说为什么）→ 开一笔（1-4b 的 SpacePaintStroke；落点只认正在编辑的这一份）。抬笔落层 = 三维撤销栈一步（1-8a）；一格都没碰到 = 内核不封步 = 不进栈、不说话。
 // · 设置：笔 / 橡皮各一套（大小 = 屏幕像素、浓度 = 不透明度、硬度），记在设备上（tool-config device）；颜色 = paint-color.ts 那一个入口。
 // · 吸管：点一处 → 画过的面 = 那一格合成出来的颜色（热的读内核合成那一张的一个像素；冷的先热）；没画的面 = 材质的颜色。取完回到上一把笔。
-// · 进门就准备好：进画画工作台 / 换了正在编辑的物件 = 这个物件的画全部 warm()（冷的解开），三角格子算好放着（模型一改就作废）。
+// · 进门就准备好：进画画工作台 / 换了正在编辑的物件 = 这个物件的画全部 warm()（冷的解开；新建还没画过的建画板），三角格子算好放着（模型一改就作废）。
+//   画画的准备（1-4c space-prep.ts：整份几何 + 每格的表）每帧对一次：这个物件上热的画都要现成；过期了（在工作台里撤销到建模那几步 = 网格体修改号变了）
+//   这一帧就重建，不等落笔。落笔撞上「还没重建完」= 这一笔不开始、提示行说一句（和「这张画还在打开」同一个口）。出了画画工作台 = 全放。
 // · 不用不多做事：不进画画工作台就什么都不做（不建画板、不起内核）。
 import type { Editor } from "../editor/editor.ts";
 import type { PaintPointer } from "../editor/tool-handler.ts";
@@ -15,6 +17,7 @@ import { applyDir, applyPt, invert } from "../scene/xform.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { paintPlaceOf } from "../scene/paint.ts";
 import type { PaintColor, Rgb } from "./paint-color.ts";
+import type { SpacePrep } from "../paint/space-prep.ts";
 
 export interface PaintWorkbenchDeps {
   readonly editor: Editor;
@@ -24,6 +27,8 @@ export interface PaintWorkbenchDeps {
   /** 落笔之前问的门（main.ts paintStrokeGate：冷的 = 不开始 + 解开；只能看不能画 = 说为什么）。能画 = null。 */
   gate(texture: string): "warming" | "view-only" | null;
   readonly color: PaintColor;
+  /** 画画的准备（main.ts paintPrep；和调试钩子同一个）。 */
+  readonly prep: SpacePrep;
   /** 提示行。 */
   hint(text: string): void;
 }
@@ -55,20 +60,44 @@ export class PaintWorkbench {
     }
   }
 
-  /** 每帧的「准备」之前问一句（main.ts beforeRender）：进了画画工作台 / 换了正在编辑的物件 = 这个物件的画先热起来。便宜：只比一个键。 */
+  /** 上一次准备花了多少毫秒（探针量）。 */
+  lastPrepMs = 0;
+
+  /**
+   * 每帧的「准备」之前调一次（main.ts beforeRender）：进了画画工作台 / 换了正在编辑的物件 = 这个物件的画先热起来（只比一个键）；
+   * 然后对一次画画的准备（键对上 = 空操作；过期 = 这一帧重建）。出了画画工作台 = 准备全放。
+   */
   tick(): void {
     const e = this.d.editor;
-    if (e.modeId !== "paint") { this.entered = null; return; }
-    const S = e.sceneRef, def = S.defOfContext(e.context), key = `${e.docEpoch}:${def}`;
-    if (key === this.entered) return;
-    this.entered = key;
-    const body = S.def(def).body;
-    if (body.kind !== "mesh") return;
-    this.grid(body.kernel);   // 三角格子先算好
-    for (const t of S.textures.values()) {
-      if (t.content.kind !== "layered" || paintPlaceOf(S, t.guid)?.def !== def) continue;   // 只热这个物件上的画
-      if (this.d.boards.stateOf(S, t.guid) === "cold") void this.d.boards.warm(S, t.guid).then(() => e.draw()).catch(() => { /* 只能看不能画：warm 自己说了 */ });
+    if (e.modeId !== "paint") { if (this.entered !== null) { this.entered = null; this.d.prep.release(); } return; }
+    const S = e.sceneRef, def = S.defOfContext(e.context), key = `${e.docEpoch}:${def}`, body = S.def(def).body;
+    if (body.kind !== "mesh") { this.entered = key; return; }
+    if (key !== this.entered) {
+      this.entered = key;
+      this.grid(body.kernel);   // 三角格子先算好
+      for (const g of this.paintsOn(def)) if (this.d.boards.stateOf(S, g) === "cold") void this.d.boards.warm(S, g).then(() => e.draw()).catch(() => { /* 只能看不能画：warm 自己说了 */ });
     }
+    this.keepPrepared(def);
+  }
+
+  /** 这个物件上走的画（贴图表里分层的那几张）。 */
+  private paintsOn(def: number): string[] {
+    const S = this.d.editor.sceneRef, out: string[] = [];
+    for (const t of S.textures.values()) if (t.content.kind === "layered" && paintPlaceOf(S, t.guid)?.def === def) out.push(t.guid);
+    return out;
+  }
+
+  /** 这个物件上的画：新建还没画过的建画板（存出去和没建一样是空白的那份）；热的那几张的每份摆放（只认正在编辑的这一份）准备现成。 */
+  private keepPrepared(def: number): void {
+    const e = this.d.editor, S = e.sceneRef, chain = e.context.chain, targets = [];
+    for (const g of this.paintsOn(def)) {
+      const st = this.d.boards.stateOf(S, g);
+      if (st === "new") this.d.boards.ensure(S, g);
+      else if (st !== "hot") continue;
+      targets.push(...this.d.strokeDeps(chain).targets(g));
+    }
+    if (!targets.length || this.d.prep.problem(targets) !== "pending") return;
+    this.lastPrepMs = this.d.prep.ensure(targets);
   }
 
   private grid(k: MeshKernel): TriGrid {
@@ -110,7 +139,7 @@ export class PaintWorkbench {
     const brush = { ...hookBrush({ size, hardness }), opacity };
     try {
       this.stroke = new SpacePaintStroke({ ...this.d.strokeDeps(e.context.chain), failed: (err) => { this.stroke = null; this.d.hint(strokeFailedSay(err)); } }, a.tex, { brush, color: this.d.color.get(), accum: "over", erase: tool === "paintEraser" });
-    } catch (err) { this.d.hint(`这一笔开不了：${err instanceof Error ? err.message : String(err)}`); this.stroke = null; return; }
+    } catch (err) { this.d.hint(strokeFailedSay(err)); this.stroke = null; return; }   // 准备没好（刚撤销改了模型）/ 撞到容量上限：这一笔不开始，说那句人话
     this.t0 = performance.now();
     this.stroke.down(ev.x, ev.y, 1, 0);
     e.draw();
@@ -138,7 +167,7 @@ export class PaintWorkbench {
 
 /** 一笔开不了时提示行说的话（已知的几种说人话；别的照原文）。 */
 export function strokeFailedSay(err: unknown): string {
-  const m = err instanceof Error ? err.message : String(err);
-  if (/too many block-edge cells|canvas polygons|triangles \(>/.test(m)) return "这一笔画不了：这个物件的面太多太碎，画布上的格子超过了第一版笔的上限（面少一点的物件能画；这个上限后面会放宽）";
-  return `这一笔画不了（${m}）`;
+  const say = (err as { say?: unknown } | null)?.say;
+  if (typeof say === "string") return say;   // 准备没好（PrepPendingError）/ 撞到容量上限（PaintLimitError）：它们自己带着人话
+  return `这一笔画不了（${err instanceof Error ? err.message : String(err)}）`;
 }
