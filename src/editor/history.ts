@@ -287,6 +287,13 @@ export class History<M = unknown> {
     for (const list of this.entries) for (let j = list.length - 1; j >= 0; j--) if (list[j].kind === kind && pred(list[j].data)) { c.forget?.(list[j].data); list.splice(j, 1); n++; }
     const keep = this.ops.map((_, i) => !(this.recordOnly[i] && this.entries[i].length === 0));
     if (keep.every(Boolean)) return n;
+    // 删掉的是一步的开头、下一条 join 在它后面：下一条接班当开头（join 位 / 这一步的会话 / 标签交给它），不然它会粘到前一步上去（统筹 11-11 审查）。
+    // 正着走：连着删几条也一路交下去。commitRecords 本身不许 join 进来，这里是给规矩以外的形状兜底。
+    for (let i = 0; i + 1 < this.ops.length; i++) {
+      if (keep[i] || !this.joins[i + 1]) continue;
+      this.joins[i + 1] = this.joins[i];
+      if (!this.joins[i]) { this.sessions[i + 1] ??= this.sessions[i]; this.labels[i + 1] ??= this.labels[i]; }
+    }
     const kept = (upTo: number): number => { let k = 0; for (let i = 0; i < upTo; i++) if (keep[i]) k++; return k; };
     this.cursor = kept(this.cursor); this.evicted = kept(this.evicted);
     const f = <T>(a: T[]): T[] => a.filter((_, i) => keep[i]);

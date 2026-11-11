@@ -60,7 +60,7 @@ export class PaintBoards {
     let born = true;   // 刚建画板时内核要是叫 onReset（空的那一次）：什么都不用做
     const steps = new HostedSteps({
       onStep: (step) => { this.pending.push({ tex: texture, step }); },
-      onReset: () => { this.pending = this.pending.filter((p) => p.tex !== texture); if (!born) this.o.undoReset?.(texture, this.resetWhy?.why ?? "画画内核说这张画的状态不可信", this.resetWhy?.tell ?? true); },
+      onReset: () => { this.pending = this.pending.filter((p) => p.tex !== texture); if (!born && !this.disposing) this.o.undoReset?.(texture, this.resetWhy?.why ?? "画画内核说这张画的状态不可信", this.resetWhy?.tell ?? true); },   // 扔画板时内核清栈也会叫它：那时栈里已经没有它的记录（歇着且记录 0）或整个栈换了（换文件），不用去摘
     });
     const board = new PaintBoard({ port: this.port, width: place.uvSet.width, height: place.uvSet.height, log: this.o.log, undo: steps });
     born = false;
@@ -176,10 +176,16 @@ export class PaintBoards {
   /** 歇着、而且三维的栈里一条它的记录都没有了 = 扔。 */
   private retire(texture: Guid): boolean {
     const e = this.entries.get(texture);
-    if (!e || !e.dormant || e.records > 0) return false;
-    e.board.dispose(); this.entries.delete(texture);
+    if (!e || !e.dormant || e.records > 0 || e.open > 0) return false;   // 有一笔开着：等它收了（或换文件全扔）再扔
+    this.entries.delete(texture); this.kill(e.board);
     return true;
   }
+  /** 扔一块画板：图块全部还池（PaintBoard.dispose）；这期间内核清栈发的 onReset 不往三维的栈里摘记录。 */
+  private kill(board: PaintBoard): void {
+    this.disposing = true;
+    try { board.dispose(); } finally { this.disposing = false; }
+  }
+  private disposing = false;
   private recordGone(texture: Guid): void {
     const e = this.entries.get(texture);
     if (!e) return;
@@ -223,8 +229,10 @@ export class PaintBoards {
   sig(): string { return this.sigCache; }
 
   disposeAll(): void {
-    for (const e of this.entries.values()) e.board.dispose();
+    this.cancelOpen();   // 开着的一笔先取消（零痕迹、令牌收口），再扔
+    const all = [...this.entries.values()];
     this.entries.clear(); this.pending = []; this.opens.clear();
+    for (const e of all) this.kill(e.board);
     this.resig();
   }
 

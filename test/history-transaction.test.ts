@@ -125,6 +125,24 @@ describe("摘记录（1-8a）", () => {
     while (r.h.redo(r.h["current"] as Scene));
     eq(r.h.position(), 3);
   });
+  it("删掉的步后面有 join 进来的指令（规矩以外的形状，手搭）：下一条接班当开头，不粘到前一步上", () => {
+    const r = rig();
+    r.opStep("A", [["a1", "x", 1]]);
+    r.recStep("B", [["b1", "k", 2]]);
+    r.opStep("C", [["c1", "y", 3]]);
+    const h = r.h as unknown as { joins: boolean[]; sessions: unknown[]; labels: unknown[] };
+    h.joins[2] = true; h.sessions[2] = null; h.labels[2] = undefined;   // C 硬塞成 B 那一步里 join 进来的
+    eq(r.h.dropRecords("probe", (d) => (d as Rec).key === "k"), 1, "摘了 b1");
+    eq(r.h.depth(), 2, "B 那条记号删了"); eq(r.h.position(), 2, "游标");
+    eq(h.joins[1], false, "C 接班当开头");
+    eq(r.h.topLabel()?.title, "B", "这一步的标签交给它");
+    r.log.length = 0;
+    const u = r.h.undo();
+    assert(!!u && u.label?.title === "B", "撤的是这一整步");
+    eq(r.log.join(","), "swap c1", "只撤 C，没连带 A");
+    eq(r.h.position(), 1); eq(r.world.get("y"), 0); eq(r.world.get("x"), 1, "A 没动");
+    r.h.undo(); eq(r.h.position(), 0, "再撤一下才到 A");
+  });
   it("驱逐线跟着重算：被配额挤掉的「只有记录」的步摘空了也删，能撤的步数不变", () => {
     const r = rig();
     const s = new Scene(), h = new History<string>(s, { quotaBytes: 25 });   // 每条记录 10 字节：最多留两条

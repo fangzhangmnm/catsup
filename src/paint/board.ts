@@ -15,6 +15,9 @@ import { StrokeSession, type StrokeSessionDeps } from "./kernel/src/backend/stro
 import type { HostOverlayInput } from "./kernel/src/backend/gl/gl-room.ts";
 import type { LayerPixels } from "./kernel/src/backend/tiles/tile-layer.ts";
 
+/** 扔画板时换进去的空根（1×1、一个空层）：现在的内容随旧根还池。 */
+const BLANK_1x1: PaintingData = { width: 1, height: 1, nodes: [{ name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: null }] };
+
 /** 显存预算（和画画软件的后端同一个数）：图块池按需长，长到这个顶。 */
 const BUDGET_BYTES = 256 * 1024 * 1024;
 
@@ -136,7 +139,18 @@ export class PaintBoard {
     return { fbo, version: ++this.shown };
   }
 
-  dispose(): void { this.disposed = true; this.last = null; }
+  /**
+   * 扔掉这块画板：图块全部还给内核的图块池（1-8a 统筹审查：以前只记个「扔了」，图块一直占着）。
+   * 和画画仓 WeebPaintBackend.dispose 同一手：换 1×1 空根 = 现在的内容还池；装载顺手清栈 = 步里攒着的旧图块也还池（交给三维的栈的步也在内：HostedSteps.clear 逐步释放、发 onReset）；
+   * 最后图块账退租。开着的一笔要宿主先取消（登记处 disposeAll 先 cancelOpen；令牌开着时装载会抛）。只做一次。
+   * 显卡那一侧（GLBoard 的图块纹理）内核还没有退租口——记在施工记录里等统筹定。
+   */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true; this.last = null; this.hostOverlays = [];
+    this.wp.load(BLANK_1x1);
+    this.wp.layerTiles.dispose();
+  }
 
   // ---------------------------------------------------------------- 内部
 
