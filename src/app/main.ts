@@ -28,6 +28,7 @@ import { createShelfActions, type ShelfActions } from "./shelf-actions.ts";
 import { resolvePasteConflict } from "./paste-actions.ts";
 import { createHideWindows } from "./ui/hide-windows.ts";
 import { createFloatWin, createMenuWindow, type FloatWin, type MenuSpec, type MenuWindowHandle } from "./ui/menu-window.ts";
+import { mountCanvasWindow, type CanvasWindow } from "./canvas-window.ts";
 import { mountWorkBar } from "./ui/work-bar.ts";
 import { mountMfd } from "./mfd.ts";
 import { stanceShown } from "../controller/chips.ts";
@@ -300,7 +301,7 @@ paintAfterCommit = () => { paintBoards.follow(editor.sceneRef); for (const r of 
 paintBeforeHistoryMove = () => paintBoards.cancelOpen();
 editor.provider.setPaint(paintBoards);
 const paintPrep = new SpacePrep(() => editor.renderer3.offscreenGpu(), () => editor.docEpoch);   // 画画的准备（1-4c）：整份几何 + 每格的表，进工作台时建、落笔只取现成的；换文件自己放
-editor.beforeRender = () => { paintPrep.checkEpoch(); paintWb?.tick(); paintBoards.prepare(editor.sceneRef); };   // 每帧开画之前的「准备」（1-4b 统筹 B）：画画工作台的准备 / 热画、画板跟大小、这一笔的薄层、合成
+editor.beforeRender = () => { paintPrep.checkEpoch(); paintWb?.tick(); paintBoards.prepare(editor.sceneRef); canvasWin?.frame(); };   // 画布小窗：落定的内容变了才读回一次（一笔当中不读）   // 每帧开画之前的「准备」（1-4b 统筹 B）：画画工作台的准备 / 热画、画板跟大小、这一笔的薄层、合成
 
 // ---------- 工具条 ----------
 // 工具表只有 id / 图标 / 名字：键名不手抄——提示 / 小三角 / 手腕面板读 controller/keymap.ts toolKeyText（按工作台、按真按键现算；user 10-28 晚「tooltip你没有更新，这背后有什么架构问题」）。守卫 test/tool-tips.test.ts。
@@ -729,7 +730,7 @@ function menuRow(id: string): Omit<PopupMenuItem<MainMenuId>, "tab"> | null {
 
 // ---------- 移动（步行相机 / VR 共用的 player）----------
 const locomotion = new Locomotion(editor, canvas);
-editor.viewExtras = () => ({ near: locomotion.isWalking() ? 0.05 : undefined, teleport: locomotion.teleportArc(), capsule: locomotion.placeGhost() });
+editor.viewExtras = () => ({ near: locomotion.isWalking() ? 0.05 : undefined, teleport: locomotion.teleportArc(), capsule: locomotion.placeGhost(), peekFaces: canvasWin?.peekWorld() ?? null });   // peekFaces = 画布小窗里悬停的面（施工单十六）
 // XR 画质 A/B（dev 诊断，真机不重 build 就能比：?xrfov=0..1 周边降采样、?xrscale=0.5..2 framebuffer 缩放；默认 0 / 1.0，见 render3）
 {
   const q = new URLSearchParams(location.search);
@@ -835,7 +836,7 @@ function paintPrimary(): "start" | "add" | null {
   if (!isPaintTool(editor.tool)) return null;
   const S = editor.sceneRef, def = S.defOfContext(editor.context);
   if (S.def(def).body.kind !== "mesh") return null;
-  const sel = (editor as unknown as { selection: { kind: string } }).selection, u = { def, sel: sel.kind === "mesh" ? (sel as MeshSelection) : null };
+  const picked = editor.selectedMeshFaces(), u = { def, sel: picked.length ? ({ kind: "mesh", faces: new Set(picked), edges: new Set(), verts: new Set() } satisfies MeshSelection) : null };
   if (!latestPaintOf(S, def)) return facesToStart(S, u).length ? "start" : null;
   return unpaintedSelected(S, u).length ? "add" : null;
 }
@@ -1010,6 +1011,7 @@ function syncUi(): void {
   renderLockRows();
   refreshMachineBoard();   // 指令板上的数跟着模型变
   viewWin?.refresh(); brushWin?.refresh(); hierWin?.refresh();   // 常驻浮窗（视图 / 雕刻笔刷 / 层级）：内容变了才重画
+  syncCanvasBtn(); canvasWin?.sync();   // 画布小窗（施工单十六）：物件 / 画 / 选区跟上，没变不重算
   releaseLatchesOnToolChange(); mfdRef?.render();   // 键名芯片（UX19）；换了工具 = 锁住的修饰键放开
   softSliderRef?.render();   // 软选择半径滑条
   selGrowRef?.sync();   // 扩 / 缩条：换了工具 / 没选区就收
@@ -1224,6 +1226,13 @@ viewMenuBtn.type = "button"; viewMenuBtn.dataset.opensWindow = ""; viewMenuBtn.c
 // 参考窗钮（user 10-30「视图设置就是视图设置，然后参考窗按钮放在视图设置旁边」）：点一下开 / 关，开着 = 亮（跟着窗口的 open 走，窗口自己的 × 关了也灭）
 const refBtn = document.createElement("button"); refBtn.type = "button"; refBtn.dataset.opensWindow = ""; refBtn.className = "gizmo-btn gizmo-ref"; refBtn.title = "参考窗：参考图 · 文字 · 视频（开着时 Ctrl+V 直接贴进来）"; refBtn.innerHTML = iconHtml("image");
 viewMenuBtn.before(refBtn);   // 视图钮左边（user 10-30「参考窗按钮放在视图按钮左边」）
+// 画布小窗钮（施工单十六第二节；版图文档 2026-11-11 追记）：参考窗钮左边；这个文件里有画才露（看数据不分工作台）；开着 = 亮
+const canvasBtn = document.createElement("button"); canvasBtn.type = "button"; canvasBtn.dataset.opensWindow = ""; canvasBtn.className = "gizmo-btn gizmo-canvas"; canvasBtn.title = "画布小窗：这个物件的画铺在画布上的样子（只看）"; canvasBtn.innerHTML = iconHtml("checkerboard-background");
+refBtn.before(canvasBtn);
+// eslint-disable-next-line no-var
+var canvasWin: CanvasWindow | null = null;   // var：每帧的准备 / 渲染的 viewExtras 比它先写
+canvasBtn.addEventListener("click", () => { (canvasWin ??= mountCanvasWindow({ editor, boards: paintBoards, store: WIN_POS, savedSizes: (t) => paintSaver.lastSizes(t), hint: (t) => { hintEl.textContent = t; }, onOpenChange: (o) => { canvasBtn.classList.toggle("is-open", o); canvasBtn.setAttribute("aria-pressed", o ? "true" : "false"); } })).toggle(canvasBtn); syncUi(); });
+const syncCanvasBtn = (): void => { const any = [...editor.sceneRef.textures.values()].some((t) => t.content.kind === "layered"); canvasBtn.hidden = !any && !canvasWin?.isOpen(); };
 // ---------- B43 尺度参考：数据懒加载 + 视图 ☰「参考」页 ----------
 let ladder: Ladder | null = null;
 let ladderTimer = 0;
@@ -2544,7 +2553,7 @@ function paintStrokeGate(texture: string): "warming" | "view-only" | null {
   return null;
 }
 let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> } | null = null;
-(window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor,
+(window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor, canvasWin: () => canvasWin,
   // 画板（贴图主线 1-3c；没有界面入口）：ensure = 给一张走画的贴图建画板（不给 GUID = 场景里第一张画）；fill = 灌一层像素（RGBA、画板大小）；探针 test/probes/probe-paint-display.mjs
   paint: {
     boards: paintBoards,

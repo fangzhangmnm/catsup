@@ -1,0 +1,249 @@
+// app/canvas-window.ts —— 画布小窗第一版（只看；施工单十六第二节，ai-docs/20261111-paint-workorders-16.md）。created 2026-11-11 by Claude Opus 5.5
+// user 11-11：「做一个debug用的rudimentary的uv和贴图查看器小窗……现在只是用来帮助我debug看数据的」「我们还是需要透明诚实，虽然是高级功能用户一般不会动」。
+// 长远的样子（看 → 在上面画 → 改贴图坐标，最后归共享面板库）在 ai-docs/20261111-paint-moves-design.md 第七节；这一版只看，不改任何东西。
+// 两半、中间一条窄的缝：「看」那一半 = ui/image-view.ts（一张图 + 平移缩放 + 线，不认识三维）；本文件 = 三维这边递进去的东西：
+//   画布上的线（paint/atlas-outline.ts：片里的细、片的外沿粗）、「这一点落在哪张面上」、选中 / 悬停的集合，外加图从哪来、底下两行字。
+// 图从哪来：热的画 = 画板落定的内容读回一次（PaintBoard.composeBytes：不带正在画的那一笔）；一笔当中不读（committedKey 一笔当中不变，抬笔才变）；
+//   冷的画 = 存盘时存的那张合成图（PNG，浏览器解一次）；还没有 = 底色。开着小窗画一笔：每帧只多比一次键（不读回、不重算线）。
+// 两边一起亮：三维里选中的面 → 这里涂蓝；这里悬停 → 三维里那张面按悬停的样子亮（peekWorld，经 viewExtras 交给渲染）+ 底下一行写它是谁；
+//   这里点一张面 = 在三维里选中它（一步、进撤销；要正在编辑这个物件——没在编辑就说一句，不替人进去）。三维里点了一张面 = 自动切到那张面所在的 atlas。
+// 开着不进文件（这一次打开期间记着）；位置按设备记（和别的浮窗同一个 WIN_POS）。它进输入闸的名册（refwin：有焦点时键盘归它，不挡三维）。
+import type { Editor } from "../editor/editor.ts";
+import { paintsOf } from "../editor/mesh-edits/start-paint.ts";
+import { atlasOutline, type AtlasOutline } from "../paint/atlas-outline.ts";
+import type { PaintBoards } from "../paint/boards.ts";
+import { bytesSay, openMemory } from "../paint/open-memory.ts";
+import { xformScale } from "../paint/space-target.ts";
+import { buildTexelTable, paintFaces } from "../paint/texel-table.ts";
+import { ID_STRIDE } from "../scene/world-view.ts";
+import { cellSay } from "./canvas-size-picker.ts";
+import { inputGate } from "./input-dom.ts";
+import { mountImageView } from "./ui/image-view.ts";
+import { createFloatWin, type MenuWindowSpec } from "./ui/menu-window.ts";
+import { mountSelectField } from "./ui/select-field.ts";
+
+export interface CanvasWindowDeps {
+  readonly editor: Editor;
+  readonly boards: PaintBoards;
+  readonly store: MenuWindowSpec<string>["store"];
+  hint(text: string): void;
+  onOpenChange?(open: boolean): void;
+  /** 这张画最近一次存下去的字节多大（热的画存过之后贴图行里没有字节，得问存盘那边；paint/save.ts PaintSaver.lastSizes）。 */
+  savedSizes?(texture: string): { readonly ora: number; readonly png: number } | null;
+}
+export interface CanvasWindow {
+  toggle(anchor: HTMLElement): void;
+  open(anchor: HTMLElement): void;
+  isOpen(): boolean;
+  /** 界面例行刷新（选区 / 上下文 / 场景变了）：物件、atlas、线、高亮跟上；没变就什么都不做。关着 = 什么都不做。 */
+  sync(): void;
+  /** 每帧开画之前：画板落定的内容变了 = 读回一次（一笔当中不变 → 不读）。关着 = 什么都不做。 */
+  frame(): void;
+  /** 三维这边要亮的面（世界编号）：小窗里悬停的那张面在每一份摆放里的编号；没有 = null。 */
+  peekWorld(): ReadonlySet<number> | null;
+  /** 探针用：现在的样子和计数。 */
+  probe(): CanvasWindowProbe;
+  readonly el: HTMLElement;
+}
+export interface CanvasWindowProbe {
+  open: boolean; def: number | null; tex: string | null; width: number; height: number;
+  faces: number[]; thin: number; thick: number; patches: number; covered: number; shared: number;
+  selected: number[]; hover: number | null; debugView: boolean;
+  /** 读回了几次 / 线重算了几次 / 冷图解了几次（开着画一笔：笔当中不涨）。 */
+  readbacks: number; outlines: number; decodes: number;
+  hoverLine: string; statsLine: string;
+  /** 图上一点（格）在页面上的位置（探针点它用）。 */
+  screenOf(x: number, y: number): { x: number; y: number } | null;
+}
+
+export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
+  const { editor, boards } = d;
+  const win = createFloatWin({ id: "canvas", title: "画布", store: d.store, bodyClass: "canvas-win-body", winClass: "canvas-win", resize: { min: { w: 240, h: 220 } }, onOpenChange: (o) => { if (o) { stamp = ""; key = ""; sync(); } else { hover = null; editor.draw(); } d.onOpenChange?.(o); } });
+  const body = win.body;
+  // —— 上面一行：哪张画（下拉）· 每格归谁（开关）· 整张 ——
+  const bar = document.createElement("div"); bar.className = "canvas-win-bar";
+  const pickBtn = document.createElement("button"); pickBtn.type = "button"; pickBtn.className = "select-field";
+  const ownBtn = document.createElement("button"); ownBtn.type = "button"; ownBtn.className = "strip-action"; ownBtn.textContent = "每格归谁"; ownBtn.title = "调试视图：每格按它归哪块多边形上色，没人要的格子画成棋盘格（画画时笔尖落在哪格、颜色往哪张面上去，看这个）";
+  const fitBtn = document.createElement("button"); fitBtn.type = "button"; fitBtn.className = "strip-action"; fitBtn.textContent = "整张"; fitBtn.title = "整张画放进窗口";
+  bar.append(pickBtn, ownBtn, fitBtn);
+  const viewHost = document.createElement("div"); viewHost.className = "canvas-win-view";
+  const empty = document.createElement("div"); empty.className = "canvas-win-empty"; empty.hidden = true;
+  viewHost.append(empty);
+  const hoverLine = document.createElement("div"); hoverLine.className = "canvas-win-line is-hover";
+  const statsLine = document.createElement("div"); statsLine.className = "canvas-win-line";
+  body.append(bar, viewHost, hoverLine, statsLine);
+
+  // —— 状态 ——
+  let def: number | null = null, tex: string | null = null, outline: AtlasOutline | null = null, key = "", stamp = "", selKey = "", hover: number | null = null, debugView = false;
+  let readbacks = 0, outlines = 0, decodes = 0, owner: { key: string; canvas: HTMLCanvasElement } | null = null;
+  const work = document.createElement("canvas");   // 读回的那张图放这里（只是显示：字节不经它进出文件）
+  const coldIds = new WeakMap<object, number>(); let coldNext = 1;
+
+  const view = mountImageView(viewHost, {
+    pick: (x, y) => outline?.facesAt(x, y)[0] ?? null,
+    hover: (id) => { hover = id; writeHover(); editor.draw(); },
+    click: (id) => { if (id !== null) selectIn3d(id); },
+  });
+  const field = mountSelectField(pickBtn, {
+    items: () => (def === null ? [] : paintsOf(editor.sceneRef, def).map((p) => ({ value: p.tex, label: `${p.name}（${p.uvSet.width} × ${p.uvSet.height}）` }))),
+    value: () => tex ?? "",
+    onChange: (v) => { tex = v; key = ""; stamp = ""; sync(); },
+    ariaLabel: "哪张画",
+  });
+  ownBtn.addEventListener("click", () => { debugView = !debugView; stamp = ""; sync(); });
+  fitBtn.addEventListener("click", () => view.fit());
+  inputGate.face({ kind: "refwin", label: "画布小窗", rank: 21, root: ".float-win[data-win=canvas]", up: () => win.isOpen() && win.el.contains(document.activeElement) });   // 有焦点（下拉 / 按钮）时键盘归它；不挡三维
+
+  /** 看哪个物件：正在编辑的网格体；不在网格体里 = 选中的那一个物件（是网格体的话）；都不是 = null。 */
+  const currentDef = (): number | null => {
+    const S = editor.sceneRef, here = S.defOfContext(editor.context);
+    if (S.kindOf(here) === "mesh") return here;
+    const picks = editor.selectedPoolPicks();
+    if (picks.length !== 1 || picks[0].kind !== "instance") return null;
+    const inst = S.def(here).instances.get(picks[0].instance);
+    return inst && S.kindOf(inst.def) === "mesh" ? inst.def : null;
+  };
+  const editingDef = (): boolean => def !== null && editor.sceneRef.defOfContext(editor.context) === def;
+  const place = (): ReturnType<typeof paintsOf>[number] | null => (def === null || tex === null ? null : paintsOf(editor.sceneRef, def).find((p) => p.tex === tex) ?? null);
+  const scaleOf = (dd: number): number => { const s = editor.worldGeom().slots.find((x) => x.pool.def === dd && x.pool.group === null); return s ? xformScale(s.xform) : 1; };
+
+  function sync(): void {
+    if (!win.isOpen()) return;
+    const S = editor.sceneRef, nd = currentDef();
+    if (nd !== def) { def = nd; tex = null; key = ""; stamp = ""; hover = null; }
+    const all = def === null ? [] : paintsOf(S, def);
+    // 三维里选了面 → 切到那张面所在的画（只在选区变了的那一下切：之后人手动换的不抢回来）
+    const sel = editingDef() ? editor.selectedMeshFaces() : [], sk = `${def}|${sel.join(",")}`;
+    if (sk !== selKey) {
+      selKey = sk;
+      const body = def !== null ? S.def(def).body : null;
+      if (body?.kind === "mesh") for (const f of sel) { const t = S.facePaint(def!, body.kernel.faceMat[f])?.textureDoc.guid; if (t && all.some((p) => p.tex === t)) { if (t !== tex) { tex = t; key = ""; stamp = ""; } break; } }
+    }
+    if (tex === null || !all.some((p) => p.tex === tex)) { tex = all[0]?.tex ?? null; key = ""; stamp = ""; }
+    field.refresh();
+    const p = place();
+    if (!p || def === null) {
+      outline = null; view.setLines(new Float32Array(0), new Float32Array(0)); view.setImage(null, 1, 1);
+      empty.hidden = false;
+      empty.textContent = def === null ? "进到一个画过的物件里（或者选中它），这里显示它的画布" : "这个物件还没开始画：点上面的「开始画…」";
+      hoverLine.textContent = ""; statsLine.textContent = ""; return;
+    }
+    empty.hidden = true;
+    const body = S.def(def).body;
+    if (body.kind !== "mesh") return;
+    const k = body.kernel, nk = `${def}|${tex}|${p.uvSet.guid}|${p.uvSet.width}x${p.uvSet.height}|${k.rev}`;
+    if (nk !== key) {
+      key = nk; outlines++;
+      const on = k.faces().filter((f) => S.facePaint(def!, k.faceMat[f])?.textureDoc.guid === tex);
+      outline = atlasOutline(k, p.uvSet.guid, on, p.uvSet.width, p.uvSet.height);
+      view.setLines(outline.thin, outline.thick);
+      view.setRings((id) => outline?.rings.get(id));
+      if (hover !== null && !outline.rings.has(hover)) hover = null;
+      owner = null; stamp = "";
+    }
+    view.setMarks(sel.filter((f) => outline!.rings.has(f)), hover);
+    writeHover(); writeStats();
+    frame();
+  }
+  /** 图：热的 = 读回落定的内容；冷的 = 存下的合成图；调试视图 = 每格归谁。键没变 = 不动。 */
+  function frame(): void {
+    if (!win.isOpen() || tex === null || !outline) return;
+    const p = place(); if (!p) return;
+    const hot = boards.get(tex), cold = hot ? null : boards.board(tex);
+    const ns = debugView ? `own|${key}` : hot ? `hot|${hot.committedKey()}` : cold ? `cold|${idOf(cold.image as object)}` : `none|${p.uvSet.width}x${p.uvSet.height}`;
+    if (ns === stamp) return;
+    stamp = ns;
+    if (debugView) { const c = ownerCanvas(p.uvSet.guid, p.uvSet.width, p.uvSet.height); view.setImage(c, c.width, c.height); return; }
+    if (hot) {
+      const px = hot.composeBytes(); readbacks++;
+      if (!px) { view.setImage(null, hot.width, hot.height); return; }
+      work.width = hot.width; work.height = hot.height;
+      work.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(px), hot.width, hot.height), 0, 0);
+      view.setImage(work, hot.width, hot.height); return;
+    }
+    const ref = cold?.image as { bytes?: Uint8Array; mimeType?: string } | undefined;
+    if (cold && ref?.bytes) {
+      const want = stamp; decodes++;
+      void createImageBitmap(new Blob([ref.bytes as BlobPart], { type: ref.mimeType ?? "image/png" })).then((bm) => { if (stamp === want) view.setImage(bm, cold.width, cold.height); else bm.close(); }).catch(() => { if (stamp === want) view.setImage(null, cold.width, cold.height); });
+      return;
+    }
+    view.setImage(null, p.uvSet.width, p.uvSet.height);   // 还没有内容（新开、还没打开过）= 底色
+  }
+  const idOf = (o: object): number => { let n = coldIds.get(o); if (n === undefined) { n = coldNext++; coldIds.set(o, n); } return n; };
+  /** 调试视图：每格归哪块多边形（和画画用的那张归属表同一个算法、同样往外延）；没人要 = 棋盘格。 */
+  function ownerCanvas(uvSet: string, W: number, H: number): HTMLCanvasElement {
+    if (owner?.key === key) return owner.canvas;
+    const body = editor.sceneRef.def(def!).body;
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    if (body.kind === "mesh") {
+      const t = buildTexelTable(W, H, paintFaces(body.kernel, uvSet), 4), img = new ImageData(W, H), px = img.data;
+      for (let i = 0; i < W * H; i++) {
+        const o = t.owner[i], x = i % W, y = (i / W) | 0;
+        if (o < 0) { const v = (x + y) & 1 ? 200 : 235; px[4 * i] = px[4 * i + 1] = px[4 * i + 2] = v; }
+        else { const h = (Math.imul(o + 1, 2654435761) >>> 0) / 4294967296, [r, g, b] = hsl(h, 0.55, 0.6); px[4 * i] = r; px[4 * i + 1] = g; px[4 * i + 2] = b; }
+        px[4 * i + 3] = 255;
+      }
+      c.getContext("2d")!.putImageData(img, 0, 0);
+    }
+    owner = { key, canvas: c };
+    return c;
+  }
+  function writeHover(): void {
+    const p = place();
+    if (hover === null || !outline || !p) { hoverLine.textContent = outline ? "（把指针放在一张面上看它是谁；点一下 = 在三维里选中它）" : ""; return; }
+    const r = outline.rings.get(hover)!, n = r.length / 2; let a = 0, cx = 0, cy = 0;
+    for (let i = 0; i < n; i++) { const j = (i + 1) % n; a += r[2 * i] * r[2 * j + 1] - r[2 * j] * r[2 * i + 1]; cx += r[2 * i]; cy += r[2 * i + 1]; }
+    const share = outline.facesAt(cx / n, cy / n).length;
+    hoverLine.textContent = `面 ${hover} · 第 ${outline.patchOf.get(hover)} 片 · 占 ${Math.round(Math.abs(a) / 2)} 格 · 一格约 ${cellSay(scaleOf(def!) / p.uvSet.pxPerM)}${share > 1 ? ` · 这块 ${share} 张面共用（镜像 / 复制出来的面）` : ""}`;
+  }
+  function writeStats(): void {
+    const p = place(); if (!p || !outline || def === null) return;
+    const W = p.uvSet.width, H = p.uvSet.height, row = editor.sceneRef.textures.get(tex!), hot = boards.get(tex!);
+    const saved = hot ? d.savedSizes?.(tex!) ?? null : null;   // 热的：存盘那边最近一次编的；冷的：贴图行里读进来的
+    const ora = saved ? saved.ora : row?.content.kind === "layered" ? row.content.ora?.byteLength ?? 0 : 0, png = saved ? saved.png : row?.composite?.png.byteLength ?? 0;
+    const pct = (n: number): string => `${Math.round((1000 * n) / (W * H)) / 10}%`;
+    statsLine.textContent = [
+      `${W} × ${H}`, `一格约 ${cellSay(scaleOf(def) / p.uvSet.pxPerM)}`, `${outline.patches} 片 · ${outline.faces.length} 张面`,
+      `面占画布 ${pct(outline.covered)}${outline.shared ? `（其中 ${pct(outline.shared)} 是两张以上的面共用）` : ""}`,
+      hot ? `${hot.layerCount()} 层` : "层数：还没打开",
+      ora || png ? `存进文件占（最近一次编的）分层 ${bytesSay(ora)} · 合成图 ${png ? bytesSay(png) : "没有"}` : "还没编进过文件",   // 存盘、自动保存、崩溃快照都会编；热的画以存盘那边的缓存为准
+      `打开画占显存 ${bytesSay(openMemory(W, H).fixed)}`,
+    ].join(" · ");
+  }
+  function selectIn3d(f: number): void {
+    if (!editingDef()) { d.hint("没在编辑这个物件：双击进到它里面，点这里的面才会在三维里选中"); return; }
+    const w = editor.worldGeom(), active = w.activeSlot();
+    if (active.pool.def !== def) { d.hint("没在编辑这个物件：双击进到它里面，点这里的面才会在三维里选中"); return; }
+    editor.selectExpand({ face: w.global(f) }, 0, "replace");
+    selKey = "";   // 自己选的：不触发「切到那张画」以外的事
+    sync();
+  }
+  let peekCache: { k: string; set: Set<number> } | null = null;
+  return {
+    el: win.el,
+    toggle: (a) => win.toggle(a, "end"),
+    open: (a) => win.open(a, "end"),
+    isOpen: () => win.isOpen(),
+    sync, frame,
+    peekWorld() {
+      if (!win.isOpen() || hover === null || def === null) return null;
+      const w = editor.worldGeom(), k2 = `${def}|${hover}|${w.slots.length}`;
+      if (peekCache?.k === k2) return peekCache.set;
+      const set = new Set<number>();
+      for (const s of w.slots) if (s.pool.def === def && s.pool.group === null) set.add(s.index * ID_STRIDE + hover);
+      peekCache = { k: k2, set };
+      return set;
+    },
+    probe: () => ({
+      open: win.isOpen(), def, tex, width: outline?.width ?? 0, height: outline?.height ?? 0, faces: [...(outline?.faces ?? [])],
+      thin: (outline?.thin.length ?? 0) / 4, thick: (outline?.thick.length ?? 0) / 4, patches: outline?.patches ?? 0, covered: outline?.covered ?? 0, shared: outline?.shared ?? 0,
+      selected: editingDef() ? editor.selectedMeshFaces().filter((f) => outline?.rings.has(f)) : [], hover, debugView, readbacks, outlines, decodes,
+      hoverLine: hoverLine.textContent ?? "", statsLine: statsLine.textContent ?? "",
+      screenOf: (x, y) => { const r = viewHost.querySelector("canvas")?.getBoundingClientRect(); if (!r) return null; const p = view.toScreen(x, y); return { x: r.left + p.x, y: r.top + p.y }; },
+    }),
+  };
+}
+function hsl(h: number, s: number, l: number): [number, number, number] {
+  const f = (n: number): number => { const k = (n + h * 12) % 12, a = s * Math.min(l, 1 - l); return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))); };
+  return [f(0), f(8), f(4)];
+}

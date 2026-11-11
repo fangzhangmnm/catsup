@@ -76,6 +76,7 @@ import { planWeld } from "../kernel/weld.ts";
 import { lastStepOf } from "./last-step.ts";
 import { History, OpApplyError, StepFlipError, type StepLabel, type UndoComponent } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
+import { contextCrumbsOf, contextLabelOf } from "./context-crumbs.ts";
 import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
 import { accept as transferAccept, castPayload, extractForCopy as transferExtract, transferSay } from "./transfer.ts";   // 拷贝走 extractForCopy：带着画的面先拒（1-3b）
 import { KEEP, pasteConflict, preparePaste, type ConflictRow, type Decision, type PasteWays } from "./paste-plan.ts";
@@ -575,30 +576,15 @@ export class Editor {
   /** 选了点（2026-10-26）。 */
   hasPointSelection(): boolean { return this.selection.verts.size > 0; }
   hasPoolSelection(): boolean { return this.selectedPools.size > 0; }
+  /** 正在编辑的网格体里选中的面（池本地编号，升序；不在网格体里 = 空）：画布小窗（施工单十六）、开始画的面板只读这个。 */
+  selectedMeshFaces(): number[] { return this.activeKind() === "mesh" && this.selection.kind === "mesh" ? [...this.selection.faces].sort((a, b) => a - b) : []; }
   selectedPoolPicks(): PoolPick[] { return [...this.selectedPools.values()]; }
   isGestureActive(): boolean { return this.gestureActive(); }
   /** 上下文深度（0 = 根）。 */
   contextDepth(): number { return this.ctx.chain.length + (this.ctx.group !== null ? this.groupDepth(this.ctx.group) : 0); }
-  /** 上下文人话：「根」/「组件 名 › 组」。 */
-  contextLabel(): string {
-    const parts: string[] = [];
-    let def = this.scene.root;
-    for (const iid of this.ctx.chain) { const inst = this.scene.instance(def, iid); def = inst.def; parts.push(`组件「${this.scene.def(def).name}」`); }
-    if (this.ctx.group !== null) parts.push("组");
-    return parts.length ? parts.join(" › ") : "根";
-  }
-  /** 面包屑（#25）：根 › 组件「名」› 组 › …；depth = 点它要退到的层数。 */
-  contextCrumbs(): { label: string; depth: number }[] {
-    const out: { label: string; depth: number }[] = [{ label: "根", depth: 0 }];
-    let def = this.scene.root, depth = 0;
-    for (const iid of this.ctx.chain) { const inst = this.scene.instance(def, iid); def = inst.def; depth++; out.push({ label: `组件「${this.scene.def(def).name}」`, depth }); }
-    if (this.ctx.group !== null) {
-      const chain: number[] = []; let g: number | null = this.ctx.group; const d = this.scene.defOfContext(this.ctx);
-      while (g !== null) { chain.unshift(g); g = this.scene.group({ def: d, group: g }).parent; }
-      for (const gid of chain) { depth++; out.push({ label: this.scene.group({ def: d, group: gid }).name ?? "组", depth }); }
-    }
-    return out;
-  }
+  /** 上下文人话 / 面包屑（#25）：纯场景查询，住 context-crumbs.ts（施工单十六切出去，给 selectedMeshFaces 腾地方）。 */
+  contextLabel(): string { return contextLabelOf(this.scene, this.ctx); }
+  contextCrumbs(): { label: string; depth: number }[] { return contextCrumbsOf(this.scene, this.ctx); }
   /** 层级窗（object-tree.ts）：选区换成这几个组 / 物件（得在现在这一层；一步、进撤销）/ 现在选中的组 / 物件的键（「g2」「i7」）。 */
   selectPools(picks: readonly PoolPick[]): void { this.step((pass) => { this.clearSel(pass); for (const p of picks) this.selectedPools.set(this.pickKey(p), p); this.afterSelect(pass); }); this.host.changed(); this.draw(); } selectedPoolKeys(): string[] { return [...this.selectedPools.keys()]; }
   /** 退到第 depth 层（0 = 根）。 */
@@ -1098,6 +1084,7 @@ export class Editor {
   setMirror(mode: MirrorMode | null, axis?: MirrorAxis, defIn?: number): void {
     const def = defIn ?? (this.activeKind() === "mesh" ? this.activePool().def : undefined);
     if (def === undefined || this.scene.kindOf(def) !== "mesh") { this.host.hint("对称：只有网格体有这个属性"); return; }
+    if (axis !== undefined && axis !== 0 && axis !== 1 && axis !== 2) throw new Error(`setMirror: axis must be 0 / 1 / 2, got ${String(axis)}`);   // 公开口查参数（统筹 11-11：传 "x" 以前照样切了、提示行写 undefined 轴）
     const ax = axis ?? this.mirrors.get(def)?.axis ?? 0, A = "XYZ"[ax];
     const set = (pass: StepPass): boolean => { this.commitIn(pass, { op: "setMeshMirror", def, mirror: mode ? { mode, axis: ax } : null }); return !this.stepFailed; };   // 属性进文件（CATSUP_mesh 1.2）：提交 = 存盘钮亮
     if (!mode) { if (this.step(set, { title: "镜像：关" })) this.host.hint("镜像：关"); this.host.changed(); this.draw(); return; }

@@ -50,8 +50,10 @@ export interface FloatWin {
 }
 /** 标题 = 下拉（user 10-30「两个大按钮太占地方了。我想的是窗口名字就是下拉」）：点标题弹这张表（换页 / 换内容），标题本身不拖窗。 */
 export interface TitleMenu { items(): PopupMenuItem<string>[]; onPick(id: string): void }
-export function createFloatWin(spec: { id: string; title: string; store: MenuWindowSpec<string>["store"]; onOpenChange?(open: boolean): void; bodyClass?: string; bodyRole?: string; titleMenu?: TitleMenu }): FloatWin {
-  const el = document.createElement("div"); el.className = "float-win"; el.dataset.win = spec.id; el.hidden = true;
+export function createFloatWin(spec: { id: string; title: string; store: MenuWindowSpec<string>["store"]; onOpenChange?(open: boolean): void; bodyClass?: string; bodyRole?: string; titleMenu?: TitleMenu;
+  /** 能拖右下角改大小（画布小窗，施工单十六）：最小多大。大小不记（每次打开回到 CSS 的默认大小）。 */
+  resize?: { min: { w: number; h: number } }; winClass?: string }): FloatWin {
+  const el = document.createElement("div"); el.className = `float-win${spec.winClass ? ` ${spec.winClass}` : ""}`; el.dataset.win = spec.id; el.hidden = true;
   const head = document.createElement("div"); head.className = "float-head";
   const tm = spec.titleMenu;
   const title = document.createElement(tm ? "button" : "span"); title.className = tm ? "float-title float-title-menu" : "float-title";
@@ -65,11 +67,14 @@ export function createFloatWin(spec: { id: string; title: string; store: MenuWin
   head.append(title, close);
   const body = document.createElement("div"); body.className = `float-body${spec.bodyClass ? ` ${spec.bodyClass}` : ""}`; if (spec.bodyRole) body.setAttribute("role", spec.bodyRole);
   el.append(head, body);
+  const grip = spec.resize ? document.createElement("div") : null;
+  if (grip) { grip.className = "float-grip"; grip.setAttribute("aria-hidden", "true"); el.append(grip); }
   document.body.appendChild(el);
   const win: FloatingWindowHandle = registerFloatingWindow(el, {
     id: spec.id, head, ignoreDragOn: (t) => close.contains(t) || (!!tm && title.contains(t)),
     onMove: (pos) => spec.store.set(spec.id, pos),
     onOpenChange: (open) => spec.onOpenChange?.(open),
+    ...(spec.resize ? { resize: { grip, min: spec.resize.min } } : {}),
   });
   close.addEventListener("click", () => win.close());
   const place = (anchor: HTMLElement, align: Align): void => {

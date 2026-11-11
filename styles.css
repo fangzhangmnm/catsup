@@ -487,6 +487,18 @@ body.doc-locked .walk-btn[data-edits] { opacity: .45; }
 .float-close { margin-left: auto; border: 0; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: var(--muted); padding: 2px 6px; border-radius: 6px; }
 .float-close:hover { background: var(--menu-hover); }
 .float-win .float-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 6px; }
+/* 能改大小的浮窗：右下角一个拖角（createFloatWin resize；画布小窗，施工单十六） */
+.float-grip { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none;
+  background: linear-gradient(135deg, transparent 0 55%, var(--line, #bbb) 55% 62%, transparent 62% 72%, var(--line, #bbb) 72% 79%, transparent 79%); }
+/* 画布小窗（app/canvas-window.ts）：上面一行（哪张画 · 每格归谁 · 整张）→ 图（占满剩下的）→ 底下两行（悬停的是谁 / 这张画的数） */
+.float-win.canvas-win { width: min(92vw, 440px); height: min(72vh, 500px); max-height: none; }
+.float-win .canvas-win-body { display: flex; flex-direction: column; gap: 4px; overflow: hidden; padding: 6px 6px 18px; }
+.canvas-win-bar { display: flex; align-items: center; gap: 6px; flex: none; }
+.canvas-win-bar .select-field { flex: 1 1 auto; min-width: 0; }
+.canvas-win-view { position: relative; flex: 1 1 auto; min-height: 80px; border-radius: 6px; overflow: hidden; }
+.canvas-win-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; color: var(--muted); font-size: 13px; background: var(--panel, #fff); }
+.canvas-win-line { flex: none; font-size: 12px; line-height: 1.35; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1.35em; overflow-wrap: anywhere; }
+.canvas-win-line.is-hover { color: var(--hud-text, #333); }
 /* 层级浮窗（hierarchy-window.ts；0.18 I1）：一行 = 小三角 · 名字 · [锁] · 小眼睛 · …，缩进 = padding-left；没起名（四位码）= 等宽淡色（MoonSinger 同款） */
 .float-win .tree-body { padding: 4px 2px; }
 .tree-row { display: flex; align-items: center; gap: 2px; min-height: 32px; border-radius: 6px; user-select: none; -webkit-user-select: none; }

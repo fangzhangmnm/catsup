@@ -56,6 +56,8 @@ export class PaintSaver {
   cacheKey(): string { return [...this.cache].map(([g, c]) => `${g}:${c.version}`).sort().join(";"); }
   /** 换文件：缓存清掉（画板全扔了，旧的缓存指着扔掉的画板）。 */
   clear(): void { this.cache.clear(); }
+  /** 这张画最近一次编好（存盘 / 快照）的字节有多大：画布小窗底下那行（施工单十六）。贴图行里的字节只在读文件时进来，热的画存过之后得问这里。缓存里没有 = null。 */
+  lastSizes(texture: Guid): { readonly ora: number; readonly png: number } | null { const c = this.cache.get(texture); return c ? { ora: c.ora.byteLength, png: c.composite?.png.byteLength ?? 0 } : null; }
 
   /**
    * 钉点（同步，中间不 await）。doc = 刚冻结的那份文档；scene = 现在的场景（找坐标的宽高、材质的底色）。

@@ -39,7 +39,7 @@ export type PaintStartChoice = { readonly kind: "add"; readonly tex: string } | 
  */
 export function pickPaintStart(editor: Editor): Promise<PaintStartChoice | null> {
   const S = editor.sceneRef, def = S.defOfContext(editor.context), body = S.def(def).body;
-  const sel = (editor as unknown as { selection: { kind: string } }).selection, u = { def, sel: sel.kind === "mesh" ? (sel as MeshSelection) : null };
+  const picked = editor.selectedMeshFaces(), u = { def, sel: picked.length ? ({ kind: "mesh", faces: new Set(picked), edges: new Set(), verts: new Set() } satisfies MeshSelection) : null };   // 只读选中的面（以前强转去读私有字段）
   const faces = body.kind === "mesh" ? facesToStart(S, u) : [];
   const scale = xformScale(S.xformOfContext(editor.context)), recent = recentCanvas(editor);
   const existing = body.kind === "mesh" ? paintsOf(S, def) : [];

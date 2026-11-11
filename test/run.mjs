@@ -234,6 +234,7 @@ import "./space-vs-kernel2d.test.ts";
 import "./space-stroke-kernel.test.ts";
 import "./paint-texel-table.test.ts";
 import "./paint-layout-patches.test.ts";   // 施工单十五：按朝向连成片 + 留的格数跟着画布走 + 块挨得近时的归属表（2026-11-11 Opus）
+import "./atlas-outline.test.ts";   // 施工单十六第二节：画布小窗的数据（片里的边细 / 外沿粗、第几片、盖住 / 共用、一点落在哪）（2026-11-11 Opus）
 import "./paint-surface-pick.test.ts";   // 贴图主线 1-3a 第四节：落点（2026-11-10 Opus）   // 贴图主线 1-3a 第三节：格子归属表和位置公式（2026-11-10 Opus）   // 贴图主线 1-3a 第二节：最笨的铺法（2026-11-10 Opus）   // 贴图主线 1-3a 第一节：网格体的三角形只从一个地方来（2026-11-10 Opus）   // W-11 邻接表增量维护：样本 + 主门（2026-11-10 Opus）   // W-8 环切能滑、能切几圈（2026-11-10 Opus）   // W-10 细分结果冻成样本 + 不随面数平方涨（2026-11-10 Opus）   // 非流形 / 重复面护栏（2026-10-29）
 import "./test-tiers-guard.test.ts";   // 测试分档守卫：没登记的、测试之间互相 import、探针表（2026-11-10 Opus）
 import { run } from "./runner.mjs";

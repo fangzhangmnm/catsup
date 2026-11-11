@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-104 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+108 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -12,7 +12,7 @@
 <svg width="24" height="24"><use href="#blur"/></svg>
 ```
 
-> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`liquify`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`protractor`、`fill-hole`、`knife`、`walk`、`select-vertex`、`select-edge`、`select-face`、`brush-inflate`、`brush-flatten`、`hierarchy-tree`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`xray`、`snap-element`、`help`、`settings`
+> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`liquify`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`protractor`、`fill-hole`、`knife`、`walk`、`select-vertex`、`select-edge`、`select-face`、`brush-inflate`、`brush-flatten`、`hierarchy-tree`、`kind-brep`、`kind-mesh`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`xray`、`snap-element`、`help`、`settings`
 > 见库 `index.html` 的「待过目」栏；过目后进库/打回归库 session。
 
 
@@ -81,6 +81,7 @@
 | `color` | 三色文氏图(弱半透明填充,重叠处自然叠深) |
 | `opacity` | 不透明度:圆内左半实心+右半棋盘(甲方 spec;优于库内 transparency) |
 | `sliders` | 不写类别 |
+| `checkerboard-background` | 透明背景(画框版):圆角框内棋盘 + evenodd 裁掉中心圆, 横向 6 格 (cell 3.0) —— 格子边长整除框宽 18, 边缘不切半格 |
 
 ## transform
 
@@ -132,6 +133,7 @@
 | `restore-trash` | 同上但盖只掀 -16° |
 | `save-as` | 另存为(floppy-disk=保存 的配对键):双软盘叠放(copy 的前后件语法), 后盘右上探出, 前盘遮罩留白; 20260724 候选 3 号入库 |
 | `trash-can` | 垃圾桶:桶身收口(feather 是直筒);与 fluent(圆提手/更低)、heroicons(弧形透视)亦不同 — own |
+| `image` | 从图片新建:相框+山+太阳 |
 
 ## hierarchy
 
@@ -146,6 +148,8 @@
 | `visibility-hide` | 隐藏:同 show 撑高版+斜杠(mask 留 gap) |
 | `visibility-show` | 可见:撑高眼裂+瞳孔 r4.3(甲方实测原版太小) |
 | `hierarchy-tree` 👁待过目 | 层级(场景树 / 大纲):顶行一个实心小块 + 横线，下面两行往右缩进、各一个实心小块 + 横线，一根竖线带两个拐弯把它们连起来 = 谁装着谁；与 layers-stack(图层 = 平铺叠放、没有父子)、folder(文件夹)分工【CatsUp 左上一排「层级」钮（开层级浮窗：组 / 物件的树、小三角、小眼睛）；2026-10-30 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 |
+| `kind-brep` 👁待过目 | 种类·硬表面体(SketchUp 式「肥皂膜」：一张张平的面拼成):等距立方体轮廓、顶面涂实 = 「面是平的、一块一块」；和 object(只有轮廓的立方体 = 泛指物件)分工【CatsUp 层级窗每一行名字前的小图标（这个物件是硬表面体）；2026-10-30 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 |
+| `kind-mesh` 👁待过目 | 种类·网格体(点连成边、边围成面，能雕能拉):一个三角形轮廓、三个角各一个实心圆顶点 = Blender 的网格数据图标，用惯 Blender 的人一眼认得【CatsUp 层级窗每一行名字前的小图标（这个物件是网格体）；2026-10-30 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 |
 
 ## common
 

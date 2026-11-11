@@ -32,7 +32,7 @@ const BREP_ONLY: Readonly<Record<string, string>> = {
   xformMoveOp: "硬表面移动 / 旋转 / 缩放的 move op（commitXform 和预演共用；网格体走 meshMove）",
 };
 /** 体重棘轮（行数）：切出去一块就往下调；只准降。 */
-const LINE_PIN = 4107;   // 1-7 工作台的登记挪去 modes/index.ts（−3）、画画的口（+0：并进原来那几行）→ 4107；1-8a 复现包「上一步」搬去 last-step.ts（−14）、画的撤销接线（两个宿主钩子、登记 / 挂记录 / 只有记录的一步 / 摘记录 / 没做成的提示，+13）→ 4110；1-4b 选择中心的算法搬去 point-center.ts（−7）、加「准备」那一步的钩子（+3）→ 4111；v0.19.4 蘸材质搬去 paint-material.ts（贴图主线 1-0½）→ 4114；v0.18.45 强行对称第 1–5 层（+）、强行对称编排搬去 mirror-force.ts、吸附放手容差表搬去 snap-hysteresis.ts、trySymmetrize 搬去 mesh/mirror.ts（−）→ 4121；v0.18.42 选中参考几何搬出选区（+）、describeEvent 搬去 describe-event.ts（−）→ 4139（含末尾空行）；v0.16.57 = 4183；v0.17.44 X 光面点的画法删了 → 4157；v0.17.46 网格开关搬去 grid-state.ts + 删三个没人调的私有方法 → 4154；v0.17.3 断口刻度切去 break-ticks.ts + 流提供者接线 → 4170；v0.17.9 叠加层回调不再手递 → 4168（含末尾空行）；切一刀调低一次
+const LINE_PIN = 4094;   // 施工单十六：上下文人话 / 面包屑搬去 context-crumbs.ts（−15）、加 selectedMeshFaces（+2）、setMirror 查轴（+1）→ 4094；1-7 工作台的登记挪去 modes/index.ts（−3）、画画的口（+0：并进原来那几行）→ 4107；1-8a 复现包「上一步」搬去 last-step.ts（−14）、画的撤销接线（两个宿主钩子、登记 / 挂记录 / 只有记录的一步 / 摘记录 / 没做成的提示，+13）→ 4110；1-4b 选择中心的算法搬去 point-center.ts（−7）、加「准备」那一步的钩子（+3）→ 4111；v0.19.4 蘸材质搬去 paint-material.ts（贴图主线 1-0½）→ 4114；v0.18.45 强行对称第 1–5 层（+）、强行对称编排搬去 mirror-force.ts、吸附放手容差表搬去 snap-hysteresis.ts、trySymmetrize 搬去 mesh/mirror.ts（−）→ 4121；v0.18.42 选中参考几何搬出选区（+）、describeEvent 搬去 describe-event.ts（−）→ 4139（含末尾空行）；v0.16.57 = 4183；v0.17.44 X 光面点的画法删了 → 4157；v0.17.46 网格开关搬去 grid-state.ts + 删三个没人调的私有方法 → 4154；v0.17.3 断口刻度切去 break-ticks.ts + 流提供者接线 → 4170；v0.17.9 叠加层回调不再手递 → 4168（含末尾空行）；切一刀调低一次
 
 describe("编辑器本体：两种身体的路由（F-126 第一刀）", () => {
   it("this.kernel 只出现在登记过的 brep 专属方法里；登记表里的方法都还在", () => {

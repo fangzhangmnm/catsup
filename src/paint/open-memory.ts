@@ -16,10 +16,11 @@ export interface OpenMemory {
   /** 一笔正在画的时候另外再多的。 */
   readonly stroke: number;
 }
-export function openMemory(n: number): OpenMemory {
+/** n × hgt（缺 = 见方；补面加高过的画布比宽高，施工单十六的画布小窗按实际宽高报）。 */
+export function openMemory(n: number, hgt = n): OpenMemory {
   let display = 0;
-  for (let w = n, h = n; ; w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) { display += w * h * 4; if (w === 1 && h === 1) break; }
-  const one = n * n * 4, kernel = 4 * one, cells = n * n * 8;
+  for (let w = n, h = hgt; ; w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) { display += w * h * 4; if (w === 1 && h === 1) break; }
+  const one = n * hgt * 4, kernel = 4 * one, cells = n * hgt * 8;
   return { display, kernel, cells, fixed: display + kernel + cells, opened: display + 2 * one + cells, stroke: 2 * one };
 }
 /** 字节念成 MB / KB。 */

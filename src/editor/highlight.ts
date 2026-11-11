@@ -16,6 +16,8 @@ import { perf } from "./perf-stats.ts";
 export interface HighlightState {
   readonly selectionFaces: ReadonlySet<FaceId>;
   readonly hoverFace: FaceId | null;
+  /** 别处要亮一下的面（画布小窗里悬停的那张，施工单十六）：和悬停同一个材质槽。 */
+  readonly peekFaces?: ReadonlySet<FaceId> | null;
   readonly selectionEdges: ReadonlySet<EdgeId>;
   readonly scrubEdges: ReadonlySet<EdgeId>;
   readonly warnEdges?: ReadonlySet<EdgeId> | null;
@@ -43,7 +45,7 @@ const markCache = new WeakMap<object, { key: string; marks: Mark[] }>();
 export function highlightKey(world: WorldView, v: HighlightState): string {
   let wid = worldIds.get(world);
   if (wid === undefined) { wid = nextWorldId++; worldIds.set(world, wid); }
-  return `${wid}:${v.revision ?? 0}:${[...v.selectionFaces].join(",")}:${v.hoverFace ?? ""}:${[...v.selectionEdges].join(",")}:${[...v.scrubEdges].join(",")}:${v.hoverEdge ?? ""}:${v.warnEdges ? `${v.warnEdges.size}|${[...v.warnEdges].join(",")}` : ""}:${v.dimSlots ? [...v.dimSlots].join(",") : ""}:${v.xray ? "x" : ""}`;
+  return `${wid}:${v.revision ?? 0}:${[...v.selectionFaces].join(",")}:${v.hoverFace ?? ""}:${v.peekFaces ? [...v.peekFaces].join(",") : ""}:${[...v.selectionEdges].join(",")}:${[...v.scrubEdges].join(",")}:${v.hoverEdge ?? ""}:${v.warnEdges ? `${v.warnEdges.size}|${[...v.warnEdges].join(",")}` : ""}:${v.dimSlots ? [...v.dimSlots].join(",") : ""}:${v.xray ? "x" : ""}`;
 }
 
 /** 这一帧的高亮辅助几何（只剩线块里没有的边：被刮擦 / 检查标的软边；`pass: content`）；键没变就是上一帧那份。 */
@@ -69,6 +71,7 @@ function buildMarks(kd: WorldView, view: HighlightState, layout: MarkLayout): Ma
   const out: Mark[] = [];
   const ids = new Set<FaceId>(view.selectionFaces);
   if (view.hoverFace !== null) ids.add(view.hoverFace);
+  for (const f of view.peekFaces ?? []) ids.add(f);
   for (const fid of ids) {
     if (!kd.face(fid)) continue;
     const si = Math.floor(fid / ID_STRIDE), s = kd.slots.find((x) => x.index === si);
