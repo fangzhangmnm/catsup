@@ -7,7 +7,7 @@
 //   ③ 距离和半径（都是世界里的长度）交给内核的笔尖边缘曲线（和画画软件同一份：soft-shaders.ts 导出的 stampFalloff），硬芯 = 硬度 × 半径（和二维笔尖同一个算法），
 //      再乘这颗笔尖的浓度。距离不小于半径 = 不吃。
 // 一笔之内怎么攒：照内核的两种——取最大（淡彩）：每一格留最浓的；叠加（叠色）：按笔尖的先后一颗一颗盖上去（a + v·(1 − a)）。
-import { stampFalloff } from "./kernel/src/backend/soft-shaders.ts";
+import { stampFalloff } from "./kernel/src/backend/gl/stamp-falloff.ts";   // 笔尖边缘的曲线：内核导出的那一份（公式，不是软件显卡）
 import { applyPt } from "../scene/xform.ts";
 import { positionOnFace, samplePoint } from "./texel-table.ts";
 import type { TargetGeo } from "./space-target.ts";

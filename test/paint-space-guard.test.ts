@@ -1,7 +1,7 @@
 // 空间里的笔（贴图主线 1-4a）的守卫：读仓里的源码。created 2026-11-11 by Claude Opus 5.5
 //   ① 打射线求落点只有 1-3a 那一处（surface-pick.ts castRay；space-target.ts 把世界里的射线换进定义坐标交给它）。
 //   ② 球和三角形求最近点只有一处（tip-reach.ts sphereTriDist）。
-//   ③ 标准答案里笔尖边缘的那条曲线是内核导出的那一个（soft-shaders.ts stampFalloff），src/paint/ 里不许自己抄一份算式。
+//   ③ 标准答案里笔尖边缘的那条曲线是内核导出的那一个（backend/gl/stamp-falloff.ts stampFalloff；11-11 起直接从公式那个文件拿，不经软件显卡），src/paint/ 里不许自己抄一份算式。
 // 范围 = src/paint/（不含拷来的内核 src/paint/kernel/）：画这一路。别处的射线 / 三角形求交（编辑器拾取、W-13 抓住的点）不归这里管。
 import { describe, it, eq, assert } from "./runner.mjs";
 const { readdirSync, readFileSync, statSync } = (await import("node:fs" as string)) as { readdirSync(p: string): string[]; readFileSync(p: string, enc: string): string; statSync(p: string): { isDirectory(): boolean } };
@@ -21,7 +21,7 @@ describe("空间里的笔：守卫（1-4a）", () => {
     eq(hits(/export function sphereTriDist\(/).join(","), join("src", "paint", "tip-reach.ts"));
   });
   it("③ 标准答案的笔尖边缘曲线 = 内核导出的 stampFalloff；src/paint/ 里没有自己抄的 smoothstep 算式", () => {
-    assert(/import \{[^}]*\bstampFalloff\b[^}]*\} from "\.\/kernel\/src\/backend\/soft-shaders\.ts"/.test(code(join("src", "paint", "tip-truth.ts"))), "tip-truth.ts 用内核导出的 stampFalloff");
+    assert(/import \{[^}]*\bstampFalloff\b[^}]*\} from "\.\/kernel\/src\/backend\/gl\/stamp-falloff\.ts"/.test(code(join("src", "paint", "tip-truth.ts"))), "tip-truth.ts 用内核导出的 stampFalloff");
     eq(hits(/(\b\w+)\s*\*\s*\1\s*\*\s*\(\s*3(?:\.0)?\s*-\s*2(?:\.0)?\s*\*\s*\1\s*\)|\bsmoothstep\s*\(/).join(","), "", "src/paint/ 里没有 smoothstep 的算式");
   });
 });

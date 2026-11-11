@@ -83,3 +83,24 @@
 ## 施工记录
 
 （小弟写）
+
+### 施工细则（改）：11-11 统筹改了方向之后（以这一节为准，上面「接内核的地方」「数据怎么进着色器」里和它冲突的作废）
+
+> user 11-11 凌晨（统筹转）：「画画用的内核，你用一个非常小的抽象，然后你在你三维用的内核，你用另外一个接口分开来……画画的内核还是用一个尽可能小……你三维这边另外开一个，就相当于我们二维模式的时候，你永远不用动三维的这个内核」。
+
+**已经做了的**
+- 画画仓 v0.14.72（`registerProgram` 登记口）/ v0.14.73（名字前缀）**撤回** = v0.14.74（main 549e950；源码 / 测试 / 接口签名回到 v0.14.71，开发版线上核过）。
+- 画画仓 v0.14.75（main 65cfa18，开发版线上核过）= **外面的图进内核的门** `wrapExternal`：真显卡 `{ gl: WebGLTexture, w, h, prec: "u8" }`、软件显卡 `{ pixels, w, h, prec: "u8" }`，包一层不拷贝，内核只读不删不改；`HostOverlayInput.tex` 放宽成 `PooledFBO | ExternalTexture`；大小和画布不一样在 `setHostLayers` 和 `_addPremulOverlay` 两处抛；精度只做 8 位（查到二维笔尖交进 `_addPremulOverlay` 的那张是 u8：`rasterize` / `colorize` 都借 u8 的离屏图）。画画仓测试 `host-external.test.mjs`；全套 1770（1 红 = 副本路径下总账 lint，老问题）、内核 598、全量层 3、显卡冒烟过。本分支重拉了 v0.14.75（78d430b）。
+- **白名单守卫** `test/paint-kernel-surface.test.ts`：src/paint/kernel 以外从内核 import 的每个模块和名字都要在表里（表外 = 红；故意放一个表外的 import 验过会红）；统筹列的那几类进 ALLOWED，现在用着但不在那几类里的进 PENDING（放行、点名，等统筹定）：`PaintingWorkpiece` / `PaintingData`、`isGroupNode` / `TreeNode`、`poolCapacityForBudget`、`SoftGl2Port`（只在测试）。`stampFalloff` 改成直接从公式那个文件（`backend/gl/stamp-falloff.ts`）拿，不经软件显卡。
+
+**三维自己的显卡接口**（`src/paint/space-gpu.ts`，五个动作：登记一对程序、建离屏图、建数据图、画、读回；`copy` 给定型层用）
+- 软件版 `src/paint/space-gpu-soft.ts`（纯计算，8 位、每次写入四舍五入量化，max = 每通道取最大，over = 预乘叠加）。真显卡版放 `src/minccino/providers/three/`（原始 GL，和 1-3c 的 `live-image.ts` 同一种写法）。
+- 程序成对（GLSL + JavaScript）；薄层程序的 JavaScript 版 = 1-4a 的 `tipCellsInPoly`（不另写算式）。往贴图写数据的程序都成对，软件版里用到没 JavaScript 版的 = 抛。
+- **淡彩不要单独上色那一遍**：同一笔的颜色是常数、每通道取最大和乘颜色可以交换（max(c·v) = c·max(v)），所以淡彩直接写预乘的 (c·v, v) 用取最大累积，叠色写 (c·v, v) 用预乘叠加——两种都不需要内核 0-5 公开的「上色那一遍」（和量化差最多 1/255）。清单里标它「可以删」。
+- 交给内核：真显卡 = 离屏图的 WebGLTexture 经 `wrapExternal` 包；软件版 = 离屏图的像素经 `wrapExternal` 包；都走 `StrokeSession("host").setHostLayers` → 预览、落层、撤销是内核的。
+
+**每帧开画之前明着的一步「准备」**（统筹 B）：编辑器在渲染之前调一次 `prepare`（画板跟坐标改大小、该合成的合成、这一笔的薄层该画的画）；渲染器问活的图、拉流只读准备好的结果（1-3c 里合成放在 `current()`、改大小放在拉流的 `sync`，都改掉）。截缩略图、多个视图各走不走这一步写进施工记录。`editor.ts` 没有行数余量：要先从它里面切一小块出去腾出地方。
+
+**交审时给统筹的清单 A（改过的）**：三维用到画画内核的每一个对外的口（文件、函数、类型），逐个标「必须留 / 可以搬到三维这边 / 可以删」；加一栏三维内核自己的显卡接口有哪几个动作、每个动作真显卡版和软件版各怎么做。
+
+**测试的分法**：不带浏览器——三维软件版画薄层 → `wrapExternal` 交给内核的软件显卡 → 预览、落层、撤销整条走通（小画布 64–256 见方）；全套加之前加之后量时间。无头浏览器探针——真显卡版 vs 软件版（差 ≤ 1/255）、过缝不断、斜面线宽、镜像（含两半共用一块画布多边形的那种）、选中 / 淡出截图、三个状态的主人（three、内核、三维的薄层）共用一个显卡画面换手之后状态归位有一条测试。

@@ -7,7 +7,7 @@ import { sphereTriDist, tipReach } from "../src/paint/tip-reach.ts";
 import { strokeTruth, tipCellsInPoly } from "../src/paint/tip-truth.ts";
 import { SpaceStroke } from "../src/paint/space-stroke.ts";
 import { positionOnFace, samplePoint } from "../src/paint/texel-table.ts";
-import { stampFalloff } from "../src/paint/kernel/src/backend/soft-shaders.ts";
+import { stampFalloff } from "../src/paint/kernel/src/backend/gl/stamp-falloff.ts";
 import { P, RAW, brush, gridMesh, laidOut, pinhole, rng, targetOf } from "./paint-space-kit.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
