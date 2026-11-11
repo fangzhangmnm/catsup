@@ -8,6 +8,8 @@
 // 为什么分得出「连着」和「跳了」：连着的表面再斜，屏幕上分一半世界里也跟着减半，总能分到上限以内；真的跳了，怎么分都有一段不变短。
 // 定型：中心线前面不会再变的那些点对应的路算过一次就留着（射线不重打），路的 frozenCount 跟着涨、只增不减；每次只重算尾巴。
 // 一对相邻点里射线的条数有上限（maxRays，默认 4096）：到了 = 剩下的当断开，并在 stats.capped 记一笔。同样的输入 = 路逐位相同。
+// 少打射线（1-4d 第 7 条）：两头打中同一个三角形、屏幕上相距不超过 SAME_TRI_MAX_PX = 中点只和那个平面求交（hitSameTri），路上的点和打整条射线时在浮点误差以内相同。
+//   贵的是陡的面：世界里差得远、屏幕上只差零点几像素，对半分要分很多次；屏幕上离得远的两点照旧打整条（中间可能挡着东西）。
 import type { Pt3 } from "../kernel/geom.ts";
 import { paintMeter } from "./frame-meter.ts";
 import type { PathPlacer, StrokePath } from "./kernel/src/backend/stroke-core.ts";
@@ -16,6 +18,12 @@ import type { Hit } from "./space-target.ts";
 export interface PlacerOpts {
   /** 屏幕上一点 → 打中了什么（一般 = space-target.ts rayHit 包一层相机）。 */
   hit(sx: number, sy: number): Hit;
+  /**
+   * 少打射线（1-4d 第 7 条）：两头打中的是同一个三角形时，中点不打整条射线、只和那个三角形所在的平面求交（便宜），交点还在这个三角形里 = 就是它；
+   * 不在 = null（照旧打整条射线）。和整条射线打中同一个三角形时的结果在浮点误差以内相同（同一个平面、同一条射线）。不给 = 照旧每次打整条。
+   * 不查的：同一个三角形上两点之间被别的东西挡住（原来对半分时顺带会撞上）——所以只在屏幕上两头不超过 SAME_TRI_MAX_PX 时用：漏看的只有比这还窄的东西。
+   */
+  hitSameTri?(sx: number, sy: number, like: Extract<Hit, { kind: "target" }>): Hit | null;
   /** 路的单位（世界里一格多大）。 */
   readonly unit: number;
   /** 步长上限（世界长度）= 这一笔定下来的半径的一半和一个路的单位，两个里大的那个（调用方算）。 */
@@ -31,13 +39,15 @@ export interface SpacePath extends StrokePath { hitAt(i: number): PathHit }
 interface Node { readonly sx: number; readonly sy: number; readonly p: number; readonly h: Hit }
 interface Pt { readonly x: number; readonly y: number; readonly z: number; readonly p: number; brk: boolean; readonly ti: number; readonly tri: number }
 interface RunState { broken: boolean; have: boolean }
+/** 少打射线只用在屏幕上两头不超过这么多像素的一对点（CSS 像素）：中间挡着的东西窄于它才会漏看。 */
+export const SAME_TRI_MAX_PX = 2;
 
 export class SpacePathPlacer implements PathPlacer {
   readonly dim = 3;
   readonly unit: number;
-  /** rays = 一共打了多少条射线；capped = 有几对相邻点到了射线上限（剩下的当断开）。 */
-  readonly stats = { rays: 0, capped: 0 };
-  private readonly o: Required<Omit<PlacerOpts, "hit">> & Pick<PlacerOpts, "hit">;
+  /** rays = 一共打了多少条整条的射线；planes = 同一个三角形上只和平面求交的中点（没打射线）；capped = 有几对相邻点到了射线上限（剩下的当断开）。 */
+  readonly stats = { rays: 0, planes: 0, capped: 0 };
+  private readonly o: Required<Omit<PlacerOpts, "hit" | "hitSameTri">> & Pick<PlacerOpts, "hit" | "hitSameTri">;
   private readonly frozenHits: Hit[] = [];   // 定型的中心线点打中的（不重打）
   private readonly frozenOut: Pt[] = [];
   private frozenPairs = 0;                    // 处理过的定型的相邻对：(i − 1, i)，i < frozenPairs + 1
@@ -107,7 +117,12 @@ export class SpacePathPlacer implements PathPlacer {
       }
       if (budget <= 0) { capped = true; this.stats.capped++; st.broken = true; return; }
       budget--;
-      const mx = (a.sx + b.sx) / 2, my = (a.sy + b.sy) / 2, m: Node = { sx: mx, sy: my, p: (a.p + b.p) / 2, h: this.cast(mx, my) };
+      const mx = (a.sx + b.sx) / 2, my = (a.sy + b.sy) / 2;
+      // 两头打中同一个三角形：中点和那个平面求交就够（第 7 条：陡的面上对半分要分很多次，每次都打整条射线最贵）
+      const same = ha && hb && this.o.hitSameTri && (a.h as Extract<Hit, { kind: "target" }>).ti === (b.h as Extract<Hit, { kind: "target" }>).ti && (a.h as Extract<Hit, { kind: "target" }>).tri === (b.h as Extract<Hit, { kind: "target" }>).tri && Math.hypot(b.sx - a.sx, b.sy - a.sy) <= SAME_TRI_MAX_PX;
+      const ph = same ? this.o.hitSameTri!(mx, my, a.h as Extract<Hit, { kind: "target" }>) : null;
+      if (ph) this.stats.planes++;
+      const m: Node = { sx: mx, sy: my, p: (a.p + b.p) / 2, h: ph ?? this.cast(mx, my) };
       seg(a, m); seg(m, b);
     };
     seg(A, B);

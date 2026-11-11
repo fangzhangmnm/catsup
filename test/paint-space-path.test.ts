@@ -144,3 +144,48 @@ describe("落成路（1-4a 测试 6：定型）", () => {
     assert(once < r0 / 4, `再取一次只打尾巴的射线（${once}，一共 ${r0}）`);
   });
 });
+
+describe("少打射线（1-4d 第 7 条）：两头打中同一个三角形、屏幕上 ≤ 2 像素 = 中点只和平面求交", () => {
+  /** 同一笔跑两遍：照常（少打射线）/ 每次都打整条射线（实例上把 hitTri 换成永远交 null）。 */
+  const twice = (mk: () => { s: () => SpaceStroke; draw: (s: SpaceStroke) => void }) => {
+    const { s: make, draw } = mk(), a = make(), b = make();
+    (b as unknown as { hitTri: () => null }).hitTri = () => null;
+    draw(a); draw(b);
+    return { a, b, pa: pts(a), pb: pts(b), ta: a.tips(), tb: b.tips() };
+  };
+  const counts: string[] = [];
+  for (const deg of [60, 85, 89]) it(`平面从法向偏 ${deg}° 看：路上的点和笔尖和每次打整条射线时在浮点误差以内相同；整条射线少打了`, () => {
+    const r = twice(() => {
+      const m = gridMesh(1, 400), uv = laidOut(m), th = (deg * Math.PI) / 180, cam = pinhole(P(0, -10 * Math.sin(th), 10 * Math.cos(th) + 1e-9), P(0, 0, 0), 50);
+      return { s: () => new SpaceStroke([targetOf(m, uv, { pxPerM: 1000 })], cam, brush({ size: 4 }), { smooth: RAW }), draw: (s) => line(s, { x: 500, y: 400 }, { x: 500, y: 480 }, 20) };
+    });
+    eq(r.pa.length, r.pb.length, "路上的点一样多");
+    let worst = 0; r.pa.forEach((p, i) => { const q = r.pb[i]; eq(p.brk, q.brk, `第 ${i} 个点断不断一样`); worst = Math.max(worst, Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z)); });
+    eq(r.ta.length, r.tb.length, "笔尖一样多");
+    r.ta.forEach((t, i) => { worst = Math.max(worst, Math.hypot(t.x - r.tb[i].x, t.y - r.tb[i].y, t.z - r.tb[i].z)); });
+    assert(worst < 1e-9, `离得最远 ${worst}`);
+    assert(r.a.stats.rays + r.a.stats.planes === r.b.stats.rays, `打的次数对得上（${r.a.stats.rays} 条射线 + ${r.a.stats.planes} 次平面 = ${r.b.stats.rays}）`);
+    if (deg >= 85) assert(r.a.stats.rays < r.b.stats.rays, `陡的面上射线少了（${r.a.stats.rays} < ${r.b.stats.rays}）`);
+    counts.push(`${deg}°：整条射线 ${r.b.stats.rays} → ${r.a.stats.rays}（平面 ${r.a.stats.planes}）`);
+    if (deg === 89) console.log("    [1-4d 第 7 条] " + counts.join("；"));
+  });
+  it("球：同样逐点相同", () => {
+    const r = twice(() => {
+      const m = new MeshKernel(); addPrimitive(m, "sphere", F, [1, 1, 1], 32);
+      const uv = laidOut(m), cam = pinhole(P(0.3, -5, 2), P(0, 0, 0.2), 45);
+      return { s: () => new SpaceStroke([targetOf(m, uv)], cam, brush(), { smooth: RAW }), draw: (s) => line(s, { x: 430, y: 380 }, { x: 570, y: 420 }) };
+    });
+    eq(r.pa.length, r.pb.length, "路上的点一样多");
+    let worst = 0; r.pa.forEach((p, i) => { worst = Math.max(worst, Math.hypot(p.x - r.pb[i].x, p.y - r.pb[i].y, p.z - r.pb[i].z)); });
+    assert(worst < 1e-9, `离得最远 ${worst}`);
+  });
+  it("细杆挡在一块板前面（屏幕上比 2 像素宽）、线一下子从杆左边跳到右边：照旧断开（屏幕上离得远的两点不走捷径）", () => {
+    const r = twice(() => {
+      const m = new MeshKernel(); addBox(m, P(-4, 3, -2), P(4, 3.2, 4)); addBox(m, P(-0.05, -1, -2), P(0.05, -0.9, 4));
+      const uv = laidOut(m), cam = pinhole(P(0, -8, 0.5), P(0, 0, 0.5), 50);
+      return { s: () => new SpaceStroke([targetOf(m, uv, { pxPerM: 200 })], cam, brush(), { smooth: RAW }), draw: (s) => { const a = cam.project(P(-1.5, 3, 0.5)), b = cam.project(P(1.5, 3, 0.5)); line(s, a, { x: b.x, y: a.y }, 3); } };
+    });
+    assert(r.pa.some((p) => p.brk), "少打射线那一遍：断开了");
+    eq(r.pa.filter((p) => p.brk).length, r.pb.filter((p) => p.brk).length, "和每次打整条射线断的次数一样");
+  });
+});

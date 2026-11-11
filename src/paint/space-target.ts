@@ -6,7 +6,7 @@
 // · 藏起来的面不在格子里：不挡、不吃、连通也不从它过。不走这张画的面在格子里：挡得住射线、连通可以从它过，但是不吃。
 import type { Pt3 } from "../kernel/geom.ts";
 import { type Xform, applyDir, applyPt, invert } from "../scene/xform.ts";
-import { buildTriGrid, castRay, type PickMesh, type TriGrid } from "./surface-pick.ts";
+import { buildTriGrid, castRay, rayTriangle, type PickMesh, type TriGrid } from "./surface-pick.ts";
 import { buildTexelTable, paintFaces, type PaintMesh, type TexelTable } from "./texel-table.ts";
 
 /** 目标的网格体（MeshKernel 满足）。rev = 修改号（任何改动都换一个从没用过的新值；画画的准备按它判过期，space-prep.ts）。 */
@@ -102,6 +102,16 @@ export type Hit =
  * 世界里的射线 o + t·d（d 不必是单位长）打中名单里哪一项的哪个三角形。眼睛看到的第一张面才算：名单里各项取最近的；
  * 那张面不走这张画 = 「打中了但不是目标」；名单之外的东西挡在前面（occluded(t) = 真）= 「打中了但不是目标」。
  */
+/**
+ * 世界里的射线只和第 ti 项的第 tri 个三角形求交（少打射线，1-4d 第 7 条）：和 rayHit 同样换进定义坐标、同一个求交（rayTriangle），所以打中时 t、落点和 rayHit 打中这个三角形时逐位相同。
+ * 没中 = null。不查别的三角形、不查名单之外挡着的（调用的人只在两头都打中这个三角形、屏幕上很近时用）。
+ */
+export function rayHitTri(geos: readonly TargetGeo[], ti: number, tri: number, o: Pt3, d: Pt3): Hit | null {
+  const g = geos[ti];
+  if (!g || tri < 0 || tri >= g.grid.face.length) return null;
+  const h = rayTriangle(g.grid, tri, applyPt(g.inv, o), applyDir(g.inv, d));
+  return h ? { kind: "target", ti, tri, pos: { x: o.x + d.x * h.t, y: o.y + d.y * h.t, z: o.z + d.z * h.t }, t: h.t } : null;
+}
 export function rayHit(geos: readonly TargetGeo[], o: Pt3, d: Pt3, occluded?: (t: number) => boolean): Hit {
   let best: { ti: number; tri: number; t: number } | null = null;
   geos.forEach((g, ti) => {

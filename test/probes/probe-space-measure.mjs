@@ -50,8 +50,7 @@ for (const density of [330, 640]) {
     const items = [
       ["定型层（这一笔，显存 RGBA8）", texel(layer.frozen), "画板格数"],
       ["当帧那张 = 交给内核的薄层（这一笔，显存 RGBA8；内核包一层不拷）", texel(layer.frame), "画板格数"],
-      ["每格紧凑表 u_cell（这一笔，显存 RG16UI）", texel(fx.u_cell), "画板格数"],
-      ["块边取样点表 u_samp（这一笔，显存 R32F）", texel(fx.u_samp), "块边格数"],
+      ["每格的表 u_cell（显存 RGBA16UI，一格 8 字节；1-4c 起定长、准备缓存里建，块边取样点表并进来了）", fx.u_cell.w * fx.u_cell.h * 8, "画板格数"],
       ["三角形公式 u_tris（这一笔，显存 R32F）", texel(fx.u_tris), "三角形数"],
       ["面表 u_faces（这一笔，显存 R32F）", texel(fx.u_faces), "面数"],
       ["名单的几何（找面、格子表；内存，类型化数组；画的时候在）", bytesOf(geo), "画板格数 + 三角形数"],
@@ -59,7 +58,7 @@ for (const density of [330, 640]) {
       ["内核离屏图池（显存：合成图、笔尖累积图等）", fbo.bytes, "画板格数"],
       ["显示图 + 缩小图（显存 RGBA8 × 4/3）", Math.round(W * H * 4 * 4 / 3), "画板格数"],
     ];
-    out.memory = { items: items.map(([name, bytes, grows]) => ({ name, MB: +(bytes / 1048576).toFixed(2), grows })), tilePool: mem, fboPool: fbo, geoBuildMs: +geoMs.toFixed(1), layerBuildMs: +layerMs.toFixed(1), sampCells: fx.u_samp.w * fx.u_samp.h / 2 };
+    out.memory = { items: items.map(([name, bytes, grows]) => ({ name, MB: +(bytes / 1048576).toFixed(2), grows })), tilePool: mem, fboPool: fbo, geoBuildMs: +geoMs.toFixed(1), layerBuildMs: +layerMs.toFixed(1) };
     layer.dispose();
     return out;
   }, { density, long: density === 330 }));
@@ -78,7 +77,7 @@ for (const r of runs) {
     console.log(`  最后 60 颗       ${fmt(s.end)}`);
   }
   const m = r.memory, scale = (k) => r.W * r.H;
-  console.log(`内存账（建名单几何 ${m.geoBuildMs} ms、建薄层 ${m.layerBuildMs} ms；块边格 ${m.sampCells}）：`);
+  console.log(`内存账（建名单几何 ${m.geoBuildMs} ms、建薄层 ${m.layerBuildMs} ms）：`);
   let total = 0;
   for (const it of [...m.items].sort((a, b) => b.MB - a.MB)) { total += it.MB; console.log(`  ${it.MB.toFixed(2).padStart(7)} MB  ${it.name}（随 ${it.grows} 涨）`); }
   console.log(`  合计 ${total.toFixed(1)} MB；图块池 ${JSON.stringify(m.tilePool)}；离屏图池 ${JSON.stringify(m.fboPool)}`);

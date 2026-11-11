@@ -10,7 +10,7 @@ import type { Pt3 } from "../kernel/geom.ts";
 import { paintMeter } from "./frame-meter.ts";
 import { StrokeCore } from "./kernel/src/backend/stroke-core.ts";
 import type { ResolvedBrush } from "./kernel/src/common/resolved-brush.ts";
-import { type PaintTarget, type TargetGeo, buildTargetGeo, pathUnit, rayHit } from "./space-target.ts";
+import { type Hit, type PaintTarget, type TargetGeo, buildTargetGeo, pathUnit, rayHit, rayHitTri } from "./space-target.ts";
 import { type SpacePath, SpacePathPlacer } from "./space-path.ts";
 import { type Reach, tipReach } from "./tip-reach.ts";
 
@@ -62,12 +62,18 @@ export class SpaceStroke {
   }
   get started(): boolean { return this.core !== null; }
   /** 打射线的统计（落成路那一层）。 */
-  get stats(): { rays: number; capped: number } { return this.placer?.stats ?? { rays: 0, capped: 0 }; }
+  get stats(): { rays: number; planes: number; capped: number } { return this.placer?.stats ?? { rays: 0, planes: 0, capped: 0 }; }
 
   /** 屏幕一点打中了什么（名单、遮挡都算上）。 */
   hitAt(sx: number, sy: number) {
     const r = this.cam.ray(sx, sy), occ = this.cam.occluded;
     return rayHit(this.geos, r.origin, r.dir, occ ? (t) => occ(r.origin, r.dir, t) : undefined);
+  }
+
+  /** 屏幕一点的射线只和第 ti 项第 tri 个三角形求交（少打射线，1-4d 第 7 条；space-target.ts rayHitTri：和 rayHit 打中它时逐位相同）；没中 = null。 */
+  hitTri(sx: number, sy: number, ti: number, tri: number): Hit | null {
+    const r = this.cam.ray(sx, sy);
+    return rayHitTri(this.geos, ti, tri, r.origin, r.dir);
   }
 
   down(x: number, y: number, p: number, t: number | null = null): void { this.dead = false; this.pending = []; this.core = null; this.placer = null; this.feed(x, y, p, t); }
@@ -83,7 +89,7 @@ export class SpaceStroke {
     // 第一次打中：定大小、开始这一笔，把攒着的点按原来的时间补给内核
     this.worldSize = this.settings.size * this.cam.pixelSize(h.pos);
     const unit = pathUnit(this.geos.map((g) => g.target)), stepMax = Math.max(this.worldSize / 4, unit);   // 半径的一半 = 直径的四分之一
-    this.placer = new SpacePathPlacer({ hit: (sx, sy) => this.hitAt(sx, sy), unit, stepMax });
+    this.placer = new SpacePathPlacer({ hit: (sx, sy) => this.hitAt(sx, sy), hitSameTri: (sx, sy, like) => this.hitTri(sx, sy, like.ti, like.tri), unit, stepMax });
     const [b0, ...rest] = this.pending;
     this.core = new StrokeCore({ ...this.settings, size: this.worldSize }, b0.x, b0.y, b0.p, this.opts.smooth ?? {}, b0.t, this.placer);
     for (const b of rest) this.core.extend(b.x, b.y, b.p, b.t);

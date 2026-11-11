@@ -52,8 +52,8 @@ export function buildTriGrid(m: PickMesh): TriGrid {
   return { pos: Float64Array.from(P), face: Int32Array.from(F), triInFace: Int32Array.from(K), corner: Int32Array.from(C), min: { x: x0, y: y0, z: z0 }, cell, nx, ny, nz, start, list };
 }
 
-/** Möller–Trumbore（两面都算）：命中的 t 和重心坐标 (u, v)（相对角 0）；没中 = null。 */
-function hitTri(g: TriGrid, t: number, o: Pt3, d: Pt3): { t: number; u: number; v: number } | null {
+/** Möller–Trumbore（两面都算）：射线和格子里第 t 个三角形，命中的 t 和重心坐标 (u, v)（相对角 0）；没中 = null。全仓射线求交只有这一份（castRay 和空间里的笔少打射线都用它；守卫 paint-space-guard ①）。 */
+export function rayTriangle(g: TriGrid, t: number, o: Pt3, d: Pt3): { t: number; u: number; v: number } | null {
   const P = g.pos, k = 9 * t;
   const e1x = P[k + 3] - P[k], e1y = P[k + 4] - P[k + 1], e1z = P[k + 5] - P[k + 2], e2x = P[k + 6] - P[k], e2y = P[k + 7] - P[k + 1], e2z = P[k + 8] - P[k + 2];
   const px = d.y * e2z - d.z * e2y, py = d.z * e2x - d.x * e2z, pz = d.x * e2y - d.y * e2x, det = e1x * px + e1y * py + e1z * pz;
@@ -90,7 +90,7 @@ export function castRay(g: TriGrid, o: Pt3, d: Pt3): { tri: number; t: number; u
       const t = g.list[i];
       if (seen.has(t)) continue;
       seen.add(t);
-      const h = hitTri(g, t, o, d);
+      const h = rayTriangle(g, t, o, d);
       if (h && (!best || h.t < best.t || (h.t === best.t && t < best.tri))) best = { tri: t, ...h };
     }
     const a = tMax[0] < tMax[1] ? (tMax[0] < tMax[2] ? 0 : 2) : tMax[1] < tMax[2] ? 1 : 2, exit = tMax[a];
