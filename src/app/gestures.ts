@@ -38,6 +38,8 @@ export interface GestureOpts {
   look?(dxPx: number, dyPx: number): boolean;
   /** 步行模式中滚轮无意义（相机每帧由 player 写）。 */
   walking?(): boolean;
+  /** 这一下工具手势进行当中相机不许动（画画工作台的一笔：贴图主线 1-7「一笔进行当中视角不动」）。true = 工具指针活着时，环绕 / 平移 / 双指都不碰相机（平时「画到一半转视角」照旧）。 */
+  cameraLocked?(): boolean;
   /** 工具停摆（teleport 充能中）：不喂工具指针事件、悬停预告清掉（VR 同款，vr.ts）。 */
   toolBlocked?(): boolean;
   /** 上下文菜单（#19，2026-10-21）：桌面右键（没拖成环绕）/ 触屏长按（没动）→ 在该点弹菜单。坐标 = 画布本地 + client。 */
@@ -171,8 +173,8 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     if (ev.pointerType === "pen") lastPenActivity = t.lastAt;
     switch (t.role) {
       case "tool": lastTool = tp(ev); editor.pointerMove(lastTool); return;
-      case "orbit": if (opts.look?.(dx, dy)) { editor.draw(); return; } editor.cam.orbit(dx, dy); retrack(); editor.draw(); return;
-      case "pan": if (opts.look?.(dx, dy)) { editor.draw(); return; } editor.cam.pan(dx, dy, editor.vp()); retrack(); editor.draw(); return;
+      case "orbit": if (opts.look?.(dx, dy)) { editor.draw(); return; } if (toolPointerActive() && opts.cameraLocked?.()) return; editor.cam.orbit(dx, dy); retrack(); editor.draw(); return;
+      case "pan": if (opts.look?.(dx, dy)) { editor.draw(); return; } if (toolPointerActive() && opts.cameraLocked?.()) return; editor.cam.pan(dx, dy, editor.vp()); retrack(); editor.draw(); return;
       case "multi": {
         // ② 位移门：每根手指离自己的起点
         if (tap?.isTap) {
@@ -193,6 +195,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
           multi.locked = false;
           return;
         }
+        if (toolPointerActive() && opts.cameraLocked?.()) { multi.cx = cx; multi.cy = cy; multi.d = d; return; }   // 画画的一笔当中：相机不动（1-7）
         // 笔按住拖的中途（工具指针活着）：双指质心 = 环绕（单指被当手掌，转不了）；平时 = 平移
         if (toolPointerActive()) editor.cam.orbit(cx - multi.cx, cy - multi.cy); else editor.cam.pan(cx - multi.cx, cy - multi.cy, editor.vp());
         if (d > 1 && multi.d > 1) editor.cam.zoomAt(multi.d / d, cx, cy, editor.vp());

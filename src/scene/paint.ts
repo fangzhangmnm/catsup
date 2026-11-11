@@ -6,7 +6,7 @@ import { paintIn, UV_CANVAS_EPS, type TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
 
 /** 第六节那几种动作碰到走画的面时的原因（拒绝之后场景一个字节不变）。 */
-export const PAINT_CANT_MOVE = "带着画的面现在还搬不了（画跟着面搬家是后面的一张工单）";
+export const PAINT_CANT_MOVE = "这些面上有画：带着画的面现在还不能并进别的物件、分出去、做成唯一、复制粘贴、炸开或者转成硬表面（这个功能还没做）";   // 人话（贴图主线 1-7 第 7 条）
 
 /** 这张面走哪一套贴图坐标（走画 = 那一套的 GUID；不走 = null）。 */
 export function paintUvOf(s: Scene, def: DefId, f: number): Guid | null {

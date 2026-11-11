@@ -159,6 +159,12 @@ export class PaintBoard {
     const px = this.port.readPixels(fbo, 0, 0, this.width, Math.min(rows, this.height));
     return new Uint8ClampedArray(px.buffer, px.byteOffset, px.byteLength);
   }
+  /** 显示的那张合成图上一格的颜色（RGBA 字节，垫着底色、不透明；吸管用，1-7）。出界 / 显卡画面丢了 = null。 */
+  pixelAt(x: number, y: number): Uint8Array | null {
+    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return null;
+    const r = this.compose();
+    return r ? this.port.readPixels(r.fbo, Math.floor(x), Math.floor(y), 1, 1) : null;
+  }
   /** 现在的底色（sRGB 0..1，三个数）。 */
   get background(): readonly [number, number, number] { return [this.bg[0], this.bg[1], this.bg[2]]; }
 

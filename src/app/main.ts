@@ -73,6 +73,10 @@ import { Renderer3 } from "../minccino/providers/three/render3.ts";
 import { browserPaintBoards, PAINT_UNDO_KIND, type PaintRec } from "../paint/boards.ts";
 import { initPaintTileJobs } from "../paint/tile-jobs.ts";
 import { PaintSaver } from "../paint/save.ts";
+import { PaintWorkbench } from "./paint-workbench.ts";   // 画画工作台的控制器（1-7）
+import { createPaintColor, mountPaintColorSheet, hexOf } from "./paint-color.ts";
+import { mountPaintSliders } from "./paint-sliders.ts";
+import type { SpacePaintDeps } from "../paint/space-paint.ts";
 import { PAINT_STEP_LABELS } from "../editor/step-labels.ts";   // 画板登记处（贴图主线 1-3c）：一张贴图一块画板；这一张只有调试钩子 __catsup.paint 建
 import { paintPlaceOf } from "../scene/paint.ts";
 import { buildTriGrid, pickSurface } from "../paint/surface-pick.ts";   // 调试钩子 __catsup.paint.cellAt：1-3a 的落点
@@ -263,6 +267,7 @@ const editor = new Editor(canvas, {
   softRing: (c) => softSliderRef?.ring(c),   // 软选择的半径圈（app/soft-slider.ts）
   selGrowBar: (at) => selGrowRef?.show(at),   // 扩 / 缩选区的拖动条（app/sel-grow-bar.ts）
   placeBody: (phase, x, y) => locomotion.placePointer(phase, x, y),   // 步行放人：输入层 → 步行工具 → 这里（user 10-30「1做」）
+  paint: (ev) => paintWb?.pointer(ev),   // 画画工作台：笔 / 橡皮 / 吸管 → 画画控制器（app/paint-workbench.ts，1-7）
   lasso: (pts) => {   // 套索轨迹：SVG 盖在画布上（坐标 = 画布本地 CSS px）
     if (!pts) { lassoEl.hidden = true; return; }
     const b = canvas.getBoundingClientRect();
@@ -290,7 +295,7 @@ paintAfterCommit = () => { paintBoards.follow(editor.sceneRef); for (const r of 
 paintBeforeHistoryMove = () => paintBoards.cancelOpen();
 editor.provider.setPaint(paintBoards);
 const paintPrep = new SpacePrep(() => editor.renderer3.offscreenGpu(), () => editor.docEpoch);   // 画画的准备（1-4c）：整份几何 + 每格的表，进工作台时建、落笔只取现成的；换文件自己放
-editor.beforeRender = () => { paintPrep.checkEpoch(); paintBoards.prepare(editor.sceneRef); };   // 每帧开画之前的「准备」（1-4b 统筹 B）：画板跟大小、这一笔的薄层、合成
+editor.beforeRender = () => { paintPrep.checkEpoch(); paintWb?.tick(); paintBoards.prepare(editor.sceneRef); };   // 每帧开画之前的「准备」（1-4b 统筹 B）：画画工作台的准备 / 热画、画板跟大小、这一笔的薄层、合成
 
 // ---------- 工具条 ----------
 // 工具表只有 id / 图标 / 名字：键名不手抄——提示 / 小三角 / 手腕面板读 controller/keymap.ts toolKeyText（按工作台、按真按键现算；user 10-28 晚「tooltip你没有更新，这背后有什么架构问题」）。守卫 test/tool-tips.test.ts。
@@ -321,6 +326,8 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string }[] = [
   { tool: "walk", icon: "walk", label: "步行" },
   { tool: "create", icon: "new", label: "拉出" },   // 自由建模的新建（FM182；2026-10-28 Opus 5.5）：图标 = stopgap 加号（图标库 TODO 已登记 primitive-add）；快捷键 Shift+A（键表自由建模层；user 10-28 晚「Shift+A 同意」）   // 「验证」工作台第一格（2026-10-28；图标 = 图标库 PENDING 自画未过目）；平时没有键进步行（user「按什么都不会去步行，得开」）
   { tool: "shrink", icon: "push-pull", label: "沿法线" },
+  // 画画工作台（贴图主线 1-7）：笔 / 橡皮 / 吸管
+  { tool: "paintPen", icon: "pencil", label: "笔" }, { tool: "paintEraser", icon: "eraser", label: "橡皮" }, { tool: "eyedrop", icon: "eyedropper", label: "吸管" },
   // 软编辑笔刷（2026-10-29 Opus 5.5，账本 UX53）：抓 / 抹平借 WeebPaint 的 liquify / blur，鼓起 / 压平 = 图标库待过目层自画
   { tool: "brushGrab", icon: "liquify", label: "抓" }, { tool: "brushDraw", icon: "brush-inflate", label: "鼓起" }, { tool: "brushSmooth", icon: "blur", label: "抹平" }, { tool: "brushFlatten", icon: "brush-flatten", label: "压平" },   // 自由建模：Blender Shrink / Fatten（Alt+S；user 习惯 Alt+W 也认）；不进左柱   // 自由建模的切割 + 环切（2026-10-27 Opus 5.5；user「刀应该叫切割」「小刀图标」）；图标 = 图标库 PENDING 层自画、未过目   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
 ];
@@ -851,6 +858,7 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
   // 工具的上下文动作（user 2026-10-24「轴是工具…归工具管，工具的上下文菜单该开始做了」）
   // 表面工具的上下文条开头（user 2026-10-24「先显示选中的材质，然后是eyedropper，然后是范围，然后是阈值」）
   leading: (tool) => {
+    if (tool === "paintPen" || tool === "paintEraser" || tool === "eyedrop") return [{ id: "paintColor", label: "颜色", swatch: hexOf(paintColor.get()), title: `画笔的颜色 ${hexOf(paintColor.get())}（点开换：色块 / 填颜色代码；吸管从模型上取）`, onClick: () => { paintColorSheet.open(); } }];   // 画画（1-7）：选颜色只有一个入口
     if (tool !== "paint") return [];
     const p = editor.paint;
     const swatch = p === null ? "#d6d6d6" : p.kind === "back" ? BACK_SWATCH : p.kind === "color" ? `rgb(${Math.round(p.color[0] * 255)}, ${Math.round(p.color[1] * 255)}, ${Math.round(p.color[2] * 255)})` : `center / cover url(${textureUrl(p.bytes, p.mimeType)})`;
@@ -1170,6 +1178,7 @@ function reportImport(fileName: string, data: ImportScene, r: ReturnType<typeof 
 // ---------- 手势 & 键盘 ----------
 const gestures = attachGestures(canvas, editor, {
   fingerDraws: () => fingerDraws,
+  cameraLocked: () => !!paintWb?.stroking,   // 画画的一笔当中相机不动（1-7）
   onUndo: () => editor.undo(),
   onRedo: () => editor.redo(),
   onFourTap: () => { hintEl.textContent = hideWins.toggle(); },   // 四指轻点 = 一键藏起所有窗（Procreate 同款手势）
@@ -1461,7 +1470,9 @@ var selGrowRef: SelGrowBar | null = mountSelGrowBar(canvas, editor, () => syncUi
 const SOFT_TOOLS: readonly Tool[] = ["move", "rotate", "scale", "shrink"];
 const brushInHand = (): boolean => editor.modeId === "freeform" && (BRUSHES as readonly string[]).includes(editor.tool);   // 笔刷拿在手上 = 半径格露（和软选择共用一根）
 // eslint-disable-next-line no-var
-var softSliderRef: SoftSlider | null = mountSoftSlider(mountLeftDial($("stage")), $("stage"), canvas, editor, {
+const leftDial = mountLeftDial($("stage"));   // 左栏 dial：软选择半径 + 画画的大小 / 浓度（1-7）
+mountPaintSliders(leftDial, editor);
+var softSliderRef: SoftSlider | null = mountSoftSlider(leftDial, $("stage"), canvas, editor, {
   visible: () => brushInHand() || (editor.modeId === "freeform" && editor.config.get("soft", "on") && SOFT_TOOLS.includes(editor.tool)),
   selectionScreenCenter: () => { const p = editor.selectionCenter("mean"); return p ? editor.cam.angularPx(p, editor.vp()) : null; },
 });
@@ -2454,6 +2465,27 @@ void (async () => {
  * 落笔之前问一句（贴图主线 1-8b）：这张画能不能现在就画。冷的（存在文件里、还没解开）= 这一笔不开始、提示行「这张画还在打开」、同时解开（解开后留着画板）；
  * 只能看不能画 = 说为什么。能画 = null。不卡住、不悄悄丢笔。以后真的笔（1-7）落笔前也问它。
  */
+/** 一笔要的那些口（调试钩子和画画工作台同一份；chain = 落点只认这一份摆放，缺 = 全部摆放）。 */
+function paintStrokeDeps(chain?: readonly number[]): SpacePaintDeps {
+  const cam = editor.cam, gpu = editor.renderer3.offscreenGpu() as unknown as { glTexture(img: unknown): WebGLTexture } | null;
+  return {
+    boards: paintBoards, scene: () => editor.sceneRef, gpu: () => editor.renderer3.offscreenGpu(), prep: paintPrep,
+    targets: (t) => { const b = paintBoards.get(t)!; return paintTargets(editor.worldGeom(), editor.sceneRef, t, { width: b.width, height: b.height }, chain); },
+    external: (img) => ({ gl: gpu!.glTexture(img) }),
+    camera: () => ({
+      ray: (sx, sy) => cam.ray(sx, sy, editor.vp()),
+      pixelSize: (p) => { const vp = editor.vp(); if (cam.projection !== "persp") return (2 * cam.halfH) / vp.h; const e = cam.eye(), f = cam.forward(), d = (p.x - e.x) * f.x + (p.y - e.y) * f.y + (p.z - e.z) * f.z; return (2 * Math.tan(cam.fovY / 2) * d) / vp.h; },
+    }),
+    commitStep: (erase) => editor.commitRecordsStep(erase ? PAINT_STEP_LABELS.erase : PAINT_STEP_LABELS.stroke, paintBoards.takePending().map((data) => ({ kind: PAINT_UNDO_KIND, data }))),   // 一笔 = 三维的一步（1-8a）
+  };
+}
+// 画画工作台（贴图主线 1-7）：颜色只有一个入口（paint-color.ts）；控制器接编辑器那边三把工具交过来的每一下
+const paintColor = createPaintColor({ get: deviceKvGet, set: deviceKvSet });
+const paintColorSheet = mountPaintColorSheet({ root: $("paintColorSheet"), grid: $("paintColorGrid"), hex: $("paintColorHex") as HTMLInputElement, ok: $("paintColorHexOk"), close: $("paintColorClose"), note: $("paintColorNote") }, paintColor);
+inputGate.face({ kind: "face", label: "画笔颜色", rank: 502, root: "#paintColorSheet", up: () => paintColorSheet.isOpen(), esc: () => { paintColorSheet.close(); return true; } });
+paintColor.subscribe(() => syncUi());
+// eslint-disable-next-line no-var
+var paintWb: PaintWorkbench | null = new PaintWorkbench({ editor, boards: paintBoards, strokeDeps: (chain) => paintStrokeDeps(chain), gate: (t) => paintStrokeGate(t), color: paintColor, hint: (t) => { hintEl.textContent = t; } });
 function paintStrokeGate(texture: string): "warming" | "view-only" | null {
   const st = paintBoards.stateOf(editor.sceneRef, texture);
   if (st === "cold" || st === "warming") {
@@ -2489,16 +2521,8 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
       const pb = paintBoards.ensure(editor.sceneRef, g), pt = paintTargets(editor.worldGeom(), editor.sceneRef, g, { width: pb.width, height: pb.height }), prepMs = paintPrep.ensure(pt);
       const prob = paintPrep.problem(pt);
       if (prob !== null) return { guid: g, refused: prob === "pending" ? "pending" : String((prob as { say?: string }).say ?? prob), prepMs };   // 撞到容量上限：这一笔不开始，交出那句人话
-      const st = new SpacePaintStroke({
-        boards: paintBoards, scene: () => editor.sceneRef, gpu: () => editor.renderer3.offscreenGpu(), prep: paintPrep,
-        targets: (t) => { const b = paintBoards.get(t)!; return paintTargets(editor.worldGeom(), editor.sceneRef, t, { width: b.width, height: b.height }); },
-        external: (img) => ({ gl: gpu!.glTexture(img) }),
-        camera: () => ({
-          ray: (sx, sy) => cam.ray(sx, sy, editor.vp()),
-          pixelSize: (p) => { const vp = editor.vp(); if (cam.projection !== "persp") return (2 * cam.halfH) / vp.h; const e = cam.eye(), f = cam.forward(), d = (p.x - e.x) * f.x + (p.y - e.y) * f.y + (p.z - e.z) * f.z; return (2 * Math.tan(cam.fovY / 2) * d) / vp.h; },
-        }),
-        commitStep: (erase) => editor.commitRecordsStep(erase ? PAINT_STEP_LABELS.erase : PAINT_STEP_LABELS.stroke, paintBoards.takePending().map((data) => ({ kind: PAINT_UNDO_KIND, data }))),   // 一笔 = 三维的一步（1-8a）
-      }, g, { brush, color: [o.color?.[0] ?? 0.1, o.color?.[1] ?? 0.1, o.color?.[2] ?? 0.1], accum: o.accum ?? "over", erase: o.erase });
+      void cam; void gpu;
+      const st = new SpacePaintStroke(paintStrokeDeps(), g, { brush, color: [o.color?.[0] ?? 0.1, o.color?.[1] ?? 0.1, o.color?.[2] ?? 0.1], accum: o.accum ?? "over", erase: o.erase });
       // measure：每一帧各段（射线 + 走步 = move；准备里的取新笔尖 / 画薄层 / 交给档口；内核合成；拷到显示图；整帧）
       const frames: Record<string, number>[] = [], R3 = editor.renderer3 as unknown as { liveStats(): { copyMs: number } };
       const ctx = (document.getElementById("board") as HTMLCanvasElement).getContext("webgl2")!, px1 = new Uint8Array(4);

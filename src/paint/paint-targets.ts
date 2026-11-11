@@ -7,12 +7,13 @@ import type { WorldView } from "../scene/world-view.ts";
 import { paintPlaceOf } from "../scene/paint.ts";
 import type { Guid } from "../format/guid.ts";
 
-export function paintTargets(world: WorldView, scene: Scene, texture: Guid, canvas: { readonly width: number; readonly height: number }): PaintTarget[] {
+export function paintTargets(world: WorldView, scene: Scene, texture: Guid, canvas: { readonly width: number; readonly height: number }, chain?: readonly number[]): PaintTarget[] {
   const place = paintPlaceOf(scene, texture);
   if (!place) return [];
   const out: PaintTarget[] = [];
   for (const s of world.slots) {
     if (s.pool.def !== place.def || s.pool.group !== null) continue;
+    if (chain && s.chain.join(".") !== chain.join(".")) continue;   // 只认这一份摆放（画画工作台：正在编辑的那一份；1-7）
     const mesh = (s.kernel as unknown as { mesh?: TargetMesh & { faceMat: ArrayLike<number> } }).mesh;
     if (!mesh) continue;
     out.push({

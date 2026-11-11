@@ -30,6 +30,8 @@ interface OptionShown {
   readonly modes?: readonly string[];
   /** 只在同一组里另一个选项取这几个值时才露（拉出的「锁比例」只给平的形状；手柄的「朝向」只在手柄开着时；bool 按 "true" / "false" 比）。 */
   readonly shownWhen?: { readonly key: string; readonly in: readonly string[] };
+  /** 这个选项有自己的控件、不进工具条（画画的大小 / 浓度 = 左栏 dial 那两根竖滑条，1-7）。值、存法照旧在这张表里。 */
+  readonly elsewhere?: boolean;
 }
 export interface EnumOption extends OptionShown {
   readonly kind: "enum";
@@ -126,7 +128,7 @@ export class ToolConfig<T extends OptionTable> {
     const opts = this.table[tool];
     if (!opts) return [];
     return Object.entries(opts)
-      .filter(([, def]) => !(def.shownWhen && !def.shownWhen.in.includes(String(this.values.get(this.k(tool, def.shownWhen.key))))))
+      .filter(([, def]) => !def.elsewhere && !(def.shownWhen && !def.shownWhen.in.includes(String(this.values.get(this.k(tool, def.shownWhen.key))))))
       .map(([key, def]) => ({ key, def, value: this.values.get(this.k(tool, key))! }));
   }
   /** 某个 enum 值的标签（UI / hint 用）。 */
@@ -266,6 +268,17 @@ export const TOOL_OPTIONS = {
     strength: { kind: "number", label: "力度", def: 0.5, min: 0.05, max: 1, step: 0.05, scope: "session" },
   },
   /** 表面指派共用（user 2026-10-24 要的持久化 = 跟机器；scope device，经 host 递来的 device-kv）。 */
+  // 画画工作台（贴图主线 1-7）：笔 / 橡皮各一套；大小 = 屏幕像素、浓度 = 不透明度（这两样在左栏 dial）、硬度 = 笔尖边缘（工具条）；记在设备上（施工单第 8 条）
+  paintPen: {
+    size: { kind: "number", label: "大小", def: 12, min: 1, max: 400, step: 1, unit: "像素", scope: "device", elsewhere: true },
+    opacity: { kind: "number", label: "浓度", def: 1, min: 0.05, max: 1, step: 0.05, scope: "device", elsewhere: true },
+    hardness: { kind: "number", label: "硬度", def: 0.8, min: 0, max: 1, step: 0.05, scope: "device" },
+  },
+  paintEraser: {
+    size: { kind: "number", label: "大小", def: 24, min: 1, max: 400, step: 1, unit: "像素", scope: "device", elsewhere: true },
+    opacity: { kind: "number", label: "浓度", def: 1, min: 0.05, max: 1, step: 0.05, scope: "device", elsewhere: true },
+    hardness: { kind: "number", label: "硬度", def: 0.8, min: 0, max: 1, step: 0.05, scope: "device" },
+  },
   surface: {
     tier: { kind: "enum", label: "范围", values: SURFACE_TIERS, def: "smooth", scope: "device" },
     sharpDeg: { kind: "number", label: "锐角阈值", def: 20, min: 1, max: 90, step: 1, unit: "°", scope: "device" },

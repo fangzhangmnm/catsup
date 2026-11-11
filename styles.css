@@ -575,3 +575,7 @@ body.ui-night :is(.hud, .hud-text, .hud-gizmo, .hud-topstack, .walk-bar, .float-
   --paper: #1a1f26; --bg-0: #151a20; --bg-1: #1d232b; --bg-soft: #1d232b; --ink-muted: #9aa3ad; --ink-soft: #b3bac2;
   color: var(--ink);
 }
+
+/* 画画的颜色面板（贴图主线 1-7）：填颜色代码的框 + 填错时那一句 */
+.hex-input { flex: 1 1 8em; min-width: 0; font: inherit; font-family: ui-monospace, Menlo, Consolas, monospace; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--paper, #fff); color: inherit; }
+.sheet-note { min-height: 1.2em; font-size: 12px; color: var(--warn, #b4441c); padding: 0 4px 4px; }
