@@ -17,16 +17,23 @@ export function eq(actual, expected, msg) {
   if (actual !== expected) throw new Error(`${msg || "不相等"}: 期望 ${JSON.stringify(expected)}，实得 ${JSON.stringify(actual)}`);
 }
 
-export async function run() {
-  let pass = 0, fail = 0;
-  for (const t of _tests) {
+/** 跑完到现在为止登记的这一批、清空、交回计数（并行运行器的工人一份文件跑一次；test/par-worker.mjs）。打印照旧走 console.log。 */
+export async function runBatch() {
+  const tests = _tests.splice(0), todos = _todos.splice(0), failed = [];
+  let pass = 0;
+  for (const t of tests) {
     try { await t.fn(); console.log("  \x1b[32m✓\x1b[0m", t.name); pass++; }
-    catch (e) { console.log("  \x1b[31m✗\x1b[0m", t.name, "\n      ", e.message); fail++; }
+    catch (e) { console.log("  \x1b[31m✗\x1b[0m", t.name, "\n      ", e.message); failed.push(t.name); }
   }
-  if (_todos.length) {
+  if (todos.length) {
     console.log("");
-    for (const name of _todos) console.log("  \x1b[33m○ todo\x1b[0m", name);
+    for (const name of todos) console.log("  \x1b[33m○ todo\x1b[0m", name);
   }
-  console.log(`\n  ${pass} passed, ${fail} failed, ${_todos.length} todo\n`);
-  if (fail) process.exit(1);
+  return { pass, fail: failed.length, todo: todos.length, failed };
+}
+
+export async function run() {
+  const r = await runBatch();
+  console.log(`\n  ${r.pass} passed, ${r.fail} failed, ${r.todo} todo\n`);
+  if (r.fail) process.exit(1);
 }

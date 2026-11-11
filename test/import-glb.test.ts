@@ -15,7 +15,7 @@ import { applyOp } from "../src/editor/ops.ts";
 import { IDENTITY, applyPt, compose } from "../src/scene/xform.ts";
 import { decodeGlb } from "../src/format/glb.ts";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup } from "../src/format/index.ts";
-import { checkInvariants } from "./kernel-fuzz.test.ts";
+import { checkInvariants } from "./kernel-invariants.ts";
 import { meshFromSplitTriangles } from "../src/mesh/tri-soup.ts";
 import { edgeSmooth, edgeSoft } from "../src/mesh/edge-smooth.ts";
 
