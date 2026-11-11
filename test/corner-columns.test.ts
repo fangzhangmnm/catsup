@@ -229,3 +229,34 @@ describe("角上的列：守卫", () => {
     eq(hits.length, 0, hits.join(" | "));
   });
 });
+
+describe("角上的列：规矩按构造成立（Fable 审 1-2 加的两处）", () => {
+  /** 一张单独的四边形，一列、角上的值 = (x, y)；再放一个在第一条边中点上的点 m（还没进环）。 */
+  function quad(): { k: MeshKernel; f: number; v: number[]; m: number } {
+    const k = new MeshKernel(); k.addColumn({ guid: UV, arity: 2 });
+    const v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)].map((p) => k.addVertex(p));
+    const f = k.addFace(v, -1, FRESH); k.setFaceValues(f, UV, k.facePts(f).flatMap((p) => [p.x, p.y]));
+    return { k, f, v, m: k.addVertex(P(0.5, 0, 0)) };
+  }
+  it("copy 的对应表里有 −1 → 这张面在这一列上整张没值，算丢了一张（不出现半张有值）", () => {
+    const { k, f, v } = quad(), sh = k.shapeOf(f);
+    k.setFaceRing(f, v, { kind: "copy", of: sh, corners: [0, -1, 2, 3] });
+    eq(k.cornerValues(f, UV), null); eq(k.takeDroppedFaces(), 1); clean(k, "copy 缺角");
+  });
+  it("piece 取样时旧面切不出三角形 → 整张没值，算丢了一张；切得出时照常插值（对照）", () => {
+    const a = quad(), sa = a.k.shapeOf(a.f);
+    a.k.setFaceRing(a.f, [a.v[0], a.m, a.v[1], a.v[2], a.v[3]], { kind: "piece", of: sa });
+    const ok = a.k.cornerValues(a.f, UV)!; eq(ok[2], 0.5); eq(ok[3], 0); eq(a.k.takeDroppedFaces(), 0); clean(a.k, "对照");
+    const b = quad(), sb = b.k.shapeOf(b.f); sb.tris = [];   // 旧面「切不出三角形」
+    b.k.setFaceRing(b.f, [b.v[0], b.m, b.v[1], b.v[2], b.v[3]], { kind: "piece", of: sb });
+    eq(b.k.cornerValues(b.f, UV), null); eq(b.k.takeDroppedFaces(), 1); clean(b.k, "切不出三角形");
+  });
+  it("piece 的取样处表里写的角号不在旧环里 → 抛（调用的地方写错了，不悄悄退回默认规矩）", () => {
+    for (const bad of [4, -1, 1.5]) {
+      const { k, f, v } = quad(), sh = k.shapeOf(f);
+      let threw = false;
+      try { k.setFaceRing(f, v, { kind: "piece", of: sh, from: [0, 1, 2, bad] }); } catch (e) { threw = /not a corner of the old ring/.test(String(e)); }
+      assert(threw, `角号 ${bad} 应该抛`);
+    }
+  });
+});

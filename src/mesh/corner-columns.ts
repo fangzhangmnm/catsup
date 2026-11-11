@@ -12,6 +12,8 @@
 //     grown  新长出来的（材质照旁边那张面，调用方传）：每一列都没有值。
 //     joined 几张面并成的：每个角去找原来哪几张面有这个点；只有一张有 → 用它的；几张都有 → 值都一样才算数；这一列上只要有一个角对不上或没有值，
 //            整张面在这一列上都没有值。原来有值、并完没了 = 「丢了」，内核记数（MeshKernel.takeDroppedFaces），不许悄悄丢。
+//     不管哪种来历，写完一列之后半张有值、半张没有 → 整张清成没值、也算「丢了」：内核里永远没有半张有值的面（Fable 审 1-2 时加的）。
+//     piece 的取样处表里写的角号不在旧环里 = 调用的地方写错了 → 抛，不悄悄退回默认规矩。
 //     fresh  凭空来的：每一列都没有值；或者调用方直接给值（装载、整张面原样搬到另一个内核）——只许出现在白名单里的文件（守卫）。
 import type { Pt3 } from "../kernel/geom.ts";
 import { triangulateFace } from "../format/triangulate.ts";
@@ -56,6 +58,10 @@ export interface CornerHost {
  */
 export function writeCorners(h: CornerHost, origin: FaceOrigin, ring: readonly number[], slot: number): boolean {
   let dropped = false;
+  if (origin.kind === "piece" && origin.from && origin.of.ring) {
+    const m = origin.of.ring.length;
+    origin.from.forEach((at, i) => { if (typeof at === "number" && !(Number.isInteger(at) && at >= 0 && at < m)) throw new Error(`writeCorners: piece.from[${i}] = ${at} is not a corner of the old ring (length ${m})`); });
+  }
   for (const col of h.columns) {
     const A = col.arity, out = col.data, base = slot * A, n = ring.length;
     const none = (): void => { out.fill(NaN, base, base + n * A); };
@@ -77,8 +83,7 @@ export function writeCorners(h: CornerHost, origin: FaceOrigin, ring: readonly n
         if (!v || !of.ring || !of.pts) { none(); break; }
         for (let i = 0; i < n; i++) {
           const at = origin.from?.[i];
-          let j = typeof at === "number" ? at : at === undefined ? of.ring.indexOf(ring[i]) : -1;
-          if (j >= of.ring.length) j = -1;
+          const j = typeof at === "number" ? at : at === undefined ? of.ring.indexOf(ring[i]) : -1;
           if (j >= 0) { for (let c = 0; c < A; c++) out[base + i * A + c] = v[j * A + c]; continue; }
           sampleAt(of, v, A, typeof at === "object" ? at : h.pt(ring[i]), out, base + i * A);
         }
@@ -106,6 +111,10 @@ export function writeCorners(h: CornerHost, origin: FaceOrigin, ring: readonly n
         break;
       }
     }
+    // 规矩按构造成立：这一列上有的角有值、有的没有（copy 的对应表里有 −1 / 越界的角号；piece 取样时旧面切不出三角形）→ 整张清成没值，算「丢了」。
+    let nan = 0;
+    for (let i = base, e = base + n * A; i < e; i++) if (Number.isNaN(out[i])) nan++;
+    if (nan !== 0 && nan !== n * A) { none(); dropped = true; }
   }
   return dropped;
 }
