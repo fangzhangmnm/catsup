@@ -68,6 +68,7 @@
     "test/gpu-tile-pool.test.mjs",
     "test/history.test.mjs",
     "test/host-overlay.test.mjs",
+    "test/host-program.test.mjs",
     "test/hosted-steps.test.mjs",
     "test/layer-cap-budget.test.mjs",
     "test/layer-ops-undo-fuzz.test.mjs",

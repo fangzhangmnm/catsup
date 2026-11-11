@@ -14,12 +14,12 @@
 //   实例序 = 数组序——与契约承诺一致）、GPU 光栅化 tie-break（quad 边缘像素中心恰在界上）。
 // 【决定论】同一动词序列 → 同一字节输出（无时钟无随机无硬件方差）——ADR-0009 回放/对拍前提。
 
-import type {
+import type { HostProgram,
   Gl2Port, Gl2Caps, FBOPrec, PooledFBO, Gl2Texture, Gl2TileArena,
   Gl2DrawSpec, Gl2TexSource, TexUploadFormat,
 } from "../common/gl2-port.ts";
 import type { CpuDraw, CpuDrawCtx, SoftTexRead, SoftArenaRead } from "./soft-shaders.ts";
-import { resolveCpuProgram } from "./soft-shaders.ts";
+import { isKernelProgram, resolveCpuProgram } from "./soft-shaders.ts";
 
 // ---- 软句柄实现形 ----
 
@@ -148,15 +148,23 @@ export class SoftGl2Port implements Gl2Port {
   readonly generation = 0;   // 软域无 context-loss（结构自愈契约恒稳态）
   private _invalidated: (() => void)[] = [];
   private _programs = new Map<string, CpuDraw | "gpu-only">();
+  private _hosted = new Map<string, CpuDraw>();   // 宿主登记的程序（registerProgram）：只在这个实例里找得到
   private _fboPool: SoftFBO[] = [];
 
   onInvalidated(cb: () => void): void { this._invalidated.push(cb); }
 
   // ---- program：注册即对表核验（CPU 版缺席响亮 throw，ADR-0009 决定 5）----
   warmProgram(name: string, vert: string, frag: string): void { this.program(name, vert, frag); }   // 软域无编译成本：同义
+  // 宿主登记（贴图主线 1-4b）：撞内核的名字 / 登记两次 = 抛；JavaScript 版必须是函数。
+  registerProgram(name: string, src: HostProgram): void {
+    if (isKernelProgram(name)) throw new Error(`PROGRAM_NAME_IS_KERNEL:${name} (host programs may not reuse a kernel program name)`);
+    if (this._hosted.has(name)) throw new Error(`PROGRAM_ALREADY_REGISTERED:${name}`);
+    if (typeof src.cpu !== "function") throw new Error(`PROGRAM_NO_CPU:${name} (a host program must come with its CPU version)`);
+    this._hosted.set(name, src.cpu);
+  }
   program(name: string, _vert?: string, _frag?: string): void {
     if (this._programs.has(name)) return;
-    const cpu = resolveCpuProgram(name);
+    const cpu = resolveCpuProgram(name) ?? this._hosted.get(name) ?? null;   // 内核那张表先认；宿主登记的只在这个实例里
     if (cpu === null) throw new Error(`SHADER_NO_CPU_EQUIV:${name} (missing in soft-shaders.ts table — add a CPU version or register as GPU_ONLY)`);
     this._programs.set(name, cpu);
   }

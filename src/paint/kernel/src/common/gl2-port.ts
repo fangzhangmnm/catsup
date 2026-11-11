@@ -22,6 +22,7 @@
 
 // 渲染目标精度档：u8=RGBA8（present/屏显），f16=RGBA16F（合成累积，§7 banding bonus），
 //   f32=RGBA32F（精度验证/陡 blend 模式；比 f16 多一倍 transient，仅累积器一张、不乘层数）。
+import type { CpuDraw } from "./cpu-draw.ts";   // 宿主程序的软件显卡版和内核自己的同一种写法
 export type FBOPrec = "u8" | "f16" | "f32";
 
 // 壳填好的能力数据（Port 构造时探测一次；backend 只读）。
@@ -50,6 +51,9 @@ export interface Gl2Texture { readonly kind: "tex2d"; }
 //   r8      = 单通道字节（选区 mask；实现体自管 UNPACK_ALIGNMENT）
 //   r32f    = 单通道 float（tile index：doc tile 坐标 → arena slice，-1=空）
 export type TexUploadFormat = "rgba8" | "rgba16f" | "r8" | "r32f";
+
+// 宿主登记的程序（registerProgram）：真显卡用 vert / frag；软件显卡用 cpu（和内核自己的程序同一种写法，见 backend/soft-shaders.ts CpuDraw）。
+export interface HostProgram { readonly vert: string; readonly frag: string; readonly cpu: CpuDraw }
 
 // blend 状态（= 全仓用到的三种，枚举封闭；新模式先过 user/ADR 再进契约）：
 //   none         = 关 blend（合成数学在 fragment 手算，直值累积器约定）
@@ -113,6 +117,10 @@ export interface Gl2Port {
   //   COMPLETION_STATUS 收尾（无扩展则下一 tick 同步收尾）。之后 program(name) 若还没收尾就当场收尾（比从零编译快）。
   //   可选动词：SoftGl2Port = program 同义；调用方用 `port.warmProgram ?? port.program`。
   warmProgram?(name: string, vert: string, frag: string): void;
+  // 内核以外的程序（宿主自己的着色器；2026-11-11 贴图主线 1-4b）：GLSL 和软件显卡里的 JavaScript 版**在这一处一起交**（ADR-0009 决定 5 照旧）。
+  //   登记挂在这个接口实例上（别的接口实例里找不到）；名字和内核自己的程序撞了 = 抛；同一个名字登记两次 = 抛。登记之后照常 program(name) / draw。
+  //   内核自己的程序仍然只认内核那张表（soft-shaders.ts），登记盖不掉它们。
+  registerProgram(name: string, src: HostProgram): void;
 
   // ---- FBO 借还（有界池：MRU 复用、LRU 驱逐真删） ----
   borrowFBO(w: number, h: number, prec?: FBOPrec): PooledFBO;

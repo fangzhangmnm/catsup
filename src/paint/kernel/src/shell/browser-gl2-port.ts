@@ -25,10 +25,11 @@
 // 验证边界：本模块全是 gl.* 调用，node DOM-shim 下是 no-op → **node 测不了**，GL smoke
 //   （Playwright + SwiftShader）+ 真机批验证。故刻意只放标准、可读、无分支魔法的 GL 样板。
 
-import type {
+import type { HostProgram,
   Gl2Port, Gl2Caps, FBOPrec, PooledFBO, Gl2Texture, Gl2TileArena,
   Gl2DrawSpec, Gl2TexSource, TexUploadFormat,
 } from "../common/gl2-port.ts";
+import { isKernelProgram } from "../backend/soft-shaders.ts";   // 宿主登记的程序不许用内核程序的名字
 
 // FBO 池上界（防泄露）。count 主防"许多不同尺寸的一次性 FBO"（commit/warp 每笔一张）累积；
 //   bytes 是兜底显存天花板。doc 尺寸热 FBO 每帧复用、是 MRU，不会被驱逐 → 不抖。
@@ -249,6 +250,15 @@ export class BrowserGl2Port implements Gl2Port {
   }
 
   // ---- shader program 缓存 + 反射 ----
+  // 宿主登记（贴图主线 1-4b）：撞内核的名字 / 登记两次 = 抛；GLSL 当场编（存进重建用的源表，画面恢复后照样重编）；JavaScript 版在真显卡上不用。
+  private _hosted = new Set<string>();
+  registerProgram(name: string, src: HostProgram): void {
+    if (isKernelProgram(name)) throw new Error(`PROGRAM_NAME_IS_KERNEL:${name} (host programs may not reuse a kernel program name)`);
+    if (this._hosted.has(name)) throw new Error(`PROGRAM_ALREADY_REGISTERED:${name}`);
+    if (typeof src.cpu !== "function") throw new Error(`PROGRAM_NO_CPU:${name} (a host program must come with its CPU version)`);
+    this._hosted.add(name);
+    this.program(name, src.vert, src.frag);
+  }
   program(name: string, vert?: string, frag?: string): void {
     if (this._programs.has(name)) return;
     const pend = this._pending.get(name);
