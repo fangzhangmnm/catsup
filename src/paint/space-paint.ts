@@ -5,7 +5,7 @@
 // 橡皮 = 同一支笔，交给档口时 erase = true。取消 = 档口取消（零痕迹）。
 import { SpaceStroke, type SpaceCamera } from "./space-stroke.ts";
 import { paintMeter } from "./frame-meter.ts";
-import { SpaceLayer } from "./space-layer.ts";
+import { SpaceLayer, type FaceTables } from "./space-layer.ts";
 import type { SpacePrep } from "./space-prep.ts";
 import type { SpaceData, SpaceGpu, SpaceImage } from "./space-gpu.ts";
 import type { PaintBoards } from "./boards.ts";
@@ -73,7 +73,7 @@ export class SpacePaintStroke {
     const targets = d.targets(texture);
     if (targets.length !== 1) throw new Error(`SpacePaintStroke: ${targets.length} placements of this paint (1-4b handles exactly one)`);
     const ready = targets.map((t) => d.prep.take(t));   // 没准备好 / 过期了 = 抛 PrepPendingError（不现建：建表不许在落笔那一下）；建不了 = 抛那个错
-    this.cells = ready[0].cells;
+    this.cells = ready[0].cells; this.tables = ready[0].tables;
     this.stroke = new SpaceStroke(targets, d.camera(), o.brush, { geos: ready.map((r) => r.geo) });
     this.unhook = d.boards.onPrepare(() => this.prepare());
     this.untrack = d.boards.trackOpen(texture, () => this.cancel());   // 撤销 / 重做之前：开着的这一笔先取消（1-8a）
@@ -81,6 +81,8 @@ export class SpacePaintStroke {
   private readonly untrack: () => void;
   /** 借来的每格的表（画画的准备那里的；这一笔不放）。 */
   private readonly cells: SpaceData;
+  /** 面表 / 三角形表（准备里建好的，借来用；1-4d 第 3 条：落笔不再现做）。 */
+  private readonly tables: FaceTables;
 
   down(x: number, y: number, p: number, t: number | null = null): void { this.stroke.down(x, y, p, t); this.dirty = true; }
   move(x: number, y: number, p: number, t: number | null = null): void { this.stroke.move(x, y, p, t); this.dirty = true; }
@@ -125,7 +127,7 @@ export class SpacePaintStroke {
     if (!tips.length && !this.layer) return;
     if (!this.layer) {
       const t0 = performance.now();
-      try { this.layer = new SpaceLayer(this.gpu, this.stroke.geos[0], 0, { hardness: this.o.brush.hardness, color: this.o.color, accum: this.o.accum, origin: tips[0].tip, cells: this.cells }); }
+      try { this.layer = new SpaceLayer(this.gpu, this.stroke.geos[0], 0, { hardness: this.o.brush.hardness, color: this.o.color, accum: this.o.accum, cells: this.cells, tables: this.tables }); }
       catch (err) { this.broken = true; this.cancel(); this.d.failed?.(err); return; }   // 建表出错：这一笔取消（零痕迹）、告诉宿主；不让它在每帧的「准备」里一直抛（1-7）
       this.buildMs = performance.now() - t0;
       this.session = this.board.openStroke();
