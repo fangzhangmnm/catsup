@@ -7,6 +7,8 @@ export declare class LiveTextures {
     private uSrc;
     /** 最近一次拷贝（拷 + 生成缩小图）花了多少毫秒（CPU 时间；探针量）。 */
     lastCopyMs: number;
+    /** 这一帧拷了多久（每次 update 从 0 记起；没拷 = 0）。 */
+    frameCopyMs: number;
     private readonly gl;
     constructor(gl: WebGL2RenderingContext);
     get size(): number;

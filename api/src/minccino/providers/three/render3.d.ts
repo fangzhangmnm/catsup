@@ -203,6 +203,7 @@ export declare class Renderer3 implements RenderProvider {
     liveStats(): {
         images: number;
         copyMs: number;
+        frameCopyMs: number;
     };
     /** 线稿风格（视图菜单「粗线稿」）：池的边换粗线 / 像素线 = 重拉一次（块不变，槽节点换几何）。 */
     setLineStyle(style: LineStyle): void;
@@ -264,6 +265,8 @@ export declare class Renderer3 implements RenderProvider {
     private syncThickMarks;
     /** 放掉槽自己那份粗线底线（共享的属性先摘下来，不跟着释放；只放掉自己的旗和底板四边形）。 */
     private dropThickOwn;
+    /** 槽的节点扔掉时：标记粗线那份自己的几何（thickMark / thickMarkHidden 共用，每个槽建时自己 new 一份）也还掉——以前漏了，每换一次文件漏一份（1-4d「连开十份文件」量出来的，2026-11-11 Opus）。 */
+    private dropThickMark;
     /** 被标记的边的粗线拷贝（边线材质、颜色 = 标记色）；轮廓旗没有（原生线来的）= 按内边画。 */
     private setMarkCopy;
     /** 线的材质槽（刀 c：只有 edgeDim）：白模的边 → 淡出那份；别的风格（Tron）的线材质自己不认淡出 = 照旧。 */

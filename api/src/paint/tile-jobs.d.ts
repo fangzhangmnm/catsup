@@ -50,3 +50,10 @@ export declare function initPaintTileJobs(o: {
     readonly jobs: TileJobs;
     readonly driver: TileJobsDriver;
 };
+/** 图块池现在占多少（解开的 / 压着的字节、块数、解开的额度）：调试钩子和「连开十份文件」那项测量用（1-4d / 统筹 11-11）。 */
+export declare function paintTileStats(): {
+    rawBytes: number;
+    compressedBytes: number;
+    count: number;
+    rawQuotaBytes: number;
+};

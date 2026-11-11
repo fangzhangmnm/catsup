@@ -36,6 +36,7 @@ export declare class SpacePathPlacer implements PathPlacer {
     constructor(o: PlacerOpts);
     private cast;
     place(cx: readonly number[], cy: readonly number[], cp: readonly number[], count: number, frozenCount: number): SpacePath;
+    private placeAll;
     private emit;
     private first;
     /** 一对相邻的中心线点：对半分着落（见文件头）。 */

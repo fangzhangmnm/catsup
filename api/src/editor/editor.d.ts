@@ -329,6 +329,7 @@ export declare class Editor {
     readonly provider: EditorStreamProvider;
     /** 每帧开画之前那一步「准备」（贴图主线 1-4b，统筹 B）：编辑器在渲染之前明着调一次（画板跟大小、合成、这一笔的薄层）；渲染器和拉流只读准备好的结果。app 层接。 */
     beforeRender: ((view: WorldView) => void) | null;
+    afterRender: (() => void) | null;
     private scene;
     private ctx;
     private readonly gridState;
