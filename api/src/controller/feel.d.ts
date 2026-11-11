@@ -18,10 +18,6 @@ export declare const PLANE_NEAR_PX = 24;
 export declare const RAY_PARALLEL_DEG = 10;
 /** 桌面帧的点按 / 拖动门槛（frameEps 里的 tap / drag；drag 按 vp.h / 800 缩放，tap 不缩）。 */
 export declare const FRAME_TAP = 4, FRAME_DRAG = 16;
-/** 没有标题栏的浮窗（ui/bare-float-win.ts，画布小窗）：左上圆钮按下之后动过这么多 CSS 像素才算拖（挪窗），没动过 = 点（收起 / 恢复）。照参考窗 0.4.3 的 4 px（独立的量，不借 FRAME_TAP：那个是三维帧的单位）。 */
-export declare const FLOAT_KNOB_DRAG_PX = 4;
-/** 同上：窗上不动这么多毫秒 = 小零件（圆钮 / 斜纹角）淡到 0.35（照参考窗 IDLE_DIM_MS）。 */
-export declare const FLOAT_IDLE_MS = 2500;
 export declare const EPS_VR_DEG: EpsSet;
 /** 一种指针的点按规矩。距离一律本帧度量（桌面 fovY 的 1/800 ≈ 800 px 高视口里的 px）。 */
 export interface TapRule {

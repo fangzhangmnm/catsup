@@ -1,5 +1,5 @@
 import { type PopupMenuItem, type PopupMenuOpts } from "./popup-menu.ts";
-import { type PanelPos } from "./floating-window.ts";
+import { type PanelPos } from "./float-host.ts";
 /** 第一次开的默认位置：start / end = 在钮下面、左 / 右对齐；beside = 在它（一整列挂件）的左边、after = 在它的右边，都顶对齐——不盖住它。 */
 export type Align = "start" | "end" | "beside" | "after";
 export type MenuSpec<Id extends string> = Pick<PopupMenuOpts<Id>, "items" | "onPick" | "tabs" | "tabKey">;
