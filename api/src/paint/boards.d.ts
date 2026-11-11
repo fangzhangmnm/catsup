@@ -47,7 +47,7 @@ export declare class PaintBoards {
     };
     /** 只给量的时候用（探针）：每段前后等显卡把活做完，量到的才是显卡真花的时间。平时 null。 */
     measureSync: (() => void) | null;
-    /** 换文件全销毁；画没了 = 歇着（栈里也没有它的记录了 = 扔）；回来了 = 接着用；垫底色（prepare 的第一步；测试也直接调）。不改大小（1-8a：跟大小在提交的收尾里，follow）。 */
+    /** 换文件全销毁；画没了 = 歇着（留到关文件）；回来了 = 接着用；垫底色（prepare 的第一步；测试也直接调）。不改大小（1-8a：跟大小在提交的收尾里，follow）。 */
     sync(scene: Scene): void;
     /**
      * 跟着那一套贴图坐标的画布大小（裁定在 board.ts follow 头）：编辑器每条指令提交的收尾里调（1-8a），改大小时内核封的那一步进 pending、由编辑器挂进那条指令的那一步。
@@ -56,7 +56,7 @@ export declare class PaintBoards {
     follow(scene: Scene): boolean;
     private pending;
     private resetWhy;
-    /** 内核交来、还没挂进三维的栈的步（取走 = 交给编辑器挂上；记录数跟着加）。 */
+    /** 内核交来、还没挂进三维的栈的步（取走 = 交给编辑器挂上）。 */
     takePending(): PaintRec[];
     /** 正开着的一笔（档口开着令牌）：撤销 / 重做之前取消它们（beforeHistoryMove）。返回撤掉登记。 */
     trackOpen(texture: Guid, cancel: () => void): () => void;
@@ -67,12 +67,9 @@ export declare class PaintBoards {
     distrust(texture: Guid, why: string): void;
     /** 灌一份内容（调试钩子；以后读文件）：内核装载 = 这张画以前的步全作废（不用告诉用户：是装载，不是出错）。 */
     load(texture: Guid, data: Parameters<PaintBoard["load"]>[0]): void;
-    /** 歇着、而且三维的栈里一条它的记录都没有了 = 扔。 */
-    private retire;
-    /** 扔一块画板：图块全部还池（PaintBoard.dispose）；这期间内核清栈发的 onReset 不往三维的栈里摘记录。 */
+    /** 扔一块画板（只在换文件时）：图块全部还池、显卡上那份退租（PaintBoard.dispose）；这期间内核清栈发的 onReset 不往三维的栈里摘记录。 */
     private kill;
     private disposing;
-    private recordGone;
     /** 「画」这一种撤销成分（编辑器 registerUndoComponent 登记）。 */
     undoComponent(): UndoComponent<PaintRec>;
     /** 翻过一步：下一帧重新合成（内容键里有作品的版本号，这里只是保险）。 */

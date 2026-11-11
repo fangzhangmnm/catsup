@@ -34,6 +34,11 @@ export interface UndoComponent<R = unknown> {
     swap(record: R, host: UndoHost): R;
     /** 字节估计（配额用；量纲：字节；量级即可）。 */
     bytes(record: R): number;
+    /**
+     * 字节会变（画：内核的图块没压缩时记 0、归图块池自己的额度管，压缩之后记压缩后的大小、被几条记录共用时分摊——画画软件的栈每次重算，0-3a）：
+     * 算额度之前现问一遍 bytes，不用挂上时存的那个数。不给 = 挂上时算一次（别的成分照旧）。
+     */
+    readonly volatileBytes?: boolean;
     dispose?(record: R): void;
     /** 翻之前先问（整步事务第一段）：这一步里这种成分的全部记录（按要翻的先后）现在能不能按 dir 翻；不能 = 原因，能 = null。不给 = 永远能。不许改任何状态。 */
     check?(records: readonly R[], dir: "undo" | "redo", host: UndoHost): string | null;
@@ -84,7 +89,10 @@ export declare class History<M = unknown> {
     position(): number;
     log(): readonly Op[];
     /** 撤销记录占的字节（估计）。 */
+    /** 现在占多少字节（还能撤的那一段）。字节会变的成分现问一遍、顺手记下（volatileBytes）。 */
     usageBytes(): number;
+    /** 登记过的「字节会变」的成分；一个都没有 = null（不画画的栈不多做一点事）。 */
+    private volatileKinds;
     /** 被配额驱逐、不能再撤的 op 数（披露用）。 */
     evictedCount(): number;
     /** 实时提交：应用 + 记账（新分支即清空 redo 尾巴）。join = 和上一条同一步；before = 新开一步时这一步之前的会话。失败抛 OpApplyError（不记账，带回提交前状态）。 */
