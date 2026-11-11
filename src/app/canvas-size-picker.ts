@@ -31,7 +31,7 @@ export function recentCanvas(editor: Editor): number | null {
 }
 
 /** 面板上选了什么：加进已有的哪张画 / 新开一张多大的。 */
-export type PaintStartChoice = { readonly kind: "add"; readonly texture: string } | { readonly kind: "new"; readonly canvas: number };
+export type PaintStartChoice = { readonly kind: "add"; readonly tex: string } | { readonly kind: "new"; readonly canvas: number };
 
 /**
  * 出面板、等选；取消 = null。物件已经有画、选中的面里有还没进画的（施工单十五第三节，11-11 下午改）：上面几行「加进已有的画：〈名字〉」
@@ -43,7 +43,7 @@ export function pickPaintStart(editor: Editor): Promise<PaintStartChoice | null>
   const faces = body.kind === "mesh" ? facesToStart(S, u) : [];
   const scale = xformScale(S.xformOfContext(editor.context)), recent = recentCanvas(editor);
   const existing = body.kind === "mesh" ? paintsOf(S, def) : [];
-  const addRows: SheetRow<PaintStartChoice>[] = existing.map((p) => ({ label: `加进已有的画：${p.name}`, value: { kind: "add", texture: p.texture }, note: `用这张画的精细度（一格约 ${cellSay(scale / p.uvSet.pxPerM)}）、不问大小` }));
+  const addRows: SheetRow<PaintStartChoice>[] = existing.map((p) => ({ label: `加进已有的画：${p.name}`, value: { kind: "add", tex: p.tex }, note: `用这张画的精细度（一格约 ${cellSay(scale / p.uvSet.pxPerM)}）、不问大小` }));
   const sizeRows: SheetRow<PaintStartChoice>[] = CANVAS_SIZES.map((n) => ({
     label: existing.length ? `新开一张画：${n} × ${n}` : `${n} × ${n}`, value: { kind: "new", canvas: n }, note: `一格多大：在算…　${memSay(n)}`,
     ...(recent === n ? { marked: "上次用的" } : {}),

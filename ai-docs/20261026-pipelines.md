@@ -680,7 +680,7 @@ SpaceStroke（paint/space-stroke.ts；目标名单 + 相机两个函数 + 内核
   → 面板（canvas-size-picker.ts，openRowsSheet）：五档各按「连成片 + 留格」真铺一遍（layoutFaces，只算不改）→ 一格多大；open-memory.ts → 打开占多少显存
      物件已有画、选了没进画的面：多几行「加进已有的画」（layoutAppend 照补面的铺法试一遍，只算不改）
   → 选了一行：新开 = runAction("mesh.startPaint", { canvas, arrange: "patches" }) → applyStartPaint：layoutFaces(base = canvas, gap = gapForCanvas(canvas), style)
-               加进 = runAction("mesh.paintAddFaces", { texture }) → meshPaintFaces → 画的维护那一步 layoutAppend(gap = gapForCanvas(那张画布的宽))
+               加进 = runAction("mesh.paintAddFaces", { tex }) → meshPaintFaces → 画的维护那一步 layoutAppend(gap = gapForCanvas(那张画布的宽))
 layoutFaces(style = patches)：patchesOf（种子按面积；沿公共边先进先出；每个三角形和 e × t 的夹角 < 45°；压平不叠 = 分离轴 + 格子哈希）
   → 每个密度：每片 flattenAll（和一张面一块同一串算式）→ 按包围盒一行一行排（pack）→ 二分找 base 见方里放得下的最大密度
 ```

@@ -844,7 +844,7 @@ const primary = mountPrimaryButton(walkBar, walkBtn, [
   { id: "paint", loud: true, edits: true, when: () => paintPrimary() !== null, label: () => "开始画…", press: () => {
     void pickPaintStart(editor).then((c) => {   // 物件有画、选了没进画的面：面板上「加进已有的画」和「新开一张」两种都给（施工单十五第三节）
       if (!c) return;
-      if (c.kind === "add") editor.runAction("mesh.paintAddFaces", { texture: c.texture });
+      if (c.kind === "add") editor.runAction("mesh.paintAddFaces", { tex: c.tex });
       else editor.runAction("mesh.startPaint", { canvas: c.canvas, arrange: "patches" });   // 界面发出去的永远带画布和铺法
       syncUi(); editor.draw();
     });
