@@ -13,6 +13,10 @@ export interface PaintFrozen {
     /** 编完、填好的那份文档（贴图行是新对象；冻结那份文档本身不改）。编码出错 = 抛（说是哪张画）。 */
     finish(): Promise<CatsupDocument>;
 }
+/** 这一次有画要编码，但 zip.js 没加载上（页面没加载完整）。不带画 / 画全是现成字节的存盘不会碰到它。 */
+export declare class ZipMissingError extends Error {
+    constructor();
+}
 export declare class PaintSaver {
     private readonly boards;
     private readonly wroteWith;

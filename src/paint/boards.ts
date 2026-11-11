@@ -247,7 +247,7 @@ export class PaintBoards {
       if (hit && hit.row === t && hit.base === base) continue;
       let shown: { width: number; height: number; image: TextureRef } | null = null;
       const fits = compositeFits(t, place.material.color), dims = t.composite ? pngSize(t.composite.png) : null;
-      if (fits && dims && dims.width === place.uvSet.width && dims.height >= place.uvSet.height) shown = { width: dims.width, height: dims.height, image: { mimeType: "image/png", bytes: t.composite!.png, sizeM: [1, 1], sampling: "paint" } };
+      if (fits && dims && dims.width === place.uvSet.width && dims.height >= place.uvSet.height) shown = { width: dims.width, height: dims.height, image: { mimeType: "image/png", bytes: t.composite!.png, sizeM: [1, 1], paint: { base: place.material.color } } };
       this.cold.set(t.guid, { row: t, base, shown });
       changed = true;
       // 合成图本身对得上、只是底色变了：热一次重新合成（统筹 11-11）。没有合成图 / 记号对不上（老文件）：照底色，等它变热时自然就有。

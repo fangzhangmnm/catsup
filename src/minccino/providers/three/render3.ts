@@ -880,13 +880,15 @@ export class Renderer3 implements RenderProvider {
     const key: object = map ?? NO_MAP;
     let tex = this.texCache.get(key);
     if (tex) return tex;
-    tex = new THREE.DataTexture(new Uint8Array([200, 200, 200, 255]), 1, 1);
+    const paintBase = map && !isLive(map) ? map.paint?.base : undefined;   // 画的合成图：解好之前占位用材质的底色（1-8b 统筹审查：不许先闪一下灰）
+    const fill = paintBase ? [0, 1, 2].map((i) => Math.round(Math.min(1, Math.max(0, paintBase[i] ?? 1)) * 255)) : [200, 200, 200];
+    tex = new THREE.DataTexture(new Uint8Array([fill[0], fill[1], fill[2], 255]), 1, 1);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.needsUpdate = true;
     this.applyTexFilter(tex);
     this.texCache.set(key, tex);
-    const bytes = map?.bytes, paint = map?.sampling === "paint";   // 画的合成图（1-8b）：和活的图同一种取样，第 0 行 = 画布第 0 行（不翻）
+    const bytes = map?.bytes, paint = !!map?.paint;   // 画的合成图（1-8b）：和活的图同一种取样，第 0 行 = 画布第 0 行（不翻）
     if (map && bytes && typeof createImageBitmap === "function") {
       const blob = new Blob([bytes as BlobPart], { type: map.mimeType });
       createImageBitmap(blob, { imageOrientation: paint ? "none" : "flipY" }).then((bmp) => {

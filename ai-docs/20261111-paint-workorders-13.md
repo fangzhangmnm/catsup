@@ -113,7 +113,7 @@
 **做了什么**
 - **格式**（`format/document.ts` / `texture-table.ts`）：贴图行可选键 `composite = { png, of: { bytes, sum }, base }`，`CATSUP_textures` 1.0 → **1.1**；`paintBytesSum`（FNV-1a 32 位）、`compositeFits`（分层字节在、长度和校验和对得上、底色一样）。形状不认识的 composite 当不认识的键原样带回。写盘碰到 `ora: null` 照旧抛。冻样本：带合成图的两层画、画板比坐标高（1024 × 512 对 1024 × 256、下面多出来的行有内容）——字节用真的内核生成。
 - **存盘**（`src/paint/save.ts` PaintSaver + `session.ts`）：见流程图追记。缓存住场景外；空白分层按宽高编一次；编码器是可换的字段（探针注入毛病）；`refresh(scene)` 跟自动保存节奏、切后台；`session.freeze / encodeNow / snapDue / refreshThenSnapshot / saveFailedSay`；写家里钉点紧跟 `revAtStart`；崩溃库记录多 `paintStale`、恢复时说一句。
-- **冷热**（`src/paint/boards.ts`）：`syncCold`、`board()` 对冷的画给 TextureRef、签名带上冷的；`warm()`、`stateOf()`、`viewOnlyWhy()`；`ensure()` 碰冷的画抛 `ColdPaintError`；底色变了的冷画自己热一次。小栗鼠契约 `TextureRef.sampling?: "paint"`（只加这一样），渲染器认它（不翻、夹边、放大最近邻、不跟画风）。`main.ts paintStrokeGate`（调试钩子的笔落笔前问；1-7 的真笔也走它）、钩子 `warm` / `state` / `saver`。
+- **冷热**（`src/paint/boards.ts`）：`syncCold`、`board()` 对冷的画给 TextureRef、签名带上冷的；`warm()`、`stateOf()`、`viewOnlyWhy()`；`ensure()` 碰冷的画抛 `ColdPaintError`；底色变了的冷画自己热一次。小栗鼠契约 `TextureRef.paint?: { base }`（只加这一样；审查后从 `sampling: "paint"` 改成带底色，占位用），渲染器认它（不翻、夹边、放大最近邻、不跟画风）。`main.ts paintStrokeGate`（调试钩子的笔落笔前问；1-7 的真笔也走它）、钩子 `warm` / `state` / `saver`。
 - **丢过东西的文件**（`format-notes.ts LOSSY_NOTES` + `lossySay`，`session.lossyHold`）：会丢 = uvDropped、foreignPaintSlots、danglingTextureRefs、danglingShelfRefs；自动保存 / 切后台落本机不写；人按保存先问「存（丢掉这几处）/ 另存一份新的（这份不动 = 下载一份 .catsup）/ 先不存」。
 - **zip**：守卫 `test/paint-zip-guard.test.ts`（index.html 顺序、内核那份 = vendor 那份、存盘第一步先查）。
 - 白名单加 ora / png 编解码（`encodeDocToOra` / `paintingDataToEncodeDoc` / `decodeOraToPainting` / `encodePngFromBytes`，标「画存进文件 / 读回来」）；顺手修了白名单守卫不认 `export async function`。
@@ -148,3 +148,11 @@
 
 **全套**：交审前一次（这张工单的第一次）：2100 过、5 红、4 待办，红线守卫过，内核 601 过，墙上 18.8 秒。5 红都是钉着旧东西的测试，不是行为坏了：格式签名（textures 1.1）、`paint-start` 两条钉着旧的「1-8 才有字节」那句话、加密出门守卫钉着旧的 `this.encode()`、definitions 6.x 迁移那条没跳过新加的两个画的样本（单品的画 6.x 没有，原来的两个画的样本也跳过）。改了之后点名跑这四份 84 过。第二次全套留到合之前。
 探针（无头）：`probe-paint-save` 23 ✓；`probe-paint-undo`、`probe-paint-display`、`probe-paint-gpu-release`、`probe-export`、`probe-folder-home`（41）、`probe-save-collision`、`probe-password`、`probe-present-lock`、`probe-c2` 都过（后三个探针原来调私有的 `session.encode()`，改成 `encodeNow()`）。
+
+### 统筹审过（2026-11-11）：过，补三处后自己合
+
+四处和细则不一样的都同意（另存 = 下载一份；钉点紧跟 revAtStart；blur 时缓存旧了才编；占位那条改成下面第 3 条）。补的三处（已补，同一个分支）：
+1. **zip 的检查不许挡住建模的存盘**：以前 freeze 一开头无条件查。改成只有这一次确实有画要编码（当场拷的 / 空白的）才查；没有画、或画全是现成字节的（缓存 / 冷的）和以前一模一样。缺 zip 抛 `ZipMissingError`，提示行说「这一次有画要存，但页面没加载完整（缺 zip.js）；刷新页面再存…没有画要存的照常能存」。测试：拿掉 zip，不带画的 golden 场景照常存、字节一样；画全在缓存里 / 冷的照常存、字节一样；改了一张画的才报这个错（`paint-save.test.ts`）。
+2. **合成图不带正在画的那一笔**：查了——以前的 `composeBytes` 用的是显示那张（`compose` 会垫上这一笔的薄层），**会带上**。改成单独合一次不带薄层的（只合已落层的、垫底色），合完作废显示的缓存、下一帧照常带着薄层重合。测试：开一笔、交了薄层还没落（先验显示那张确实带着这一笔），钉 → 存出去的合成图逐字节 = 没有这一笔时的合成；分层字节也不带它；存完下一帧显示照旧带着这一笔。
+3. **冷的画解图那几帧显示底色**：契约那一样从 `sampling: "paint"` 改成 `paint: { base }`（仍是一样：声明它是画 + 带着材质的底色）；渲染器拿到画的图时占位用这个底色（导入贴图那条路原来的灰色占位只留给普通贴图）。探针 ⑨：坏字节的画图占位一直是底色（0.3, 0.5, 0.7 → 77,128,179）、普通贴图照旧灰。
+合之前全套第二次：2107 过、0 红、4 待办，红线守卫过，内核 601 过，墙上 17.8 秒；`probe-paint-save` 25 ✓。

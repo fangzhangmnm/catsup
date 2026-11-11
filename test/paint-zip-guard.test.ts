@@ -15,8 +15,8 @@ describe("zip.js 在内核之前备好（1-8b）", () => {
     const a = fs.readFileSync("vendor/zip-js/zip-full.min.js") as Uint8Array, b = fs.readFileSync("src/paint/kernel/vendor/zip-js/zip-full.min.js") as Uint8Array;
     eq(a.length, b.length, "长度"); assert(a.every((x, i) => x === b[i]), "逐字节");
   });
-  it("存盘那条路先查 globalThis.zip", () => {
+  it("存盘那条路：确实有画要编码时才查 globalThis.zip（行为在 paint-save.test.ts「zip 没加载上」那条）", () => {
     const src = fs.readFileSync("src/paint/save.ts", "utf8") as string;
-    assert(/freeze\([^)]*\)[^{]*\{\s*if \(!\(globalThis as \{ zip\?: unknown \}\)\.zip\) throw/.test(src), "freeze 第一步");
+    assert(/\.some\(\(p\) => \(p\.kind === "encode" && !p\.reuseOra\) \|\| p\.kind === "blank"\) && !\(globalThis as \{ zip\?: unknown \}\)\.zip\) throw new ZipMissingError/.test(src), "只在要编码时查");
   });
 });

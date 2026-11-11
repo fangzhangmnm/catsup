@@ -4,7 +4,7 @@
 // ① 画了存、刷新：读回来的画是冷的（画板 0），屏幕上照存下的合成图；② 冷热之间显示不变（同一块屏幕像素：冷的 = 合成图、热起来 = 内核现合成）；
 // ③ 落笔撞上冷的画：这一笔不开始、提示行「这张画还在打开」、同时解开，之后能画；④ 编码正在跑时画一笔、挪一个点：存完仍然算改过，再存才干净；
 // ⑤ 编码中途抛：存盘没成、明说、夹里的文件一个字节不动、仍然算改过；⑥ 十张画的文件：全部显示出来之后画板数 0；⑦ 编码正在跑时落笔要等多久（量）；
-// ⑧ 读进来时丢过东西：自动保存不写、人按保存先问（先不存 / 存）。
+// ⑧ 读进来时丢过东西：自动保存不写、人按保存先问（先不存 / 存）；⑨ 冷的画解图那几帧的占位 = 底色。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-paint-save.mjs [url]
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -195,6 +195,11 @@ p8 = page.evaluate(() => globalThis.__catsup.session.save());
 await sheetUp();
 await page.click(`#sheetChoices button:has-text("存（丢掉这几处）")`);
 check(await p8 === true && await S(() => !globalThis.__catsup.session.heldForLoss && !globalThis.__catsup.session.dirty()), "点了存 = 存上了、放开了");
+
+console.log("\n⑨ 冷的画解图那几帧：占位 = 材质的底色（不是导入贴图的灰）");
+const ph = await S(() => { const r3 = globalThis.__catsup.editor.renderer3, t = r3.textureFor({ mimeType: "image/png", bytes: new Uint8Array([0, 1, 2]), sizeM: [1, 1], paint: { base: [0.3, 0.5, 0.7] } }), g = r3.textureFor({ mimeType: "image/png", bytes: new Uint8Array([3, 4, 5]), sizeM: [1, 1] }); return { paint: [...t.image.data], plain: [...g.image.data] }; });   // 坏字节：解不开，占位一直在
+check(ph.paint.join() === "77,128,179,255", "画的占位 = 底色", ph.paint.join());
+check(ph.plain.join() === "200,200,200,255", "普通贴图的占位照旧灰", ph.plain.join());
 
 await browser.close();
 if (errs.length) { console.log("页面错误：", errs.slice(0, 5)); process.exitCode = 1; }

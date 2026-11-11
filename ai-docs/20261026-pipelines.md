@@ -743,7 +743,7 @@ SpaceStroke（paint/space-stroke.ts；目标名单 + 相机两个函数 + 内核
 
 读回来（冷的画）
   读：贴图行带着分层字节 + 合成图（CATSUP_textures 1.1 composite），不建画板
-  每帧准备 sync → syncCold：合成图的记号（长度 + 校验和）和底色对得上、PNG 头的宽高合法 → board() 给一张 TextureRef（sampling "paint"）
+  每帧准备 sync → syncCold：合成图的记号（长度 + 校验和）和底色对得上、PNG 头的宽高合法 → board() 给一张 TextureRef（paint: { base }）
     渲染器当普通的图解码（createImageBitmap，不翻、夹边、放大最近邻、缩小三线性、不跟画风）→ 和热的显示逐像素相同
     合成图没有 / 作废 → 照底色；只是底色变了 → warm() 自己热一次重新合成
   落笔：stateOf = cold / warming → 这一笔不开始、提示行「这张画还在打开」、warm()；view-only → 说为什么

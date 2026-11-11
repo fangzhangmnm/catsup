@@ -145,13 +145,18 @@ export class PaintBoard {
    * 图块账退租；显卡上那份退租（内核 v0.14.77 的 GLBoard.dispose：建的纹理全删、借的离屏图全还，0-3a）。开着的一笔要宿主先取消（登记处 disposeAll 先 cancelOpen；令牌开着时装载会抛）。只做一次。
    */
   /**
-   * 合成图读回来（存盘的钉点用，1-8b）：和显示用的是同一张（compose），垫着现在的底色、不透明；只读前 rows 行（裁高用，缺省整张）。
+   * 合成图读回来（存盘的钉点用，1-8b）：**只合已落层的内容**、垫着现在的底色、不透明；只读前 rows 行（裁高用，缺省整张）。
+   * 不带正在画的那一笔（统筹 11-11 审查：自动保存会撞上画到一半；合成图必须和分层字节是同一个内容，不然冷的画上会多出一笔没落下、甚至后来被取消的笔迹）——
+   * 所以这里不用显示那张（compose 会垫上这一笔的薄层），单独合一次不带薄层的；合完作废显示的缓存，下一帧照常带着薄层重合。
    * 同步：真显卡上是一次读回（会等显卡做完）。显卡画面丢了 / 扔过 = null。
    */
   composeBytes(rows = this.height): Uint8ClampedArray | null {
-    const r = this.compose();
-    if (!r) return null;
-    const px = this.port.readPixels(r.fbo, 0, 0, this.width, Math.min(rows, this.height));
+    if (this.disposed) return null;
+    this.gl.markContentDirty();
+    const fbo = this.gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg, [], []);
+    this.last = null;   // 显示用的那张被这一次占过：下一帧重合（带薄层）
+    if (!fbo) return null;
+    const px = this.port.readPixels(fbo, 0, 0, this.width, Math.min(rows, this.height));
     return new Uint8ClampedArray(px.buffer, px.byteOffset, px.byteLength);
   }
   /** 现在的底色（sRGB 0..1，三个数）。 */

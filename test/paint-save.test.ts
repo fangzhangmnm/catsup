@@ -5,7 +5,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import "./paint-save-kit.ts";
 import { decodeOra, decodePng, dataPrint, layeredData } from "./paint-save-kit.ts";
 import type { Op } from "../src/editor/ops.ts";
-import { PaintSaver } from "../src/paint/save.ts";
+import { PaintSaver, ZipMissingError } from "../src/paint/save.ts";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup } from "../src/format/index.ts";
 import { compositeFits, type CatsupDocument, type TextureDoc } from "../src/format/document.ts";
 import { SCENE_DOCS } from "./format-scenes.ts";
@@ -86,6 +86,45 @@ describe("画存进文件：来回、钉点（1-8b）", () => {
     eq([r.h.depth(), r.h.position(), r.paintRecords(texs[0]), r.paintRecords(texs[1])].join(), before, "栈没动");
     r.undo(); r.redo();
     eq(r.shot(), shot, "撤一步重做回来逐字节");
+    r.boards.disposeAll();
+  });
+});
+
+describe("统筹审查补的两处（1-8b）", () => {
+  it("zip 没加载上：不带画的照常存、字节一样；画全是现成字节（缓存 / 冷的）照常存；有画要编码的才报错、说清原因", async () => {
+    const g = globalThis as { zip?: unknown }, zip = g.zip, none = new PaintSaver({ boards: { get: () => undefined }, wroteWith: "catsup test" });
+    const plain = Object.entries(SCENE_DOCS).map(([name, mk]) => [name, mk()] as const).filter(([, s]) => !documentFromScene(s, "t").textures.some((t) => t.content.kind === "layered"));   // 同一个场景对象前后各写一次（场景每造一次 GUID 就不一样）
+    const want = await Promise.all(plain.map(async ([, s]) => writeCatsup(await none.freeze(documentFromScene(s, "t"), s, "save").finish())));
+    const { r, rnd, texs, saver, save } = painted(41);
+    const cached = writeCatsup(await save().finish());   // 有 zip：编一次，进缓存
+    g.zip = undefined;
+    try {
+      for (const [i, [name, s]] of plain.entries()) { assert(same(writeCatsup(await none.freeze(documentFromScene(s, "t"), s, "save").finish()), want[i]), `${name}：没有 zip 照常存、字节一样`); }
+      assert(same(writeCatsup(await save().finish()), cached), "画全在缓存里：没有 zip 照常存、字节一样");
+      const s2 = sceneFromDocument(readCatsup(cached));
+      assert(same(writeCatsup(await none.freeze(documentFromScene(s2, "t"), s2, "save").finish()), cached), "冷的（原字节）：没有 zip 照常存");
+      r.stroke([texs[0]], rnd);   // 改了一张：这一次要编
+      let err: unknown = null; try { await save().finish(); } catch (e) { err = e; }
+      assert(err instanceof ZipMissingError && /zip\.js is not loaded/.test((err as Error).message), `要编码的才报错：${String(err)}`);
+      void saver;
+    } finally { g.zip = zip; }
+    r.boards.disposeAll();
+  });
+  it("一笔画到一半时钉：存出去的合成图逐字节 = 没有这一笔时的合成（只合已落层的）；分层字节也不带它", async () => {
+    const { r, texs, save } = painted(43);
+    const t = texs[0], b = r.boards.get(t)!;
+    const without = b.composeBytes()!, layers = dataPrint(b.wp.exportData());
+    const W = b.width, H = b.height, st = b.openStroke(), layerId = b.wp.layerTree!.view().activeId!, px = new Uint8Array(W * H * 4);
+    for (let y = 2; y < 40; y++) for (let x = 2; x < 200; x++) { const o = (y * W + x) * 4; px[o] = 250; px[o + 1] = 20; px[o + 2] = 20; px[o + 3] = 255; }
+    st.setHostLayers([{ tex: b.wrapLayer({ pixels: px, w: W, h: H, prec: "u8" }), bx: 2, by: 2, bw: 198, bh: 38, layerId, opacity: 1, erase: false, blendMode: "source-over" }]);
+    const shown = b.compose()!, shownPx = r.port.readPixels(shown.fbo, 0, 0, W, H);
+    assert(!same(new Uint8Array(shownPx.buffer, shownPx.byteOffset, shownPx.byteLength), new Uint8Array(without.buffer, without.byteOffset, without.byteLength)), "显示的那张确实带着这一笔（不然这条白测）");
+    const row = rowOf(await save().finish(), t), png = await decodePng(row.composite!.png);
+    assert(same(new Uint8Array(png.data.buffer, png.data.byteOffset, png.data.byteLength), new Uint8Array(without.buffer, without.byteOffset, without.byteLength)), "合成图 = 没有这一笔的");
+    eq(dataPrint(await decodeOra(oraOf(row))), layers, "分层字节也不带它");
+    const again = b.compose()!, againPx = r.port.readPixels(again.fbo, 0, 0, W, H);
+    assert(same(new Uint8Array(againPx.buffer, againPx.byteOffset, againPx.byteLength), new Uint8Array(shownPx.buffer, shownPx.byteOffset, shownPx.byteLength)), "存完下一帧显示的照旧带着这一笔");
+    st.cancel();
     r.boards.disposeAll();
   });
 });

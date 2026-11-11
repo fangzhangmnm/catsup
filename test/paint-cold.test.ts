@@ -34,7 +34,7 @@ describe("冷的画（1-8b）", () => {
     eq(reg.count, 0, "没有画板"); eq(tiles(), t0, "图块池没动");
     for (const t of texs) {
       const shown = reg.board(t)!, img = shown.image as TextureRef;
-      eq(img.sampling, "paint", "画的取样方式");
+      assert(!!img.paint && img.paint.base.length === 3, "画的取样方式（带着底色当占位）");
       eq(JSON.stringify(pngSize(img.bytes)), JSON.stringify({ width: shown.width, height: shown.height }), "大小 = 合成图的");
       eq(reg.stateOf(s, t), "cold");
     }

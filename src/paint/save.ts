@@ -38,6 +38,11 @@ export interface PaintFrozen {
 const toBytes = async (x: Blob | Uint8Array): Promise<Uint8Array> => (x instanceof Uint8Array ? x : new Uint8Array(await x.arrayBuffer()));
 const sameBase = (a: readonly number[], b: readonly number[]): boolean => a.length === 3 && b.length === 3 && a.every((v, i) => v === b[i]);
 
+/** 这一次有画要编码，但 zip.js 没加载上（页面没加载完整）。不带画 / 画全是现成字节的存盘不会碰到它。 */
+export class ZipMissingError extends Error {
+  constructor() { super("zip.js is not loaded, so the paintings changed in this save cannot be encoded (the page did not finish loading); saves without paintings to encode are unaffected"); this.name = "ZipMissingError"; }
+}
+
 export class PaintSaver {
   private readonly boards: PaintBoardSource;
   private readonly wroteWith: string;
@@ -57,7 +62,6 @@ export class PaintSaver {
    * mode = "save"：版本变了的当场拷出来、finish 里编；"snapshot"：不现编，用缓存（没有缓存 = 贴图行里的 / 空白的），画板比缓存新 = stale。
    */
   freeze(doc: CatsupDocument, scene: Scene, mode: "save" | "snapshot"): PaintFrozen {
-    if (!(globalThis as { zip?: unknown }).zip) throw new Error("zip.js is not loaded: paintings cannot be saved (the page did not finish loading)");
     const pins = new Map<Guid, Pin>();
     let stale = false;
     for (const t of doc.textures) {
@@ -90,6 +94,8 @@ export class PaintSaver {
       if (t.content.ora) { pins.set(t.guid, { kind: "ready", ora: t.content.ora, composite: t.composite ?? null }); continue; }   // 冷的：原样
       pins.set(t.guid, { kind: "blank", width: place?.uvSet.width ?? 1, height: place?.uvSet.height ?? 1 });   // 新建没画过（没有坐标的孤儿行：1 × 1，变热时当尺寸不对）
     }
+    // 内核编分层字节靠全局的 zip（index.html 的 classic 脚本）：只有这一次确实要编（当场拷的 / 空白的）才查；没有画、或者画全是现成字节的，和以前一模一样（统筹 11-11 审查：为画画加的东西不许挡住建模的存盘）。
+    if ([...pins.values()].some((p) => (p.kind === "encode" && !p.reuseOra) || p.kind === "blank") && !(globalThis as { zip?: unknown }).zip) throw new ZipMissingError();
     return {
       stale,
       finish: async () => {

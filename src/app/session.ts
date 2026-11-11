@@ -116,6 +116,7 @@ const dirOf = (path: string): string => (path.includes("/") ? path.slice(0, path
  *  saving = 在飞 · cloud-off = 未配置云 · unpushed = 已落本机但云腿没成（终态，非在飞）· synced = 上次保存已同步。 */
 /** 存盘没成时提示行说的话（1-8b：编码 / 写盘出错 = 这一轮整个没成）。 */
 export function saveFailedSay(e: unknown): string {
+  if (e instanceof Error && e.name === "ZipMissingError") return "存盘没成：这一次有画要存，但页面没加载完整（缺 zip.js）；刷新页面再存（上一次存好的没动，改动还在；没有画要存的照常能存）";
   const msg = e instanceof Error ? e.message : String(e), m = /^painting "([^"]*)" \([^)]*\) could not be encoded: (.*)$/s.exec(msg);
   return m ? `存盘没成：画「${m[1]}」编码出错（${m[2]}）；上一次存好的没动，改动还在` : `存盘没成（${msg}）；上一次存好的没动，改动还在`;
 }
