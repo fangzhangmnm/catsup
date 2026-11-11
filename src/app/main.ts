@@ -280,7 +280,8 @@ const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => e
     editor.dropUndoRecords(PAINT_UNDO_KIND, (d) => (d as PaintRec).tex === texture);
     if (tell) notify({ text: `「${editor.sceneRef.textures.get(texture)?.name ?? "画"}」这张画的撤销记录清掉了：${why}`, level: "warning" });
   },
-  (on) => { paintTileJobs.driver.setActive(on); if (!on) paintSaver.clear(); });   // 有画板才跑空闲压缩（0-3a）；画板全扔了（换文件）= 画的存盘缓存也清（1-8b）
+  (on) => { paintTileJobs.driver.setActive(on); if (!on) paintSaver.clear(); },   // 有画板才跑空闲压缩（0-3a）；画板全扔了（换文件）= 画的存盘缓存也清（1-8b）
+  (text) => { note("paint", text); notify({ text, level: "warning" }); });   // 这张画只能看不能画：明说为什么（1-8b）
 const paintSaver = new PaintSaver({ boards: paintBoards, wroteWith: `catsup ${APP_VERSION}` });   // 画存进文件（1-8b）：钉点同步、编码异步
 editor.registerUndoComponent(paintBoards.undoComponent());
 paintAfterCommit = () => { paintBoards.follow(editor.sceneRef); for (const r of paintBoards.takePending()) editor.recordUndo(PAINT_UNDO_KIND, r); };
@@ -2446,6 +2447,20 @@ void (async () => {
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 
+/**
+ * 落笔之前问一句（贴图主线 1-8b）：这张画能不能现在就画。冷的（存在文件里、还没解开）= 这一笔不开始、提示行「这张画还在打开」、同时解开（解开后留着画板）；
+ * 只能看不能画 = 说为什么。能画 = null。不卡住、不悄悄丢笔。以后真的笔（1-7）落笔前也问它。
+ */
+function paintStrokeGate(texture: string): "warming" | "view-only" | null {
+  const st = paintBoards.stateOf(editor.sceneRef, texture);
+  if (st === "cold" || st === "warming") {
+    hintEl.textContent = "这张画还在打开，等一下再画";
+    void paintBoards.warm(editor.sceneRef, texture).then((r) => { if (r === "hot") { hintEl.textContent = "这张画打开了，可以画了"; editor.draw(); } }).catch((e) => funnel(e, "warning"));
+    return "warming";
+  }
+  if (st === "view-only") { hintEl.textContent = paintBoards.viewOnlyWhy(texture) ?? "这张画只能看不能画"; return "view-only"; }
+  return null;
+}
 (window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor,
   // 画板（贴图主线 1-3c；没有界面入口）：ensure = 给一张走画的贴图建画板（不给 GUID = 场景里第一张画）；fill = 灌一层像素（RGBA、画板大小）；探针 test/probes/probe-paint-display.mjs
   paint: {
@@ -2453,11 +2468,17 @@ void (async () => {
     ensure: (guid?: string) => { const g = guid ?? [...editor.sceneRef.textures.keys()].find((t) => paintPlaceOf(editor.sceneRef, t)); if (!g) throw new Error("no placed paint in this scene"); const b = paintBoards.ensure(editor.sceneRef, g); editor.draw(); return { guid: g, width: b.width, height: b.height }; },
     fill: (guid: string, rgba: ArrayLike<number>) => { const b = paintBoards.get(guid); if (!b) throw new Error(`no board for ${guid}`); paintBoards.load(guid, { width: b.width, height: b.height, nodes: [{ name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: { rect: { x: 0, y: 0, w: b.width, h: b.height }, bytes: new Uint8ClampedArray(rgba) } }] }); editor.draw(); },
     list: () => paintBoards.guids().map((g) => ({ guid: g, width: paintBoards.get(g)!.width, height: paintBoards.get(g)!.height })),
+    /** 把一张冷的画热起来（解开分层字节、建画板；1-8b）。返回 "hot" / "view-only"。 */
+    warm: (guid: string) => paintBoards.warm(editor.sceneRef, guid),
+    state: (guid: string) => paintBoards.stateOf(editor.sceneRef, guid),
+    saver: paintSaver,
     stats: () => (editor.renderer3 as unknown as { liveStats(): { images: number; copyMs: number } }).liveStats(),
     /** 一整笔（贴图主线 1-4b；探针用）：屏幕点（CSS 像素）→ 1-4a 控制器 → 薄层（真显卡）→ 档口；每一点画一帧（准备在 draw 里）；cancel = 取消。第一笔时建画板。 */
     stroke: (o: { guid?: string; points: readonly { x: number; y: number; p?: number }[]; size?: number; hardness?: number; color?: readonly number[]; accum?: "max" | "over"; erase?: boolean; cancel?: boolean; taperOut?: number; measure?: boolean; beforeUp?: () => void }) => {
       const S = editor.sceneRef, g = o.guid ?? [...S.textures.keys()].find((t) => paintPlaceOf(S, t));
       if (!g) throw new Error("no placed paint in this scene");
+      const gate = paintStrokeGate(g);   // 落笔撞上冷的画：这一笔不开始、说一句、同时解开（1-8b）；以后真的笔（1-7）走同一个口
+      if (gate) return { guid: g, refused: gate };
       const cam = editor.cam, gpu = editor.renderer3.offscreenGpu() as unknown as { glTexture(img: unknown): WebGLTexture } | null;
       const brush = hookBrush(o);
       const st = new SpacePaintStroke({

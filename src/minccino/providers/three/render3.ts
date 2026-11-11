@@ -886,16 +886,18 @@ export class Renderer3 implements RenderProvider {
     tex.needsUpdate = true;
     this.applyTexFilter(tex);
     this.texCache.set(key, tex);
-    const bytes = map?.bytes;
+    const bytes = map?.bytes, paint = map?.sampling === "paint";   // 画的合成图（1-8b）：和活的图同一种取样，第 0 行 = 画布第 0 行（不翻）
     if (map && bytes && typeof createImageBitmap === "function") {
       const blob = new Blob([bytes as BlobPart], { type: map.mimeType });
-      createImageBitmap(blob, { imageOrientation: "flipY" }).then((bmp) => {
+      createImageBitmap(blob, { imageOrientation: paint ? "none" : "flipY" }).then((bmp) => {
         // 解好的位图要换成一张**普通** Texture：占位的是 DataTexture，three 按 `image.data` 上传，塞进去的 ImageBitmap 没有 data →
         // texSubImage2D「no pixels」→ 贴图面全黑（2026-10-29 截图基线 box-textured 抓到的；Claude Fable 5.1）。换对象、材质的 uMap 跟着换。
         if (this.texCache.get(key) !== tex) { bmp.close?.(); return; }   // 这张图已经被回收：这份解码作废
         const real = new THREE.Texture(bmp);
-        real.colorSpace = THREE.SRGBColorSpace; real.wrapS = real.wrapT = THREE.RepeatWrapping;
-        real.flipY = false; real.generateMipmaps = true; real.minFilter = THREE.LinearMipmapLinearFilter; real.needsUpdate = true; this.applyTexFilter(real);
+        real.colorSpace = THREE.SRGBColorSpace; real.wrapS = real.wrapT = paint ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
+        real.flipY = false; real.generateMipmaps = true; real.minFilter = THREE.LinearMipmapLinearFilter;
+        if (paint) { real.magFilter = THREE.NearestFilter; real.userData = { paint: true }; }   // 画：放大最近邻、缩小三线性（活的图那张显示图同样设置），不跟画风换
+        real.needsUpdate = true; this.applyTexFilter(real);
         this.texCache.set(key, real);
         for (const bySide of this.texMats.values()) for (const m of bySide.values()) if (m.uniforms.uMap.value === tex) m.uniforms.uMap.value = real;   // 用这张图的每个材质（可能不止一个）
         const tu = this.texU.get(key); if (tu) tu.value = real;   // 风格材质（写实）的那份也换
@@ -956,6 +958,7 @@ export class Renderer3 implements RenderProvider {
   getPreset(): PresetId { return this.preset.id as PresetId; }
   /** 贴图过滤跟预设走（像素风 = 最近邻；不改资产，只改采样）。 */
   private applyTexFilter(t: any): void {
+    if (t.userData?.paint) return;   // 画的合成图：取样方式固定（1-8b），不跟画风换
     const nearest = this.preset.material.texFilter === "nearest";
     const mag = nearest ? THREE.NearestFilter : THREE.LinearFilter, min = nearest ? THREE.NearestFilter : (t.isDataTexture ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter);
     if (t.magFilter !== mag || t.minFilter !== min) { t.magFilter = mag; t.minFilter = min; t.needsUpdate = true; }

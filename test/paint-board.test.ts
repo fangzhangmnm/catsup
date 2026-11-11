@@ -12,6 +12,7 @@ import { applyOp, type Op } from "../src/editor/ops.ts";
 import { IDENTITY } from "../src/scene/xform.ts";
 import { mintGuid } from "../src/format/guid.ts";
 import { sceneBox } from "./format-scenes.ts";
+import type { LiveImage } from "../src/minccino/contract/stream.ts";
 
 const pattern = (w: number, h: number, hole = false): Uint8ClampedArray => {
   const px = new Uint8ClampedArray(w * h * 4);
@@ -85,13 +86,13 @@ describe("画板登记处（1-3c）", () => {
     const body = s.def(def).body, row = body.kind === "mesh" ? [...body.uvSets.values()][0] : null;
     const b = reg.ensure(s, tex);
     eq([b.width, b.height].join(), [row!.width, row!.height].join(), "大小");
-    eq(reg.board(tex)!.image.kind, "live", "活的图");
+    eq((reg.board(tex)!.image as LiveImage).kind, "live", "活的图");
     assert(reg.sig().includes(`${tex}:${row!.width}x${row!.height}`), reg.sig());
     let threw = false; try { reg.ensure(s, mintGuid()); } catch { threw = true; }
     assert(threw, "不是画的 GUID 抛");
-    eq(reg.board(tex)!.image.current(), null, "没准备之前活的图是空的（current() 只读准备好的结果）");
+    eq((reg.board(tex)!.image as LiveImage).current(), null, "没准备之前活的图是空的（current() 只读准备好的结果）");
     reg.prepare(s);
-    const cur = reg.board(tex)!.image.current();
+    const cur = (reg.board(tex)!.image as LiveImage).current();
     assert(cur && cur.version > 0, "准备之后能读到合成好的");
   });
   it("换文件（epoch 变了）= 全部销毁；画没了（材质不指它了）= 那块歇着（不合成、留到关文件）", () => {
@@ -102,7 +103,7 @@ describe("画板登记处（1-3c）", () => {
     ep = 1; reg.sync(s); eq(reg.count, 0, "换文件");
     reg.ensure(s, tex); eq(reg.count, 1, "新文件里再建");
     s.textures.delete(tex);   // 贴图表里那一行没了（清理贴图）：材质不再指着画
-    reg.prepare(s); eq(reg.count, 1, "画没了：还在（歇着）"); eq(reg.board(tex)!.image.current(), null, "歇着 = 不合成");
+    reg.prepare(s); eq(reg.count, 1, "画没了：还在（歇着）"); eq((reg.board(tex)!.image as LiveImage).current(), null, "歇着 = 不合成");
   });
   it("跟着场景里那一套坐标改大小（加高；1-8a 起在提交的收尾里 follow，「准备」里的 sync 不改大小）；签名跟着变", () => {
     const { s, def, tex } = painted(), port = new SoftGl2Port(), reg = new PaintBoards({ port: () => port, epoch: () => 0 });

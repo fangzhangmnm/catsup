@@ -23,7 +23,7 @@ const FACE_SRGB = srgb(PALETTE.face), BACK_SRGB = srgb(PALETTE.faceBack), NO_SID
  * board = 这张贴图的画板（实际宽高 + 活的图）；sig = 有哪些画板、多大（变了 = 用到画的池整份重建）。
  */
 export interface PaintImages {
-  board(texture: string): { readonly width: number; readonly height: number; readonly image: LiveImage } | null;
+  board(texture: string): { readonly width: number; readonly height: number; readonly image: LiveImage | TextureRef } | null;
   sig(): string;
 }
 
@@ -59,7 +59,7 @@ export class EditorStreamProvider implements StreamProvider {
   private paint: PaintImages | null = null;
   setPaint(p: PaintImages | null): void { this.paint = p; }
   /** 画的那一组交给渲染器的材质引用：同一个材质 + 同一张活的图 = 同一个对象。 */
-  private readonly paintRefs = new WeakMap<Material, { readonly image: LiveImage; readonly ref: MaterialRef }>();
+  private readonly paintRefs = new WeakMap<Material, { readonly image: LiveImage | TextureRef; readonly ref: MaterialRef }>();
   private paintRef(m: Material, texture: string): MaterialRef | undefined {
     const image = this.paint?.board(texture)?.image;
     if (!image) return undefined;

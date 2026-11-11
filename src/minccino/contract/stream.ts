@@ -9,7 +9,14 @@ import type { Vec3, Xform12 } from "./geometry.ts";
 export type ChunkKind = "tris" | "lines" | "points";
 
 /** 一张图（原图字节 + 物理尺寸 米）：引擎拿**这个对象**当解码缓存键——两个材质用同一张图 = 同一个对象 = 只解一次（2026-11-10 贴图主线 1-0½）。 */
-export interface TextureRef { readonly mimeType: string; readonly bytes: Uint8Array; readonly sizeM: readonly number[] }
+export interface TextureRef {
+  readonly mimeType: string; readonly bytes: Uint8Array; readonly sizeM: readonly number[];
+  /**
+   * 取样方式（贴图主线 1-8b，统筹 11-11）：缺 = 普通贴图（平铺、跟画风换过滤、按导入的习惯上下翻）；"paint" = 画的合成图：和活的图同一种取样
+   * （夹边、放大最近邻、缩小三线性、有缩小图、不跟画风换过滤；第 0 行 = 画布第 0 行，不翻），冷的画显示的就是它、和热起来之后显示的逐像素相同。
+   */
+  readonly sampling?: "paint";
+}
 /**
  * 一张活的图（贴图主线 1-3c）：别人（画画内核）已经放在同一个显卡画面里的图。渲染器每帧开画之前问一遍 `current()`（要重新合成的在这时候合成），
  * 问完统一作废一次自己的显卡状态缓存；`version` 变了就把 `gpuImage`（那张图的显卡句柄）拷进渲染器自己的专用显示图（带多级缩小图、放大最近邻、夹边）。

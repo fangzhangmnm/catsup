@@ -21,7 +21,8 @@ export function dataPrint(d: PaintingData): string {
 export function layeredData(w: number, h: number, seed: number): PaintingData {
   let s = seed >>> 0; const r = (): number => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
   const block = (bw: number, bh: number, holes: boolean): Uint8ClampedArray => { const px = new Uint8ClampedArray(bw * bh * 4); for (let i = 0; i < px.length; i += 4) { const a = holes && r() < 0.3 ? 0 : 60 + Math.floor(r() * 196); px[i] = a ? Math.floor(r() * 256) : 0; px[i + 1] = a ? Math.floor(r() * 256) : 0; px[i + 2] = a ? Math.floor(r() * 256) : 0; px[i + 3] = a; } return px; };
-  const leaf = (name: string, rect: { x: number; y: number; w: number; h: number }, o: { holes?: boolean; opacity?: number; visible?: boolean } = {}) => ({ name, visible: o.visible ?? true, opacity: o.opacity ?? 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: { rect, bytes: block(rect.w, rect.h, !!o.holes) } });
+  let id = 0;
+  const leaf = (name: string, rect: { x: number; y: number; w: number; h: number }, o: { holes?: boolean; opacity?: number; visible?: boolean } = {}) => ({ id: ++id, name, visible: o.visible ?? true, opacity: o.opacity ?? 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: { rect, bytes: block(rect.w, rect.h, !!o.holes) } });
   return { width: w, height: h, nodes: [
     leaf("底", { x: 0, y: 0, w: Math.min(w, 300), h: Math.min(h, 60) }, { holes: true }),
     leaf("半透明", { x: 40, y: 10, w: 120, h: 30 }, { opacity: 0.5 }),
