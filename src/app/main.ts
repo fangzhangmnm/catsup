@@ -886,6 +886,11 @@ function deleteAction(): { id: string; label: string; icon?: string; title?: str
 function toolActions(tool: string): { id: string; label: string; title?: string; disabled?: boolean; active?: boolean; onClick(el?: HTMLElement): void }[] {
     // 压平（W-5 2026-11-10 Opus；白模第一批第 2 条：iPad 上不用键盘、不用进手势就能「S X 0」）：缩放工具、没在做手势、右键「压平 ›」这会儿有东西（= 自由建模 + 选了点；放置表管工作台，这里不判 modeId）= 右下角「压平…」，弹的是那同一份
     if (tool === "scale" && !editor.isGestureActive() && submenuItems(hud, "压平").length) return [{ id: "flattenMenu", label: "压平…", title: "把选中的点沿一个方向压平：X / Y / Z / 这圈的朝向，镜像开着时还能压到镜像面（和右键「压平」同一份；一步撤销）", onClick: (el) => { if (el) openSubmenuAt(hud, el, "压平"); } }];
+    // 画画工作台（1-7）：当前物件还没有画（或者选中了没画的面）= 一颗明着的「开始画」；没选东西也露（选区那一段只在有选区时才有）
+    if (editor.modeId === "paint" && (tool === "paintPen" || tool === "paintEraser" || tool === "eyedrop")) {
+      const m = editor.commandMenu().find((x) => x.id === "mesh.startPaint");
+      return m ? [{ id: "startPaint", label: m.label, title: "给这些面铺上一张画：选中了面 = 这些面，没选 = 整个物件；之后用笔直接画", onClick: () => { editor.runAction("mesh.startPaint"); syncUi(); editor.draw(); } }] : [];
+    }
     if (tool === "axes") return [{ id: "axesReset", label: "重置坐标架", title: "最外层 = 回到世界；组里 = 回到外面那层的；组件里 = 回到组件原点", onClick: () => { menuPick("axesReset"); } }, ...(editor.hasActableSelection() ? [{ id: "axesToSel", label: "移到选择中心", title: "坐标架原点移到选区的中心（之后右下角可换算法）", onClick: () => { editor.axesToSelectionCenter(); syncUi(); } }] : []), ...(editor.inComponentRoot() ? [{ id: "axesToOrigin", label: "设为组件原点", title: "把组件原点对到现在的坐标架（组件里：几何反挪、每份实例补，世界里不动；最外层：整个模型挪过去，视角跟着平移、屏幕上不动；一步撤销）", onClick: () => { editor.setComponentOriginToFrame(); syncUi(); } }] : [])];   // DT86 user「比起被记住的开关我建议是一个可以随手按一下的按钮」   // user 2026-10-25「轴的context菜单里面没有移动到选择。这个blender里面我天天用」
     if (tool === "tape" || tool === "protractor" || tool === "compass") return [{ id: "guidesClear", label: "删除所有参考几何", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
     if (tool === "transform") {   // 临时变换中心（user 2026-10-26「变换的时候右下角有一个pick pivot选项，然后你可以pick, 用对齐引擎，以及可能的grid」）
@@ -2509,6 +2514,8 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
     state: (guid: string) => paintBoards.stateOf(editor.sceneRef, guid),
     saver: paintSaver,
     stats: () => (editor.renderer3 as unknown as { liveStats(): { images: number; copyMs: number } }).liveStats(),
+    /** 画画工作台（1-7）：现在的颜色（一个入口）、控制器。 */
+    color: paintColor, workbench: paintWb,
     /** 一整笔（贴图主线 1-4b；探针用）：屏幕点（CSS 像素）→ 1-4a 控制器 → 薄层（真显卡）→ 档口；每一点画一帧（准备在 draw 里）；cancel = 取消。第一笔时建画板。 */
     stroke: (o: { guid?: string; points: readonly { x: number; y: number; p?: number }[]; size?: number; hardness?: number; color?: readonly number[]; accum?: "max" | "over"; erase?: boolean; cancel?: boolean; taperOut?: number; measure?: boolean; beforeUp?: () => void }) => {
       const S = editor.sceneRef, g = o.guid ?? [...S.textures.keys()].find((t) => paintPlaceOf(S, t));

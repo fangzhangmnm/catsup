@@ -31,6 +31,8 @@ export interface SpacePaintDeps {
   readonly camera: () => SpaceCamera;
   /** 一笔落层之后（内核封的那几步在画板登记处攒着）：交给三维的撤销栈当一步（1-8a；label = 画一笔 / 擦一笔）。不给 = 不进三维的栈（测试）。 */
   readonly commitStep?: (erase: boolean) => void;
+  /** 这一笔开不了（建这一笔的表时出错，比如画布上的格子超过这一版的上限）：这一笔已经取消、零痕迹；告诉宿主为什么（1-7：不许每帧在「准备」里抛）。 */
+  readonly failed?: (err: unknown) => void;
 }
 export interface SpacePaintOpts {
   readonly brush: ResolvedBrush;
@@ -83,6 +85,7 @@ export class SpacePaintStroke {
   move(x: number, y: number, p: number, t: number | null = null): void { this.stroke.move(x, y, p, t); this.dirty = true; }
   /** 抬笔：整笔重画一次（收笔渐细）→ 落层（内核一步）。在下一次「准备」里做完；这里先把它准备好。 */
   up(): void {
+    if (this.failedToOpen) return;   // 建表时出过错、已经取消：抬笔什么都不做
     const t0 = performance.now();
     this.stroke.up(); this.finishing = true; this.dirty = true;
     const t1 = performance.now();
@@ -105,8 +108,10 @@ export class SpacePaintStroke {
 
 
   /** 这一帧的准备（画板登记处的 prepare 调；合成在它后面）。 */
+  /** 建这一笔的表时出过错（已经取消、零痕迹）。 */
+  private failedToOpen = false;
   private prepare(): void {
-    if (!this.dirty) return;
+    if (!this.dirty || this.failedToOpen) return;
     this.dirty = false;
     if (this.finishing) this.drawn = 0;   // 抬笔：收笔渐细这时才知道总长，整笔重画一次（只这一次）
     const t0 = performance.now();
@@ -117,7 +122,8 @@ export class SpacePaintStroke {
     if (!tips.length && !this.layer) return;
     if (!this.layer) {
       const t0 = performance.now();
-      this.layer = new SpaceLayer(this.gpu, this.stroke.geos[0], 0, { hardness: this.o.brush.hardness, color: this.o.color, accum: this.o.accum, origin: tips[0].tip, cells: this.cells });
+      try { this.layer = new SpaceLayer(this.gpu, this.stroke.geos[0], 0, { hardness: this.o.brush.hardness, color: this.o.color, accum: this.o.accum, origin: tips[0].tip, cells: this.cells }); }
+      catch (err) { this.failedToOpen = true; this.cancel(); this.d.failed?.(err); return; }   // 建表出错：这一笔取消（零痕迹）、告诉宿主；不让它在每帧的「准备」里一直抛（1-7）
       this.buildMs = performance.now() - t0;
       this.session = this.board.openStroke();
       this.layerId = this.board.wp.layerTree!.view().activeId!;

@@ -109,7 +109,7 @@ export class PaintWorkbench {
     const size = cfg.get(tool, "size"), opacity = cfg.get(tool, "opacity"), hardness = cfg.get(tool, "hardness");
     const brush = { ...hookBrush({ size, hardness }), opacity };
     try {
-      this.stroke = new SpacePaintStroke(this.d.strokeDeps(e.context.chain), a.tex, { brush, color: this.d.color.get(), accum: "over", erase: tool === "paintEraser" });
+      this.stroke = new SpacePaintStroke({ ...this.d.strokeDeps(e.context.chain), failed: (err) => { this.stroke = null; this.d.hint(strokeFailedSay(err)); } }, a.tex, { brush, color: this.d.color.get(), accum: "over", erase: tool === "paintEraser" });
     } catch (err) { this.d.hint(`这一笔开不了：${err instanceof Error ? err.message : String(err)}`); this.stroke = null; return; }
     this.t0 = performance.now();
     this.stroke.down(ev.x, ev.y, 1, 0);
@@ -134,4 +134,11 @@ export class PaintWorkbench {
     this.d.hint(`取到颜色 ${"#" + c.map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("")}`);
     e.setTool(this.lastPen);
   }
+}
+
+/** 一笔开不了时提示行说的话（已知的几种说人话；别的照原文）。 */
+export function strokeFailedSay(err: unknown): string {
+  const m = err instanceof Error ? err.message : String(err);
+  if (/too many block-edge cells|canvas polygons|triangles \(>/.test(m)) return "这一笔画不了：这个物件的面太多太碎，画布上的格子超过了第一版笔的上限（面少一点的物件能画；这个上限后面会放宽）";
+  return `这一笔画不了（${m}）`;
 }

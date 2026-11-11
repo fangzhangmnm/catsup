@@ -27,7 +27,7 @@ describe("开始画：守卫（1-3b）", () => {
   });
   it("③ 拒绝的判断只有一个函数；第六节那几处（并物件 / 分成新物件 / 变成独立的 / 粘贴）+ 炸开网格体组件 + 网格体转硬表面 + 拷贝都调它", () => {
     eq(hitsOf(/export function paintMoveBlocked\(/g).join(","), join("src", "scene", "paint.ts"));
-    eq(hitsOf(/带着画的面现在还搬不了/g).join(","), join("src", "scene", "paint.ts"), "原因的字只在那一处");
+    eq(hitsOf(/带着画的面现在还不能/g).join(","), join("src", "scene", "paint.ts"), "原因的字只在那一处");   // 1-7 起说人话：「这些面上有画：带着画的面现在还不能……（这个功能还没做）」
     const ops = code(join("src", "editor", "ops.ts"));
     for (const c of ["mergeObject", "separateObject", "makeUnique", "explode", "castDefinition", "paste"]) assert(/refusePaintMove\(s, /.test(caseBody(ops, c)), `case "${c}" 调了 refusePaintMove`);
     assert(/paintMoveBlocked\(s, /.test(code(join("src", "editor", "transfer.ts"))), "拷贝（transfer.ts extractForCopy）调了 paintMoveBlocked");
