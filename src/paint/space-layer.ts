@@ -162,11 +162,75 @@ export interface SpaceLayerOpts {
   /** 这一笔的颜色（0..1；淡彩和叠色都写预乘的 (c·v, v)）。 */
   readonly color: readonly [number, number, number];
   readonly accum: SpaceAccum;
-  /** 落笔的那一点（世界）：所有位置先减去它再上传。 */
-  readonly origin: Pt3;
   /** 现成的每格的表（space-prep.ts 缓存的，借来用、dispose 不放）。不给 = 自己建、自己放（测试）。 */
   readonly cells?: SpaceData;
+  /** 现成的面表 / 三角形表（space-prep.ts 缓存的，借来用、dispose 不放；1-4d 第 3 条：落笔那一下不再现做）。不给 = 自己建、自己放（测试）。 */
+  readonly tables?: FaceTables;
+  /** 只在自己建表时用（测试比较用）：表里的位置、笔尖先减去的那一点。不给 = 物件原点 objectOrigin。 */
+  readonly origin?: Pt3;
 }
+
+/**
+ * 面表 + 三角形表（1-4d 第 3 条，统筹定的：落笔那一下的花费不许跟着模型大小走）：只跟物件、摆放、那一套贴图坐标有关，跟这一笔无关——
+ * 进画画工作台时随「画画的准备」一起建（space-prep.ts），落笔只借。所有位置先减去物件原点 origin 再上传（笔尖也减它）：以前减的是落笔那一点，
+ * 那样表就得每一笔重做。三角形的公式钉在它自己的第一个角上（1-4c），所以这里减掉的只是一个整体平移。
+ */
+export interface FaceTables {
+  /** 物件原点（世界）：表里的位置、笔尖都先减去它。 */
+  readonly origin: Pt3;
+  /** 面表（每张面两个数：三角形表里从第几个起、几个）、三角形表（每个 TRI_STRIDE 个数）——显卡上的数据图。 */
+  readonly faces: SpaceData;
+  readonly tris: SpaceData;
+  /** 面号 → 面表里的槽号。 */
+  readonly faceSlot: ReadonlyMap<number, number>;
+  /** 面号 → 它的三角形的反解数据（tipRect 用；位置相对 origin）。 */
+  readonly faceInv: ReadonlyMap<number, readonly TriInv[]>;
+  /** 画布多边形 → 格子范围 [x, y, w, h]（和 tipCellsInPoly 扫的同一块）。 */
+  readonly polyRect: ReadonlyMap<number, readonly [number, number, number, number]>;
+}
+/** 物件原点：这项目标所有三角形世界位置的外接框中心（离画的地方都不远：减掉它之后上传的 32 位数都在物件大小以内）。没有三角形 = 0。 */
+export function objectOrigin(g: TargetGeo): Pt3 {
+  const w = g.wpos;
+  if (!w.length) return { x: 0, y: 0, z: 0 };
+  let mx = Infinity, my = Infinity, mz = Infinity, Mx = -Infinity, My = -Infinity, Mz = -Infinity;
+  for (let i = 0; i < w.length; i += 3) { const x = w[i], y = w[i + 1], z = w[i + 2]; if (x < mx) mx = x; if (x > Mx) Mx = x; if (y < my) my = y; if (y > My) My = y; if (z < mz) mz = z; if (z > Mz) Mz = z; }
+  return { x: (mx + Mx) / 2, y: (my + My) / 2, z: (mz + Mz) / 2 };
+}
+/** 建面表 + 三角形表（随这项目标的三角形数涨：只在准备里调）。放得下的上限和 SpaceLayer 一样（超了 = 抛 PaintLimitError）。 */
+export function buildFaceTables(gpu: SpaceGpu, g: TargetGeo, origin: Pt3 = objectOrigin(g)): FaceTables {
+  const t = g.table, X = g.target.xform;
+  const faces: number[] = [], tris: number[] = [];
+  const faceSlot = new Map<number, number>(), faceInv = new Map<number, TriInv[]>(), polyRect = new Map<number, readonly [number, number, number, number]>();
+  const R = (v: Pt3): Pt3 => ({ x: X[0] * v.x + X[1] * v.y + X[2] * v.z, y: X[4] * v.x + X[5] * v.y + X[6] * v.z, z: X[8] * v.x + X[9] * v.y + X[10] * v.z });
+  for (const [f, fp] of t.faces) {
+    faceSlot.set(f, faces.length / 2);
+    faces.push(tris.length / TRI_STRIDE, fp.tris.length);
+    const inv: TriInv[] = [];
+    faceInv.set(f, inv);
+    for (const tr of fp.tris) {
+      const F = tr.formula, oW = { x: X[0] * F.o.x + X[1] * F.o.y + X[2] * F.o.z + X[3] - origin.x, y: X[4] * F.o.x + X[5] * F.o.y + X[6] * F.o.z + X[7] - origin.y, z: X[8] * F.o.x + X[9] * F.o.y + X[10] * F.o.z + X[11] - origin.z };
+      const du = R(F.du), dv = R(F.dv);
+      inv.push(triInv(oW, du, dv));
+      // 上传的公式钉在第一个角 (u0, v0) 上：位置 = A + du·(s − 角)（A 用 64 位算好再减原点）。以前钉在画布原点：画布四千多格高时两个很大的数相减，硬边上差到 3/255（1-4c 量出来的）
+      const A = { x: oW.x + du.x * tr.uvf[0] + dv.x * tr.uvf[1], y: oW.y + du.y * tr.uvf[0] + dv.y * tr.uvf[1], z: oW.z + du.z * tr.uvf[0] + dv.z * tr.uvf[1] };
+      tris.push(tr.uvf[0], tr.uvf[1], tr.uvf[2], tr.uvf[3], tr.uvf[4], tr.uvf[5], A.x, A.y, A.z, du.x, du.y, du.z, dv.x, dv.y, dv.z);
+    }
+  }
+  // 每块多边形的格子范围（和 tipCellsInPoly 扫的同一块：环的外接框往外 gap/2 + 0.5，夹在画布里）
+  const Rg = t.gap / 2, W = t.width, H = t.height;
+  t.polys.forEach((ring, p) => {
+    let mx = Infinity, my = Infinity, Mx = -Infinity, My = -Infinity;
+    for (let j = 0; j < ring.length; j += 2) { mx = Math.min(mx, ring[j]); Mx = Math.max(Mx, ring[j]); my = Math.min(my, ring[j + 1]); My = Math.max(My, ring[j + 1]); }
+    const x0 = Math.max(0, Math.floor(mx - Rg - 0.5)), x1 = Math.min(W - 1, Math.ceil(Mx + Rg - 0.5)), y0 = Math.max(0, Math.floor(my - Rg - 0.5)), y1 = Math.min(H - 1, Math.ceil(My + Rg - 0.5));
+    polyRect.set(p, [x0, y0, x1 - x0 + 1, y1 - y0 + 1]);
+  });
+  const fd = pack(gpu, faces, "face table");
+  let td: SpaceData;
+  try { td = pack(gpu, tris, "triangle table"); } catch (err) { gpu.release(fd); throw err; }
+  return { origin, faces: fd, tris: td, faceSlot, faceInv, polyRect };
+}
+/** 放掉面表 / 三角形表（准备放的时候）。 */
+export function releaseFaceTables(gpu: SpaceGpu, ft: FaceTables): void { gpu.release(ft.faces); gpu.release(ft.tris); }
 
 /**
  * 每格的表（1-4c）：每格 4 个 16 位无符号整数 = 8 字节，显卡上是 RGBA16UI。
@@ -225,13 +289,11 @@ export class SpaceLayer {
   private readonly job: Job;
   private readonly jobId: number;
   private readonly fixed: Record<string, SpaceData>;
-  /** 每格的表是不是自己建的（自己建的 dispose 时放；借来的不放）。 */
+  /** 每格的表 / 面表是不是自己建的（自己建的 dispose 时放；借来的不放）。 */
   private readonly ownCells: boolean;
-  /** 每块画布多边形：格子范围 + 它的面在面表里的槽号。 */
-  private readonly polyRect = new Map<number, readonly [number, number, number, number]>();
-  private readonly faceSlot = new Map<number, number>();
-  /** 每张面（面号）的三角形反解数据（tipRect 用）。 */
-  private readonly faceInv = new Map<number, TriInv[]>();
+  private readonly ownTables: boolean;
+  /** 面表 + 三角形表 + 反解数据 + 多边形的格子范围（借来的或自己建的）。 */
+  private readonly ft: FaceTables;
   private bounds: [number, number, number, number] | null = null;
   /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）。 */
   readonly peak = { values: 0, table: "", cap: 0 };
@@ -246,34 +308,10 @@ export class SpaceLayer {
     jobs.set(this.jobId, this.job);
     checkLayerLimits(gpu, t);
     if (o.cells && (o.cells.w !== W || o.cells.h !== H || o.cells.format !== "rgba16ui")) throw new Error(`SpaceLayer: borrowed cell table ${o.cells.w}x${o.cells.h} ${o.cells.format} does not match canvas ${W}x${H}`);
-    // 每张面的三角形（贴图坐标三个角 + 世界里的公式，减去落笔点）
-    const faces: number[] = [], tris: number[] = [];
-    const R = (v: Pt3): Pt3 => ({ x: X[0] * v.x + X[1] * v.y + X[2] * v.z, y: X[4] * v.x + X[5] * v.y + X[6] * v.z, z: X[8] * v.x + X[9] * v.y + X[10] * v.z });
-    for (const [f, fp] of t.faces) {
-      this.faceSlot.set(f, faces.length / 2);
-      faces.push(tris.length / TRI_STRIDE, fp.tris.length);
-      const inv: TriInv[] = [];
-      this.faceInv.set(f, inv);
-      for (const tr of fp.tris) {
-        const F = tr.formula, oW = { x: X[0] * F.o.x + X[1] * F.o.y + X[2] * F.o.z + X[3] - o.origin.x, y: X[4] * F.o.x + X[5] * F.o.y + X[6] * F.o.z + X[7] - o.origin.y, z: X[8] * F.o.x + X[9] * F.o.y + X[10] * F.o.z + X[11] - o.origin.z };
-        const du = R(F.du), dv = R(F.dv);
-        inv.push(triInv(oW, du, dv));
-        // 上传的公式钉在第一个角 (u0, v0) 上：位置 = A + du·(s − 角)（A 用 64 位算好再减落笔点）。以前钉在画布原点：画布四千多格高时两个很大的数相减，硬边上差到 3/255（1-4c 量出来的）
-        const A = { x: oW.x + du.x * tr.uvf[0] + dv.x * tr.uvf[1], y: oW.y + du.y * tr.uvf[0] + dv.y * tr.uvf[1], z: oW.z + du.z * tr.uvf[0] + dv.z * tr.uvf[1] };
-        tris.push(tr.uvf[0], tr.uvf[1], tr.uvf[2], tr.uvf[3], tr.uvf[4], tr.uvf[5], A.x, A.y, A.z, du.x, du.y, du.z, dv.x, dv.y, dv.z);
-      }
-    }
-    // 每块多边形的格子范围（和 tipCellsInPoly 扫的同一块：环的外接框往外 gap/2 + 0.5，夹在画布里）
-    const Rg = t.gap / 2;
-    t.polys.forEach((ring, p) => {
-      let mx = Infinity, my = Infinity, Mx = -Infinity, My = -Infinity;
-      for (let j = 0; j < ring.length; j += 2) { mx = Math.min(mx, ring[j]); Mx = Math.max(Mx, ring[j]); my = Math.min(my, ring[j + 1]); My = Math.max(My, ring[j + 1]); }
-      const x0 = Math.max(0, Math.floor(mx - Rg - 0.5)), x1 = Math.min(W - 1, Math.ceil(Mx + Rg - 0.5)), y0 = Math.max(0, Math.floor(my - Rg - 0.5)), y1 = Math.min(H - 1, Math.ceil(My + Rg - 0.5));
-      this.polyRect.set(p, [x0, y0, x1 - x0 + 1, y1 - y0 + 1]);
-    });
-    this.ownCells = !o.cells;
-    this.fixed = { u_faces: pack(gpu, faces, "face table"), u_tris: pack(gpu, tris, "triangle table") };
-    this.fixed.u_cell = o.cells ?? uploadCellTable(gpu, t);
+    this.ownCells = !o.cells; this.ownTables = !o.tables;
+    this.ft = o.tables ?? buildFaceTables(gpu, g, o.origin);
+    this.fixed = { u_faces: this.ft.faces, u_tris: this.ft.tris };
+    try { this.fixed.u_cell = o.cells ?? uploadCellTable(gpu, t); } catch (err) { if (this.ownTables) releaseFaceTables(gpu, this.ft); throw err; }
   }
 
   /** 报给内核的范围（这一笔到现在碰过的所有实例方块的并）；什么都没碰 = null。 */
@@ -291,9 +329,9 @@ export class SpaceLayer {
         const polys = tips[i].reach.get(this.ti);
         if (!polys) continue;
         for (const [poly, trisList] of polys) {
-          const pr = this.polyRect.get(poly);
+          const pr = this.ft.polyRect.get(poly);
           if (!pr) continue;
-          const fs = [...new Set(trisList.map((k) => this.g.grid.face[k]))].sort((a, b) => a - b).filter((f) => this.faceSlot.has(f));
+          const fs = [...new Set(trisList.map((k) => this.g.grid.face[k]))].sort((a, b) => a - b).filter((f) => this.ft.faceSlot.has(f));
           if (fs.length > MAX_FACES) throw new PaintLimitError(`SpaceLayer: canvas polygon ${poly} has ${fs.length} faces under one tip (> ${MAX_FACES})`, `这一笔画不了：笔下有 ${fs.length} 张面共用画布上同一块地方（最多 ${MAX_FACES} 张）`);
           const rect = this.tipRect(tips[i].tip, fs, pr);
           if (rect) out.push({ tip: tips[i].tip, tipIdx: i, poly, tris: trisList, faces: fs, rect });
@@ -316,11 +354,11 @@ export class SpaceLayer {
   resetFrozen(): void {
     this.gpu.draw({ program: SPACE_TIP.name, target: this.frozen, clear: true, accum: this.o.accum, instances: new Float32Array(0), count: 0, data: this.fixed, uniforms: { u_size: [this.frozen.w, this.frozen.h], u_first: 0, u_hardness: this.o.hardness, u_color: [...this.o.color], u_job: this.jobId } });
   }
-  dispose(): void { jobs.delete(this.jobId); for (const [k, d] of Object.entries(this.fixed)) if (k !== "u_cell" || this.ownCells) this.gpu.release(d); this.gpu.release(this.frozen); this.gpu.release(this.frame); }
+  dispose(): void { jobs.delete(this.jobId); if (this.ownTables) releaseFaceTables(this.gpu, this.ft); if (this.ownCells) this.gpu.release(this.fixed.u_cell); this.gpu.release(this.frozen); this.gpu.release(this.frame); }
 
   /** 这颗笔尖在这块多边形上的实例方块（格子）：贴图上的外接框往外放块边那一圈（取样点离格子中心最多 gap/2）再多一格，夹进多边形的格子范围；夹完是空的 = null（画不到）。 */
   private tipRect(tip: InkTip, faces: readonly number[], pr: readonly [number, number, number, number]): [number, number, number, number] | null {
-    const O = this.o.origin, box = tipUvBox(faces.flatMap((f) => this.faceInv.get(f) ?? []), tip.x - O.x, tip.y - O.y, tip.z - O.z, tip.r);
+    const O = this.ft.origin, box = tipUvBox(faces.flatMap((f) => this.ft.faceInv.get(f) ?? []), tip.x - O.x, tip.y - O.y, tip.z - O.z, tip.r);
     if (!box) return [...pr];
     const m = this.g.table.gap / 2 + 1;
     const x0 = Math.max(pr[0], Math.floor(box[0] - m - 0.5)), y0 = Math.max(pr[1], Math.floor(box[1] - m - 0.5));
@@ -335,11 +373,11 @@ export class SpaceLayer {
 
   /** 这一帧的实例表、笔尖表、面单子（每帧整份重传；条数 = 实例数，小）。 */
   private perDraw(tips: readonly { readonly tip: InkTip }[]): Record<string, SpaceData> {
-    const inst: number[] = [], flist: number[] = [], tipv = new Float32Array(Math.max(1, tips.length) * TIP_STRIDE), O = this.o.origin;
+    const inst: number[] = [], flist: number[] = [], tipv = new Float32Array(Math.max(1, tips.length) * TIP_STRIDE), O = this.ft.origin;
     tips.forEach(({ tip }, i) => { const b = i * TIP_STRIDE; tipv[b] = tip.x - O.x; tipv[b + 1] = tip.y - O.y; tipv[b + 2] = tip.z - O.z; tipv[b + 3] = tip.r; tipv[b + 4] = tip.alpha; });
     for (const it of this.job.items) {
       inst.push(it.tipIdx, it.poly, flist.length, it.faces.length);
-      for (const f of it.faces) flist.push(this.faceSlot.get(f)!);
+      for (const f of it.faces) flist.push(this.ft.faceSlot.get(f)!);
     }
     this.peak.cap = Math.min(DATA_W * this.gpu.maxSize, MAX_DATA);
     for (const [n, t] of [[inst.length, "instance table"], [flist.length, "face list"], [tipv.length, "tip table"]] as const) if (n > this.peak.values) { this.peak.values = n; this.peak.table = t; }
