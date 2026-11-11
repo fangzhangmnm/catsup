@@ -284,9 +284,37 @@ export interface DeskDoc {
     screen?: string;
     /** 导出表单上次的选择（desk 1.4，2026-11-04；user「导出的时候永远有个框……我建议文件workbench而不是workpiece记住」）：导出过才写；本层不解释键，app 认不出的键当默认。 */
     exportModel?: Record<string, string>;
+    /** 画画工作台的笔（desk 1.5，2026-11-11；user「笔的设置记在哪 学weebpaint」= 跟文件走，设备上不记）：改过才写。见 PaintDeskDoc。 */
+    paint?: PaintDeskDoc;
     extra: Record<string, unknown>;
 }
 export declare const defaultDesk: () => DeskDoc;
+/**
+ * 画画工作台的笔（desk 1.5）：{ color?: "#rrggbb", tools: { <工具名>: { size?, opacity?, hardness? } } }。字段名照画画软件的 dial（size / opacity）。
+ * - 工具名本层不解释（不透明字符串）：本版不认识的工具名、每把工具里不认识的键、paint 里不认识的键都原样带回（各自的 extra）。
+ *   tools 本身不是对象（数组、字符串……）：原样放进 extra 带回；这时候没有认识的工具，写回去的就是它。有认识的工具时以认识的为准。paint 本身不是对象 = 当没有（和 desk 别的键一样）。
+ * - size 的含义和单位由工具自己定；这一版的笔和橡皮 = 直径，屏幕上的 CSS 像素（user 11-10「笔的大小应该是屏幕大小，因为这个是你的语义」；不是空间里的长度，所以不换国际单位）。
+ *   以后的像素笔的 size 会是画布上的格数——这一层不替工具定单位。opacity = 浓度（0..1）；hardness = 笔尖边缘（0..1）。
+ * - color 原样存（不在这一层规整大小写；app 比的时候不分大小写）。
+ * - 这一层收任何有限的数；夹到能用的范围是 app 套上的时候做的（main.ts applyPaintDesk 经工具表 set，夹到滑条的范围）。
+ * - hardness 以后归「笔」：笔架来了它属于那支笔，到时候这个键保留读、停止写。activeBrushId（画画软件的 dial 里有）现在不写，留给笔架。
+ * - 类型不对的已知键不当成值，原样放进 extra 带回（不悄悄改别人写的字节）。
+ */
+export interface PaintDeskDoc {
+    color?: string;
+    tools: Record<string, PaintToolDesk>;
+    extra: Record<string, unknown>;
+}
+export interface PaintToolDesk {
+    size?: number;
+    opacity?: number;
+    hardness?: number;
+    extra: Record<string, unknown>;
+}
+/** 文件里的 paint → PaintDeskDoc；不是对象 = 没有。 */
+export declare function paintDeskOf(raw: unknown): PaintDeskDoc | undefined;
+/** PaintDeskDoc → 写进文件的样子（extra 先铺、已知键后铺；tools 没有东西 = 不写；tools 本来不是对象、又没有认识的工具 = 原样写回）。 */
+export declare function paintDeskToJson(p: PaintDeskDoc): Record<string, unknown>;
 /** 参考窗的窗（视图态，CSS px）：WeebPaint / MoonSinger 同形 { open, left, top, width, height }。 */
 export interface RefPanelDoc {
     open: boolean;

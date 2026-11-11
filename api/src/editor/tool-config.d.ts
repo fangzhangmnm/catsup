@@ -516,7 +516,7 @@ export declare const TOOL_OPTIONS: {
             readonly max: 400;
             readonly step: 1;
             readonly unit: "像素";
-            readonly scope: "session";
+            readonly scope: "doc";
             readonly elsewhere: true;
         };
         readonly opacity: {
@@ -526,7 +526,7 @@ export declare const TOOL_OPTIONS: {
             readonly min: 0.05;
             readonly max: 1;
             readonly step: 0.05;
-            readonly scope: "session";
+            readonly scope: "doc";
             readonly elsewhere: true;
         };
         readonly hardness: {
@@ -536,7 +536,7 @@ export declare const TOOL_OPTIONS: {
             readonly min: 0;
             readonly max: 1;
             readonly step: 0.05;
-            readonly scope: "session";
+            readonly scope: "doc";
         };
     };
     readonly paintEraser: {
@@ -548,7 +548,7 @@ export declare const TOOL_OPTIONS: {
             readonly max: 400;
             readonly step: 1;
             readonly unit: "像素";
-            readonly scope: "session";
+            readonly scope: "doc";
             readonly elsewhere: true;
         };
         readonly opacity: {
@@ -558,7 +558,7 @@ export declare const TOOL_OPTIONS: {
             readonly min: 0.05;
             readonly max: 1;
             readonly step: 0.05;
-            readonly scope: "session";
+            readonly scope: "doc";
             readonly elsewhere: true;
         };
         readonly hardness: {
@@ -568,7 +568,7 @@ export declare const TOOL_OPTIONS: {
             readonly min: 0;
             readonly max: 1;
             readonly step: 0.05;
-            readonly scope: "session";
+            readonly scope: "doc";
         };
     };
     readonly surface: {

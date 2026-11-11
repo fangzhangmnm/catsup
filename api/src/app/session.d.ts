@@ -2,7 +2,7 @@ import type { Editor } from "../editor/editor.ts";
 import { Scene } from "../scene/scene.ts";
 import { type CatsupDocument } from "../format/index.ts";
 import { type BrepSideCounts } from "../scene/kinds.ts";
-import { type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
+import { type PaintDeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import type { Xform } from "../scene/xform.ts";
 interface FSHandle {
     readonly name: string;
@@ -59,6 +59,8 @@ export interface SessionDeps {
     };
     /** 风格 / 屏幕跟文件走（desk 1.3，T86）：载入 / 新建后套上（null = 用默认）。app 认不出的 id 当没有。 */
     applyView?: (style: string | null, screen: string | null) => void;
+    /** 画画工作台的笔跟文件走（desk 1.5；user 11-11「笔的设置记在哪 学weebpaint」）：载入 / 新建后套上（null = 默认）。 */
+    applyPaint?: (p: PaintDeskDoc | null) => void;
     onHomeChanged: () => void;
     setStatus: (text: string, error?: boolean) => void;
     online: () => boolean;
@@ -156,6 +158,9 @@ export declare class Session {
         screen?: string | null;
     }): void;
     private applyDeskView;
+    /** 画画工作台的笔（desk 1.5）：跟文件走，改它不标脏、不进撤销，下次存盘顺手带走（同风格 / 导出表单）。 */
+    get paintDesk(): PaintDeskDoc | undefined;
+    setPaintDesk(p: PaintDeskDoc): void;
     setMenuTab(key: string, tab: string): void;
     /** 导出表单上次的选择（desk 1.4）：跟文件走，改它不标脏（user 11-04「我建议文件workbench而不是workpiece记住」）。 */
     get exportChoice(): Readonly<Record<string, string>>;
