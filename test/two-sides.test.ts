@@ -9,7 +9,7 @@ import { Scene } from "../src/scene/scene.ts";
 import { applyOp, faceKey } from "../src/editor/ops.ts";
 import { applyNormal, rotationAbout, translation, type Xform } from "../src/scene/xform.ts";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup } from "../src/format/index.ts";
-import { checkInvariants } from "./kernel-fuzz.test.ts";
+import { checkInvariants } from "./kernel-invariants.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 const RED = 3;

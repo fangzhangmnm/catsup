@@ -1,5 +1,5 @@
 // 测试入口：node test/run.mjs（node 24 strip-types 直跑导入的 .ts）。
-// 加新测试文件：在下面 import 一行即可。
+// 加新测试文件：在下面 import 一行即可。这里是唯一的登记处：并行运行器 test/par.mjs（npm test）也从这些 import 行读名单。
 import "./smoke.test.ts";
 import "./page-title.test.ts";   // 网页标题只是 CatsUp（user 2026-10-14）
 import "./moved-notice.test.ts";   // 旧地址的搬家一行（2026-11-03）
@@ -197,12 +197,8 @@ import "./encrypted-byproducts.test.ts";   // 加密件副产品只存密文 + �
 import "./debug-lines.test.ts";   // 黑匣子文本行（实验台 sunset → 调试日志，2026-09-20）
 import "./object-verbs.test.ts";   // 物件层动词 = 注册表物件族（2026-10-28 Fable 加的，漏登记到 10-29 才补上）
 import "./mesh-nonmanifold.test.ts";   // 非流形 / 重复面护栏（2026-10-29）
+import "./test-tiers-guard.test.ts";   // 测试分档守卫：没登记的、测试之间互相 import、探针表（2026-11-10 Opus）
 import { run } from "./runner.mjs";
-// 漏登记守卫（2026-10-29 Opus：object-verbs.test.ts 写了没登记、跑了一晚上 0 条，报告却说「守卫五条」——这一层让它不再发生）：test/ 下每个 *.test.ts 都得在上面 import
-{
-  const fs = await import("node:fs"), here = new URL(".", import.meta.url), me = fs.readFileSync(new URL("run.mjs", here), "utf8");
-  const missing = fs.readdirSync(here).filter((f) => f.endsWith(".test.ts") && !me.includes(`"./${f}"`));
-  if (missing.length) { console.error(`✗ 测试文件没登记进 test/run.mjs（不会跑）：${missing.join("、")}`); process.exitCode = 1; }
-}
+// 漏登记守卫挪进了 test/test-tiers-guard.test.ts（2026-11-10 Opus，测试分档：串跑和并行都当一条测试跑）。
 
 await run();

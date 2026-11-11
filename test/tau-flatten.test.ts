@@ -7,7 +7,7 @@ import { PlanarGraph } from "../src/kernel/topology.ts";
 import { flattenPlanes } from "../src/kernel/tau-flatten.ts";
 import { STICKY } from "../src/kernel/subdivide.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
-import { checkInvariants } from "./kernel-fuzz.test.ts";
+import { checkInvariants } from "./kernel-invariants.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 const XY = { u: P(1, 0, 0), v: P(0, 1, 0) };
