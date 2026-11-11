@@ -135,6 +135,12 @@ body.doc-locked #selBar, body.doc-locked .left-dial { pointer-events: none; opac
 .walk-bar[hidden] { display: none; }
 .walk-btn { border: 0; background: transparent; color: var(--muted); font: 500 14px/1 system-ui, sans-serif; padding: 10px 14px; border-radius: 9px; cursor: pointer; opacity: .8; filter: drop-shadow(0 1px 1px var(--halo-soft)); }
 .walk-btn:hover { background: var(--hover); opacity: 1; color: var(--ink); }
+/* 主按钮醒目的那几行（施工单十五：「开始画…」「把这几张面加进来」）：实底主色；改模型的那几行锁着时灰掉（点了提示行说为什么）；没画过的物件上落笔 = 闪一下 */
+.walk-btn[data-loud] { background: var(--accent); color: #fff; opacity: 1; font-weight: 600; padding: 10px 18px; filter: none; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
+.walk-btn[data-loud]:hover { background: var(--accent); color: #fff; filter: brightness(1.08); }
+body.doc-locked .walk-btn[data-edits] { opacity: .45; }
+.walk-btn.flash { animation: walk-btn-flash 0.4s ease-in-out 3; }
+@keyframes walk-btn-flash { 50% { transform: scale(1.12); box-shadow: 0 0 0 6px var(--accent-soft, rgba(80, 120, 255, .3)); } }
 .hud-topleft .tb-btn { width: 40px; height: 40px; background: var(--glass); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }   /* 左上 ☰ / 保存 / 层级 / 物件：毛玻璃底，和工作台下拉、右上那几颗统一（user 10-30「汉堡系的几个没有背景的按钮也改成带背景的吧」） */
 .hud-topleft .tb-btn:hover { background: var(--hover); }
 .hud-topleft .tb-btn:active, .hud-topleft .tb-btn.is-open { background: var(--accent-soft); color: var(--accent); }

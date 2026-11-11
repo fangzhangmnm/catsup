@@ -74,6 +74,7 @@ const st1 = await S(() => ({ mode: globalThis.__catsup.editor.modeId, tool: glob
 check(st1.mode === "paint" && st1.tool === "paintPen" && st1.tools === "paintPen,paintEraser,eyedrop", "工作台 = 画画、手上 = 笔、三把工具", JSON.stringify(st1));
 const startBtn = page.locator('button:has-text("开始画")').first();
 check(await startBtn.isVisible(), "「开始画」看得见");
+check(await S(() => { const b = document.getElementById("walkBtn"), r = b.getBoundingClientRect(); return !document.getElementById("walkBar").hidden && b.textContent === "开始画…" && b.hasAttribute("data-loud") && Math.abs(r.left + r.width / 2 - innerWidth / 2) < 2 && r.top < 80; }), "它是上方正中那颗醒目的主按钮（右下角不再放它）");
 await page.screenshot({ path: "/tmp/catsup-paint-wb-start.png" });
 const pos0 = await S(() => globalThis.__catsup.editor.history.position());
 // 开始画时选画布大小（2026-11-11）：先出五行的面板，一行一行填「一格多大」；取消 = 什么都没开始
@@ -322,11 +323,34 @@ await page.locator('#sheetChoices .sheet-row:has-text("256 × 256")').click(); a
 const uv11 = await S((d) => { const u = [...globalThis.__catsup.editor.sceneRef.mesh(d).uvSets.values()][0]; return u ? `${u.width}x${u.height}` : null; }, d11);
 check(uv11 === "256x256", `选 256 = 画布 256 见方（${uv11}）`);
 await mkBox("乙", 3); await frames(2);
+// 没画过的物件上落笔：不自动弹面板，提示行说一句、按钮闪一下
+const f11 = await S(() => { const C = globalThis.__catsup, e = C.editor, p = e.cam.project({ x: 3.5, y: 0.5, z: 1 }, e.vp()); C.paint.workbench.pointer({ tool: "paintPen", phase: "down", x: p.x, y: p.y }); C.paint.workbench.pointer({ tool: "paintPen", phase: "up", x: p.x, y: p.y });
+  return { hint: document.querySelector("#hint")?.textContent ?? "", flash: document.getElementById("walkBtn").classList.contains("flash"), sheet: !document.getElementById("sheet").hidden }; });
+check(/还没开始画/.test(f11.hint) && f11.flash && !f11.sheet, `没画过的物件上落笔：提示「${f11.hint}」、按钮闪一下、没弹面板`, JSON.stringify(f11));
+// 锁着：照锁现在的规矩（只留只读工具 → 离开画画工作台），这颗按钮跟着不露；按钮这里不另写锁的判断。解锁再进画画工作台，它回来
+await S(async () => { await globalThis.__catsup.session.setLocked(true); }); await frames(1);
+const lk = await S(() => ({ mode: globalThis.__catsup.editor.modeId, tool: globalThis.__catsup.editor.tool, bar: !document.getElementById("walkBar").hidden, label: document.getElementById("walkBtn").textContent }));
+check(lk.mode !== "paint" && (!lk.bar || lk.label !== "开始画…"), `锁着：离开了画画工作台（${lk.mode} / ${lk.tool}），「开始画…」不露`, JSON.stringify(lk));
+await S(async () => { await globalThis.__catsup.session.setLocked(false); globalThis.__catsup.pickWorkbench("paint"); }); await frames(1);
+check(await S(() => !document.getElementById("walkBar").hidden && document.getElementById("walkBtn").textContent === "开始画…"), "解锁、回画画工作台：「开始画…」回来了");
 await page.locator('button:has-text("开始画")').first().click();
 await page.waitForFunction(() => document.querySelectorAll("#sheetChoices .sheet-row").length === 5 && !document.getElementById("sheet").hidden);
 const rows11 = await sheetRows();
 check(rows11.filter((r) => r.mark).map((r) => r.label).join(",") === "256 × 256" && rows11[1].mark === "上次用的", "第二个物件开始画：256 那一行带「上次用的」（从文件里那张画读出来的），别的行没有", JSON.stringify(rows11.map((r) => r.mark)));
 await page.click("#sheetCancel"); await frames(1);
+// 选了几张面开始画 → 再选别的面 = 「把这几张面加进来」：不出面板，加进那张画
+const d12 = await mkBox("丙", 6); await frames(2);
+const top12 = await S((d) => { const e = globalThis.__catsup.editor, k = e.sceneRef.mesh(d).kernel, top = k.faces().find((f) => k.facePts(f).every((p) => Math.abs(p.z - 1) < 1e-6)); e.toolCtx.setSelection({ faces: [top] }); return top; }, d12); await frames(1);
+await page.locator('button:has-text("开始画")').first().click();
+await page.waitForFunction(() => document.querySelectorAll("#sheetChoices .sheet-row").length === 5 && !document.getElementById("sheet").hidden);
+await page.locator('#sheetChoices .sheet-row:has-text("256 × 256")').click(); await frames(2);
+const side12 = await S((d) => { const e = globalThis.__catsup.editor, k = e.sceneRef.mesh(d).kernel, side = k.faces().filter((f) => !k.facePts(f).every((p) => Math.abs(p.z - 1) < 1e-6)).slice(0, 2); e.toolCtx.setSelection({ faces: side }); return side; }, d12); await frames(1);
+check(await S(() => document.getElementById("walkBtn").textContent) === "把这几张面加进来", "物件有画、选了没进画的面 = 「把这几张面加进来」");
+const paints12 = await S(() => [...globalThis.__catsup.editor.sceneRef.textures.values()].filter((t) => t.content.kind === "layered").length);
+await page.click("#walkBtn"); await frames(2);
+const add12 = await S(([d, side]) => { const C = globalThis.__catsup, S0 = C.editor.sceneRef, k = S0.mesh(d).kernel, uv = [...S0.mesh(d).uvSets.keys()][0]; return { sheet: !document.getElementById("sheet").hidden, painted: side.every((f) => S0.facePaint(d, k.faceMat[f]) !== null && !!k.cornerValues(f, uv)), paints: [...S0.textures.values()].filter((t) => t.content.kind === "layered").length }; }, [d12, side12]);
+check(!add12.sheet && add12.painted && add12.paints === paints12, "点了：不出面板，那两张面进了这个物件那张画（有坐标），没多出一张画", JSON.stringify(add12));
+void top12;
 
 await browser.close();
 if (errs.length) { console.log("页面错误：", errs.slice(0, 5)); process.exitCode = 1; }

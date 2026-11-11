@@ -6,6 +6,7 @@ import type { Command, MeshUnit } from "../commands/command.ts";
 import { mintGuid } from "../../format/guid.ts";
 import { PALETTE } from "../../minccino/palette.ts";
 import type { Scene } from "../../scene/scene.ts";
+import { paintPlaceOf } from "../../scene/paint.ts";
 
 const FACE_GREY: [number, number, number] = [((PALETTE.face >> 16) & 255) / 255, ((PALETTE.face >> 8) & 255) / 255, (PALETTE.face & 255) / 255];
 
@@ -40,4 +41,42 @@ export const startPaint: Command<MeshUnit> = {
   },
   done: (n) => `开始画了：${n} 张面铺上了一张画，现在用笔在上面画`,
   none: "开始画：这个物件已经有画了，直接用笔画（要给别的面另开一张：先选中那几张面）",
+};
+
+/** 这个物件上最近建的那张画（贴图表里最后一张走它的）+ 那张画的材质在文档材质表里的下标；没有 = null。 */
+export function latestPaintOf(s: Scene, def: number): { texture: string; material: number } | null {
+  let out: { texture: string; material: number } | null = null;
+  for (const t of s.textures.values()) {
+    if (t.content.kind !== "layered") continue;
+    const p = paintPlaceOf(s, t.guid);
+    if (!p || p.def !== def) continue;
+    const i = s.materials.indexOf(p.material);
+    if (i >= 0) out = { texture: t.guid, material: i };
+  }
+  return out;
+}
+/** 选中的面里还没进画的那几张（物件已经有画时「把这几张面加进来」用；没选 = 没有）。 */
+export function unpaintedSelected(s: Scene, u: Pick<MeshUnit, "def" | "sel">): number[] {
+  const body = s.def(u.def).body;
+  if (body.kind !== "mesh" || !u.sel || !u.sel.faces.size) return [];
+  const k = body.kernel;
+  return [...u.sel.faces].filter((f) => k.hasF(f) && s.facePaint(u.def, k.faceMat[f]) === null).sort((a, b) => a - b);
+}
+
+/**
+ * 「把这几张面加进来」（施工单十五第三节）：物件已经有画、选中的面里有还没进画的 → 给它们换上最近那张画的材质（meshPaintFaces）；
+ * 画的维护那一步（paint-upkeep）按那张画布的宽把它们补铺上（layoutAppend，留的格数跟着画布走）。不出选大小的面板。
+ */
+export const paintAddFaces: Command<MeshUnit> = {
+  id: "mesh.paintAddFaces", unit: "mesh", title: "把这几张面加进来",
+  defaults: () => ({}),
+  params: () => [],
+  quickCount: (env, u) => (latestPaintOf(env.scene, u.def) ? unpaintedSelected(env.scene, u).length : 0),
+  plan(env, u) {
+    const p = latestPaintOf(env.scene, u.def), faces = unpaintedSelected(env.scene, u);
+    if (!p || !faces.length) return { ops: [], count: 0 };
+    return { ops: [{ op: "meshPaintFaces", def: u.def, faces, material: p.material }], count: faces.length };
+  },
+  done: (n) => `加进来了：${n} 张面铺进了这张画，现在用笔在上面画`,
+  none: "选中的面都已经在画里了",
 };

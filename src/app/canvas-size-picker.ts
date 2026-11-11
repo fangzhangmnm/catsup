@@ -8,7 +8,7 @@
 import type { Editor } from "../editor/editor.ts";
 import { CANVAS_SIZES, facesToStart } from "../editor/mesh-edits/start-paint.ts";
 import type { MeshSelection } from "../editor/tools.ts";
-import { layoutFaces } from "../paint/layout.ts";
+import { gapForCanvas, layoutFaces } from "../paint/layout.ts";
 import { xformScale } from "../paint/space-target.ts";
 import { paintPlaceOf } from "../scene/paint.ts";
 import { displayUnit, formatLength, unitSystem } from "../editor/units.ts";
@@ -38,12 +38,14 @@ export function pickCanvasSize(editor: Editor): Promise<number | null> {
     ...(recent === n ? { marked: "上次用的" } : {}),
   }));
   const count = faces.length;
-  return openRowsSheet("画布多大", `给这 ${count} 张面铺一张画：画布越大越细，文件也越胖（下面是每一层没压缩时最多占多少；空着的地方存盘时会压得很小）。`, rows, (fill) => {
+  const mirrored = S.meshMirrors.get(def)?.mode === "force";   // 强行对称开着（施工单十五第三节；user 确认「物件开着对称，所以是feature不是bug」）
+  const msg = `给这 ${count} 张面铺一张画：画布越大越细，文件也越胖（下面是每一层没压缩时最多占多少；空着的地方存盘时会压得很小）。` + (mirrored ? "\n这个物件开着对称：两半共用一块画布，画一边，另一边会照镜子出现。" : "");
+  return openRowsSheet("画布多大", msg, rows, (fill) => {
     if (body.kind !== "mesh") return;
     let i = 0;
     const next = (): void => {
       if (i >= CANVAS_SIZES.length || !fill.alive()) return;
-      const n = CANVAS_SIZES[i], r = layoutFaces(body.kernel, faces, { base: n });
+      const n = CANVAS_SIZES[i], r = layoutFaces(body.kernel, faces, { base: n, gap: gapForCanvas(n), style: "patches" });   // 和真开始画同一套（连成片、留的格数跟着画布走）
       if (r.ok && r.density > 0) fill.set(i, { note: `一格约 ${cellSay(scale / r.density)}　每层最多 ${bytesSay(n * n * 4)}` });
       else fill.set(i, { blocked: `铺不下：${r.ok ? "面太小，量不出密度" : r.reason}` });
       i++;

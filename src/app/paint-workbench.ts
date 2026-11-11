@@ -32,10 +32,13 @@ export interface PaintWorkbenchDeps {
   readonly prep: SpacePrep;
   /** 提示行。 */
   hint(text: string): void;
+  /** 上方正中的主按钮闪一下（没画过的物件上落笔：提示行说一句 + 让人看到按哪里；施工单十五第三节）。 */
+  flashStart?(): void;
 }
 
 /** 笔尖下打到了什么。 */
-type Aim = { readonly tex: string; readonly cell: readonly [number, number] | null } | { readonly face: number; readonly color: Rgb } | { readonly why: string } | null;
+type Aim = { readonly tex: string; readonly cell: readonly [number, number] | null } | { readonly face: number; readonly color: Rgb } | { readonly why: string; readonly start?: boolean } | null;
+const NOT_STARTED = "这个物件还没开始画：点上面的「开始画…」";
 
 export class PaintWorkbench {
   private readonly d: PaintWorkbenchDeps;
@@ -119,7 +122,7 @@ export class PaintWorkbench {
     if (!hit) return null;
     const fp = S.facePaint(def, k.faceMat[hit.face]);
     if (!fp) {
-      if (!body.uvSets.size) return { why: "这个物件还没开始画：点右下角的「开始画」" };
+      if (!body.uvSets.size) return { why: NOT_STARTED, start: true };
       const m = S.materialOfSlot(def, k.faceMat[hit.face]);
       return { face: hit.face, color: m ? [m.color[0], m.color[1], m.color[2]] : [0.84, 0.84, 0.84] };
     }
@@ -132,8 +135,8 @@ export class PaintWorkbench {
     this.lastPen = ev.tool;
     const a = this.aim(ev.x, ev.y);
     if (!a) return;   // 落在空处：什么都不做
-    if ("why" in a) { this.d.hint(a.why); return; }
-    if (!("tex" in a)) { this.d.hint("这张面没走画（它是别的材质）：选中它，点右下角的「开始画」"); return; }
+    if ("why" in a) { this.d.hint(a.why); if (a.start) this.d.flashStart?.(); return; }   // 没画过的物件：不自动弹面板，说一句、按钮闪一下
+    if (!("tex" in a)) { this.d.hint("这张面没走画（它是别的材质）：选中它，点上面的「把这几张面加进来」"); return; }
     if (this.d.gate(a.tex)) return;   // 冷的 / 只能看不能画：门自己说了
     const e = this.d.editor, cfg = e.config, tool = ev.tool;
     const size = cfg.get(tool, "size"), opacity = cfg.get(tool, "opacity"), hardness = cfg.get(tool, "hardness");

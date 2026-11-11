@@ -76,6 +76,9 @@ import { PaintSaver } from "../paint/save.ts";
 import { PaintWorkbench } from "./paint-workbench.ts";   // 画画工作台的控制器（1-7）
 import { createPaintColor, mountPaintColorSheet, hexOf, parseHexColor, PAINT_COLOR_DEFAULT } from "./paint-color.ts";
 import { pickCanvasSize } from "./canvas-size-picker.ts";
+import { mountPrimaryButton } from "./primary-button.ts";
+import { facesToStart, latestPaintOf, unpaintedSelected } from "../editor/mesh-edits/start-paint.ts";
+import type { MeshSelection } from "../editor/tools.ts";
 import type { PaintDeskDoc } from "../format/document.ts";
 import { mountPaintSliders } from "./paint-sliders.ts";
 import type { SpacePaintDeps } from "../paint/space-paint.ts";
@@ -822,19 +825,29 @@ function placeSession(): ParamSession {
   };
   return s;
 }
-// 上方正中那一颗低调的按钮（user 10-28「只有一个按钮」「这个按钮做的和嵌入的那些汉堡符号一样低调一点就是enter webxr 这种半灰的感觉，不抢眼」）：
-// 原地编辑里 =「继续走」；平时、浏览器支持 VR（Quest）=「进入 VR」；别的时候不露。
+// 上方正中那一颗主按钮（施工单十五第三节 = 版图文档 2026-11-11 追记；app/primary-button.ts）：一张表按先后只露一颗——
+// 原地编辑里「继续走」（低调）→ 画画工作台里还没画的物件「开始画…」/ 选中的面里有没进画的「把这几张面加进来」（醒目）→ 平时浏览器支持 VR「进入 VR」（低调）。
+// user 10-28「只有一个按钮」「这个按钮做的和嵌入的那些汉堡符号一样低调一点就是enter webxr 这种半灰的感觉，不抢眼」（低调的那两行照旧）；
+// user 11-11「需要有一个挂在上面居中按钮，点了弹窗」（开始画那一行醒目）。
 const walkBar = $("walkBar"), walkBtn = $<HTMLButtonElement>("walkBtn");
-function syncWalkBar(): void {
-  const ph = locomotion.walkPhase();
-  const label = ph === "edit" ? "继续走" : ph === "off" && !locomotion.isXR() && vr.isSupported() && !vr.isPresenting() ? "进入 VR" : null;
-  walkBar.hidden = !label;
-  if (label) walkBtn.textContent = label;
+/** 画画工作台里这一刻该露哪颗：start = 这个物件一张画都没有；add = 有画、选中的面里有还没进画的；null = 不露。 */
+function paintPrimary(): "start" | "add" | null {
+  if (!isPaintTool(editor.tool)) return null;
+  const S = editor.sceneRef, def = S.defOfContext(editor.context);
+  if (S.def(def).body.kind !== "mesh") return null;
+  const sel = (editor as unknown as { selection: { kind: string } }).selection, u = { def, sel: sel.kind === "mesh" ? (sel as MeshSelection) : null };
+  if (!latestPaintOf(S, def)) return facesToStart(S, u).length ? "start" : null;
+  return unpaintedSelected(S, u).length ? "add" : null;
 }
-walkBtn.addEventListener("click", () => {
-  if (locomotion.isEditInPlace()) locomotion.resumeWalk();
-  else if (vr.isSupported()) vr.enter();
-});
+const primary = mountPrimaryButton(walkBar, walkBtn, [
+  { id: "walk", loud: false, edits: false, when: () => locomotion.walkPhase() === "edit", label: () => "继续走", press: () => locomotion.resumeWalk() },
+  { id: "paint", loud: true, edits: true, when: () => paintPrimary() !== null, label: () => (paintPrimary() === "add" ? "把这几张面加进来" : "开始画…"), press: () => {
+    if (paintPrimary() === "add") { editor.runAction("mesh.paintAddFaces"); syncUi(); editor.draw(); return; }
+    void pickCanvasSize(editor).then((n) => { if (n === null) return; editor.runAction("mesh.startPaint", { canvas: n, arrange: "patches" }); syncUi(); editor.draw(); });   // 界面发出去的永远带画布和铺法
+  } },
+  { id: "vr", loud: false, edits: false, when: () => locomotion.walkPhase() === "off" && !locomotion.isXR() && vr.isSupported() && !vr.isPresenting(), label: () => "进入 VR", press: () => vr.enter() },
+], () => inputGate.held(), (t) => { hintEl.textContent = t; });
+function syncWalkBar(): void { primary.sync(); }
 // 触屏摇杆（吃鸡式，FM142）：有触屏的设备、FPS 阶段才露
 const touchCtl = new TouchControls(stage, { lookRad: (y, p) => locomotion.lookRad(y, p), editInPlace: () => locomotion.editInPlace(), leave: () => locomotion.exitWalk() });
 locomotion.touch = () => touchCtl.read();
@@ -888,14 +901,7 @@ function deleteAction(): { id: string; label: string; icon?: string; title?: str
 function toolActions(tool: string): { id: string; label: string; title?: string; disabled?: boolean; active?: boolean; onClick(el?: HTMLElement): void }[] {
     // 压平（W-5 2026-11-10 Opus；白模第一批第 2 条：iPad 上不用键盘、不用进手势就能「S X 0」）：缩放工具、没在做手势、右键「压平 ›」这会儿有东西（= 自由建模 + 选了点；放置表管工作台，这里不判 modeId）= 右下角「压平…」，弹的是那同一份
     if (tool === "scale" && !editor.isGestureActive() && submenuItems(hud, "压平").length) return [{ id: "flattenMenu", label: "压平…", title: "把选中的点沿一个方向压平：X / Y / Z / 这圈的朝向，镜像开着时还能压到镜像面（和右键「压平」同一份；一步撤销）", onClick: (el) => { if (el) openSubmenuAt(hud, el, "压平"); } }];
-    // 画画工作台（1-7）：当前物件还没有画（或者选中了没画的面）= 一颗明着的「开始画」；没选东西也露（选区那一段只在有选区时才有）
-    if (isPaintTool(tool)) {   // 画画的三把工具只在画画工作台里有
-      const m = editor.commandMenu().find((x) => x.id === "mesh.startPaint");
-      return m ? [{ id: "startPaint", label: m.label, title: "给这些面铺上一张画：选中了面 = 这些面，没选 = 整个物件；先选画布多大，之后用笔直接画", onClick: () => {
-        if (session.locked()) { editor.runAction("mesh.startPaint"); return; }   // 锁着：照现有规矩（指令自己说为什么不行），不出面板
-        void pickCanvasSize(editor).then((n) => { if (n === null) return; editor.runAction("mesh.startPaint", { canvas: n }); syncUi(); editor.draw(); });   // 开始画时选画布大小（2026-11-11）
-      } }] : [];
-    }
+    // 画画工作台的「开始画…」/「把这几张面加进来」不在这里：上方正中的主按钮（施工单十五第三节；user「马后炮是高级配置，而不是核心工作流步骤」）
     if (tool === "axes") return [{ id: "axesReset", label: "重置坐标架", title: "最外层 = 回到世界；组里 = 回到外面那层的；组件里 = 回到组件原点", onClick: () => { menuPick("axesReset"); } }, ...(editor.hasActableSelection() ? [{ id: "axesToSel", label: "移到选择中心", title: "坐标架原点移到选区的中心（之后右下角可换算法）", onClick: () => { editor.axesToSelectionCenter(); syncUi(); } }] : []), ...(editor.inComponentRoot() ? [{ id: "axesToOrigin", label: "设为组件原点", title: "把组件原点对到现在的坐标架（组件里：几何反挪、每份实例补，世界里不动；最外层：整个模型挪过去，视角跟着平移、屏幕上不动；一步撤销）", onClick: () => { editor.setComponentOriginToFrame(); syncUi(); } }] : [])];   // DT86 user「比起被记住的开关我建议是一个可以随手按一下的按钮」   // user 2026-10-25「轴的context菜单里面没有移动到选择。这个blender里面我天天用」
     if (tool === "tape" || tool === "protractor" || tool === "compass") return [{ id: "guidesClear", label: "删除所有参考几何", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
     if (tool === "transform") {   // 临时变换中心（user 2026-10-26「变换的时候右下角有一个pick pivot选项，然后你可以pick, 用对齐引擎，以及可能的grid」）
@@ -995,6 +1001,7 @@ function onGridPick(id: GridMenuId): "keep" | void {
 function syncNight(): void { document.body.classList.toggle("ui-night", isDarkPaper(PRESETS[editor.renderer3.getPreset()].colors.paper)); }
 function syncUi(): void {
   syncNight();
+  primary.sync();   // 上方正中的主按钮跟着工具 / 选区 / 场景换
   renderSnapWidget();
   renderLockRows();
   refreshMachineBoard();   // 指令板上的数跟着模型变
@@ -2521,7 +2528,7 @@ const paintColorSheet = mountPaintColorSheet({ root: $("paintColorSheet"), grid:
 inputGate.face({ kind: "face", label: "画笔颜色", rank: 502, root: "#paintColorSheet", up: () => paintColorSheet.isOpen(), esc: () => { paintColorSheet.close(); return true; } });
 paintColor.subscribe(() => syncUi());
 // eslint-disable-next-line no-var
-var paintWb: PaintWorkbench | null = new PaintWorkbench({ editor, boards: paintBoards, strokeDeps: (chain) => paintStrokeDeps(chain), gate: (t) => paintStrokeGate(t), color: paintColor, prep: paintPrep, hint: (t) => { hintEl.textContent = t; } });
+var paintWb: PaintWorkbench | null = new PaintWorkbench({ editor, boards: paintBoards, strokeDeps: (chain) => paintStrokeDeps(chain), gate: (t) => paintStrokeGate(t), color: paintColor, prep: paintPrep, flashStart: () => { primary.sync(); primary.flash("paint"); }, hint: (t) => { hintEl.textContent = t; } });
 function paintStrokeGate(texture: string): "warming" | "view-only" | null {
   const st = paintBoards.stateOf(editor.sceneRef, texture);
   if (st === "cold" || st === "warming") {
