@@ -232,8 +232,12 @@ export class MeshKernel {
   private touch(topo: boolean): void { this.rev = ++meshRevClock; this.triCache = null; if (topo) this.adjDirty = true; }
 
   // ---------------- 邻接（派生，O(n) 重建）
+  /** 邻接表整张重建过几次（给测试用：「没多做事」的直接证明，test/mesh-subdivide-golden.test.ts）。 */
+  get adjacencyBuilds(): number { return this.adjBuilds; }
+  private adjBuilds = 0;
   private adjacency(): void {
     if (!this.adjDirty) return;
+    this.adjBuilds++;
     const vs = new Int32Array(this.vCount + 1), ve: number[][] = Array.from({ length: this.vCount }, () => []);
     for (let e = 0; e < this.eCount; e++) if (this.eAlive[e]) { ve[this.edgeA[e]].push(e); ve[this.edgeB[e]].push(e); }
     let total = 0; for (let v = 0; v < this.vCount; v++) { vs[v] = total; total += ve[v].length; } vs[this.vCount] = total;

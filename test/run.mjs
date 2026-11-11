@@ -196,7 +196,8 @@ import "./push-on-leave.test.ts";   // 切走也推 / 点更新先推 / 没推�
 import "./encrypted-byproducts.test.ts";   // 加密件副产品只存密文 + 全部导出（工单 C2，2026-11-03 Opus）
 import "./debug-lines.test.ts";   // 黑匣子文本行（实验台 sunset → 调试日志，2026-09-20）
 import "./object-verbs.test.ts";   // 物件层动词 = 注册表物件族（2026-10-28 Fable 加的，漏登记到 10-29 才补上）
-import "./mesh-nonmanifold.test.ts";   // 非流形 / 重复面护栏（2026-10-29）
+import "./mesh-nonmanifold.test.ts";
+import "./mesh-subdivide-golden.test.ts";   // W-10 细分结果冻成样本 + 不随面数平方涨（2026-11-10 Opus）   // 非流形 / 重复面护栏（2026-10-29）
 import "./test-tiers-guard.test.ts";   // 测试分档守卫：没登记的、测试之间互相 import、探针表（2026-11-10 Opus）
 import { run } from "./runner.mjs";
 // 漏登记守卫挪进了 test/test-tiers-guard.test.ts（2026-11-10 Opus，测试分档：串跑和并行都当一条测试跑）。
