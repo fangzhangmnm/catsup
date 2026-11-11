@@ -328,14 +328,23 @@ export class MeshKernel {
   }
 
   // ---------------- 派生：三角化（约束 Delaunay，format/triangulate.ts），改过才重算
+  /**
+   * 一张面切成哪几个三角形（下标 = 环上的位置，按面自己的绕向；FM130）。**网格体的面切三角形全仓只从这里来**（贴图主线 1-3a 第一节，2026-11-10）：
+   * 内核的 triangles()、导出、屏幕上画的（MeshView.faceTriangles → pool-mesh.ts buildFaceRec）、选中高亮 / OBJ（editor/face-triangles.ts）。
+   * 以前屏幕上那条路用视图的平面自己另切，四点共圆的面（正方形、长方形）两条对角线一样好，两条路可能选得不一样。O(这张面的点数)。
+   */
+  faceTriangles(f: number): [number, number, number][] {
+    if (!this.hasF(f)) return [];
+    const vs = this.faceVerts(f);
+    return vs.length === 3 ? [[0, 1, 2]] : triangulateFace(vs.map((v) => this.pt(v)));
+  }
   triangles(): { tris: Int32Array; faceOfTri: Int32Array } {
     if (this.triCache && this.triCache.rev === this.rev) return this.triCache;
     const tris: number[] = [], of: number[] = [];
     for (let f = 0; f < this.fCount; f++) {
       if (!this.fAlive[f]) continue;
       const vs = this.faceVerts(f);
-      if (vs.length === 3) { tris.push(vs[0], vs[1], vs[2]); of.push(f); continue; }
-      for (const [a, b, c] of triangulateFace(vs.map((v) => this.pt(v)))) { tris.push(vs[a], vs[b], vs[c]); of.push(f); }   // 按面自己的绕向（FM130：以前一半三角形反了）
+      for (const [a, b, c] of this.faceTriangles(f)) { tris.push(vs[a], vs[b], vs[c]); of.push(f); }
     }
     this.triCache = { tris: Int32Array.from(tris), faceOfTri: Int32Array.from(of), rev: this.rev };
     return this.triCache;

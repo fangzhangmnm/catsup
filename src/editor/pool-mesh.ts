@@ -212,7 +212,7 @@ export function buildFaceRec(k: KernelView, fid: FaceId, matOf: (slot: number | 
   });
   const n = rec.plane.n, nOuter = f.outer.vids.length;
   const pn = pts.map((_, i) => (i < nOuter ? fanNormal(k, fid, i) : n));
-  const tris = triangulateRings(pts, rec.plane, outer, holes);
+  const tris = k.faceTriangles?.(fid) ?? triangulateRings(pts, rec.plane, outer, holes);   // 网格体：和内核 / 导出同一份三角形（1-3a 第一节）；硬表面照旧按膜的平面切
   const pos = new Float32Array(tris.length * 9), nor = new Float32Array(tris.length * 9);
   let o = 0;
   for (const [a, b0, c0] of tris) {
