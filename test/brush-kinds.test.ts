@@ -50,7 +50,7 @@ describe("往脏格子位图里记东西只在真画的那段（统筹 11-11）"
   it("update：标的就是要画的那几个 item（上一帧的尾巴 ∪ 新定型的 ∪ 这一帧的尾巴），画的也正是这几个", () => {
     const upd = methodBody(layer, "update");
     for (const pat of [/for \(const r of this\.prevTail\) mark\(r\);/, /for \(const it of newFrozen\) mark\(it\.rect\);/, /for \(const it of tail\) mark\(it\.rect\);/, /this\.prevTail = tail\.map\(\(it\) => it\.rect\);/,
-      /this\.job\.items = \[\.\.\.newFrozen, \.\.\.tail\];/, /this\.draw\(this\.frozen, 0, newFrozen,/, /this\.draw\(this\.frame, newFrozen\.length, tail,/])
+      /for \(const it of newFrozen\) this\.grow\(it\.rect\);/, /for \(const it of tail\) this\.grow\(it\.rect\);/, /this\.drawItems\(this\.frozen, newFrozen, tips\);/, /this\.drawItems\(this\.frame, tail, tips\);/])
       assert(pat.test(upd), `space-layer update 的结构变了（${pat}）：标格和画的还是同一批 item 吗？改了就回来改这条守卫`);
   });
   it("resetFrozen：定型层清掉重画 = 标这一笔碰过的整块", () => {

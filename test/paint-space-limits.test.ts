@@ -96,14 +96,26 @@ describe("画画路径上的容量上限（1-4c）", () => {
     for (const o of [32767, -32768]) { const x = MAX_CANVAS_SIDE - 1 + 0.5 + o / 1024, y = 0.5 + o / 1024; eq(Math.fround(x), x, `最右边一格、偏移 ${o} 份：32 位浮点里正好`); eq(Math.fround(y), y); }
     const over = MAX_CANVAS_SIDE + 0.5 + 32767 / 1024; assert(Math.fround(over) !== over, "再宽一格就不精确了（上限是顶着算的）");
   });
-  it("一帧里笔尖表放不下（显卡每边上限按 WebGL2 保底的 2048 算）：这一帧报人话，不静默少画", () => {
-    const m = gridMesh(2, 1), uv = laidOut(m, "uv", m.faces(), { density: 8 }), g = buildTargetGeo(targetOf(m, { ...uv, width: 16, height: 16 }));
-    const gpu = new SoftSpaceGpu({ maxSize: 2048 }), cap = (2048 * 2048) / 8;   // 每颗 8 个数，2048 行 × 2048（WebGL2 保证每边至少 2048 = 数据图的宽度）
-    const tip: InkTip = { x: 0, y: 0, z: 0, r: 0.1, alpha: 1 }, none = new Map();
-    const L = new SpaceLayer(gpu, g, 0, { hardness: 0.5, color: [1, 1, 1], accum: "max", origin: tip });
-    L.update(Array.from({ length: cap }, () => ({ tip, reach: none })), 0);   // 正好放得下
-    eq(limitSay(() => L.update(Array.from({ length: cap + 1 }, () => ({ tip, reach: none })), 0)), "这一笔画不了：这个物件太大，笔的数据表放不下（面太多，或者这一笔太长）");
-    L.dispose();
+  it("一帧的数据表放不下 = 分几批画（1-4d 第 4 条）：表的上限压到很小，逼出几十批；叠色 / 取最大两种，和一批画完逐字节一样；不取消这一笔", () => {
+    const m = gridMesh(6, 1), uv = laidOut(m, "uv", m.faces(), { density: 24 }), g = buildTargetGeo(targetOf(m, uv));
+    const startOf = (p: { x: number; y: number; z: number }): number => { let b = -1, bd = Infinity; for (let k = 0; k < g.grid.face.length; k++) { const d = sphereTriDist(p.x, p.y, p.z, g.wpos, 9 * k); if (d < bd) { bd = d; b = k; } } return b; };
+    // 一笔斜着走过很多张面，笔尖大到一颗碰好几块（item 多、面单子长）；分两帧：第一帧定型一半、第二帧画剩下的当尾巴
+    const tips = Array.from({ length: 40 }, (_, i) => ({ x: -0.45 + 0.9 * (i / 39), y: -0.4 + 0.8 * (i / 39), z: 0, r: 0.12, alpha: 0.35 + 0.015 * i }) as InkTip);
+    const fresh = tips.map((tip) => ({ tip, reach: tipReach([g], tip, [{ ti: 0, tri: startOf(tip) }]) }));
+    for (const accum of ["over", "max"] as const) {
+      const run = (maxValues?: number) => {
+        const gpu = new SoftSpaceGpu(), L = new SpaceLayer(gpu, g, 0, { hardness: 0.4, color: [0.9, 0.3, 0.1], accum, origin: tips[0], ...(maxValues ? { maxValues } : {}) });
+        L.update(fresh, 20); L.update(fresh.slice(20), 0);
+        const px = gpu.read(L.frame), peak = { ...L.peak }; L.dispose();
+        return { px, peak };
+      };
+      const one = run(), many = run(24);
+      assert(one.peak.batches === 1, `不压上限 = 一批（${one.peak.batches}）`);
+      assert(many.peak.batches >= 10, `上限压到 24 个数：分了 ${many.peak.batches} 批`);
+      let diff = 0, ink = 0; for (let i = 0; i < one.px.length; i++) { if (one.px[i] !== many.px[i]) diff++; if (i % 4 === 3 && one.px[i]) ink++; }
+      eq(diff, 0, `${accum}：分批 = 一批画完，逐字节`);
+      assert(ink > 100, `${accum}：真画上了（${ink} 格有墨）`);
+    }
   });
   it("落成路时一对相邻点的射线有上限（maxRays）：到了 = 剩下的当断开、记进 stats.capped（自动退路，不卡死）", () => {
     const hit = (sx: number) => ({ kind: "target" as const, ti: 0, tri: 0, pos: P(sx, 0, 0), t: 1 });

@@ -140,7 +140,7 @@ export class SpacePaintStroke {
     if (this.finishing) this.layer.resetFrozen();
     const tl = paintMeter.now();   // 每帧的读数：画薄层（CPU 这边交给显卡的时间；1-4d）
     try { this.layer.update(tips, frozenHere); this.peak = { ...this.layer.peak }; paintMeter.add("layer", tl); }
-    catch (err) { this.broken = true; this.cancel(); this.d.failed?.(err); return; }   // 这一帧才知道的上限（一颗笔尖下同一块挂了八张以上的面、一帧的数据表放不下）：这一笔取消、说那句人话（1-7；数据表那条以后改成分批画）
+    catch (err) { this.broken = true; this.cancel(); this.d.failed?.(err); return; }   // 这一帧才知道的上限（一颗笔尖下同一块挂了八张以上的面；一帧的数据表放不下不算——分批画，1-4d 第 4 条）：这一笔取消、说那句人话（1-7；数据表那条以后改成分批画）
     this.drawn += frozenHere;
     const t2 = performance.now();
     // 当帧那张真变过的格子（内核的脏格子位图，薄层直接标的）：报给内核（它只重合这些格）和画板的变化史（显示那一侧只拷这些格）。这一帧什么都没画 = null = 不重合成（1-4d 第 6 条）

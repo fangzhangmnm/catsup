@@ -149,10 +149,10 @@ export const SPACE_TIP: SpaceProgram = {
   },
 };
 
-/** 一维的数折成 DATA_W 宽的数据图。放不下（行数超过显卡每边上限，或超过 MAX_DATA）= 抛 PaintLimitError；what = 这是哪张表（报错用）。 */
+/** 一维的数折成 DATA_W 宽的数据图。放不下（行数超过显卡每边上限，或超过 MAX_DATA）= 抛 PaintLimitError；what = 这是哪张表（报错用）。一帧的表（实例 / 面单子 / 笔尖）不会走到这里抛：drawItems 先按上限分批（1-4d 第 4 条）；会抛的只剩物件自己的面表 / 三角形表。 */
 function pack(gpu: SpaceGpu, values: ArrayLike<number>, what: string): SpaceData {
   const cap = Math.min(DATA_W * gpu.maxSize, MAX_DATA);   // DATA_W = 2048 ≤ 显卡每边上限：WebGL2 保证 MAX_TEXTURE_SIZE ≥ 2048
-  if (values.length > cap) throw new PaintLimitError(`SpaceLayer: ${what} needs ${values.length} values (> ${cap} = min(${DATA_W} x ${gpu.maxSize}, 2^24))`, "这一笔画不了：这个物件太大，笔的数据表放不下（面太多，或者这一笔太长）");
+  if (values.length > cap) throw new PaintLimitError(`SpaceLayer: ${what} needs ${values.length} values (> ${cap} = min(${DATA_W} x ${gpu.maxSize}, 2^24))`, "这一笔画不了：这个物件太大，笔的数据表放不下（面太多）");
   const h = Math.max(1, Math.ceil(values.length / DATA_W)), a = new Float32Array(DATA_W * h);
   a.set(values as ArrayLike<number>);
   return gpu.data(DATA_W, h, a);
@@ -169,6 +169,8 @@ export interface SpaceLayerOpts {
   readonly tables?: FaceTables;
   /** 只在自己建表时用（测试比较用）：表里的位置、笔尖先减去的那一点。不给 = 物件原点 objectOrigin。 */
   readonly origin?: Pt3;
+  /** 一帧的数据表（实例表 / 面单子 / 笔尖表）每张最多多少个数；不给 = 显卡每边上限和 2^24 定的那个。超了 = 分几批画（1-4d 第 4 条）；测试用小的逼出分批。 */
+  readonly maxValues?: number;
 }
 
 /**
@@ -306,8 +308,8 @@ export class SpaceLayer {
   lastMarkMs = 0;
   /** 上一帧尾巴画过的方框（这一帧要还原成定型层的样子：再标一遍）。 */
   private prevTail: (readonly [number, number, number, number])[] = [];
-  /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）。 */
-  readonly peak = { values: 0, table: "", cap: 0 };
+  /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）；batches = 一次画最多分了几批（1-4d 第 4 条）。 */
+  readonly peak = { values: 0, table: "", cap: 0, batches: 0 };
 
   constructor(gpu: SpaceGpu, g: TargetGeo, ti: number, o: SpaceLayerOpts) {
     this.gpu = gpu; this.g = g; this.ti = ti; this.o = o;
@@ -358,14 +360,12 @@ export class SpaceLayer {
     for (const it of tail) mark(it.rect);
     this.prevTail = tail.map((it) => it.rect);
     this.lastMarkMs = performance.now() - tm;
-    this.job.items = [...newFrozen, ...tail];
-    for (const it of this.job.items) this.grow(it.rect);
-    const data = this.perDraw(tips);
-    if (newFrozen.length) this.draw(this.frozen, 0, newFrozen, data, false);
+    for (const it of newFrozen) this.grow(it.rect);
+    for (const it of tail) this.grow(it.rect);
+    if (newFrozen.length) this.drawItems(this.frozen, newFrozen, tips);
     const b = this.bounds;   // 只拷这一笔碰过的那一块（内核只读这一块；当帧那张别处从没写过 = 透明）
     if (b) this.gpu.copy(this.frozen, this.frame, { x: b[0], y: b[1], w: b[2] - b[0], h: b[3] - b[1] });
-    if (tail.length) this.draw(this.frame, newFrozen.length, tail, data, false);
-    for (const d of Object.values(data)) this.gpu.release(d);
+    if (tail.length) this.drawItems(this.frame, tail, tips);
   }
 
   /** 定型层清掉（抬笔时收笔渐细重画整笔用）：下一次 update 从头画。范围留着（只会更大）。 */
@@ -397,27 +397,55 @@ export class SpaceLayer {
     this.bounds = b ? [Math.min(b[0], r[0]), Math.min(b[1], r[1]), Math.max(b[2], r[0] + r[2]), Math.max(b[3], r[1] + r[3])] : [r[0], r[1], r[0] + r[2], r[1] + r[3]];
   }
 
-  /** 这一帧的实例表、笔尖表、面单子（每帧整份重传；条数 = 实例数，小）。 */
-  private perDraw(tips: readonly { readonly tip: InkTip }[]): Record<string, SpaceData> {
-    const inst: number[] = [], flist: number[] = [], tipv = new Float32Array(Math.max(1, tips.length) * TIP_STRIDE), O = this.ft.origin;
-    tips.forEach(({ tip }, i) => { const b = i * TIP_STRIDE; tipv[b] = tip.x - O.x; tipv[b + 1] = tip.y - O.y; tipv[b + 2] = tip.z - O.z; tipv[b + 3] = tip.r; tipv[b + 4] = tip.alpha; });
-    for (const it of this.job.items) {
-      inst.push(it.tipIdx, it.poly, flist.length, it.faces.length);
+  /** 一帧的数据表每张最多多少个数：显卡每边上限和 2^24 定的，SpaceLayerOpts.maxValues 可以再压小（测试）。 */
+  private dataCap(): number { return Math.min(DATA_W * this.gpu.maxSize, MAX_DATA, this.o.maxValues ?? Infinity); }
+
+  /**
+   * 把这些 item 画进 target（1-4d 第 4 条：一帧的数据表放不下 = 分几批画，不再取消这一笔）：按先后切成连续的几批，每批的实例表 / 面单子 / 笔尖表都放得下；
+   * 一批一次 draw、按原来的先后画 = 叠出来和一次画完一样（叠色、取最大都只看先后）。每批的表各自从 0 编号（笔尖表只放这一批用到的那一段笔尖，item 按笔尖排着，是连着的一段）。
+   * 软件版的程序读 job.items（不读数据图）：每批换成这一批、u_first = 0，和显卡那一半对上。一颗 item 自己就放不下 = pack 抛人话（实际碰不到：一颗最多 4 + 8 + 8 个数）。
+   */
+  private drawItems(target: SpaceImage, items: readonly Item[], tips: readonly { readonly tip: InkTip }[]): void {
+    const cap = this.dataCap();
+    let s = 0, batches = 0;
+    while (s < items.length) {
+      const t0 = items[s].tipIdx;
+      let e = s, nInst = 0, nFace = 0;
+      while (e < items.length) {
+        const it = items[e], ni = nInst + 4, nf = nFace + it.faces.length, nt = (it.tipIdx - t0 + 1) * TIP_STRIDE;
+        if (e > s && (ni > cap || nf > cap || nt > cap)) break;
+        nInst = ni; nFace = nf; e++;
+      }
+      const batch = items.slice(s, e), data = this.packBatch(batch, tips, t0);
+      this.job.items = batch;
+      this.draw(target, batch, data);
+      for (const d of Object.values(data)) this.gpu.release(d);
+      s = e; batches++;
+    }
+    if (batches > this.peak.batches) this.peak.batches = batches;
+  }
+
+  /** 一批的实例表、笔尖表、面单子（每批整份传；实例表里的笔尖编号和面单子的起点都从这一批的开头算）。 */
+  private packBatch(batch: readonly Item[], tips: readonly { readonly tip: InkTip }[], t0: number): Record<string, SpaceData> {
+    const inst: number[] = [], flist: number[] = [], nt = batch[batch.length - 1].tipIdx - t0 + 1, tipv = new Float32Array(nt * TIP_STRIDE), O = this.ft.origin;
+    for (let i = 0; i < nt; i++) { const tip = tips[t0 + i].tip, b = i * TIP_STRIDE; tipv[b] = tip.x - O.x; tipv[b + 1] = tip.y - O.y; tipv[b + 2] = tip.z - O.z; tipv[b + 3] = tip.r; tipv[b + 4] = tip.alpha; }
+    for (const it of batch) {
+      inst.push(it.tipIdx - t0, it.poly, flist.length, it.faces.length);
       for (const f of it.faces) flist.push(this.ft.faceSlot.get(f)!);
     }
-    this.peak.cap = Math.min(DATA_W * this.gpu.maxSize, MAX_DATA);
+    this.peak.cap = this.dataCap();
     for (const [n, t] of [[inst.length, "instance table"], [flist.length, "face list"], [tipv.length, "tip table"]] as const) if (n > this.peak.values) { this.peak.values = n; this.peak.table = t; }
     return { u_inst: pack(this.gpu, inst, "instance table"), u_flist: pack(this.gpu, flist, "face list"), u_tips: pack(this.gpu, tipv, "tip table") };
   }
 
-  private draw(target: SpaceImage, first: number, items: readonly Item[], data: Record<string, SpaceData>, clear: boolean): void {
+  private draw(target: SpaceImage, items: readonly Item[], data: Record<string, SpaceData>): void {
     const n = items.length, inst = new Float32Array(n * 4), b = this.bounds!;
     items.forEach((it, k) => inst.set(it.rect, k * 4));
     this.gpu.draw({
-      program: SPACE_TIP.name, target, clear, accum: this.o.accum, instances: inst, count: n,
+      program: SPACE_TIP.name, target, clear: false, accum: this.o.accum, instances: inst, count: n,
       scissor: { x: b[0], y: b[1], w: b[2] - b[0], h: b[3] - b[1] },
       data: { ...this.fixed, ...data },
-      uniforms: { u_size: [target.w, target.h], u_first: first, u_hardness: this.o.hardness, u_color: [...this.o.color], u_job: this.jobId },
+      uniforms: { u_size: [target.w, target.h], u_first: 0, u_hardness: this.o.hardness, u_color: [...this.o.color], u_job: this.jobId },
     });
   }
 }

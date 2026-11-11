@@ -3,6 +3,7 @@
 // 「画上了没有」读的是显示图（画板合成之后拷进来的那张）：屏幕点 → 1-3a 的落点（cellAt）→ 那一格的字节。
 // ① 过缝不断：从顶面走过棱、下到侧面（两张面在画布上不挨着）；沿屏幕上的路逐像素查，挨着棱的那几个像素也要有墨。
 // ② 预览 = 结果：抬笔前最后一帧的显示图 = 落层之后的显示图（逐字节；收笔渐细为 0）。
+// ⑩ 分批画（1-4d 第 4 条）：一帧的数据表压小逼出很多批，真显卡上 = 一批画完（逐字节，取最大 / 叠色）。
 // ③ 橡皮：先画一道，再用橡皮横着擦过：擦过的格子回到画之前的样子（差 ≤ 2），没擦到的那一段还在。
 // ④ 取消：显示图逐字节不变、撤销栈没多一步。
 // ⑤ 换手归位：三维的显卡接口画一笔之后，显卡状态回到 WebGL 的初始值（混合、裁剪、深度、剔除、模板、帧缓冲、程序、VAO、贴图单元和绑定、顶点缓冲、上传开关）
@@ -292,6 +293,14 @@ for (const density of [100, 260]) {
     o.alpha = PTS.map((p) => { const s = T.scr(P(p.x, p.y, 1)), h = C.paint.cellAt(T.guid, s.x, s.y); if (!h || !h.cell) return null; return px[(h.cell[1] * T.W + h.cell[0]) * 4 + 3] / 255; });
     o.cellM = 1 / T.pxPerM;
     lay.dispose();
+    // ⑩ 分批画（1-4d 第 4 条）：同一串笔尖两帧（第一帧全当尾巴画、第二帧全定型），数据表上限压到 8 个数（差不多一颗 item 一批）vs 一批画完，真显卡上逐字节一样（取最大、叠色各一次）
+    o.batches = [];
+    for (const accum of ["max", "over"]) {
+      const runB = (maxValues) => { const l2 = new L.SpaceLayer(gl, geo, 0, { hardness, color: [0.9, 0.3, 0.1], accum, origin: tips[0].tip, ...(maxValues ? { maxValues } : {}) }); l2.update(tips, 0); l2.update(tips, tips.length); const p = gl.read(l2.frame), b = l2.peak.batches; l2.dispose(); return { p, b }; };
+      const one = runB(), many = runB(8);
+      let diff = 0, ink = 0; for (let i = 0; i < one.p.length; i++) { if (one.p[i] !== many.p[i]) diff++; if (i % 4 === 3 && one.p[i]) ink++; }
+      o.batches.push({ accum, one: one.b, many: many.b, diff, ink });
+    }
     return o;
   }, { density, TIPS, PTS }));
   await page.close();
@@ -302,6 +311,7 @@ await browser.close();
   let n = 0, worst = 0, over = 0;
   for (let i = 0; i < PTS.length; i++) { const a = A.alpha[i], b = B.alpha[i]; if (a === null || b === null) continue; n++; const d = Math.abs(a - b); worst = Math.max(worst, d); if (d > bound) over++; }
   out.layouts = { boards: layouts.map((l) => l.board), maxdTruth: layouts.map((l) => l.maxdTruth), inked: layouts.map((l) => l.inked), points: n, worst: +worst.toFixed(4), bound: +bound.toFixed(4), over };
+  out.batches = layouts.flatMap((l) => l.batches);
 }
 
 console.log(JSON.stringify(out, null, 1));
@@ -316,6 +326,7 @@ const checks = {
   "⑦ 斜面线宽": s.slope.diffCells <= 1,
   "⑧ 镜像": s.mirror.sharedPolys > 0 && Object.values(s.mirror.seamTruth).every((q) => q.maxd <= 1 && q.inked > 50 && q.tipsWithBothHalves > 0) && s.mirror.ink.rightDark === s.mirror.ink.right && s.mirror.ink.leftDark === s.mirror.ink.left && s.mirror.ink.left > 50 && s.mirror.landing.left.bad === 0 && s.mirror.landing.right.bad === 0 && s.mirror.landing.left.ok > 100 && s.mirror.landing.right.ok > 100,
   "⑨ 换铺法": s.layouts.maxdTruth.every((d) => d <= 1) && s.layouts.over === 0 && s.layouts.points > 400,
+  "⑩ 分批画 = 一批画完（真显卡，逐字节）": s.batches.length === 4 && s.batches.every((b) => b.one === 1 && b.many >= 4 && b.diff === 0 && b.ink > 50),
 };
 for (const [k, v] of Object.entries(checks)) console.log(`${v ? "✓" : "✗"} ${k}`);
 console.log(`截图（⑥，只看一眼）：${out.shots.join("  ")}`);

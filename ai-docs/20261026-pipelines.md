@@ -674,9 +674,10 @@ SpaceStroke（paint/space-stroke.ts；目标名单 + 相机两个函数 + 内核
        取新笔尖：SpaceStroke.tips(已定型画过的颗数) → 只给没画过的那几颗算碰到哪些三角形（tip-reach）
        SpaceLayer.update(新给的, 这一帧定型的颗数)（paint/space-layer.ts，三维自己的显卡接口 OffscreenGpu）
          每颗笔尖 × 它碰到的每块画布多边形 = 一个实例；实例方块 = tipUvBox（球心投到每个三角形平面上的贴图坐标 ± 半径 / smin）放块边一圈、夹进多边形
-         上传这一帧的实例表 / 笔尖表 / 面单子（R32F 数据图，用完放掉）
          新定型的画进定型层（只画一次）→ 定型层拷到当帧那张（只拷这一笔碰过的范围）→ 尾巴画在当帧那张上
-         程序 SPACE_TIP 一对：GLSL（每格查 RG16UI 紧凑表 u_cell：画布多边形 + 块边取样点表 u_samp 的号）/ JavaScript = 1-4a 标准答案 tipCellsInPoly
+           每次画（drawItems）：按先后切成连续的几批，每批的实例表 / 笔尖表 / 面单子（R32F 数据图，各自从 0 编号，笔尖表只放这一批用到的那一段）都放得下上限，
+           一批一次 draw（先后不变 = 叠出来一样）、用完放掉；一般一批（v0.19.40 起，1-4d 第 4 条：以前放不下 = 取消这一笔）
+         程序 SPACE_TIP 一对：GLSL（每格查 RGBA16UI 每格的表 u_cell：画布多边形 + 取样点偏移，1-4c 起；块边取样点表 u_samp 退役）/ JavaScript = 1-4a 标准答案 tipCellsInPoly（读 job.items = 这一批）
        交给档口：StrokeSession("host").setHostLayers([当帧那张经 wrapExternal 包成内核的纹理对象，范围])
   ③ 合成：每块画板 compose（内核 GLBoard.composite 把档口的薄层垫在那一层上）→ 内容变了 = touched → renderer.resetState()
 → 渲染器问活的图 → 拷进显示图（1-3c）→ three 画一帧
