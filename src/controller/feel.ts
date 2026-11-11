@@ -96,3 +96,9 @@ export const MOD_PEEK_MS = 450;
 // 没搬进来、留在各自模块里的连续量（它们是别的深模块自己的表，这里只是索引）：
 //   触屏摇杆 player/touch-stick.ts STICK（CSS px / 比例）+ TOUCH_LOOK_RAD_PER_PX；步行转头 app/locomotion.ts LOOK_SENS（rad / px）；
 //   顶点小点 / 线宽 render3.ts（设备像素）；吸附候选的层级权重 solver.ts TIER_EPS / TIER_DIST（无量纲，偏路由）。
+
+// ---------- 锁面拖动（白模 W-13，2026-11-11 Claude Opus 5.5；controller/lock-drag.ts）----------
+/** 光标射线和锁着的面的夹角余弦不大于它 = 视线贴着面：不用交点、退回投影（≈ 2.9°；和硬表面 editor.ts lockToPlane 的 0.05 同一个数）。无量纲。 */
+export const LOCK_GRAZE_COS = 0.05;
+/** 锁面拖动一下最远走多少：几个画面高（在抓住的点那个深度、垂直于按下那条射线量）。 */
+export const LOCK_DRAG_MAX_SCREENS = 10;

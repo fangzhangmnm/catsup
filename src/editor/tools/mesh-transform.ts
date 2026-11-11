@@ -23,6 +23,8 @@ import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import { BoxDrag, adoptPress, clickSelect, pressTarget, selectionTarget, type Target } from "./selecting.ts";
 import { type Grip, MeshHandles } from "./mesh-handles.ts";
 import type { ViewState } from "../view-state.ts";
+import { dragDelta, dragMaxLen } from "../../controller/lock-drag.ts";
+import { grabPointOn } from "./mesh-grab.ts";
 
 export type MeshXformKind = "move" | "rotate" | "scale" | "normal" | "transform";   // normal = 沿法线移动（Blender Shrink / Fatten；工具 id shrink）；transform = 变换（三家把手一起，这一下做哪种看抓的哪个把手）
 type XformOp = Exclude<MeshXformKind, "transform">;
@@ -46,7 +48,8 @@ export class MeshTransformTool implements ToolHandler {
   private adopt: Target["adopt"] | null = null;
   private base = new Map<number, Pt3>();   // 按下那一刻的本地坐标
   private pivotW: Pt3 | null = null;         // 轴心（世界）
-  private grabW: Pt3 | null = null;          // 按下处在过轴心的相机平面上的点（世界）
+  private grabW: Pt3 | null = null;          // 抓住的点 P0（世界；W-13：按在要动的元素上 = 那上面的点，否则 = 按下处在过轴心的相机平面上的点）
+  private r0: { origin: Pt3; dir: Pt3 } | null = null;   // 按下时光标的射线（W-13）
   private start: { x: number; y: number } | null = null;
   private cur: { x: number; y: number } | null = null;
   private shift = false;
@@ -128,7 +131,8 @@ export class MeshTransformTool implements ToolHandler {
     let c0 = { x: 0, y: 0, z: 0 };
     for (const v of vids) { const p = m.pt(v); this.base.set(v, p); c0 = add3(c0, p); }
     this.pivotW = applyPt(X, scale3(c0, 1 / vids.length));
-    this.grabW = this.onPlane(ctx, ev.x, ev.y) ?? this.pivotW;
+    this.r0 = ctx.frame().ray(ev.x, ev.y, ctx.vp());   // W-13：按下时光标的射线 + 抓住的点 P0（按在要动的点 / 边 / 面上 = 那上面的点；否则 = 原来的参考点）
+    this.grabW = grabPointOn(ctx, ev.x, ev.y, new Set(vids)) ?? this.onPlane(ctx, ev.x, ev.y) ?? this.pivotW;
     this.rails = null; this.railPick = null;
     if (this.op === "move") {   // 沿边滑的候选边：每个被挪的点连出去、另一头不在被挪的点里的边（Blender Edge / Vertex Slide 的「轨道」）
       const moving = new Set(vids), rails = new Map<number, number[]>();
@@ -197,17 +201,21 @@ export class MeshTransformTool implements ToolHandler {
       if (r) return r;
     }
     if (this.op === "move") {
-      const now = this.onPlane(ctx, s1.x, s1.y) ?? grab;
-      let d = this.snapT && this.handleW ? sub3(this.snapT.p, this.handleW) : sub3(now, grab);   // 吸附：抓住的点落到目标上
-      if (ax) d = scale3(ax, dot3(d, ax));             // 锁轴：投到轴上（贴近视线 = 变慢，FM18）
-      else if (pn) d = sub3(d, scale3(pn, dot3(d, pn)));   // 锁面：去掉法向分量
+      let d: Pt3, lockNote = "";
+      if (this.snapT && this.handleW) {   // 吸附：抓住的点落到目标上，再按锁投影（锁轴 = 投到轴上；锁面 = 去掉法向分量）
+        d = sub3(this.snapT.p, this.handleW);
+        if (ax) d = scale3(ax, dot3(d, ax)); else if (pn) d = sub3(d, scale3(pn, dot3(d, pn)));
+      } else {   // W-13：两条光标射线 → 位移（锁面 = 交「过 P0、法向 n 的平面」，抓住的点跟手；锁轴 = FM18 投影；controller/lock-drag.ts）
+        const r = dragDelta(this.r0!, ctx.frame().ray(s1.x, s1.y, ctx.vp()), grab, { axis: ax, plane: pn }, this.maxLen(ctx, grab));
+        d = r.d; lockNote = r.graze ? "（视线快贴着锁着的面：按投影走）" : r.clamped ? "（离得太远：夹住了）" : "";
+      }
       if (typed !== null) {   // 打了数 = 沿锁着的轴走这么长；没锁 = 沿目前拖出来的方向（锁面 = 面内那个方向）；还没方向 = 等你锁轴或拖一下
         const dir = ax ?? (len3(d) > 1e-9 ? normalize3(d) : null);
         if (!dir) return { moves: new Map(this.base), dims: `打数 ${fmtLen(Math.abs(typed))}：先锁一个轴（X / Y / Z）或者拖出个方向` };
         d = scale3(dir, typed);
       }
       fW = (p) => add3(p, d);
-      dims = `移动 ${fmtLen(len3(d))}${tag}${this.snapT ? `（吸到${this.snapT.kind === "endpoint" ? "点" : this.snapT.kind === "origin" ? "原点" : this.snapT.kind === "on-edge" ? "边" : this.snapT.kind.startsWith("axis-") ? `${this.snapT.kind.slice(5).toUpperCase()} 轴` : "面"}上）` : ""}`;
+      dims = `移动 ${fmtLen(len3(d))}${tag}${lockNote}${this.snapT ? `（吸到${this.snapT.kind === "endpoint" ? "点" : this.snapT.kind === "origin" ? "原点" : this.snapT.kind === "on-edge" ? "边" : this.snapT.kind.startsWith("axis-") ? `${this.snapT.kind.slice(5).toUpperCase()} 轴` : "面"}上）` : ""}`;
     } else {
       const vp = ctx.vp(), ps = ctx.frame().project?.(pivot, vp);
       if (!ps) return null;
@@ -306,6 +314,11 @@ export class MeshTransformTool implements ToolHandler {
     ctx.hint(`${verb}了 ${n} 个点（${r.dims}）`);
   }
 
+  /** 锁面拖动一下最远走多少（画面上缘 / 下缘、和 P0 同一列的两条射线；controller/lock-drag.ts dragMaxLen）。 */
+  private maxLen(ctx: ToolCtx, p0: Pt3): number {
+    const vp = ctx.vp(), ps = ctx.frame().project?.(p0, vp);
+    return ps ? dragMaxLen(this.r0!, ctx.frame().ray(ps.x, 0, vp), ctx.frame().ray(ps.x, vp.h, vp), p0) : Infinity;
+  }
   private verb(): string { return this.op === "move" ? "移动" : this.op === "rotate" ? "旋转" : this.op === "normal" ? "沿法线移动" : "缩放"; }   // 两字词，和硬表面对齐（user 10-27）
   /** 屏幕点 → 过轴心、垂直于视线的平面上的点（世界）。不用 pick.ts cameraPlane：那个是「最朝向镜头的轴平面」（SU 画图用），等轴视角下是地面，锁 Z 就挪不动了。 */
   private onPlane(ctx: ToolCtx, x: number, y: number): Pt3 | null {
