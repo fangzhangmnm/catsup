@@ -64,6 +64,8 @@ export declare class SpaceStroke {
     private feed;
     /** 现在的路（没开始 = null）。 */
     path(): SpacePath | null;
-    /** 现在的笔尖列表，每颗带着碰到哪些三角形。 */
-    tips(): SpaceTip[];
+    /** 现在的笔尖列表（从第 from 颗起；前面的不算碰到哪些三角形——定型画过的不再算，1-4b「每帧只随新增的笔尖涨」），每颗带着碰到哪些三角形。 */
+    tips(from?: number): SpaceTip[];
+    /** 现在有几颗笔尖（只数，不算碰到哪些三角形）。 */
+    tipCount(): number;
 }

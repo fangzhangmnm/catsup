@@ -20,13 +20,17 @@ function pooled(port, room, px) { const t = port.createTexture(); port.uploadTex
 const hostOv = (tex, layerId) => ({ kind: "host", tex, ...BB, layerId, opacity: 1, erase: false, blendMode: "source-over", lockAlpha: false, selMask: null });
 function bake(port, tex) {
   const room = new GlRoom(port, 64), raster = new RasterService(room), lp = new LayerPixels(W, H); lp.putRegion(0, 0, W, H, base());
-  const ok = raster.bakeStamps(1, lp, hostOv(tex, 1), W, H, (px, x, y, w, h) => lp.applyRegionDiff(x, y, w, h, px));
-  assert(ok, "落层成功"); const out = lp.getRegion(0, 0, W, H); lp.dispose(); return out;
+  try {
+    const ok = raster.bakeStamps(1, lp, hostOv(tex, 1), W, H, (px, x, y, w, h) => lp.applyRegionDiff(x, y, w, h, px));
+    assert(ok, "落层成功"); return lp.getRegion(0, 0, W, H);
+  } finally { lp.dispose(); }
 }
 function compose(port, tex) {
   const board = new GLBoard(port, 64), lp = new LayerPixels(W, H); lp.putRegion(0, 0, W, H, base());
-  const f = board.composite({ layers: [{ isGroup: false, id: 1, opacity: 1, mode: "source-over", clippingMask: false, visible: true, pixels: lp }], width: W, height: H }, "#ffffff", [], [hostOv(tex, 1)]);
-  return port.readPixels(f, 0, 0, W, H);
+  try {
+    const f = board.composite({ layers: [{ isGroup: false, id: 1, opacity: 1, mode: "source-over", clippingMask: false, visible: true, pixels: lp }], width: W, height: H }, "#ffffff", [], [hostOv(tex, 1)]);
+    return port.readPixels(f, 0, 0, W, H);
+  } finally { lp.dispose(); }   // 图块句柄还回去（漏检门：每次合成一个，不还 = 漏）
 }
 const same = (a, b) => { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
 

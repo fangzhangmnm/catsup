@@ -1,13 +1,11 @@
 import type { LiveImage, StreamFrame, StreamProvider, StreamQuery, Vec3 } from "../minccino/index.ts";
 import { type WorldView } from "../scene/world-view.ts";
-import { type Scene } from "../scene/scene.ts";
 import type { MarkLayout } from "./highlight.ts";
 /**
- * 画板登记处在编辑器这边看到的样子（贴图主线 1-3c；实现 = src/paint/boards.ts，编辑器不认识画画内核）。
- * sync = 每次拉流之前：跟着场景改画板大小、换了文件全部销毁；board = 这张贴图的画板（实际宽高 + 活的图）；sig = 有哪些画板、多大（变了 = 用到画的池整份重建）。
+ * 画板登记处在编辑器这边看到的样子（贴图主线 1-3c；实现 = src/paint/boards.ts，编辑器不认识画画内核）。只读：改大小、合成都在每帧开画之前的「准备」里（1-4b 统筹 B）。
+ * board = 这张贴图的画板（实际宽高 + 活的图）；sig = 有哪些画板、多大（变了 = 用到画的池整份重建）。
  */
 export interface PaintImages {
-    sync(scene: Scene): void;
     board(texture: string): {
         readonly width: number;
         readonly height: number;

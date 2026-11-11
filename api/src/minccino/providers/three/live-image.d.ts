@@ -12,7 +12,7 @@ export declare class LiveTextures {
     get size(): number;
     /** 这张活的图在 three 那边的贴图（同一张图永远是同一个对象）。还没拷过 = 指着空（three 绑 null = 黑；第一帧 update 就拷上）。 */
     textureFor(img: LiveImage): unknown;
-    /** 每帧开画之前：挨个问 current()，版本变了的拷进显示图。返回 true = 动过显卡（调用的人 resetState 一次）。一张都没有 = 什么都不做。 */
+    /** 画的时候：挨个问 current()（只读准备好的），版本变了的拷进显示图。返回 true = 拷过（调用的人 resetState 一次）。一张都没有 = 什么都不做。 */
     update(): boolean;
     /** 不再用的图：放掉显示图。 */
     drop(img: LiveImage): void;

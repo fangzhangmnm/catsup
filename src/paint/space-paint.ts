@@ -9,7 +9,7 @@ import type { SpaceGpu, SpaceImage } from "./space-gpu.ts";
 import type { PaintBoards } from "./boards.ts";
 import type { PaintBoard } from "./board.ts";
 import type { PaintTarget } from "./space-target.ts";
-import type { ResolvedBrush } from "./kernel/src/common/resolved-brush.ts";
+import { resolveBrush, type ResolvedBrush } from "./kernel/src/common/resolved-brush.ts";
 import type { ExternalTexture } from "./kernel/src/common/gl2-port.ts";
 import type { StrokeSession } from "./kernel/src/backend/stroke-session.ts";
 import type { InkTip } from "./tip-truth.ts";
@@ -35,6 +35,11 @@ export interface SpacePaintOpts {
 }
 
 const registered = new WeakSet<SpaceGpu>();
+
+/** 调试钩子 / 探针用的一支笔：屏幕上 size 像素、间距 0.1、浓度 1、不随压感变、没有起笔渐细（收笔渐细按 taperOut）。笔刷设置的界面是后面的施工单。 */
+export function hookBrush(o: { readonly size?: number; readonly hardness?: number; readonly taperOut?: number }): ResolvedBrush {
+  return { ...resolveBrush({ size: o.size ?? 20, color: "#000000" }), spacing: 0.1, flow: 1, opacity: 1, sizeCoeff: 0, flowCoeff: 0, opaCoeff: 0, pressureGamma: 1, pressureLPF: 0, taperIn: 0, taperOut: o.taperOut ?? 0, streamline: 0, stabilization: 0, hardness: o.hardness ?? 0.5 } as ResolvedBrush;
+}
 
 export class SpacePaintStroke {
   private readonly d: SpacePaintDeps;

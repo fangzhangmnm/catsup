@@ -139,7 +139,7 @@ export class GlOffscreenGpu implements OffscreenGpu {
   }
 
   /** 真显卡版独有：离屏图的贴图句柄（交给画画内核的 wrapExternal）。 */
-  texture(img: OffscreenImage): WebGLTexture { return (img as GlImage).tex; }
+  glTexture(img: OffscreenImage): WebGLTexture { return (img as GlImage).tex; }
 
   /** 显卡画面丢了：原始 GL 对象全死了，忘掉（程序要重新登记、图要重建；调用的人负责）。 */
   lost(): void { this.programs.clear(); this.vao = null; this.quad = null; this.instBuf = null; }

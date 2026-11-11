@@ -2,7 +2,7 @@
   "about": "Paint kernel copied verbatim from WeebPaint by scripts/pull-paint-kernel.sh. Do not edit here: change it in WeebPaint, then pull again. test/paint-kernel-guard.test.ts checks every hash.",
   "source": {
     "repo": "WeebPaint",
-    "commit": "65cfa18ddca2efed2e39f18487ba011adb2581ca",
+    "commit": "0989e761ab1554a8dd2a953e9e8211fd0dff5970",
     "version": "v0.14.75-2026-11-11"
   },
   "files": {
@@ -128,7 +128,7 @@
     "test/gpu-tile-pool.test.mjs": "a0125aa5f0693f7ede3d8c17965c7ec748e58620da64b6fe565d6923f12d451c",
     "test/helpers.mjs": "9edb23329886c525fed226d55aafbe32a331da9c10d23ef3393a786e941b5864",
     "test/history.test.mjs": "f1bfad97f862f4007b47e3f18f3452f0887749865357876d54d8bc21b630cbcb",
-    "test/host-external.test.mjs": "a5ead2aa937b4fcf546b2027af7657c9f700b8c5492ba1523ffe492d85353401",
+    "test/host-external.test.mjs": "a69828840d6509efde35783bd1e1723e48d47df1b9f6e8f1272528ced9464c13",
     "test/host-overlay.test.mjs": "0a8aa8b6bbd76830c93e9d55eacd5092103a87e9558c879a4da11b00a205e86d",
     "test/hosted-steps.test.mjs": "9f17e687ff0ee209eb266d458e89620361ed46bf0f017cc148eb60899810ada7",
     "test/kernel-shim.mjs": "dcf663ec7e7cebcc1c07e5f3d8002b12baf04b615de90c0d7600b8c119d46f19",

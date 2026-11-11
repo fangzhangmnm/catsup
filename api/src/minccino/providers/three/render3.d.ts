@@ -1,5 +1,6 @@
 import type { RenderProvider, MarkAccent, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput } from "../../index.ts";
 import { type BudgetReport, type Measurement, type StreamProvider, type View, type ViewportSize } from "../../index.ts";
+import { GlOffscreenGpu } from "./offscreen-gpu-gl.ts";
 import { type PerfSink } from "../../perf.ts";
 import { type PresetId, type ScreenId } from "../../preset/index.ts";
 export declare class Renderer3 implements RenderProvider {
@@ -195,6 +196,9 @@ export declare class Renderer3 implements RenderProvider {
     paintGl(): WebGL2RenderingContext | null;
     /** 内核动过显卡了：three 作废自己缓存的状态。 */
     resetPaintState(): void;
+    private offscreen;
+    /** 画进离屏图的小显卡接口（契约 RenderProvider.offscreenGpu）：第一次要的时候建；画面丢了忘掉原始 GL 对象（程序和图由用的人重建）。 */
+    offscreenGpu(): GlOffscreenGpu | null;
     /** 探针：上一次拷活的图花了多少毫秒；现在登记着几张。 */
     liveStats(): {
         images: number;

@@ -10,6 +10,8 @@ export interface PaintBoardsOpts {
     readonly epoch: () => number;
     /** 调试日志（有内容的行不砍时记一笔）。 */
     readonly log?: (msg: string) => void;
+    /** 准备里动过显卡（合成了）：通知渲染器作废它的状态缓存。 */
+    readonly touched?: () => void;
 }
 export declare class PaintBoards {
     private readonly entries;
@@ -23,7 +25,19 @@ export declare class PaintBoards {
     guids(): Guid[];
     /** 给这张画建一块空白的画板（已经有了 = 原样返回）。不是画（贴图表里没有、不是分层的、材质不指它、定义里没那一套坐标）= 抛。 */
     ensure(scene: Scene, texture: Guid): PaintBoard;
-    /** 每次拉流之前（PaintImages.sync）：换文件全销毁；画没了的销毁；其余跟着坐标改大小、垫底色。 */
+    /** 这一帧的准备活（这一笔的薄层：画、交给档口），prepare 里在合成之前跑。返回撤掉。 */
+    onPrepare(job: () => void): () => void;
+    private readonly jobs;
+    /** 每帧开画之前的准备（编辑器的 beforeRender 调）：sync → 这一帧的准备活 → 合成。一块画板都没有 = 什么都不做。 */
+    prepare(scene: Scene): void;
+    /** 上一次「准备」两段（量；毫秒）：这一帧的准备活（薄层）/ 内核合成（含缩小图）。 */
+    lastPrepare: {
+        jobsMs: number;
+        composeMs: number;
+    };
+    /** 只给量的时候用（探针）：每段前后等显卡把活做完，量到的才是显卡真花的时间。平时 null。 */
+    measureSync: (() => void) | null;
+    /** 换文件全销毁；画没了的销毁；其余跟着坐标改大小、垫底色（prepare 的第一步；测试也直接调）。 */
     sync(scene: Scene): void;
     board(texture: Guid): {
         readonly width: number;
@@ -37,4 +51,4 @@ export declare class PaintBoards {
     private resig;
 }
 /** 浏览器里：内核的显卡接口建在渲染器的画面上（整个程序一个）。 */
-export declare function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void): PaintBoards;
+export declare function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void, touched?: () => void): PaintBoards;

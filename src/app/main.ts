@@ -79,9 +79,9 @@ import { SpaceLayer, SPACE_TIP } from "../paint/space-layer.ts";
 import { SoftSpaceGpu } from "../paint/space-gpu-soft.ts";
 import { buildTargetGeo } from "../paint/space-target.ts";
 import { tipReach, sphereTriDist } from "../paint/tip-reach.ts";
+import { strokeTruth8 } from "../paint/tip-truth.ts";
 import { paintTargets } from "../paint/paint-targets.ts";
-import { SpacePaintStroke } from "../paint/space-paint.ts";
-import { resolveBrush } from "../paint/kernel/src/common/resolved-brush.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
+import { SpacePaintStroke, hookBrush } from "../paint/space-paint.ts";
 import { PALETTE, PRESETS, PRESET_IDS, isPresetId, isDarkPaper, SCREENS, SCREEN_IDS, isScreenId, type Preset, type MarkAccent } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
 import { makeBudgetWatch } from "./budget-notice.ts";
 import { KEYS_TABLE, README_SECTIONS } from "./readme-docs.ts";
@@ -2437,15 +2437,15 @@ void (async () => {
     list: () => paintBoards.guids().map((g) => ({ guid: g, width: paintBoards.get(g)!.width, height: paintBoards.get(g)!.height })),
     stats: () => (editor.renderer3 as unknown as { liveStats(): { images: number; copyMs: number } }).liveStats(),
     /** 一整笔（贴图主线 1-4b；探针用）：屏幕点（CSS 像素）→ 1-4a 控制器 → 薄层（真显卡）→ 档口；每一点画一帧（准备在 draw 里）；cancel = 取消。第一笔时建画板。 */
-    stroke: (o: { guid?: string; points: readonly { x: number; y: number; p?: number }[]; size?: number; hardness?: number; color?: readonly number[]; accum?: "max" | "over"; erase?: boolean; cancel?: boolean; taperOut?: number; measure?: boolean }) => {
+    stroke: (o: { guid?: string; points: readonly { x: number; y: number; p?: number }[]; size?: number; hardness?: number; color?: readonly number[]; accum?: "max" | "over"; erase?: boolean; cancel?: boolean; taperOut?: number; measure?: boolean; beforeUp?: () => void }) => {
       const S = editor.sceneRef, g = o.guid ?? [...S.textures.keys()].find((t) => paintPlaceOf(S, t));
       if (!g) throw new Error("no placed paint in this scene");
-      const cam = editor.cam, gpu = editor.renderer3.offscreenGpu() as unknown as { texture(img: unknown): WebGLTexture } | null;
-      const brush = { ...resolveBrush({ size: o.size ?? 20, color: "#000000" }), spacing: 0.1, flow: 1, opacity: 1, sizeCoeff: 0, flowCoeff: 0, opaCoeff: 0, pressureGamma: 1, pressureLPF: 0, taperIn: 0, taperOut: o.taperOut ?? 0, streamline: 0, stabilization: 0, hardness: o.hardness ?? 0.5 };
+      const cam = editor.cam, gpu = editor.renderer3.offscreenGpu() as unknown as { glTexture(img: unknown): WebGLTexture } | null;
+      const brush = hookBrush(o);
       const st = new SpacePaintStroke({
         boards: paintBoards, scene: () => editor.sceneRef, gpu: () => editor.renderer3.offscreenGpu(),
         targets: (t) => { const b = paintBoards.get(t)!; return paintTargets(editor.worldGeom(), editor.sceneRef, t, { width: b.width, height: b.height }); },
-        external: (img) => ({ gl: gpu!.texture(img) }),
+        external: (img) => ({ gl: gpu!.glTexture(img) }),
         camera: () => ({
           ray: (sx, sy) => cam.ray(sx, sy, editor.vp()),
           pixelSize: (p) => { const vp = editor.vp(); if (cam.projection !== "persp") return (2 * cam.halfH) / vp.h; const e = cam.eye(), f = cam.forward(), d = (p.x - e.x) * f.x + (p.y - e.y) * f.y + (p.z - e.z) * f.z; return (2 * Math.tan(cam.fovY / 2) * d) / vp.h; },
@@ -2465,13 +2465,14 @@ void (async () => {
         if (o.measure) frames.push({ moveMs: b - a, drawMs: performance.now() - b, tips: st.tipCount(), ...st.lastFrame, gpuLayerMs: paintBoards.lastPrepare.jobsMs - st.lastFrame.tipsMs - st.lastFrame.hostMs, composeMs: paintBoards.lastPrepare.composeMs, copyMs: R3.liveStats().copyMs });
       });
       const range = st.range(), tips = st.tipCount(), buildMs = st.buildMs;
+      o.beforeUp?.();   // 探针：抬笔前最后一帧的样子（预览 = 结果）
       const u0 = performance.now();
       if (o.cancel) st.cancel(); else st.up();
       editor.draw();
       if (o.measure) { sync(); paintBoards.measureSync = null; }
       return { guid: g, tips, range, ...(o.measure ? { frames, buildMs, upMs: performance.now() - u0, up: st.lastUp } : {}) };
     },
-    lab: { SpaceLayer, SPACE_TIP, SoftSpaceGpu, buildTargetGeo, tipReach, sphereTriDist, gpu: () => editor.renderer3.offscreenGpu(), targets: (guid: string) => { const b = paintBoards.get(guid); return b ? paintTargets(editor.worldGeom(), editor.sceneRef, guid, { width: b.width, height: b.height }) : []; } },
+    lab: { SpaceLayer, SPACE_TIP, SoftSpaceGpu, buildTargetGeo, tipReach, sphereTriDist, strokeTruth8, gpu: () => editor.renderer3.offscreenGpu(), targets: (guid: string) => { const b = paintBoards.get(guid); return b ? paintTargets(editor.worldGeom(), editor.sceneRef, guid, { width: b.width, height: b.height }) : []; } },
     /** 屏幕上一点（CSS 像素）按 1-3a 的落点落在这张画的哪一格（探针拿它和屏幕上读到的颜色对）；只看摆在最外层的那一份。 */
     cellAt: (guid: string, sx: number, sy: number) => {
       const S = editor.sceneRef, place = paintPlaceOf(S, guid), body = place ? S.def(place.def).body : null;

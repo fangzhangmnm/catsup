@@ -13,6 +13,7 @@
   { "when": ["src/editor/move/"], "probes": ["probe-move-copy.mjs", "probe-move-grid.mjs", "probe-twin-preview.mjs"], "why": "移动 / 复制" },
   { "when": ["src/editor/modes/"], "probes": ["probe-mesh-workbench.mjs", "probe-workbench-cross.mjs", "probe-reload-mode.mjs", "probe-surface.mjs"], "why": "工作台 / 模式" },
   { "when": ["src/editor/*"], "probes": ["probe-undo-session.mjs", "probe-undo-fuzz.mjs", "probe-clipboard.mjs", "probe-hover.mjs"], "why": "编辑器本体（撤销、剪贴板、悬停拾取）" },
+  { "when": ["src/paint/space-", "src/paint/tip-truth.ts", "src/paint/board.ts", "src/paint/boards.ts", "src/minccino/contract/offscreen-gpu.ts", "src/minccino/providers/three/offscreen-gpu-gl.ts"], "probes": ["probe-space-gpu.mjs", "probe-space-rules.mjs", "probe-space-measure.mjs", "probe-paint-display.mjs"], "why": "空间里的一笔（1-4b）：真显卡 = 软件版、看得见的规矩、量" },
   { "when": ["src/minccino/", "src/look/", "src/editor/pool-mesh.ts", "src/editor/stream-provider.ts", "src/editor/profile-edges.ts", "src/editor/overlay"], "probes": ["probe-render-baseline.mjs", "probe-style.mjs", "probe-onebit.mjs", "probe-xray.mjs", "probe-texture-srgb.mjs", "probe-paint-display.mjs"], "why": "渲染：截图基线必跑" },
   { "when": ["src/scene/"], "probes": ["probe-scene.mjs", "probe-pool-mesh.mjs", "probe-render-baseline.mjs", "probe-hierarchy.mjs"], "why": "场景 / 视图契约" },
   { "when": ["src/format/", "src/identity/"], "probes": ["probe-export.mjs", "probe-import-glb.mjs", "probe-paste-conflict.mjs", "probe-shelf.mjs", "probe-textures-table.mjs"], "why": "文件读写 / 身份层" },

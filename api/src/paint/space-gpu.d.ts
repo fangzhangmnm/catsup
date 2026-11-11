@@ -1,0 +1,1 @@
+export type { OffscreenImage as SpaceImage, OffscreenData as SpaceData, OffscreenCpuCtx as SpaceCpuCtx, OffscreenCpuProgram as SpaceCpuProgram, OffscreenProgram as SpaceProgram, OffscreenAccum as SpaceAccum, OffscreenDraw as SpaceDraw, OffscreenGpu as SpaceGpu, } from "../minccino/contract/offscreen-gpu.ts";

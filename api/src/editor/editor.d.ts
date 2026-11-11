@@ -323,6 +323,8 @@ export declare class Editor {
     readonly cam: OrbitCamera;
     private r3;
     readonly provider: EditorStreamProvider;
+    /** 每帧开画之前那一步「准备」（贴图主线 1-4b，统筹 B）：编辑器在渲染之前明着调一次（画板跟大小、合成、这一笔的薄层）；渲染器和拉流只读准备好的结果。app 层接。 */
+    beforeRender: ((view: WorldView) => void) | null;
     private scene;
     private ctx;
     private readonly gridState;
@@ -1121,7 +1123,6 @@ export declare class Editor {
     private selectionWorldPoints;
     /** 选择中心：bbox = 包围盒中心（Blender 默认）；mean = 顶点平均（Blender 的 median point）。 */
     selectionCenter(algo?: "bbox" | "mean"): Pt3 | null;
-    private static centerOf;
     /** 把当前上下文的轴原点挪到选择中心（朝向不变）；之后右下角马后炮可换算法。没选区 → false。 */
     axesToSelectionCenter(algo?: "bbox" | "mean"): boolean;
     private axesToSelectionCenterStep;
