@@ -795,7 +795,10 @@ layoutFaces(style = patches)：patchesOf（种子按面积、一样大看面心�
 读回来（冷的画）
   读：贴图行带着分层字节 + 合成图（CATSUP_textures 1.1 composite），不建画板
   每帧准备 sync → syncCold：合成图的记号（长度 + 校验和）和底色对得上、PNG 头的宽高合法 → board() 给一张 TextureRef（paint: { base }）
-    渲染器当普通的图解码（createImageBitmap，不翻、夹边、放大最近邻、缩小三线性、不跟画风）→ 和热的显示逐像素相同
+    渲染器解码（createImageBitmap，不翻）→ 显示图归活的图那个模块建（`live-image.ts fromBitmap`：位图原样进第 0 级、缩小图走同一个 `mips()`、夹边、放大最近邻、缩小三线性、不跟画风）→ 和热的显示逐像素相同
+      追记 2026-11-11（v0.19.36，Claude Opus 5.5）：v0.19.35 起热的那张缩小图换成自家 2×2 平均，冷的还用 three 的 generateMipmap → 缩小着看时冷热差一点（`probe-paint-scale` B / C / D「冷的 = 热的」红，main 上复现）。
+      规矩：一张画只许有一份缩小算法，冷热、大小都一样；显卡画面丢了从留着的位图重传。显存读数把画的显示图算进去（ExternalTexture 没有 image，以前数不到）。
+      还随打开过的画涨：解码缓存 texCache 从来不删（冷的变热之后旧的合成图显示图还在），归内存账（流畅第 11 条）。
     合成图没有 / 作废 → 照底色；只是底色变了 → warm() 自己热一次重新合成
   落笔：stateOf = cold / warming → 这一笔不开始、提示行「这张画还在打开」、warm()；view-only → 说为什么
   warm()：内核解开分层字节（主线程一整块）→ 查宽高 → 建画板（大小 = 分层的）灌进去 → 热（留到关文件）；不对 / 解不开 = 只能看不能画

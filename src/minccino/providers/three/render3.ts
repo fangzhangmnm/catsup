@@ -711,6 +711,7 @@ export class Renderer3 implements RenderProvider {
     let bytes = this.residency.bytes();
     for (const g of this.chunkGpus.values()) for (const a of Object.values("attrs" in g ? g.attrs : g.bufs) as any[]) bytes += a.array?.byteLength ?? 0;
     for (const t of this.texCache.values()) { const im = t.image; if (im && im.width) bytes += im.width * im.height * 4; }
+    bytes += this.live?.bytes() ?? 0;   // 画的显示图（活的 + 冷的合成图；ExternalTexture 没有 image，上一行数不到）
     const m: Measurement = { frameMs: performance.now() - t0, vramMb: bytes / 1048576, drawCalls: info?.calls ?? 0, triangles: info?.triangles ?? 0, passes: this.lastPlan?.order.length ?? 0 };
     this.lastMeasurement = m; this.lastBudget = this.lastView ? checkBudget(m, this.lastView.budget) : null;
     const P = this.perf;
@@ -895,11 +896,15 @@ export class Renderer3 implements RenderProvider {
         // 解好的位图要换成一张**普通** Texture：占位的是 DataTexture，three 按 `image.data` 上传，塞进去的 ImageBitmap 没有 data →
         // texSubImage2D「no pixels」→ 贴图面全黑（2026-10-29 截图基线 box-textured 抓到的；Claude Fable 5.1）。换对象、材质的 uMap 跟着换。
         if (this.texCache.get(key) !== tex) { bmp.close?.(); return; }   // 这张图已经被回收：这份解码作废
-        const real = new THREE.Texture(bmp);
-        real.colorSpace = THREE.SRGBColorSpace; real.wrapS = real.wrapT = paint ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
-        real.flipY = false; real.generateMipmaps = true; real.minFilter = THREE.LinearMipmapLinearFilter;
-        if (paint) { real.magFilter = THREE.NearestFilter; real.userData = { paint: true }; }   // 画：放大最近邻、缩小三线性（活的图那张显示图同样设置），不跟画风换
-        real.needsUpdate = true; this.applyTexFilter(real);
+        // 画的合成图：显示图归活的图那个模块建（第 0 级原样、缩小图同一份算法）——冷的和解开后热的才逐像素一样（2026-11-11：three 的 generateMipmap 和它对不上）
+        let real: any;
+        if (paint) { real = this.liveTextures().fromBitmap(bmp); this.renderer.resetState(); }
+        else {
+          real = new THREE.Texture(bmp);
+          real.colorSpace = THREE.SRGBColorSpace; real.wrapS = real.wrapT = THREE.RepeatWrapping;
+          real.flipY = false; real.generateMipmaps = true; real.minFilter = THREE.LinearMipmapLinearFilter;
+          real.needsUpdate = true; this.applyTexFilter(real);
+        }
         this.texCache.set(key, real);
         for (const bySide of this.texMats.values()) for (const m of bySide.values()) if (m.uniforms.uMap.value === tex) m.uniforms.uMap.value = real;   // 用这张图的每个材质（可能不止一个）
         const tu = this.texU.get(key); if (tu) tu.value = real;   // 风格材质（写实）的那份也换
