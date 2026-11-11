@@ -16,6 +16,8 @@ export interface PaintWorkbenchDeps {
     readonly prep: SpacePrep;
     /** 提示行。 */
     hint(text: string): void;
+    /** 上方正中的主按钮闪一下（没画过的物件上落笔：提示行说一句 + 让人看到按哪里；施工单十五第三节）。 */
+    flashStart?(): void;
 }
 export declare class PaintWorkbench {
     private readonly d;

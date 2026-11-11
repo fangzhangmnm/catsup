@@ -65,6 +65,27 @@ export interface Choice<T> {
     onPick?: () => void;
 }
 export declare function openChoiceSheet<T>(title: string, message: string, choices: Choice<T>[]): Promise<T | null>;
+/** 一行（openRowsSheet）：label = 这一行本身；note = 下面一行小字（可以后填）；blocked = 灰掉、点不了，原因写在 note 那一行；marked = 行尾一个淡淡的记号（比如「上次用的」）。 */
+export interface SheetRow<T> {
+    label: string;
+    value: T;
+    note?: string;
+    blocked?: string | null;
+    marked?: string;
+}
+/** 面板出来之后补一行的说明 / 灰掉（大模型上一行一行算出来再填）。alive() = 面板还开着（关了就别再算）。 */
+export interface RowsFill {
+    set(i: number, patch: {
+        note?: string;
+        blocked?: string | null;
+    }): void;
+    alive(): boolean;
+}
+/**
+ * 几行选一行：点一下就是选了（没有确认钮）；能取消（取消钮 / Esc / 点背板 = null）。fill = 面板出来之后再一行一行补说明（不挡面板）。
+ * created 2026-11-11 by Claude Opus 5.5（开始画时选画布大小：五档，每档一格多大、每层最多多大，大模型上要现铺一遍才知道）。
+ */
+export declare function openRowsSheet<T>(title: string, message: string, rows: readonly SheetRow<T>[], fill?: (f: RowsFill) => void): Promise<T | null>;
 /** 表单 sheet 的一个选项。blocked = 走不通的原因：有就灰掉、点不了，原因写在这一行分段钮下面（看得见为什么不行，不藏）。 */
 export interface FormOption {
     value: string;
