@@ -25,7 +25,8 @@ import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.t
 import { GuideSelection } from "./guide-selection.ts";
 import { describeEvent } from "./describe-event.ts";
 import { snapHoldTol } from "./snap-hysteresis.ts";
-import { type ForceEnv, type ForceSnaps, forceAfter, forceSideFor, forceSnapshot, forcesOn, originNeedsAsk } from "./mirror-force.ts";
+import { type ForceEnv, forceSideFor, forcesOn, originNeedsAsk } from "./mirror-force.ts";
+import { type UpkeepSnaps, upkeepAfter, upkeepRewrite, upkeepSnapshot } from "./paint-upkeep.ts";   // 每一步做完的收尾 = 强行对称 + 画的位置（1-3b）
 import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, mirrorTwins, withMirrorCounterparts, pickSide, sideLabel, sideOfElements, trySymmetrize } from "../mesh/mirror.ts";
 import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts";
 import { marqueeScreen, areaTest, type ScreenArea } from "./marquee.ts";
@@ -74,7 +75,7 @@ import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError, type StepLabel } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
 import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
-import { accept as transferAccept, castPayload, extract as transferExtract, transferSay } from "./transfer.ts";
+import { accept as transferAccept, castPayload, extractForCopy as transferExtract, transferSay } from "./transfer.ts";   // 拷贝走 extractForCopy：带着画的面先拒（1-3b）
 import { KEEP, pasteConflict, preparePaste, type ConflictRow, type Decision, type PasteWays } from "./paste-plan.ts";
 import { clipboard } from "./clipboard.ts";
 import { bodyEmpty } from "./ops.ts";
@@ -1142,7 +1143,7 @@ export class Editor {
   }
   /** 强行对称的编排住 editor/mirror-force.ts（管不管 / 提交前记什么 / 提交后怎么补 / 换原点前先试）；这里只给环境、提交、问人。 */
   private get forceEnv(): ForceEnv { return { scene: this.scene, mirrors: this.mirrors, lastSide: this.mirrorLastSide, merging: this.mirrorMerging }; }
-  private mirrorForceAfter(pass: StepPass, op: Op, snaps: ForceSnaps): void { const n = forceAfter(this.forceEnv, op, snaps, (o) => this.commitIn(pass, o)); if (n) this.mirrorNote = [this.mirrorNote, n].filter(Boolean).join("；"); }
+  private mirrorForceAfter(pass: StepPass, op: Op, snaps: UpkeepSnaps): void { const n = upkeepAfter(this.forceEnv, op, snaps, (o) => this.commitIn(pass, o)); if (n) this.mirrorNote = [this.mirrorNote, n].filter(Boolean).join("；"); }
   /** 第 1 层：换原点 / 应用缩放会把开着强行对称的网格体挪到镜像面一边 = 问「关掉镜像，照做 / 取消」（不硬拦）。挡下来了 = true。 */
   private forceOriginAsk(op: Op): boolean {
     const def = this.host.confirm ? originNeedsAsk(this.forceEnv, op) : null;
@@ -1226,9 +1227,8 @@ export class Editor {
       console.error("[editor] op committed outside a step:", op0.op);
       return this.step((p) => this.commitIn(p, op0));
     }
-    // 工作流亚种（DT87）的唯一口：挪点自动折出的折缝带哪些边层，写进 op（日志重放一致），不靠全局状态。
-    // 自由建模工作台 = 折线；其余（SketchUp 式）= **硬边、看得见**（user 2026-10-27 先说改软 + 平滑、同日改回：「因为看不见的东西很谜语人，我们的披露原则」「我想了下还是折硬边」「就像折纸一样。你会先画一道」；SketchUp 的自动折缝也是可见硬边——新手常问「一挪点面上怎么多了条斜线」）。v0.15.2 曾默认软 + 平滑，v0.15.3 撤回。Claude Fable 5.1
-    const rw = this.prepareOp(op0), op: Op = rw.op;   // 镜像：挪点的纪律（钉 / 不穿 / 并；镜像编辑补对面，FM134 / UX31）
+    // 工作流亚种（DT87）的唯一口：挪点自动折出的折缝带哪些边层，写进 op（日志重放一致），不靠全局状态。 自由建模工作台 = 折线；其余（SketchUp 式）= **硬边、看得见**（user 2026-10-27 先说改软 + 平滑、同日改回：「因为看不见的东西很谜语人，我们的披露原则」「我想了下还是折硬边」「就像折纸一样。你会先画一道」；SketchUp 的自动折缝也是可见硬边——新手常问「一挪点面上怎么多了条斜线」）。v0.15.2 曾默认软 + 平滑，v0.15.3 撤回。Claude Fable 5.1
+    const rw = this.prepareOp(op0), op: Op = upkeepRewrite(this.forceEnv, rw.op);   // upkeepRewrite：强行对称下「开始画」只铺留着的那半（1-3b）   // 镜像：挪点的纪律（钉 / 不穿 / 并；镜像编辑补对面，FM134 / UX31）
     if (rw.note) this.mirrorNote = rw.note;
     { const h = this.host.editHold?.(); if (h?.kind === "lock") { this.host.hint(h.why); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (presentation)" }); return []; } }
     if (opTouchesLocked(this.scene, op, () => this.contextLocked())) { this.host.hint(LOCKED_HINT); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
@@ -1237,7 +1237,7 @@ export class Editor {
     const join = this.stepDepth > 0 && this.stepHasOp, before = join ? undefined : (this.stepBefore ?? this.sessionSnap());   // 新的一步：它之前的会话（步开始时记的；手势按下时点选的那份延后进来）
     const label = join ? undefined : (this.stepLabel ?? opLabel(op));
     if (this.forceOriginAsk(op)) return [];   // 强行对称第 1 层：换原点 / 应用缩放会把模型挪到镜像面一边 = 先问
-    const symBefore = forceSnapshot(this.forceEnv, op);   // 强行对称：这一步之前的样子（判「动了哪边」）
+    const symBefore = upkeepSnapshot(this.forceEnv, op);   // 强行对称：这一步之前的样子（判「动了哪边」）+ 画：每个网格体的版本号和改动日志的号（1-3b）
     let r: ReturnType<History["commit"]>;
     try { r = perf.time("commit", () => this.history.commit(this.scene, op, join, before, label)); }
     catch (err) {
@@ -1881,7 +1881,7 @@ export class Editor {
   /** 拷贝选中的（几何 + 组 + 物件）到剪贴板。 */
   copySelection(): boolean {
     const p = transferExtract(this.scene, this.ctx, this.selection, [...this.selectedPools.values()]);
-    if (!p) { this.host.hint("拷贝：先选中要拷的东西"); return false; }
+    if (!p || "blocked" in p) { this.host.hint(p ? `拷贝：${p.blocked}` : "拷贝：先选中要拷的东西"); return false; }
     clipboard.set(p, this.docEpoch);
     this.host.hint(`拷贝了 ${transferSay(p)}（Ctrl+V 原位粘贴；到别的组件里也能贴）`);
     this.host.changed();

@@ -4,7 +4,7 @@
 // 类（挪点的纪律见 mirror.ts / 设计稿 20261028-mirror-redo-design.md §2）：
 //   move   挪点：提交前改写（钉 / 不穿 / 并；镜像编辑补对面），强行对称做完再对称化
 //   topo   改拓扑：镜像编辑开着、从工具 / 菜单来的先问「关掉镜像，照做 / 取消」；强行对称做完对称化
-//   flags  只改边标记：镜像编辑补对面的边；强行对称做完对称化（标记跟着镜）
+//   flags  只改标记（边的标记 / 面的材质）：镜像编辑补对面的边；强行对称做完对称化（标记 / 材质跟着镜）
 //   whole  整体算子，对称进对称出：不问、不改写；强行对称做完查一下（已对称 = 什么都不做）
 //   meta   镜像自己的 / 不碰形状的：从不对称化
 export type MirrorOpClass = "move" | "topo" | "flags" | "whole" | "meta";
@@ -12,6 +12,9 @@ export const MIRROR_OP_CLASS = {
   meshMove: "move",
   meshExtrude: "topo", meshDuplicate: "topo", meshFill: "topo", meshFlip: "topo", meshKnife: "topo", meshLoopCut: "topo", meshDelete: "topo", meshInset: "topo", meshBevel: "topo", meshBevelVerts: "topo", meshMerge: "topo", meshAddPrimitive: "topo",
   meshEdgeMarks: "flags",
+  // 画（贴图主线 1-3b，统筹 11-10 同意）：换材质 / 开始画只改面上的标记、不改拓扑（强行对称做完对称化，点名的面在 faces 里 → 选得出边）；
+  //   给新面补位置只写贴图坐标那一列，不碰形状和材质 = meta（从不触发对称化，免得收尾自己套自己）。
+  meshPaintFaces: "flags", startPaint: "flags", meshLayoutPaint: "meta",
   meshSubdivide: "whole",
   meshSymmetrize: "meta", meshSymmetrySnap: "meta", meshSmoothDefault: "meta", setMeshMirror: "meta",
   // 不叫 mesh* 但会改网格内核的（2026-11-09 Claude Opus 5.5；计划书 20261109-audit-fixes-plan §3 第 2 层）：以前强行对称按「名字以 mesh 开头」判，它们做完不对称化，

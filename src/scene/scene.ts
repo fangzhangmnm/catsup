@@ -19,7 +19,7 @@ import type { MirrorSetting } from "../mesh/mirror.ts";
 import type { KernelView } from "./kernel-view.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
 import type { CurveParams } from "../kernel/curves.ts";
-import { type CarriedJson, type Channels, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc, colorMapIn, defaultLayers, emptyShelf } from "../format/document.ts";
+import { type CarriedJson, type Channels, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc, colorMapIn, paintIn, defaultLayers, emptyShelf } from "../format/document.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
 import type { Stamp } from "../format/migrate/index.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "./builtin-materials.ts";
@@ -61,7 +61,13 @@ export interface BrepBody {
 }
 /** 网格身体（Blender 式三角网最小形，user 2026-10-24 命名 `mesh` / 「网格」；契约 §2）：定义坐标；默认剔背面；材质槽同 brep 语义。 */
 /** 2026-10-27：身体 = 可编辑的 mesh 内核（src/mesh/；单池、单面、顶点 id 寻址）；文件里的载荷见 format/scene-doc.ts（M3 前仍是三角汤）。 */
-export interface MeshBody { readonly kind: "mesh"; kernel: MeshKernel; materialSlots: number[]; }
+/**
+ * 一套贴图坐标（贴图主线 1-3b）：和内核里同一个 GUID、每角两个数的那一列是一对（以这张表为准：内核里每角两个数的列不一定都是贴图坐标）。
+ * width / height = 画布的格数（整数）；pxPerM = 铺的时候用的密度（每米几格）。条目不可变（改 = 换一个对象）；表的先后没有意思。
+ * 只经 startPaint（加）和 meshLayoutPaint（换高）两条指令改（守卫 test/paint-start-guard.test.ts）。
+ */
+export interface UvSetRow { readonly guid: Guid; readonly name: string; readonly width: number; readonly height: number; readonly pxPerM: number }
+export interface MeshBody { readonly kind: "mesh"; kernel: MeshKernel; materialSlots: number[]; /** 有哪几套贴图坐标（GUID → 一行；1-3b）。撤销跟着骨架快照走（浅拷）。 */ uvSets: Map<Guid, UvSetRow>; }
 export type Body = BrepBody | MeshBody;   // card 2026-10-24 sunset（body-kind.ts 头注释）
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
 export interface Definition {
@@ -146,7 +152,7 @@ export class Scene {
 
   /** 材质在某 definition 里的槽号（没有就开一个）。 */
   slotFor(defId: DefId, material: number): number {
-    const d = this.brep(defId);
+    const d = this.def(defId).body;   // 两种身体都有槽表（1-3b 起网格体也换材质：meshPaintFaces）
     const i = d.materialSlots.indexOf(material);
     if (i >= 0) return i;
     d.materialSlots.push(material);
@@ -162,6 +168,17 @@ export class Scene {
   addMaterial(m: Omit<Material, "guid"> & { readonly guid?: Guid }): number { this.materials.push({ ...m, guid: m.guid ?? mintGuid() }); return this.materials.length - 1; }
   /** 贴图表加一行（同一个 GUID = 换掉那一行：粘贴「更新」走这里）。 */
   addTexture(t: TextureDoc): void { this.textures.set(t.guid, t); }
+  /**
+   * 这张面走不走画（贴图主线 1-3b；全仓问这个）：面的材质过 paintIn 不是空、画的 definition 就是这张面所在的定义、这个定义的 uvSets 里有那一套 → 那张画和那一套；
+   * 差一样都按普通材质（底色）算 = null。网格体才有画（硬表面 = null）。
+   */
+  facePaint(defId: DefId, slot: number | undefined): { textureDoc: TextureDoc; uvSet: UvSetRow } | null {
+    const d = this.defs.get(defId);
+    if (!d || d.body.kind !== "mesh" || !d.body.uvSets.size) return null;
+    const m = this.materialOfSlot(defId, slot), p = m ? paintIn(this.textures, m) : null;
+    const row = p && p.definition === d.guid ? d.body.uvSets.get(p.uvSet) : undefined;
+    return row ? { textureDoc: p!.textureDoc, uvSet: row } : null;
+  }
   /** 「这个材质用哪张图」（那个口；全仓问这个，不读材质里的字段）：颜色那一槽的第一张、而且是带尺寸的原图；不是 = null（按底色画）。查表，每张面都会问。 */
   colorMapOf(m: Material): ColorMap | null { return colorMapIn(this.textures, m); }
 
@@ -295,7 +312,7 @@ export class Scene {
         const groups = new Map<GroupId, Group>();
         for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, guid: g.guid, parent: g.parent, axes: g.axes, kernel: g.kernel, guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
         body = { kind: "brep", kernel: d.body.kernel, groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides), ...(d.body.drawFrame ? { drawFrame: d.body.drawFrame } : {}) };
-      } else body = { kind: "mesh", kernel: d.body.kernel, materialSlots: [...d.body.materialSlots] };
+      } else body = { kind: "mesh", kernel: d.body.kernel, materialSlots: [...d.body.materialSlots], uvSets: new Map(d.body.uvSets) };   // uvSets 条目不可变，浅拷安全
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { ...i });
       s.defs.set(id, { id: d.id, guid: d.guid, name: d.name, body, instances, nextInst: d.nextInst });
@@ -327,7 +344,7 @@ export class Scene {
         const groups = new Map<GroupId, Group>();
         for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, guid: g.guid, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
         body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides), ...(d.body.drawFrame ? { drawFrame: d.body.drawFrame } : {}) };   // Frame 按不可变对待
-      } else body = { kind: "mesh", kernel: d.body.kernel.clone(), materialSlots: [...d.body.materialSlots] };   // mesh 内核深拷（列式 = 几次 slice）
+      } else body = { kind: "mesh", kernel: d.body.kernel.clone(), materialSlots: [...d.body.materialSlots], uvSets: new Map(d.body.uvSets) };   // mesh 内核深拷（列式 = 几次 slice）
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, guid: i.guid, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) });
       s.defs.set(id, { id: d.id, guid: d.guid, name: d.name, body, instances, nextInst: d.nextInst });

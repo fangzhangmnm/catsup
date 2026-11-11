@@ -25,10 +25,21 @@ export declare function forceSideFor(env: ForceEnv, def: number, before: MeshKer
  */
 export declare function forceSnapshot(env: ForceEnv, op: Op): ForceSnaps | null;
 /**
+ * 画的收尾钩子（贴图主线 1-3b，editor/paint-upkeep.ts）：强行对称那一步先选边，再给留着的那半补位置；丢掉的那半还有走画没位置的 = 即使形状已经对称也对称化（镜过去的面照抄位置）。
+ * 两个方法都是同一步里提交（commit）。
+ */
+export interface ForcePaintHook {
+    /** 这个网格体这一步有没有走画、还没有位置的面。 */
+    pending(def: number): boolean;
+    /** 给留着的那半（side）补位置；返回丢掉的那半还有没有走画没位置的面（有 = 要对称化）。side = null：对称化做不成，全部都补。 */
+    layout(def: number, side: -1 | 1 | null): boolean;
+}
+/**
  * 提交后：版本号变了、又不对称了的网格体，选边（第 0 / 5 层）→ 先在拷贝上试对称化 → 成了就交 commit 一条 meshSymmetrize（同一步，撤销一起撤）。
+ * 带画（paint 钩子）：形状对称、但这一步有走画没位置的面，也选边、补留着那半的位置；丢掉的那半还有要抄的才对称化。
  * 返回要接在提示行后面的话（看不出哪边 / 那半是空的 / 两半都没有 / 劈不开）；没有 = 空串。
  */
-export declare function forceAfter(env: ForceEnv, op: Op, snaps: ForceSnaps, commit: (op: Op) => void): string;
+export declare function forceAfter(env: ForceEnv, op: Op, snaps: ForceSnaps, commit: (op: Op) => void, paint?: ForcePaintHook): string;
 /**
  * 第 1 层：换原点（setAxes 落在定义根上）/ 应用缩放作用在开着强行对称的网格体上 = 模型可能整个对镜像面挪位。在整份拷贝上先做一遍（不用影子：换原点会连带改别处实例的变换）：
  * 仍对称 = null（照做）；不对称 = 要问的那个网格体（编辑器问「关掉镜像，照做 / 取消」，不硬拦）。镜像编辑不问（那个模式下挪原点正是推荐做法）。

@@ -10,6 +10,8 @@ export interface LayoutMesh {
   facePts(f: number): Pt3[];
   faceNormal(f: number): Pt3;
   cornerValues(f: number, guid: string): Float32Array | null;
+  /** 可选（MeshKernel 有）：这一列上有值的每张面的包围盒 [横小, 纵小, 横大, 纵大, …]。有它 = 补面时「哪里被占着」一趟扫完（不按 placed 逐张拷值）。 */
+  columnBoxes?(guid: string): ArrayLike<number>;
 }
 export interface LayoutOptions {
   /** 每米多少格。不给 = 画布定成 base 见方，二分找出能放下的最大密度（精确到每米一格）。 */
@@ -23,7 +25,7 @@ export interface LayoutOptions {
 }
 export interface Block { readonly face: number; readonly x: number; readonly y: number; readonly w: number; readonly h: number }
 export type LayoutResult =
-  | { readonly ok: true; readonly width: number; readonly height: number; readonly density: number; readonly blocks: readonly Block[]; readonly values: ReadonlyMap<number, Float64Array> }
+  | { readonly ok: true; readonly width: number; readonly height: number; readonly density: number; readonly blocks: readonly Block[]; readonly values: ReadonlyMap<number, Float64Array>; /** layoutAppend 的 partial：加到上限还放不下、没铺的面（升序）。 */ readonly unplaced?: readonly number[] }
   | { readonly ok: false; readonly reason: string; readonly face?: number; readonly need?: number };
 
 const dot = (a: Pt3, b: Pt3): number => a.x * b.x + a.y * b.y + a.z * b.z;
@@ -119,37 +121,63 @@ export function layoutFaces(m: LayoutMesh, faces: readonly number[], opts: Layou
 /**
  * 给新面补一块（以后加面用）：已经铺好的面（在 guid 这一列上有值的）一个数都不变；新面各铺一块，放在画布上空着的地方（左上优先），放不下就把画布往下加高
  * （256 的倍数）。坐标的单位是格、不是零到一的比例，所以加高不会动到已有的东西。
+ * 怎么找空（1-3b 改，Claude Opus 5.5，2026-11-10：原来每补一张面都把「每块的右边 / 下边」当候选全排一遍、逐块比，四万面的网格体补十张面要 0.2 秒、随面数涨）：
+ *   画布按 C × C 格划成粗格子（C = 宽 / 256 向上取整，至少 1）；已有的块各向外扩 gap 格，碰到的粗格子都算占了（保守）。新块只放在粗格子的角上，
+ *   从上到下、从左到右找第一个放得下的地方。每行记着「从这格往右连着几格空」，找的时候只看这个数。代价随画布大小涨、不随面数涨（只有收集已有块那一步随面数涨）。
+ * partial（meshLayoutPaint 用）：加到上限还放不下的面不铺、记进 unplaced，其余照铺；不给 = 放不下就整个不铺、说原因（1-3a 的行为）。
  */
-export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly number[], add: readonly number[], canvas: { width: number; height: number }, density: number, opts: Omit<LayoutOptions, "density" | "base"> = {}): LayoutResult {
+export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly number[], add: readonly number[], canvas: { width: number; height: number }, density: number, opts: Omit<LayoutOptions, "density" | "base"> & { readonly partial?: boolean } = {}): LayoutResult {
   const gap = Math.max(0, Math.round(opts.gap ?? 4)), maxSize = opts.maxSize ?? 4096, W = canvas.width;
-  const rects: { x0: number; y0: number; x1: number; y1: number }[] = [];
-  for (const f of placed) {
+  const C = Math.max(1, Math.ceil(W / 256)), gw = Math.ceil(W / C), gh = Math.ceil(Math.max(maxSize, canvas.height) / C);
+  const occ = new Uint8Array(gw * gh), run = new Int32Array(gw * gh);   // run[j·gw + i] = 第 j 行从第 i 格往右连着几格空
+  const rerun = (j0: number, j1: number): void => { for (let j = j0; j < j1; j++) { let n = 0; for (let i = gw - 1; i >= 0; i--) { n = occ[j * gw + i] ? 0 : n + 1; run[j * gw + i] = n; } } };
+  /** 格子坐标的块 [x0, x1) × [y0, y1) 向外扩 gap，碰到的粗格子标成占了；只重算动到的那几行。 */
+  const mark = (x0: number, y0: number, x1: number, y1: number, recompute: boolean): void => {
+    const i0 = Math.max(0, Math.floor((x0 - gap) / C)), i1 = Math.min(gw, Math.ceil((x1 + gap) / C)), j0 = Math.max(0, Math.floor((y0 - gap) / C)), j1 = Math.min(gh, Math.ceil((y1 + gap) / C));
+    if (i0 >= i1 || j0 >= j1) return;
+    for (let j = j0; j < j1; j++) occ.fill(1, j * gw + i0, j * gw + i1);
+    if (recompute) rerun(j0, j1);
+  };
+  const box = (x0: number, y0: number, x1: number, y1: number): void => mark(Math.floor(x0), Math.floor(y0), Math.max(Math.floor(x0) + 1, Math.ceil(x1)), Math.max(Math.floor(y0) + 1, Math.ceil(y1)), false);
+  if (m.columnBoxes) { const b = m.columnBoxes(guid); for (let i = 0; i + 3 < b.length; i += 4) box(b[i], b[i + 1], b[i + 2], b[i + 3]); }   // 这一列上有值的面全算占着（不管它现在走不走画）
+  else for (const f of placed) {
     const v = m.cornerValues(f, guid);
     if (!v) continue;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (let i = 0; i < v.length; i += 2) { x0 = Math.min(x0, v[i]); x1 = Math.max(x1, v[i]); y0 = Math.min(y0, v[i + 1]); y1 = Math.max(y1, v[i + 1]); }
-    rects.push({ x0: Math.floor(x0), y0: Math.floor(y0), x1: Math.max(Math.floor(x0) + 1, Math.ceil(x1)), y1: Math.max(Math.floor(y0) + 1, Math.ceil(y1)) });
+    box(x0, y0, x1, y1);
   }
-  const fs = [...new Set(add)].filter((f) => !placed.includes(f)).sort((a, b) => a - b);
+  rerun(0, gh);
+  const lo = Math.ceil(gap / C);   // 块的左上角至少离画布边 gap 格
+  /** 第一个放得下 w × h、而且底边加 gap 不超过 limit 的粗格子角（从上到下、从左到右）；没有 = null。 */
+  const find = (w: number, h: number, limit: number): { x: number; y: number } | null => {
+    const cw = Math.ceil(w / C), ch = Math.ceil(h / C), iMax = Math.floor((W - w - gap) / C);
+    for (let j = lo; j + ch <= gh && j * C + h + gap <= limit; j++) {
+      for (let i = lo; i <= iMax; i++) {
+        if (run[j * gw + i] < cw) { i += run[j * gw + i]; continue; }   // 这一格起不够宽：跳过这段空的
+        let ok = true;
+        for (let t = 1; t < ch && ok; t++) if (run[(j + t) * gw + i] < cw) ok = false;
+        if (ok) return { x: i * C, y: j * C };
+      }
+    }
+    return null;
+  };
+  const done = new Set(placed), fs = [...new Set(add)].filter((f) => !done.has(f) && !m.cornerValues(f, guid)).sort((a, b) => a - b);   // 已经有值的不动
   const sizes = order(fs.map((f) => ({ face: f, ...flatten(m, f, density) })));
   let H = canvas.height;
-  const blocks: Block[] = [], values = new Map<number, Float64Array>();
-  const free = (x: number, y: number, w: number, h: number): boolean => x >= gap && y >= gap && x + w + gap <= W && rects.every((r) => x + w + gap <= r.x0 || r.x1 + gap <= x || y + h + gap <= r.y0 || r.y1 + gap <= y);
+  const blocks: Block[] = [], values = new Map<number, Float64Array>(), unplaced: number[] = [];
   for (const s of sizes) {
-    if (s.w + 2 * gap > W) return { ok: false, reason: `面 ${s.face} 要 ${s.w + 2 * gap} 格宽，画布只有 ${W}`, face: s.face, need: s.w + 2 * gap };
-    // 候选位置：画布左上角、已有每块的右边和下边（左上优先）
-    const cand = [{ x: gap, y: gap }, ...rects.flatMap((r) => [{ x: r.x1 + gap, y: r.y0 }, { x: r.x0, y: r.y1 + gap }, { x: gap, y: r.y1 + gap }])].sort((a, b) => a.y - b.y || a.x - b.x);
-    let at = cand.find((c) => c.y + s.h + gap <= H && free(c.x, c.y, s.w, s.h));
-    if (!at) {   // 放不下：在最下面接着放，画布往下加高
-      const bottom = rects.reduce((y, r) => Math.max(y, r.y1), 0);
-      at = { x: gap, y: bottom + gap };
+    if (s.w + 2 * gap > W) { if (opts.partial) { unplaced.push(s.face); continue; } return { ok: false, reason: `面 ${s.face} 要 ${s.w + 2 * gap} 格宽，画布只有 ${W}`, face: s.face, need: s.w + 2 * gap }; }
+    let at = find(s.w, s.h, H);
+    if (!at) {   // 现在的画布里放不下：往下找，画布加高（256 的倍数）
+      at = find(s.w, s.h, maxSize);
+      if (!at) { if (opts.partial) { unplaced.push(s.face); continue; } return { ok: false, reason: `补面 ${s.face} 要把画布加高到超过上限 ${maxSize}`, face: s.face, need: maxSize + 1 }; }
       H = Math.max(H, up256(at.y + s.h + gap));
-      if (H > maxSize) return { ok: false, reason: `补面 ${s.face} 要把画布加高到 ${H} 格，超过上限 ${maxSize}`, face: s.face, need: H };
     }
     const v = new Float64Array(s.uv.length);
     for (let j = 0; j < v.length; j += 2) { v[j] = s.uv[j] + at.x; v[j + 1] = s.uv[j + 1] + at.y; }
     blocks.push({ face: s.face, x: at.x, y: at.y, w: s.w, h: s.h }); values.set(s.face, v);
-    rects.push({ x0: at.x, y0: at.y, x1: at.x + s.w, y1: at.y + s.h });
+    mark(at.x, at.y, at.x + s.w, at.y + s.h, true);
   }
-  return { ok: true, width: W, height: H, density, blocks, values };
+  return { ok: true, width: W, height: H, density, blocks, values, ...(opts.partial ? { unplaced: unplaced.sort((a, b) => a - b) } : {}) };
 }

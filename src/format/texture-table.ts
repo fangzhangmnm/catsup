@@ -60,8 +60,10 @@ export function readTextureRow(raw: unknown, i: number, view: (bv: number) => Ui
 /** 写一行。imageView = 原图那份字节的 bufferView（和标准那一半的 images[] 共用一条；write.ts 记着每张图落在哪）。不认识的键先铺、认识的后铺（已知键永远赢）。 */
 export function writeTextureRow(t: TextureDoc, sink: ViewSink, imageView: (t: TextureDoc) => number): Record<string, unknown> {
   const c = t.content;
+  // 新建的画还没有字节（贴图主线 1-3b）：画的字节进文件是 1-8，在那之前写盘碰到它 = 抛、写明原因，不许悄悄丢（守卫 test/paint-start-guard.test.ts）。
+  if (c.kind === "layered" && c.ora === null) throw new Error(`texture "${t.name}" (${t.guid}): this painting has no bytes yet (a new painting is encoded on its first save, which lands with work order 1-8); refusing to write a file that would silently drop it`);
   const content = c.kind === "image" ? { kind: "image", mimeType: c.mimeType, bytes: { bufferView: imageView(t) } }
-    : c.kind === "layered" ? { kind: "layered", ora: { bufferView: sink.add(c.ora) } }
+    : c.kind === "layered" ? { kind: "layered", ora: { bufferView: sink.add(c.ora!) } }
     : landCarried(c.raw, sink);
   return {
     ...(t.extra ? (landCarried(t.extra, sink) as Record<string, unknown>) : {}),

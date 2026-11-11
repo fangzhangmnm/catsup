@@ -117,6 +117,11 @@ export declare class MeshKernel {
     shapeOf(f: number): FaceShape;
     /** 这张面在这一列上各角的值（角数 × arity，拷一份）；没值 / 没这一列 = null。 */
     cornerValues(f: number, guid: string): Float32Array | null;
+    /**
+     * 这一列（每角两个数）上有值的每张活面的包围盒，摊平成 [横小, 纵小, 横大, 纵大, …]（贴图主线 1-3b：补面时「画布上哪里被占着」，一趟扫完、不拷每张面的值）。
+     * 没有这一列 / 不是每角两个数 = 空。
+     */
+    columnBoxes(guid: string): Float64Array;
     /** 这张面在每一列上的值（GUID → 角数 × arity）；没值的列不在表里。整张面搬到别的内核时交给 fresh。 */
     faceValues(f: number): Map<string, Float32Array>;
     /** 给一张面在一列上整张写值（values = 角数 × arity；null = 清成没值）。进改动日志、rev 动。往角上放数的只有 1-3 的铺法和测试。 */

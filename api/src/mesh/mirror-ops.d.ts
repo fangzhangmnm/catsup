@@ -14,6 +14,9 @@ export declare const MIRROR_OP_CLASS: {
     readonly meshMerge: "topo";
     readonly meshAddPrimitive: "topo";
     readonly meshEdgeMarks: "flags";
+    readonly meshPaintFaces: "flags";
+    readonly startPaint: "flags";
+    readonly meshLayoutPaint: "meta";
     readonly meshSubdivide: "whole";
     readonly meshSymmetrize: "meta";
     readonly meshSymmetrySnap: "meta";
