@@ -75,7 +75,7 @@ import { initPaintTileJobs } from "../paint/tile-jobs.ts";
 import { PaintSaver } from "../paint/save.ts";
 import { PaintWorkbench } from "./paint-workbench.ts";   // 画画工作台的控制器（1-7）
 import { createPaintColor, mountPaintColorSheet, hexOf, parseHexColor, PAINT_COLOR_DEFAULT } from "./paint-color.ts";
-import { pickCanvasSize } from "./canvas-size-picker.ts";
+import { pickPaintStart } from "./canvas-size-picker.ts";
 import { mountPrimaryButton } from "./primary-button.ts";
 import { facesToStart, latestPaintOf, unpaintedSelected } from "../editor/mesh-edits/start-paint.ts";
 import type { MeshSelection } from "../editor/tools.ts";
@@ -830,7 +830,7 @@ function placeSession(): ParamSession {
 // user 10-28「只有一个按钮」「这个按钮做的和嵌入的那些汉堡符号一样低调一点就是enter webxr 这种半灰的感觉，不抢眼」（低调的那两行照旧）；
 // user 11-11「需要有一个挂在上面居中按钮，点了弹窗」（开始画那一行醒目）。
 const walkBar = $("walkBar"), walkBtn = $<HTMLButtonElement>("walkBtn");
-/** 画画工作台里这一刻该露哪颗：start = 这个物件一张画都没有；add = 有画、选中的面里有还没进画的；null = 不露。 */
+/** 画画工作台里这一刻该不该露「开始画…」：start = 这个物件一张画都没有；add = 有画、选中的面里有还没进画的（面板上两种都给）；null = 不露。 */
 function paintPrimary(): "start" | "add" | null {
   if (!isPaintTool(editor.tool)) return null;
   const S = editor.sceneRef, def = S.defOfContext(editor.context);
@@ -841,9 +841,13 @@ function paintPrimary(): "start" | "add" | null {
 }
 const primary = mountPrimaryButton(walkBar, walkBtn, [
   { id: "walk", loud: false, edits: false, when: () => locomotion.walkPhase() === "edit", label: () => "继续走", press: () => locomotion.resumeWalk() },
-  { id: "paint", loud: true, edits: true, when: () => paintPrimary() !== null, label: () => (paintPrimary() === "add" ? "把这几张面加进来" : "开始画…"), press: () => {
-    if (paintPrimary() === "add") { editor.runAction("mesh.paintAddFaces"); syncUi(); editor.draw(); return; }
-    void pickCanvasSize(editor).then((n) => { if (n === null) return; editor.runAction("mesh.startPaint", { canvas: n, arrange: "patches" }); syncUi(); editor.draw(); });   // 界面发出去的永远带画布和铺法
+  { id: "paint", loud: true, edits: true, when: () => paintPrimary() !== null, label: () => "开始画…", press: () => {
+    void pickPaintStart(editor).then((c) => {   // 物件有画、选了没进画的面：面板上「加进已有的画」和「新开一张」两种都给（施工单十五第三节）
+      if (!c) return;
+      if (c.kind === "add") editor.runAction("mesh.paintAddFaces", { texture: c.texture });
+      else editor.runAction("mesh.startPaint", { canvas: c.canvas, arrange: "patches" });   // 界面发出去的永远带画布和铺法
+      syncUi(); editor.draw();
+    });
   } },
   { id: "vr", loud: false, edits: false, when: () => locomotion.walkPhase() === "off" && !locomotion.isXR() && vr.isSupported() && !vr.isPresenting(), label: () => "进入 VR", press: () => vr.enter() },
 ], () => inputGate.held(), (t) => { hintEl.textContent = t; });

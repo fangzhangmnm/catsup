@@ -43,17 +43,22 @@ export const startPaint: Command<MeshUnit> = {
   none: "开始画：这个物件已经有画了，直接用笔画（要给别的面另开一张：先选中那几张面）",
 };
 
-/** 这个物件上最近建的那张画（贴图表里最后一张走它的）+ 那张画的材质在文档材质表里的下标；没有 = null。 */
-export function latestPaintOf(s: Scene, def: number): { texture: string; material: number } | null {
-  let out: { texture: string; material: number } | null = null;
+/** 这个物件上的画（贴图表里的先后）：每张 = 贴图身份、名字、它的材质在文档材质表里的下标、它那一套坐标（宽高、密度、GUID）。 */
+export function paintsOf(s: Scene, def: number): { texture: string; name: string; material: number; uvSet: { guid: string; width: number; height: number; pxPerM: number } }[] {
+  const out: ReturnType<typeof paintsOf> = [];
   for (const t of s.textures.values()) {
     if (t.content.kind !== "layered") continue;
     const p = paintPlaceOf(s, t.guid);
     if (!p || p.def !== def) continue;
     const i = s.materials.indexOf(p.material);
-    if (i >= 0) out = { texture: t.guid, material: i };
+    if (i >= 0) out.push({ texture: t.guid, name: t.name, material: i, uvSet: { guid: p.uvSet.guid, width: p.uvSet.width, height: p.uvSet.height, pxPerM: p.uvSet.pxPerM } });
   }
   return out;
+}
+/** 这个物件上最近建的那张画（贴图表里最后一张走它的）；没有 = null。 */
+export function latestPaintOf(s: Scene, def: number): { texture: string; material: number } | null {
+  const all = paintsOf(s, def), p = all[all.length - 1];
+  return p ? { texture: p.texture, material: p.material } : null;
 }
 /** 选中的面里还没进画的那几张（物件已经有画时「把这几张面加进来」用；没选 = 没有）。 */
 export function unpaintedSelected(s: Scene, u: Pick<MeshUnit, "def" | "sel">): number[] {
@@ -64,16 +69,16 @@ export function unpaintedSelected(s: Scene, u: Pick<MeshUnit, "def" | "sel">): n
 }
 
 /**
- * 「把这几张面加进来」（施工单十五第三节）：物件已经有画、选中的面里有还没进画的 → 给它们换上最近那张画的材质（meshPaintFaces）；
- * 画的维护那一步（paint-upkeep）按那张画布的宽把它们补铺上（layoutAppend，留的格数跟着画布走）。不出选大小的面板。
+ * 「加进已有的画」（施工单十五第三节）：物件已经有画、选中的面里有还没进画的 → 给它们换上那张画（参数 texture；缺 = 最近那张）的材质（meshPaintFaces）；
+ * 画的维护那一步（paint-upkeep）按那张画布的宽、用那张画自己的密度把它们补铺上（layoutAppend，留的格数跟着画布走）。不问大小。
  */
 export const paintAddFaces: Command<MeshUnit> = {
   id: "mesh.paintAddFaces", unit: "mesh", title: "把这几张面加进来",
   defaults: () => ({}),
   params: () => [],
   quickCount: (env, u) => (latestPaintOf(env.scene, u.def) ? unpaintedSelected(env.scene, u).length : 0),
-  plan(env, u) {
-    const p = latestPaintOf(env.scene, u.def), faces = unpaintedSelected(env.scene, u);
+  plan(env, u, v) {
+    const all = paintsOf(env.scene, u.def), p = all.find((x) => x.texture === v.texture) ?? all[all.length - 1] ?? null, faces = unpaintedSelected(env.scene, u);
     if (!p || !faces.length) return { ops: [], count: 0 };
     return { ops: [{ op: "meshPaintFaces", def: u.def, faces, material: p.material }], count: faces.length };
   },

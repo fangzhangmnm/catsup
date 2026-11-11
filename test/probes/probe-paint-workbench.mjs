@@ -83,9 +83,9 @@ await startBtn.click();
 await page.waitForFunction(() => !document.getElementById("sheet").hidden && document.querySelectorAll("#sheetChoices .sheet-row").length === 5);
 await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-note")].every((n) => !/在算/.test(n.textContent)), null, { timeout: 20000 });
 const rows1 = await sheetRows();
-check(rows1.map((r) => r.label).join(",") === "128 × 128,256 × 256,512 × 512,1024 × 1024,2048 × 2048" && rows1.every((r) => /一格约 .+每层最多 \d/.test(r.note) && !r.disabled) && rows1.every((r) => !r.mark),
-  `面板五行，每行写了一格多大和每层最多多少（${rows1.map((r) => r.note).join(" | ")}）；文件里还没有画 = 没有记号`, JSON.stringify(rows1));
-check(/最多 64 KB/.test(rows1[0].note) && /最多 4 MB/.test(rows1[3].note) && /最多 16 MB/.test(rows1[4].note), "每层最多：128 = 64 KB、1024 = 4 MB、2048 = 16 MB（宽 × 高 × 4）");
+check(rows1.map((r) => r.label).join(",") === "128 × 128,256 × 256,512 × 512,1024 × 1024,2048 × 2048" && rows1.every((r) => /一格约 .+打开占 /.test(r.note) && !r.disabled) && rows1.every((r) => !r.mark),
+  `面板五行，每行写了一格多大和打开占多少显存（${rows1.map((r) => r.note).join(" | ")}）；文件里还没有画 = 没有记号`, JSON.stringify(rows1));
+check(/打开占 (\d|\.)+ (KB|MB)（画的时候再多/.test(rows1[0].note) && /打开占 25 MB（画的时候再多 8 MB）/.test(rows1[3].note), `打开这张画占多少显存（1024：${rows1[3].note}）`);
 await page.click("#sheetCancel"); await frames(2);
 check(await S(() => globalThis.__catsup.editor.history.position()) === pos0 && await S(() => ![...globalThis.__catsup.editor.sceneRef.textures.values()].some((t) => t.content.kind === "layered")), "取消 = 什么都没开始（没有画、没长步）");
 await startBtn.click();
@@ -345,9 +345,13 @@ await page.locator('button:has-text("开始画")').first().click();
 await page.waitForFunction(() => document.querySelectorAll("#sheetChoices .sheet-row").length === 5 && !document.getElementById("sheet").hidden);
 await page.locator('#sheetChoices .sheet-row:has-text("256 × 256")').click(); await frames(2);
 const side12 = await S((d) => { const e = globalThis.__catsup.editor, k = e.sceneRef.mesh(d).kernel, side = k.faces().filter((f) => !k.facePts(f).every((p) => Math.abs(p.z - 1) < 1e-6)).slice(0, 2); e.toolCtx.setSelection({ faces: side }); return side; }, d12); await frames(1);
-check(await S(() => document.getElementById("walkBtn").textContent) === "把这几张面加进来", "物件有画、选了没进画的面 = 「把这几张面加进来」");
+check(await S(() => document.getElementById("walkBtn").textContent) === "开始画…", "物件有画、选了没进画的面 = 「开始画…」照样露");
 const paints12 = await S(() => [...globalThis.__catsup.editor.sceneRef.textures.values()].filter((t) => t.content.kind === "layered").length);
-await page.click("#walkBtn"); await frames(2);
+await page.click("#walkBtn");
+await page.waitForFunction(() => document.querySelectorAll("#sheetChoices .sheet-row").length === 6 && !document.getElementById("sheet").hidden);
+const rows12 = await sheetRows();
+check(/^加进已有的画：/.test(rows12[0].label) && rows12.slice(1).every((r) => /^新开一张画：\d+ × \d+$/.test(r.label)), `面板：第一行「${rows12[0].label}」（${rows12[0].note}），下面五行新开一张`, JSON.stringify(rows12.map((r) => r.label)));
+await page.locator("#sheetChoices .sheet-row").first().click(); await frames(2);
 const add12 = await S(([d, side]) => { const C = globalThis.__catsup, S0 = C.editor.sceneRef, k = S0.mesh(d).kernel, uv = [...S0.mesh(d).uvSets.keys()][0]; return { sheet: !document.getElementById("sheet").hidden, painted: side.every((f) => S0.facePaint(d, k.faceMat[f]) !== null && !!k.cornerValues(f, uv)), paints: [...S0.textures.values()].filter((t) => t.content.kind === "layered").length }; }, [d12, side12]);
 check(!add12.sheet && add12.painted && add12.paints === paints12, "点了：不出面板，那两张面进了这个物件那张画（有坐标），没多出一张画", JSON.stringify(add12));
 void top12;
