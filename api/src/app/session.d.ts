@@ -315,9 +315,11 @@ export declare class Session {
     openLocalPicker(): Promise<boolean>;
     /** 保存 = 送回家。transient 显式保存 = 安家仪式（FSA 另存 / 下载兜底）；implicit（自动 / 离开）在 transient 上是 noop。
      *  localOnly：崩溃安全 flush 用，只落本地不推（push-pending 留着）。 */
+    /** leaving = 人要离开这份文档（leaveGate 用；和 implicit 一起给）：问和说照人按保存那样，推云和「存成了」照心跳的规矩。 */
     save(opts?: {
         implicit?: boolean;
         localOnly?: boolean;
+        leaving?: boolean;
     }): Promise<boolean>;
     /** save 的后半段：saving 已经竖起来了，落家、发回执，最后放下 saving。 */
     private writeHome;
@@ -332,6 +334,11 @@ export declare class Session {
     /** 导出工程文件（导出设计稿 §3；账本 UX39）：.catsup = 和保存写的同一份 encode()，工程原样一个字节不改（参考图 / 尺规 / 硬表面数据都在）。永不清 dirty；下载开始 = 责任移交。
      *  加密作品默认给容器（规则书 §1 第 5 条），明文是显式选项。 */
     exportProject(): Promise<string | null>;
+    /** 导出工程文件，出错接住：返回文件名 = 下载开始了；null = 取消 / 打不出 / 出错（原因已经说过；取消的不说）。离开那一路和人按保存的「另存一份」用。 */
+    private exportSafely;
+    /** 离开时把眼前的内容存成图库里同一个文件夹的另一份（`<名>（副本 时间）`，撞名加序号）；这份的家、字节、没存的标记都不动。
+     *  库回执写成了（至少本机那份落了）才返回新路径；写不成 = 说一句、null。推不推照心跳的规矩（人说过先别传的不替他传；文件夹家 = 写进夹里）。加密件不进这里（新文件会先落明文）。 */
+    private copyIntoGallery;
     /** 导出模型 .glb（导出设计稿 §4 / §5）：给别的软件看的烤好的模型——只写 glTF core，不是工程备份。only = 只导这几份物体（定义 id + 世界变换）。永不清 dirty。 */
     exportModelGlb(opts: {
         textures: boolean;
