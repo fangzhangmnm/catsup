@@ -73,6 +73,8 @@ export interface UvSetRow {
     readonly width: number;
     readonly height: number;
     readonly pxPerM: number;
+    /** 按一格多大开的 = "density"（加面放不下时画布长大）；缺 = 按总大小开的（画布不自己变大；施工单十六第四节，文件里 CATSUP_mesh 2.1）。 */
+    readonly fit?: "density";
 }
 export interface MeshBody {
     readonly kind: "mesh";

@@ -32,6 +32,11 @@ export declare class PaintSaver {
     cacheKey(): string;
     /** 换文件：缓存清掉（画板全扔了，旧的缓存指着扔掉的画板）。 */
     clear(): void;
+    /** 这张画最近一次编好（存盘 / 快照）的字节有多大：画布小窗底下那行（施工单十六）。贴图行里的字节只在读文件时进来，热的画存过之后得问这里。缓存里没有 = null。 */
+    lastSizes(texture: Guid): {
+        readonly ora: number;
+        readonly png: number;
+    } | null;
     /**
      * 钉点（同步，中间不 await）。doc = 刚冻结的那份文档；scene = 现在的场景（找坐标的宽高、材质的底色）。
      * mode = "save"：版本变了的当场拷出来、finish 里编；"snapshot"：不现编，用缓存（没有缓存 = 贴图行里的 / 空白的），画板比缓存新 = stale。

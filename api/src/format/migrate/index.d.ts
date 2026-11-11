@@ -44,7 +44,7 @@ export declare const FORMAT: {
     /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
     readonly CATSUP_mesh: {
         readonly major: 2;
-        readonly minor: 0;
+        readonly minor: 1;
         readonly patch: 0;
     };
     readonly CATSUP_shelf: {
@@ -62,6 +62,8 @@ export type CatsupExtension = keyof typeof FORMAT;
 export declare const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[];
 /** 不带贴图坐标的网格体照旧盖的拍子（「只写当前拍」的例外，见头注释 1-2½ 那一节）：和 2.0 之前写出来的逐字节一样。 */
 export declare const MESH_STAMP_NO_UV: Stamp;
+/** 带贴图坐标、但没有一套是按密度开的（fit）网格体照旧盖的拍子（施工单十六）：和 2.1 之前写出来的逐字节一样。 */
+export declare const MESH_STAMP_UV_NO_FIT: Stamp;
 /** 各子结构的 major（老名字，读写两端的 too-new 判定与 STEPS 索引都用它）。 */
 export declare const EXTENSION_VERSIONS: Readonly<Record<CatsupExtension, number>>;
 /** 写入器盖拍子：`version` 必写；`minor` / `patch` 是可选键（缺 = 0），为 0 时不写——省字节（§3.2「抠」），字节照样确定。 */

@@ -15,6 +15,7 @@ export declare function paintsOf(s: Scene, def: number): {
         width: number;
         height: number;
         pxPerM: number;
+        fit?: "density";
     };
 }[];
 /** 这个物件上最近建的那张画（贴图表里最后一张走它的）；没有 = null。 */

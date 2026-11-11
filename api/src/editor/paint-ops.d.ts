@@ -25,7 +25,8 @@ export declare function applyMeshPaintFaces(s: Scene, op: MeshPaintFaces): Paint
 export declare function applyStartPaint(s: Scene, op: StartPaint): PaintOutcome;
 /**
  * 给走画但还没有位置的面补一块（1-3a 的「给新面补一块」，partial）：这个网格体上每一套被画用着的贴图坐标，找出走这张画、角上还没有值的面
- * （faces = 只看这些，收尾时 = 改动日志给的这一步动过的面；不给 = 全部），铺上；已经铺好的角一个数都不变。画布不够就往下加高（256 的倍数），那一行换成新的高。
+ * （faces = 只看这些，收尾时 = 改动日志给的这一步动过的面；不给 = 全部），铺上；已经铺好的角一个数都不变。画布不够：按一格多大开的（fit = density）往下加高（256 的倍数），那一行换成新的高；
+ * 按总大小开的（缺 fit，施工单十六第四节）不长大，放不下的面先没有位置（照底色）。
  * 加到上限（4096）还放不下：不拒绝、不抛，放得下的照铺，放不下的面留着没有值（收尾那一步数出来、明着说）。同样的网格体 = 同样的结果（面按编号的先后铺）。
  */
 export declare function applyMeshLayoutPaint(s: Scene, op: MeshLayoutPaint): PaintOutcome;

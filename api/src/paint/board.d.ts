@@ -33,6 +33,10 @@ export declare class PaintBoard {
     get height(): number;
     /** 内容键：作品的提交版本（画、撤销、改大小都算）+ 大小 + 底色 + 恢复次数。变了 = 下一次合成出新图。 */
     private key;
+    /** 落定了的内容的键（不含一笔正在画的薄层）：画布小窗（施工单十六）看它变没变 —— 一笔当中不变，抬笔 / 撤销 / 装载才变，所以小窗只在抬笔之后读回一次。 */
+    committedKey(): string;
+    /** 有几层（图层，不算组）。 */
+    layerCount(): number;
     /** 三维画好的薄层包成内核的纹理对象（外面的图进内核的唯一一道门，画画仓 v0.14.75）：真显卡 = { gl: WebGLTexture }，软件版 = { pixels }。 */
     wrapLayer(src: ExternalImage): ExternalTexture;
     /** 薄层的内容变了（三维每帧重画了尾巴）：下一次合成要重来。 */

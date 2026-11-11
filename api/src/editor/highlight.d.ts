@@ -5,6 +5,8 @@ import { type WorldView } from "../scene/world-view.ts";
 export interface HighlightState {
     readonly selectionFaces: ReadonlySet<FaceId>;
     readonly hoverFace: FaceId | null;
+    /** 别处要亮一下的面（画布小窗里悬停的那张，施工单十六）：和悬停同一个材质槽。 */
+    readonly peekFaces?: ReadonlySet<FaceId> | null;
     readonly selectionEdges: ReadonlySet<EdgeId>;
     readonly scrubEdges: ReadonlySet<EdgeId>;
     readonly warnEdges?: ReadonlySet<EdgeId> | null;

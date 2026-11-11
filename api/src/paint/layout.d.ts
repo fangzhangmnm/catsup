@@ -23,9 +23,17 @@ export interface LayoutOptions {
     readonly style?: "faces" | "patches";
     /** 连成片的门槛（度；默认 PATCH_MAX_DEG；量门槛时用）。 */
     readonly maxDeg?: number;
+    /** 片太空就不收面的门槛（默认 PATCH_MIN_FILL；0 = 不限 = 施工单十五的铺法；量门槛时用）。 */
+    readonly minFill?: number;
+    /** 片的朝向：box = 包围盒最小的（默认，施工单十六）；seed = 种子最长的边（施工单十五；量的时候对照用）。 */
+    readonly orient?: "box" | "seed";
+    /** 给了密度时：画布取接近正方形、够用的最小宽高（施工单十六第四节「按一格多大」开始画），留的格数跟着挑出来的宽走；不给 = 以前（宽 = base，不够才加宽）。 */
+    readonly squarish?: boolean;
 }
 /** 连成片的门槛：和种子的朝向夹角小于它才收进这一片（施工单十五第五节：先定 45°，量过可能调）。 */
 export declare const PATCH_MAX_DEG = 45;
+/** 片太空就不收面（施工单十六第三节）：收了这张面之后，片压平后的面积 ÷ 片的包围盒面积 低于它 = 不收。量过 0.5 / 0.6 / 0.7 定的（施工记录）。 */
+export declare const PATCH_MIN_FILL = 0.5;
 /** 铺的时候块之间、块和画布边留几格：画布基准边长 ÷ 256 四舍五入、最少 1、最多 8（user 11-11「所以 4 格能减：留的格数跟着画布走。 同意」）。1024 = 4（和以前一样）。 */
 export declare function gapForCanvas(side: number): number;
 export interface Block {
@@ -59,11 +67,16 @@ interface Unit {
     } | null;
 }
 /**
- * 按朝向连成片（施工单十五第五节；同样的输入永远同样的结果、和面的列表先后无关）：面按面积从大到小（一样大看编号），还没归片的面里最大的当种子；
- * 从种子沿公共的边往外走（先进先出、邻面按编号），邻面在这批面里、还没归片、不是退化的、朝向和**种子**的朝向夹角小于 maxDeg、按种子的方向压平之后不和片里
- * 已有的面叠在一起（共边共点不算），就收进来。退化的面各自一片（照 flatten 占一格）。
+ * 按朝向连成片（施工单十五第五节；同样的输入永远同样的结果、和面的列表先后无关、和面的编号无关）：面按面积从大到小当种子（一样大看面心的位置），还没归片的面里最大的；
+ * 从种子沿公共的边往外长，**离种子近的先试**（面心到种子面心的距离；一样近看面心的位置——施工单十六改：以前先进先出、邻面按编号，加了「片太空就不收」以后
+ * 试的先后会改结果，按编号就和面的编号有关了；按远近长还让片更圆、更满）。邻面在这批面里、还没归片、不是退化的、每个三角形和片压平到的面夹角小于 maxDeg、
+ * 压平之后不和片里已有的面叠在一起（共边共点不算）、收了之后片不太空（minFill），就收进来；被拒的面以后从别的邻面再碰到会再试。退化的面各自一片（照 flatten 占一格）。
  */
-export declare function patchesOf(m: LayoutMesh, faces: readonly number[], maxDeg?: number): Unit[];
+export declare function patchesOf(m: LayoutMesh, faces: readonly number[], opts?: {
+    readonly maxDeg?: number;
+    readonly minFill?: number;
+    readonly orient?: "box" | "seed";
+}): Unit[];
 /** 给一批面铺贴图坐标（一张面一块）。不改内核：values = 每张面每个角的 [横, 纵, 横, 纵…]（格）。 */
 export declare function layoutFaces(m: LayoutMesh, faces: readonly number[], opts?: LayoutOptions): LayoutResult;
 /**
@@ -78,6 +91,7 @@ export declare function layoutAppend(m: LayoutMesh, guid: string, placed: readon
     width: number;
     height: number;
 }, density: number, opts?: Omit<LayoutOptions, "density" | "base"> & {
-    readonly partial?: boolean;
+    readonly partial?: boolean; /** 画布能不能往下长（缺 = 能；施工单十六第四节：按总大小开的画 = 不能，fit = "size"）。 */
+    readonly grow?: boolean;
 }): LayoutResult;
 export {};

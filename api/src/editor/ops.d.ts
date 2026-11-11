@@ -482,7 +482,8 @@ export type Op =
     color: [number, number, number];
     density?: number; /** 没给密度时画布边长（2026-11-11 开始画时选；缺 = 1024，老指令流重放不变）。 */
     canvas?: number; /** 铺法（施工单十五）：faces = 一张面一块（缺 = 这个）、patches = 按朝向连成片。名字避开贴图行的 layout（那是「画铺在哪个定义的哪一套坐标上」）。 */
-    arrange?: "faces" | "patches";
+    arrange?: "faces" | "patches"; /** 施工单十六第四节：density = 按一格多大开（要和 density 一起给；画布取接近正方形、够用的最小宽高，那一套坐标记 fit = density、以后加面画布能长大）；缺 / size = 按总大小（画布不自己变大）。 */
+    fit?: "size" | "density";
 }
 /** 给网格体的面换材质（1-3b）：material = 文档材质的下标、null = 默认；可以换成这个定义自己的画，别的定义的画拒绝；从画换走角上的数留着。 */
  | {

@@ -56,5 +56,13 @@ export declare function createFloatWin(spec: {
     bodyClass?: string;
     bodyRole?: string;
     titleMenu?: TitleMenu;
+    /** 能拖右下角改大小（画布小窗，施工单十六）：最小多大。大小不记（每次打开回到 CSS 的默认大小）。 */
+    resize?: {
+        min: {
+            w: number;
+            h: number;
+        };
+    };
+    winClass?: string;
 }): FloatWin;
 export declare function createMenuWindow<Id extends string>(spec: MenuWindowSpec<Id>): MenuWindowHandle;

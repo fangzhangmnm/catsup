@@ -533,13 +533,14 @@ export declare class Editor {
     /** 选了点（2026-10-26）。 */
     hasPointSelection(): boolean;
     hasPoolSelection(): boolean;
+    /** 正在编辑的网格体里选中的面（池本地编号，升序；不在网格体里 = 空）：画布小窗（施工单十六）、开始画的面板只读这个。 */
+    selectedMeshFaces(): number[];
     selectedPoolPicks(): PoolPick[];
     isGestureActive(): boolean;
     /** 上下文深度（0 = 根）。 */
     contextDepth(): number;
-    /** 上下文人话：「根」/「组件 名 › 组」。 */
+    /** 上下文人话 / 面包屑（#25）：纯场景查询，住 context-crumbs.ts（施工单十六切出去，给 selectedMeshFaces 腾地方）。 */
     contextLabel(): string;
-    /** 面包屑（#25）：根 › 组件「名」› 组 › …；depth = 点它要退到的层数。 */
     contextCrumbs(): {
         label: string;
         depth: number;

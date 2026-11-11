@@ -15,6 +15,8 @@ export interface ViewState {
     warnEdges?: ReadonlySet<EdgeId> | null;
     hoverEdge: EdgeId | null;
     hoverFace: FaceId | null;
+    /** 别处要三维这边亮一下的面（世界编号；画布小窗里悬停的那张面，施工单十六）：和悬停同一个样子。缺 / null = 没有。 */
+    peekFaces?: ReadonlySet<FaceId> | null;
     snap: Snap3 | null;
     snapAnchor: Pt3 | null;
     /** checkpoint 代数（editor.revision）：几何缓存键的一部分。 */

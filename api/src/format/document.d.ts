@@ -144,6 +144,9 @@ export interface UvSetDoc {
     height: number;
     pxPerM: number;
     loopUv: Float32Array;
+    /** 开的时候定住的是什么（CATSUP_mesh 2.1；施工单十六第四节，user 11-11「如果是指定贴图大小的话，后面自动涨也不好」）：density = 按一格多大开的（加面放不下时画布照规矩长大）；
+     *  缺 = size = 按总大小开的（画布不自己变大，加面只在现有宽高里找地方）。只写 density；读到别的值 = 当 size。 */
+    fit?: "density";
 }
 /** 一套贴图坐标除了角上的数之外的那几样（内存里 MeshBody.uvSets 的一行就是这个形状）。 */
 export type UvSetMeta = Omit<UvSetDoc, "loopUv">;

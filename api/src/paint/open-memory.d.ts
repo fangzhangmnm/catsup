@@ -9,6 +9,7 @@ export interface OpenMemory {
     /** 一笔正在画的时候另外再多的。 */
     readonly stroke: number;
 }
-export declare function openMemory(n: number): OpenMemory;
+/** n × hgt（缺 = 见方；补面加高过的画布比宽高，施工单十六的画布小窗按实际宽高报）。 */
+export declare function openMemory(n: number, hgt?: number): OpenMemory;
 /** 字节念成 MB / KB。 */
 export declare function bytesSay(n: number): string;
