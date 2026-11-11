@@ -42,18 +42,33 @@ export function forceSnapshot(env: ForceEnv, op: Op): ForceSnaps | null {
   return out.size ? out : null;
 }
 /**
+ * 画的收尾钩子（贴图主线 1-3b，editor/paint-upkeep.ts）：强行对称那一步先选边，再给留着的那半补位置；丢掉的那半还有走画没位置的 = 即使形状已经对称也对称化（镜过去的面照抄位置）。
+ * 两个方法都是同一步里提交（commit）。
+ */
+export interface ForcePaintHook {
+  /** 这个网格体这一步有没有走画、还没有位置的面。 */
+  pending(def: number): boolean;
+  /** 给留着的那半（side）补位置；返回丢掉的那半还有没有走画没位置的面（有 = 要对称化）。side = null：对称化做不成，全部都补。 */
+  layout(def: number, side: -1 | 1 | null): boolean;
+}
+/**
  * 提交后：版本号变了、又不对称了的网格体，选边（第 0 / 5 层）→ 先在拷贝上试对称化 → 成了就交 commit 一条 meshSymmetrize（同一步，撤销一起撤）。
+ * 带画（paint 钩子）：形状对称、但这一步有走画没位置的面，也选边、补留着那半的位置；丢掉的那半还有要抄的才对称化。
  * 返回要接在提示行后面的话（看不出哪边 / 那半是空的 / 两半都没有 / 劈不开）；没有 = 空串。
  */
-export function forceAfter(env: ForceEnv, op: Op, snaps: ForceSnaps, commit: (op: Op) => void): string {
+export function forceAfter(env: ForceEnv, op: Op, snaps: ForceSnaps, commit: (op: Op) => void, paint?: ForcePaintHook): string {
   const notes: string[] = [];
   for (const [def, sn] of snaps) {
     if (!env.scene.defs.has(def) || env.scene.kindOf(def) !== "mesh") continue;
     const m = env.scene.mesh(def).kernel, ms = env.mirrors.get(def);
-    if (!ms || m.rev === sn.rev || isSymmetric(m, ms.axis)) continue;
+    if (!ms || m.rev === sn.rev) continue;
+    const sym = isSymmetric(m, ms.axis);
+    if (sym && !paint?.pending(def)) continue;
     const { want, side, guessed } = forceSideFor(env, def, sn.before ?? m, m, ms.axis, sn.before ? op : null);
-    if (!side) { notes.push("强行对称：镜像面两边都还没有面，这一步没对称"); continue; }
-    if (!trySymmetrize(m, ms.axis, side)) { notes.push("强行对称：有面跨过镜像面、而且一刀劈不开（凹的面），这一步没对称（先在中缝上手动切一刀）"); continue; }
+    if (!side) { notes.push("强行对称：镜像面两边都还没有面，这一步没对称"); paint?.layout(def, null); continue; }
+    if (!trySymmetrize(m, ms.axis, side)) { notes.push("强行对称：有面跨过镜像面、而且一刀劈不开（凹的面），这一步没对称（先在中缝上手动切一刀）"); paint?.layout(def, null); continue; }
+    const again = paint ? paint.layout(def, side) : false;   // 先给留着的那半补位置（只写贴图坐标那一列，不动形状：上面试过的对称化照样做得成）
+    if (sym && !again) { env.lastSide.set(def, side); continue; }   // 形状本来就对称、丢掉的那半也没有要抄的：补完位置就够了
     if (side !== want) notes.push(`强行对称：${sideLabel(want, ms.axis)} 那半是空的，按 ${sideLabel(side, ms.axis)} 那半为准`);
     else if (guessed) notes.push(`强行对称：这一步看不出动的是哪边，按 ${sideLabel(side, ms.axis)} 那半为准`);
     env.lastSide.set(def, side);

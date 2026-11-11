@@ -9,7 +9,9 @@
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
 import { mintGuid, type Guid } from "../format/guid.ts";
 import { uniqueCopy } from "../format/scene-store.ts";
-import { COLOR_VALUE, assertSizedImage, type ShelfItem, type TextureDoc } from "../format/document.ts";
+import { COLOR_VALUE, assertSizedImage, paintIn, type ShelfItem, type TextureDoc } from "../format/document.ts";
+import { type PaintOutcome, applyMeshLayoutPaint, applyMeshPaintFaces, applyStartPaint } from "./paint-ops.ts";
+import { type PaintMove, paintMoveBlocked } from "../scene/paint.ts";
 import { TEXTURE } from "../format/entry-kinds.ts";
 import type { CurveSpec } from "../kernel/kernel.ts";
 import { markEdges } from "../mesh/edge-smooth.ts";
@@ -174,6 +176,12 @@ export type Op =
   | { op: "meshFill"; def: number; verts?: number[]; edges?: number[] }
   /** 翻转这些面的朝向（单面网格的正面 = 环的绕向）。 */
   | { op: "meshFlip"; def: number; faces: number[] }
+  /** 开始画（贴图主线 1-3b；editor/paint-ops.ts）：给这些面铺一套贴图坐标、建一张没有字节的分层贴图和一个接着它的材质、把面换成它。三个 GUID 写在指令里（重放得到同一个身份）。 */
+  | { op: "startPaint"; def: number; faces: number[]; uvSet: Guid; textureGuid: Guid; materialGuid: Guid; names: { uvSet: string; paint: string; material: string }; color: [number, number, number]; density?: number }
+  /** 给网格体的面换材质（1-3b）：material = 文档材质的下标、null = 默认；可以换成这个定义自己的画，别的定义的画拒绝；从画换走角上的数留着。 */
+  | { op: "meshPaintFaces"; def: number; faces: number[]; material: number | null }
+  /** 给走画但还没有位置的面补一块（1-3b；每一步做完的收尾补进同一步）：faces = 只看这些（不给 = 全部）。放不下的不拒绝，留着没有值。 */
+  | { op: "meshLayoutPaint"; def: number; faces?: number[] }
   /** 分开（Blender P → 选中）：网格体 def 里这些面搬进一个新的网格体组件，摆在 at 池里、和正在编辑的那一份（instance）同一个变换（世界里不动）。 */
   | { op: "separateObject"; at: PoolRef; instance?: number; def: number; faces: number[]; name: string }   // instance 缺 = 在最外层分（新组件摆在最外层、不变换）
   /** 合并物体（Blender Ctrl+J）：at 池里 sources 这几份网格体的几何换到 target 那一份的坐标里并进它的定义，sources 删掉。 */
@@ -497,6 +505,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (!src || src.parent !== op.at.group) throw new OpTargetError(`instance ${op.source}`);
       if (op.target === op.source) throw new OpTargetError("mergeObject: target = source");
       if (s.references(src.def, T.def)) throw new OpTargetError("mergeObject: would create a cycle (merging an object into itself)");
+      refusePaintMove(s, { def: src.def });   // 带着画的面现在还搬不了（1-3b 第六节）
       const fresh = s.mintInstance(T.def, null, src.def, compose(invert(T.xform), src.xform));
       if (src.name !== undefined) fresh.name = src.name;
       explodeInstance(s, { def: T.def, group: null }, fresh, !!op.cast);
@@ -508,6 +517,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (op.instance !== undefined) {
         const host = s.def(op.at.def), inst = host.instances.get(op.instance);
         if (!inst || inst.parent !== op.at.group) throw new OpTargetError(`instance ${op.instance}`);
+        refusePaintMove(s, { def: inst.def });   // 炸开网格体组件：它的面会并进外面那一层（1-3b，统筹 11-10 同意进同一个拒绝函数）
         if (s.kindOf(op.at.def) !== s.kindOf(inst.def) || s.kindOf(op.at.def) === "mesh") { explodeInstance(s, op.at, inst, !!op.cast); return { scene: s, events: [] }; }
       }
       const { kernel, ref } = poolOf(s, op.at);
@@ -675,6 +685,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       const { kernel, ref } = poolOf(s, op.at);
       const fids = op.faces.map((f) => resolveFace(kernel, f));
       if (op.material !== null && op.material !== BUILTIN_BACK_SLOT && !(op.material in s.materials)) throw new OpTargetError(`material ${op.material}`);
+      if (op.material !== null && op.material !== BUILTIN_BACK_SLOT && paintIn(s.textures, s.materials[op.material])) throw new OpRejected(PAINT_ONLY_MESH);   // 画只能给网格体自己的面（1-3b）
       kernel.setFaceMaterial(fids, op.material === null ? null : s.slotFor(ref.def, op.material), op.sides);
       return { scene: s, events: [] };
     }
@@ -804,9 +815,13 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "meshDuplicate": { duplicateGeometry(meshOf(s, op.def).kernel, op); return { scene: s, events: [] }; }
     case "meshFill": { const r = fillOrBridge(meshOf(s, op.def).kernel, op); if (typeof r === "string") throw new OpTargetError(r); return { scene: s, events: [] }; }
     case "meshFlip": { const k = meshOf(s, op.def).kernel; flipFaces(k, op.faces.filter((f) => k.hasF(f))); return { scene: s, events: [] }; }
+    case "startPaint": { if (s.texturesFrozen) throw new OpRejected(TEXTURES_FROZEN); return paintOutcome(s, applyStartPaint(s, op)); }   // 画的三条指令住 paint-ops.ts（1-3b）
+    case "meshPaintFaces": return paintOutcome(s, applyMeshPaintFaces(s, op));
+    case "meshLayoutPaint": return paintOutcome(s, applyMeshLayoutPaint(s, op));
     case "paste": {
       const ref = op.at, kind = s.kindOf(ref.def);   // 两种身体都接：别走 poolOf（它只认硬表面池）
       if (!s.hasPool(ref)) throw new OpTargetError(`paste: pool ${ref.def}/${ref.group ?? "root"}`);
+      refusePaintMove(s, { payload: { materials: op.materials, textures: op.textures, faceMats: op.mesh?.faces.map((f) => f.mat) } });   // 粘贴带着画（散面走画 / 跨文件）= 拒（1-3b）
       const pp = planPaste(s, op, op.merge ?? KEEP), blocked = pasteBlocked(s, pp, ref.def);
       if (blocked) throw new OpRejected(blocked);
       if (s.texturesFrozen && [...pp.plan.create, ...pp.plan.update].some((r) => r.kind === TEXTURE)) throw new OpRejected(TEXTURES_FROZEN);
@@ -847,6 +862,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "separateObject": {
       const src = meshOf(s, op.def), k = src.kernel, xf = op.instance !== undefined ? s.instance(op.at.def, op.instance).xform : ([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0] as Xform), faces = op.faces.filter((f) => k.hasF(f));
       if (!faces.length) throw new OpTargetError("separate: no faces");
+      refusePaintMove(s, { def: op.def, faces });
       const nk = new MeshKernel(), map = new Map<number, number>(), nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = nk.addVertex(k.pt(v)); map.set(v, x); } return x; };
       nk.ensureColumns(k.columnDefs());   // 整张面原样搬到新内核：列按 GUID 对上、角上的数跟着搬
       for (const f of faces) nk.addFace(k.faceVerts(f).map(nv), k.faceMat[f], { kind: "fresh", values: k.faceValues(f) });
@@ -861,6 +877,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "makeUnique": {
       const inst = s.def(op.def).instances.get(op.instance);
       if (!inst) throw new OpTargetError(`instance ${op.instance}`);
+      refusePaintMove(s, { def: inst.def });
       inst.def = uniqueCopy(s, inst.def);
       return { scene: s, events: [] };
     }
@@ -869,6 +886,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "meshExtrude": { const k = meshOf(s, op.def).kernel; if (op.along !== undefined && !op.faces?.length) extrudeAlongNormals(k, op, op.along); else extrudeAndOffset(k, op, op.offset ?? { x: 0, y: 0, z: 0 }); return { scene: s, events: [] }; }
     case "castDefinition": {
       const d = s.def(op.def);
+      if (op.to === "brep") refusePaintMove(s, { def: op.def });   // 网格体转硬表面：带着画怎么办以后另定，现在先拒（1-3b，统筹 11-10）
       const body = castBody(d.body, op.to, op.softDeg !== undefined ? { softDeg: op.softDeg } : undefined);   // 不认的方向在这里抛，文档不动
       // 组没了（网格体没有组分区）：住在组里的实例挂回定义的根上——组没有自己的变换，摆的位置不变（2026-10-28：以前留着指向不存在的组）
       if (body.kind !== "brep") for (const inst of d.instances.values()) if (inst.parent !== null) inst.parent = null;
@@ -939,6 +957,9 @@ export function describeOp(op0: Op): string {
     case "meshDuplicate": return `meshDuplicate def=${op.def} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFill": return `meshFill def=${op.def} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFlip": return `meshFlip def=${op.def} faces=${op.faces.length}`;
+    case "startPaint": return `startPaint def=${op.def} faces=${op.faces.length} uv=${op.uvSet.slice(0, 4)}${op.density !== undefined ? ` density=${op.density}` : ""}`;
+    case "meshPaintFaces": return `meshPaintFaces def=${op.def} faces=${op.faces.length} material=${op.material ?? "default"}`;
+    case "meshLayoutPaint": return `meshLayoutPaint def=${op.def}${op.faces ? ` faces=${op.faces.length}` : ""}`;
     case "paste": return `paste${op.brep ? ` brep=${op.brep.faces.length}f` : ""}${op.mesh ? ` mesh=${op.mesh.faces.length}f` : ""}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${op.closure ? ` closure=${op.closure.definitions.length}d` : ""}${op.merge ? ` merge=${op.merge.entries}` : ""}${op.shelve?.length ? ` shelve=${op.shelve.length}` : ""}${at}`;
     case "shelfPut": return `shelfPut ${op.kind} ${op.ref.slice(0, 4)}${op.folder ? ` in ${op.folder.slice(0, 4)}` : ""}${op.index !== undefined ? ` @${op.index}` : ""}`;
     case "shelfTake": return `shelfTake ${op.item.slice(0, 4)}`;
@@ -1040,6 +1061,11 @@ function mintPasted(s: Scene, def: number, parent: number | null, i: TransferIns
   if (layer !== undefined) ni.layer = layer;
   if (i.hidden) ni.hidden = true;
 }
+/** 画的指令的结果 → 抛（拒绝 = OpRejected 进提示行；目标没了 = OpTargetError）。 */
+const paintOutcome = (s: Scene, o: PaintOutcome): ApplyResult => { if (o && "rejected" in o) throw new OpRejected(o.rejected); if (o && "target" in o) throw new OpTargetError(o.target); return { scene: s, events: [] }; };
+/** 第六节那几种动作的唯一拒绝口（判断在 scene/paint.ts paintMoveBlocked）。 */
+const refusePaintMove = (s: Scene, what: PaintMove): void => { const why = paintMoveBlocked(s, what); if (why) throw new OpRejected(why); };
+const PAINT_ONLY_MESH = "画只能给网格体自己的面（硬表面的面不能换成画）";
 const TEXTURES_FROZEN = "这份文件的贴图表是更新版写的，本版读不懂，加贴图 / 清理会和它打架：用更新版打开再改";
 const SHELF_FROZEN_PURGE = "这份文件的素材架是更新版写的，本版看不见架上收着什么，清理可能删掉它们：用更新版打开再清理";
 /** 同一个文件夹里排到第 index 个（items 是一张表，顺序只在同夹之间有意义；缺 / 超了 = 排最后）。 */

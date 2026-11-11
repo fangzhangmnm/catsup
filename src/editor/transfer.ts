@@ -28,6 +28,7 @@ import type { DefinitionDoc, LayerDoc, TextureDoc } from "../format/document.ts"
 import type { Guid } from "../format/guid.ts";
 import { DEFINITION, LAYER, MATERIAL, defRef, layerRef, type DefinitionEntry } from "../format/entry-kinds.ts";
 import { sceneStore } from "../format/scene-store.ts";
+import { paintMoveBlocked } from "../scene/paint.ts";
 import { bundleOf, type Bundle } from "../identity/graph.ts";
 import type { Ref } from "../identity/kinds.ts";
 
@@ -77,6 +78,15 @@ export function transferSay(p: TransferPayload): string {
 }
 
 /** 从活动池抠一份（世界坐标）：选中的面 / 边 + 选中的组（子树）+ 选中的实例。什么都没选中 = null。 */
+/**
+ * 拷贝 / 剪切用的那一口（1-3b 第六节）：选中的网格体面里有走画的 = 拒（{ blocked: 原因 }，判断 = scene/paint.ts paintMoveBlocked）；剪切走拷贝，所以也不会先删掉再贴不上。
+ * 整个物件（实例）照拷：同一份文件里贴出来的另一份摆放共用同一张画；跨文件贴的时候粘贴那一步再拦。
+ */
+export function extractForCopy(s: Scene, ctx: EditContext, sel: { faces: Iterable<number>; edges: Iterable<number> }, pools: Parameters<typeof extract>[3]): TransferPayload | { readonly blocked: string } | null {
+  const at = s.poolOfContext(ctx);
+  if (s.kindOf(at.def) === "mesh") { const blocked = paintMoveBlocked(s, { def: at.def, faces: sel.faces }); if (blocked) return { blocked }; }
+  return extract(s, ctx, sel, pools);
+}
 export function extract(s: Scene, ctx: EditContext, sel: { faces: Iterable<number>; edges: Iterable<number> }, pools: readonly ({ kind: "group"; group: GroupId } | { kind: "instance"; instance: InstId })[]): TransferPayload | null {
   const at = s.poolOfContext(ctx), X = s.xformOfContext(ctx), d = s.def(at.def), kind = s.kindOf(at.def);
   const layerRoots: Ref[] = [];
