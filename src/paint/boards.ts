@@ -1,7 +1,8 @@
 // paint/boards.ts —— 画板登记处：一张贴图一块画板，按贴图的 GUID 登记（贴图主线 1-3c，施工单 ai-docs/20261111-paint-workorders-10.md）。created 2026-11-11 by Claude Opus 5.5
 // 编辑器那边经 stream-provider.ts 的 PaintImages 看它（sync / board / sig）；不认识 three、不认识编辑器。
 // · 画板不在创建贴图时建：没有画板的画 = 还没画过 = 照材质的底色显示。这一张里只有调试钩子建（ensure）；以后落第一笔（1-4b）、读文件（1-8）时建。
-// · 每次拉流之前 sync：换了文件（epoch 变了）= 全部销毁；画没了（贴图删了 / 材质不指它了）= 那块销毁；其余跟着那一套坐标改大小（裁定在 board.ts 头）、垫材质的底色。
+// · 每帧开画之前的「准备」（prepare；编辑器在渲染之前明着调一次，1-4b 统筹 B）：换了文件（epoch 变了）= 全部销毁；画没了（贴图删了 / 材质不指它了）= 那块销毁；
+//   其余跟着那一套坐标改大小（裁定在 board.ts 头）、垫材质的底色；跑这一帧登记的准备活（这一笔的薄层）；该合成的合成。活的图的 current() 只读准备好的结果。
 // · 整个程序只有一个内核的显卡接口：第一次要用时建在渲染器的画面上（BrowserGl2Port.fromContext），以后所有画板共用。
 import { BrowserGl2Port } from "./kernel/src/shell/browser-gl2-port.ts";
 import type { Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
@@ -18,9 +19,11 @@ export interface PaintBoardsOpts {
   readonly epoch: () => number;
   /** 调试日志（有内容的行不砍时记一笔）。 */
   readonly log?: (msg: string) => void;
+  /** 准备里动过显卡（合成了）：通知渲染器作废它的状态缓存。 */
+  readonly touched?: () => void;
 }
 
-interface Entry { readonly board: PaintBoard; readonly image: LiveImage }
+interface Entry { readonly board: PaintBoard; readonly image: LiveImage; prepared: { gpuImage: unknown; version: number } | null }
 
 export class PaintBoards {
   private readonly entries = new Map<Guid, Entry>();
@@ -44,19 +47,38 @@ export class PaintBoards {
     this.port ??= this.o.port();
     const board = new PaintBoard({ port: this.port, width: place.uvSet.width, height: place.uvSet.height, log: this.o.log });
     board.setBackground(place.material.color);
-    const port = this.port;
-    const image: LiveImage = {
+    const entry: Entry = { board, image: null as unknown as LiveImage, prepared: null };
+    (entry as { image: LiveImage }).image = {
       kind: "live",
       get width() { return board.width; },
       get height() { return board.height; },
-      current: () => { const r = board.compose(); return r ? { gpuImage: gpuImageOf(port, r.fbo), version: r.version } : null; },
+      current: () => entry.prepared,   // 只读准备好的结果（合成在 prepare 里）
     };
-    this.entries.set(texture, { board, image });
+    this.entries.set(texture, entry);
     this.resig();
     return board;
   }
 
-  /** 每次拉流之前（PaintImages.sync）：换文件全销毁；画没了的销毁；其余跟着坐标改大小、垫底色。 */
+  /** 这一帧的准备活（这一笔的薄层：画、交给档口），prepare 里在合成之前跑。返回撤掉。 */
+  onPrepare(job: () => void): () => void { this.jobs.add(job); return () => { this.jobs.delete(job); }; }
+  private readonly jobs = new Set<() => void>();
+
+  /** 每帧开画之前的准备（编辑器的 beforeRender 调）：sync → 这一帧的准备活 → 合成。一块画板都没有 = 什么都不做。 */
+  prepare(scene: Scene): void {
+    this.sync(scene);
+    if (!this.entries.size) return;
+    for (const job of [...this.jobs]) job();
+    let touched = false;
+    for (const e of this.entries.values()) {
+      const r = e.board.compose();
+      if (!r) { e.prepared = null; continue; }
+      if (!e.prepared || e.prepared.version !== r.version) touched = true;
+      e.prepared = { gpuImage: gpuImageOf(this.port!, r.fbo), version: r.version };
+    }
+    if (touched) this.o.touched?.();
+  }
+
+  /** 换文件全销毁；画没了的销毁；其余跟着坐标改大小、垫底色（prepare 的第一步；测试也直接调）。 */
   sync(scene: Scene): void {
     if (this.checkEpoch() || !this.entries.size) return;
     let changed = false;
@@ -101,9 +123,9 @@ function gpuImageOf(port: Gl2Port, fbo: PooledFBO): unknown {
 }
 
 /** 浏览器里：内核的显卡接口建在渲染器的画面上（整个程序一个）。 */
-export function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void): PaintBoards {
+export function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void, touched?: () => void): PaintBoards {
   return new PaintBoards({
     port: () => { const g = gl(); if (!g) throw new Error("PaintBoards: renderer has no WebGL2 context"); return BrowserGl2Port.fromContext(g); },
-    epoch, log,
+    epoch, log, touched,
   });
 }

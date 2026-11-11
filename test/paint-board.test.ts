@@ -89,8 +89,10 @@ describe("画板登记处（1-3c）", () => {
     assert(reg.sig().includes(`${tex}:${row!.width}x${row!.height}`), reg.sig());
     let threw = false; try { reg.ensure(s, mintGuid()); } catch { threw = true; }
     assert(threw, "不是画的 GUID 抛");
+    eq(reg.board(tex)!.image.current(), null, "没准备之前活的图是空的（current() 只读准备好的结果）");
+    reg.prepare(s);
     const cur = reg.board(tex)!.image.current();
-    assert(cur && cur.version > 0, "能合成");
+    assert(cur && cur.version > 0, "准备之后能读到合成好的");
   });
   it("换文件（epoch 变了）= 全部销毁；画没了（材质不指它了）= 那块销毁", () => {
     const { s, tex } = painted(), port = new SoftGl2Port();

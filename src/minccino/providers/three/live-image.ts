@@ -49,17 +49,17 @@ export class LiveTextures {
     return e.tex;
   }
 
-  /** 每帧开画之前：挨个问 current()，版本变了的拷进显示图。返回 true = 动过显卡（调用的人 resetState 一次）。一张都没有 = 什么都不做。 */
+  /** 画的时候：挨个问 current()（只读准备好的），版本变了的拷进显示图。返回 true = 拷过（调用的人 resetState 一次）。一张都没有 = 什么都不做。 */
   update(): boolean {
     if (!this.entries.size) return false;
     let touched = false;
     for (const [img, e] of this.entries) {
-      const cur = img.current();
-      touched = true;   // current() 可能已经让内核合成过（动过显卡）
+      const cur = img.current();   // 只读准备好的结果（合成在编辑器的「准备」里，1-4b）
       if (!cur) continue;
       if (cur.version === e.ver && e.disp && e.w === img.width && e.h === img.height) continue;
       const t0 = performance.now();
       this.copy(e, cur.gpuImage as WebGLTexture, img.width, img.height);
+      touched = true;
       this.lastCopyMs = performance.now() - t0;
       e.ver = cur.version;
     }

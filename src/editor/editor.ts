@@ -57,7 +57,8 @@ import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
 import { type LockValue, NO_LOCK, ToolLocks } from "./tool-locks.ts";
 import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
 import { POOL_AXES_PX } from "./overlay-lines.ts"; import { frameInput, type ViewState } from "./view-state.ts"; import { type LineStyle, type RenderProvider, GRID_FINEST_PX, ladderLevelAt } from "../minccino/index.ts";   // 刀 f：编辑器只持画的供货商的契约，不 import three 那层
-import { EditorStreamProvider } from "./stream-provider.ts";   // 编辑器 = 流提供者（Minccino 契约；Tron 第一刀步 3）
+import { EditorStreamProvider } from "./stream-provider.ts";
+import { pointsCenter } from "./point-center.ts";   // 选择中心的两种算法（1-4b 腾行时从这里切出去）   // 编辑器 = 流提供者（Minccino 契约；Tron 第一刀步 3）
 import { type BreakTicksCache, breakTicksOf } from "./break-ticks.ts";
 import { PRESETS } from "./presets.ts";
 import { type Op, OpRejected, edgeKey, faceKey, resolveEdge, resolveFace, applyOp } from "./ops.ts";
@@ -241,7 +242,9 @@ const SKELETON_ONLY: ReadonlySet<string> = new Set(["setMeshMirror", "transformI
 
 export class Editor {
   readonly cam = new OrbitCamera();
-  private r3: RenderProvider; readonly provider: EditorStreamProvider;   // provider 对外只读：app 层给它接画板登记处（1-3c）
+  private r3: RenderProvider; readonly provider: EditorStreamProvider;
+  /** 每帧开画之前那一步「准备」（贴图主线 1-4b，统筹 B）：编辑器在渲染之前明着调一次（画板跟大小、合成、这一笔的薄层）；渲染器和拉流只读准备好的结果。app 层接。 */
+  beforeRender: ((view: WorldView) => void) | null = null;   // provider 对外只读：app 层给它接画板登记处（1-3c）
   private scene = new Scene();
   private ctx: EditContext = ROOT_CONTEXT;
   private readonly gridState = new GridState();   // 网格设置 + 各工作台的吸附开关（自由建模单独一份，grid-state.ts）
@@ -2907,19 +2910,12 @@ export class Editor {
     return out;
   }
   /** 选择中心：bbox = 包围盒中心（Blender 默认）；mean = 顶点平均（Blender 的 median point）。 */
-  selectionCenter(algo: "bbox" | "mean" = "bbox"): Pt3 | null { return Editor.centerOf(this.selectionWorldPoints(), algo); }
-  private static centerOf(pts: readonly Pt3[], algo: "bbox" | "mean"): Pt3 | null {
-    if (!pts.length) return null;
-    if (algo === "mean") { let x = 0, y = 0, z = 0; for (const p of pts) { x += p.x; y += p.y; z += p.z; } return { x: x / pts.length, y: y / pts.length, z: z / pts.length }; }
-    let lo = { ...pts[0] }, hi = { ...pts[0] };
-    for (const p of pts) { lo = { x: Math.min(lo.x, p.x), y: Math.min(lo.y, p.y), z: Math.min(lo.z, p.z) }; hi = { x: Math.max(hi.x, p.x), y: Math.max(hi.y, p.y), z: Math.max(hi.z, p.z) }; }
-    return { x: (lo.x + hi.x) / 2, y: (lo.y + hi.y) / 2, z: (lo.z + hi.z) / 2 };
-  }
+  selectionCenter(algo: "bbox" | "mean" = "bbox"): Pt3 | null { return pointsCenter(this.selectionWorldPoints(), algo); }
   /** 把当前上下文的轴原点挪到选择中心（朝向不变）；之后右下角马后炮可换算法。没选区 → false。 */
   axesToSelectionCenter(algo: "bbox" | "mean" = "bbox"): boolean { return this.step(() => this.axesToSelectionCenterStep(algo)); }
   private axesToSelectionCenterStep(algo: "bbox" | "mean"): boolean {
     const pts = this.selectionWorldPoints();   // 先记下：马后炮撤销那一步时选区会被清掉，重做按记下的点算
-    const go = (a: "bbox" | "mean"): boolean => { const c = Editor.centerOf(pts, a); if (!c) return false; const f = this.contextFrame(); this.setContextAxes({ origin: c, x: f.x, y: f.y, z: f.z }); return true; };
+    const go = (a: "bbox" | "mean"): boolean => { const c = pointsCenter(pts, a); if (!c) return false; const f = this.contextFrame(); this.setContextAxes({ origin: c, x: f.x, y: f.y, z: f.z }); return true; };
     const n0 = this.opCount;
     if (!go(algo)) return false;
     this.offerAfterthought("坐标架移到选择中心", [{ key: "algo", def: { kind: "enum", label: "中心", values: [{ id: "bbox", label: "包围盒中心" }, { id: "mean", label: "顶点平均" }] } }], { algo }, this.opCount - n0, (v) => { go(v.algo as "bbox" | "mean"); });
@@ -3666,6 +3662,7 @@ export class Editor {
     if (!this.cmdPreview) slotHighlight(this.selectedPools.values());
     const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => !insideContext(this.scene, this.ctx, s.pool, s.chain)).map((s) => s.index)) : null;   // 只淡这一层外面的；这一层里的子组件 / 子组照常画（SketchUp 同款，user 10-30「同意，做」）
     this.provider.setWorld(view, this._revision, !this.locked);   // 这一帧画哪个世界（演示锁 = 没有正在编辑的那一层，场景表 6）：提供者按它吐块（引擎拉）；版本进内容键
+    this.beforeRender?.(view);   // 准备（见字段注释）：在拉流 / 渲染之前
     this.r3.render(frameInput(view, this.cam, this.vp(), {   // view-state.ts：相机 / 网格 / 叠加层（选中高亮 + 线点标记文字）交给后端，引擎给量尺
       ...(this.viewExtras?.() ?? {}),
       selectionEdges: selE,

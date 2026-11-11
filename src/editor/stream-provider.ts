@@ -19,11 +19,10 @@ const srgb = (hex: number): readonly [number, number, number] => [((hex >> 16) &
 const FACE_SRGB = srgb(PALETTE.face), BACK_SRGB = srgb(PALETTE.faceBack), NO_SIDE: readonly [number, number, number] = [-1, -1, -1], EDGE_FACE = hexToLinear(PALETTE.edge), EDGE_WIRE = hexToLinear(PALETTE.edgeWire);
 
 /**
- * 画板登记处在编辑器这边看到的样子（贴图主线 1-3c；实现 = src/paint/boards.ts，编辑器不认识画画内核）。
- * sync = 每次拉流之前：跟着场景改画板大小、换了文件全部销毁；board = 这张贴图的画板（实际宽高 + 活的图）；sig = 有哪些画板、多大（变了 = 用到画的池整份重建）。
+ * 画板登记处在编辑器这边看到的样子（贴图主线 1-3c；实现 = src/paint/boards.ts，编辑器不认识画画内核）。只读：改大小、合成都在每帧开画之前的「准备」里（1-4b 统筹 B）。
+ * board = 这张贴图的画板（实际宽高 + 活的图）；sig = 有哪些画板、多大（变了 = 用到画的池整份重建）。
  */
 export interface PaintImages {
-  sync(scene: Scene): void;
   board(texture: string): { readonly width: number; readonly height: number; readonly image: LiveImage } | null;
   sig(): string;
 }
@@ -110,7 +109,6 @@ export class EditorStreamProvider implements StreamProvider {
   pull(_q: StreamQuery): StreamFrame {
     const world = this.world;
     if (!world) return { chunks: [], placements: [], complete: true };
-    this.paint?.sync(world.scene);   // 画板跟着坐标改大小 / 换了文件全部销毁（1-3c）：在建块之前，这一帧的签名就是新的
     this.gen++;
     const taken = new Map<Body, KernelView>();   // 这一帧哪份池网格画的是哪个内核
     const placements: Placement[] = [], chunks: Chunk[] = [];

@@ -265,8 +265,9 @@ const editor = new Editor(canvas, {
   readout: (text) => { readoutEl.textContent = text; readoutEl.hidden = !READOUT_ON || !text; },   // 右下血槽位（A28）；10-25 先不显示（READOUT_ON）
 }, new Renderer3(canvas, perf));
 // 画显示到模型上（贴图主线 1-3c）：内核的显卡接口建在渲染器的画面上（第一次建画板时）；换文件 = editor.docEpoch 变 = 全部销毁。没有画板 = 渲染器每帧不多做事。
-const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => editor.docEpoch, (m) => note("paint", m));
+const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => editor.docEpoch, (m) => note("paint", m), () => editor.renderer3.resetPaintState());
 editor.provider.setPaint(paintBoards);
+editor.beforeRender = () => paintBoards.prepare(editor.sceneRef);   // 每帧开画之前的「准备」（1-4b 统筹 B）：画板跟大小、这一笔的薄层、合成
 
 // ---------- 工具条 ----------
 // 工具表只有 id / 图标 / 名字：键名不手抄——提示 / 小三角 / 手腕面板读 controller/keymap.ts toolKeyText（按工作台、按真按键现算；user 10-28 晚「tooltip你没有更新，这背后有什么架构问题」）。守卫 test/tool-tips.test.ts。
