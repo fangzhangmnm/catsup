@@ -38,10 +38,13 @@ const BLEND_BODY: Record<BlendMode, string> = {
 };
 
 // 全屏 quad 顶点（attr location 0 = [0,1]² 位置即 uv；Gl2Port draw 动词内部提供该 buffer）。
+// location 2 = 这个实例的方框（视口里 [0,1] 的 x, y, w, h；1-4d 第 6 条：draw 给了 rects = 每个方框一个实例）；没给 rects = 接口设成 (0, 0, 1, 1)，
+//   这时 p = 0 + a_pos × 1 = a_pos，和以前逐位相同。
 export const COMPOSITE_VERT = `#version 300 es
 layout(location=0) in vec2 a_pos;
+layout(location=2) in vec4 a_rect;
 out vec2 v_uv;
-void main(){ v_uv = a_pos; gl_Position = vec4(a_pos * 2.0 - 1.0, 0.0, 1.0); }`;
+void main(){ vec2 p = a_rect.xy + a_pos * a_rect.zw; v_uv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
 
 // 源种类：tiled = 叶层（查 tile-index 采稀疏 tile 池）；group = 隔离组的预乘 sub-accumulator 纹理；
 //   overlay = 活动叶层 ⊕ live 描边 overlay（doc 尺寸直值纹理，source-over/erase；blendMode-overlay 暂缓）。

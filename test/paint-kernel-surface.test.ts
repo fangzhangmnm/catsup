@@ -20,6 +20,8 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "src/backend/gl/gl-room.ts": ["HostOverlayInput", "poolCapacityForBudget"],   // HostOverlayInput = 合成时垫在那一层上的薄层；poolCapacityForBudget = 额度的口（三维只说字节数，不直接说内核的片数）
   // 只合成（0-5）
   "src/shell/gl-board.ts": ["GLBoard"],   // 只合成、不上屏
+  // 只合成改到的那些格（1-4d 第 6 条，内核 v0.14.79，统筹 11-11 点头）
+  "src/common/dirty-rects.ts": ["DirtyCells", "DirtyRect"],   // 脏格子位图：薄层直接标格、画板的变化史存它、渲染器拷显示图和缩小图逐级 half；外来薄层的 markChanged 报它的行段
   "src/backend/gl/gl-doc-bridge.ts": ["DocNode"],   // 合成的输入
   // 画板 = 内核的一份作品（1-3c）
   "src/backend/workpiece/painting-workpiece.ts": ["PaintingWorkpiece", "PaintingData"],   // 一张贴图的画 = 内核的一份作品；PaintingData = 灌进 / 读出的形状

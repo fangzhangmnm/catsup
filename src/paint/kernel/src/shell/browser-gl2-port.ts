@@ -29,6 +29,7 @@ import type { ExternalImage, ExternalTexture,
   Gl2Port, Gl2Caps, FBOPrec, PooledFBO, Gl2Texture, Gl2TileArena,
   Gl2DrawSpec, Gl2TexSource, TexUploadFormat,
 } from "../common/gl2-port.ts";
+import { attachChangeLog } from "../common/gl2-port.ts";
 
 // FBO 池上界（防泄露）。count 主防"许多不同尺寸的一次性 FBO"（commit/warp 每笔一张）累积；
 //   bytes 是兜底显存天花板。doc 尺寸热 FBO 每帧复用、是 MRU，不会被驱逐 → 不抖。
@@ -49,6 +50,8 @@ interface BrowserTexture extends Gl2Texture {
 // program 反射元数据（link 时一次；draw 按名分派）。
 interface ProgMeta {
   prog: WebGLProgram;
+  /** 顶点着色器读 location 2 的方框（COMPOSITE_VERT）：draw 才能给 rects。 */
+  rects: boolean;
   uniforms: Map<string, { loc: WebGLUniformLocation; type: number }>;
   samplers: { name: string; unit: number; type: number }[];   // type: SAMPLER_2D | SAMPLER_2D_ARRAY
 }
@@ -157,6 +160,11 @@ export class BrowserGl2Port implements Gl2Port {
   // drawInstanced 的持久 VAO（loc0=单位 quad static + loc1=vec4/实例 dynamic）。
   private _instVao: WebGLVertexArrayObject | null = null;
   private _instBuf: WebGLBuffer | null = null;
+  private _rectVao: WebGLVertexArrayObject | null = null;
+  private _rectBuf: WebGLBuffer | null = null;
+  /** 方框缓冲里现在装的是哪张单子（按引用）+ 按多大的视口折成 [0,1] 的：同一张单子同一个视口 = 只绑不传（一帧每个 pass 传同一张，统筹 11-11）。 */
+  private _rectSrc: readonly unknown[] | null = null;
+  private _rectVp = "";
   // 占位纹理（未提供的 sampler 绑它，防单元 0 类型冲突）。
   private _ph2d: WebGLTexture | null = null;
   private _phArr: WebGLTexture | null = null;
@@ -357,7 +365,7 @@ export class BrowserGl2Port implements Gl2Port {
       }
     }
     gl.useProgram(null);
-    return { prog: p, uniforms, samplers };
+    return { prog: p, uniforms, samplers, rects: gl.getAttribLocation(p, "a_rect") === 2 };
   }
 
   // 只起编译不查 COMPILE_STATUS（查了就同步等驱动，预编译白做）；编译错在 _finishLink 的 LINK_STATUS 失败时连 shader log 一起抛。
@@ -492,6 +500,30 @@ export class BrowserGl2Port implements Gl2Port {
     return vao;
   }
 
+  // draw 给 rects 时的持久 VAO：loc0 单位 quad（static）+ loc2 每个实例一个方框 vec4（divisor 1，每 draw 重填）。
+  private _rectVAO(): WebGLVertexArrayObject {
+    if (this._rectVao) return this._rectVao;
+    const gl = this.gl;
+    const vao = gl.createVertexArray();
+    if (!vao) throw new Error("CREATE_VAO_FAILED");
+    gl.bindVertexArray(vao);
+    const quadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    const buf = gl.createBuffer();
+    if (!buf) throw new Error("CREATE_BUFFER_FAILED");
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribDivisor(2, 1);
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    this._rectVao = vao; this._rectBuf = buf; this._rectSrc = null; this._rectVp = "";   // 新缓冲是空的：下一次一定重传
+    return vao;
+  }
+
   // ---- 绘制动词 ----
   draw(spec: Gl2DrawSpec): void {
     this._drawCommon(spec, null, 0);
@@ -547,14 +579,35 @@ export class BrowserGl2Port implements Gl2Port {
     if (spec.uniforms) this._setUniforms(meta, spec.uniforms);
     this._bindTextures(meta, spec.textures);
 
-    if (instances) {
+    if (spec.rects) {
+      // 方框当几何：一次实例化画完（1-4d 第 6 条）。只给读方框的程序（COMPOSITE_VERT）；和 drawInstanced 不能一起用
+      if (!meta.rects) throw new Error(`RECTS_NEED_COMPOSITE_VERT:${spec.program}`);
+      if (instances) throw new Error("RECTS_WITH_INSTANCES");
+      const n = spec.rects.length;
+      if (n > 0) {
+        const vx = spec.target === "screen" ? spec.viewport! : (spec.viewport ?? [0, 0, (spec.target as BrowserFBO).w, (spec.target as BrowserFBO).h]);
+        gl.bindVertexArray(this._rectVAO());
+        const vk = vx.join(",");
+        if (this._rectSrc !== spec.rects || this._rectVp !== vk) {   // 同一张单子、同一个视口 = 缓冲里已经是它了
+          const a = new Float32Array(n * 4);
+          for (let i = 0; i < n; i++) { const r = spec.rects[i]; a[4 * i] = (r.x - vx[0]) / vx[2]; a[4 * i + 1] = (r.y - vx[1]) / vx[3]; a[4 * i + 2] = r.w / vx[2]; a[4 * i + 3] = r.h / vx[3]; }
+          gl.bindBuffer(gl.ARRAY_BUFFER, this._rectBuf);
+          gl.bufferData(gl.ARRAY_BUFFER, a, gl.DYNAMIC_DRAW);
+          gl.bindBuffer(gl.ARRAY_BUFFER, null);
+          this._rectSrc = spec.rects; this._rectVp = vk;
+        }
+        gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, n);
+      }
+    } else if (instances) {
       gl.bindVertexArray(this._instancedVAO());
+      gl.vertexAttrib4f(2, 0, 0, 1, 1);   // 读方框的程序在这条路上也铺满视口
       gl.bindBuffer(gl.ARRAY_BUFFER, this._instBuf);
       gl.bufferData(gl.ARRAY_BUFFER, instances.subarray(0, count * 4), gl.DYNAMIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
       gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
     } else {
       gl.bindVertexArray(this._quadVAO());
+      gl.vertexAttrib4f(2, 0, 0, 1, 1);   // 不给方框 = 铺满视口（COMPOSITE_VERT 读 location 2；关着的属性读这个当前值）
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
@@ -708,8 +761,7 @@ export class BrowserGl2Port implements Gl2Port {
     if (!("gl" in src)) throw new Error("WRAP_EXTERNAL_FORM (the browser port takes { gl: WebGLTexture }, not pixel data)");
     if (src.prec !== "u8") throw new Error(`WRAP_EXTERNAL_PREC:${String(src.prec)} (only u8)`);
     if (!(src.w > 0 && src.h > 0)) throw new Error(`WRAP_EXTERNAL_SIZE:${src.w}x${src.h}`);
-    const t: BrowserTexture & ExternalTexture = { kind: "tex2d", tex: src.gl, external: true, w: src.w, h: src.h };
-    return t;
+    return attachChangeLog({ kind: "tex2d" as const, tex: src.gl, external: true as const, w: src.w, h: src.h }) as BrowserTexture & ExternalTexture;   // markChanged = 宿主报改了哪几块（1-4d 第 6 条）
   }
 
   // ---- tile arena ----
@@ -741,6 +793,7 @@ export class BrowserGl2Port implements Gl2Port {
     this._fboPool = [];   // 旧 fbo/tex 句柄已废；池清空，borrow 时重建
     this._quad = null;
     this._instVao = null; this._instBuf = null;
+    this._rectVao = null; this._rectBuf = null; this._rectSrc = null; this._rectVp = "";   // 方框缓冲跟着上下文没了：下一次重建、重传
     this._ph2d = null; this._phArr = null;
   }
 }

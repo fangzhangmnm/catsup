@@ -18,6 +18,7 @@ import type { ExternalImage, ExternalTexture,
   Gl2Port, Gl2Caps, FBOPrec, PooledFBO, Gl2Texture, Gl2TileArena,
   Gl2DrawSpec, Gl2TexSource, TexUploadFormat,
 } from "../common/gl2-port.ts";
+import { attachChangeLog } from "../common/gl2-port.ts";
 import type { CpuDraw, CpuDrawCtx, SoftTexRead, SoftArenaRead } from "./soft-shaders.ts";
 import { resolveCpuProgram } from "./soft-shaders.ts";
 
@@ -269,9 +270,13 @@ export class SoftGl2Port implements Gl2Port {
       },
       forEachPixel: (frag) => {
         const out = new Float32Array(4);
-        for (let py = y0; py < y1; py++) {
-          for (let px = x0; px < x1; px++) {
-            if (frag(px, py, out)) writePx(px, py, out);
+        // 给了方框（1-4d 第 6 条）：只跑这几块 ∩ 视口 ∩ scissor ∩ 目标（方框两两不相交，每格只跑一次）
+        const boxes = spec.rects ? spec.rects.map((r) => [Math.max(x0, r.x), Math.max(y0, r.y), Math.min(x1, r.x + r.w), Math.min(y1, r.y + r.h)]) : [[x0, y0, x1, y1]];
+        for (const [bx0, by0, bx1, by1] of boxes) {
+          for (let py = by0; py < by1; py++) {
+            for (let px = bx0; px < bx1; px++) {
+              if (frag(px, py, out)) writePx(px, py, out);
+            }
           }
         }
       },
@@ -335,8 +340,7 @@ export class SoftGl2Port implements Gl2Port {
     if (!(src.w > 0 && src.h > 0)) throw new Error(`WRAP_EXTERNAL_SIZE:${src.w}x${src.h}`);
     if (src.pixels.length !== src.w * src.h * 4) throw new Error(`WRAP_EXTERNAL_LENGTH:${src.pixels.length} for ${src.w}x${src.h}`);
     const data = src.pixels instanceof Uint8Array ? src.pixels : new Uint8Array(src.pixels.buffer, src.pixels.byteOffset, src.pixels.length);
-    const t: SoftTexture & ExternalTexture = { kind: "tex2d", external: true, format: "rgba8", w: src.w, h: src.h, data };
-    return t;
+    return attachChangeLog({ kind: "tex2d" as const, external: true as const, format: "rgba8" as const, w: src.w, h: src.h, data }) as SoftTexture & ExternalTexture;   // markChanged = 宿主报改了哪几块（1-4d 第 6 条）
   }
 
   // ---- tile arena ----

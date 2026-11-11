@@ -22,6 +22,8 @@
 
 // 渲染目标精度档：u8=RGBA8（present/屏显），f16=RGBA16F（合成累积，§7 banding bonus），
 //   f32=RGBA32F（精度验证/陡 blend 模式；比 f16 多一倍 transient，仅累积器一张、不乘层数）。
+import type { DirtyRect } from "./dirty-rects.ts";
+
 export type FBOPrec = "u8" | "f16" | "f32";
 
 // 壳填好的能力数据（Port 构造时探测一次；backend 只读）。
@@ -49,7 +51,43 @@ export interface Gl2Texture { readonly kind: "tex2d"; }
 export type ExternalImage =
   | { readonly gl: WebGLTexture; readonly w: number; readonly h: number; readonly prec: "u8" }
   | { readonly pixels: Uint8Array | Uint8ClampedArray; readonly w: number; readonly h: number; readonly prec: "u8" };
-export interface ExternalTexture extends Gl2Texture { readonly external: true; readonly w: number; readonly h: number }
+export interface ExternalTexture extends Gl2Texture {
+  readonly external: true; readonly w: number; readonly h: number;
+  /**
+   * 这片薄层的像素在这一块里变了（画布像素坐标；一帧里可以叫好几次，内核自己记成单子；CatsUp 贴图主线 1-4d 第 6 条）。
+   * 叫过一次 = 宿主说「我改了像素就报」：之后合成时，要是从上次合成到现在别的什么都没变，内核只在报过的块里重合（单子两两不相交、总面积过半就整张）。
+   * 从没叫过 = 每次合成都当它整张变了（以前的样子）。说不清哪一块 = 报整张。
+   * 宿主的义务：叫过之后，改了像素没报 = 那一块在显示上留着旧的，直到下一次整张合成（抬笔落层、撤销这些）；存盘不受影响（存盘的合成图永远整张重合）。
+   */
+  markChanged(x: number, y: number, w: number, h: number): void;
+}
+/** 外来薄层报过的块（内核取）：从没报过 = 不在里面。 */
+const _extChanges = new WeakMap<object, DirtyRect[]>();
+/** 报得太多（宿主一直报、内核一直没合成）：收成一个外接框（盖得住所有报过的，宁多不少）。 */
+const EXT_LOG_CAP = 4096;
+/** 给显卡接口用：包出来的外来薄层挂上 markChanged。 */
+export function attachChangeLog<T extends object>(o: T): T & { markChanged(x: number, y: number, w: number, h: number): void } {
+  const t = o as T & { markChanged(x: number, y: number, w: number, h: number): void };
+  t.markChanged = (x, y, w, h) => {
+    if (!(w > 0 && h > 0)) { if (!_extChanges.has(o)) _extChanges.set(o, []); return; }
+    let l = _extChanges.get(o);
+    if (!l) { l = []; _extChanges.set(o, l); }
+    l.push({ x, y, w, h });
+    if (l.length > EXT_LOG_CAP) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const r of l) { x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h); }
+      l.length = 0; l.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+    }
+  };
+  return t;
+}
+/** 内核取：这片外来薄层上次取了之后报过的块（取完清空）。null = 从没报过（宿主不报 = 当它每次整张变了）。 */
+export function takeExternalChanges(t: ExternalTexture): DirtyRect[] | null {
+  const l = _extChanges.get(t);
+  if (!l) return null;
+  const out = l.slice(); l.length = 0;
+  return out;
+}
 
 // 上传格式（= 全仓实际用到的四种；数据一律 typed array verbatim 上卡——canvas 源上传在 Safari
 //   的 premult 转换不可靠，v0.6.38 起结构性禁入）：
@@ -75,6 +113,9 @@ export interface Gl2DrawSpec {
   viewport?: [number, number, number, number];        // 缺省 = 目标全幅；target="screen" 必给（canvas device px）
   clear?: [number, number, number, number];           // draw 前先全幅清此色（scissor 之外也清）
   scissor?: { x: number; y: number; w: number; h: number };   // 只着色该子矩形
+  // 只着色这几个方框（目标像素坐标，两两不相交；1-4d 第 6 条）：一次 draw、方框当几何（实例化，几百个也是一次）；和 scissor 一起给 = 交集。
+  //   只给用 COMPOSITE_VERT 的程序（它读每个实例的方框）；别的程序给了 = 抛。不给 = 照旧铺满视口。和 drawInstanced 不能一起用。
+  rects?: readonly DirtyRect[];
   blend?: Gl2Blend;                                   // 缺省 "none"
   uniforms?: Record<string, number | boolean | number[] | Float32Array>;
   // sampler 名 → 源；带 filter 的写法给屏显 present 切 LINEAR/NEAREST（缺省不动纹理参数）。

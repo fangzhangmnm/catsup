@@ -108,7 +108,8 @@ export class SpacePaintStroke {
   /** 落笔那一下建各种表（三角形公式、两张离屏图；每格的表是借来的现成的）花了多少毫秒（量）。 */
   buildMs = 0;
   /** 上一次「准备」各段（量；毫秒）：取新笔尖 + 算碰到哪些三角形 / 画薄层（含上传、拷定型层）/ 交给档口。fresh = 这一帧给的笔尖数。 */
-  lastFrame = { fresh: 0, frozen: 0, tipsMs: 0, layerMs: 0, hostMs: 0 };
+  /** 上一帧（量）：新笔尖几颗、定型几颗、各段毫秒；cellsMs = 算这张脏格子位图（标格 + 出行段 + 报给内核）、runs = 行段数（= 实例数）、cells = 脏格盖住的像素（1-4d 第 6 条）。 */
+  lastFrame = { fresh: 0, frozen: 0, tipsMs: 0, layerMs: 0, hostMs: 0, cellsMs: 0, runs: 0, cells: 0, boxCells: 0 };
 
 
 
@@ -141,10 +142,20 @@ export class SpacePaintStroke {
     catch (err) { this.broken = true; this.cancel(); this.d.failed?.(err); return; }   // 这一帧才知道的上限（一颗笔尖下同一块挂了八张以上的面、一帧的数据表放不下）：这一笔取消、说那句人话（1-7；数据表那条以后改成分批画）
     this.drawn += frozenHere;
     const t2 = performance.now();
+    // 当帧那张真变过的格子（内核的脏格子位图，薄层直接标的）：报给内核（它只重合这些格）和画板的变化史（显示那一侧只拷这些格）。这一帧什么都没画 = null = 不重合成（1-4d 第 6 条）
+    //   叫过 markChanged 之后，改了像素就必须报（没报 = 那块在显示上留着旧的，直到下一次整张；存盘不受影响）：当帧那张只在 update / resetFrozen 里改，两处都记进位图
+    const tc = performance.now(), ch = this.layer.takeChanged();
+    let runs = 0, cells = 0, bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+    if (ch) for (const run of ch.runs()) {
+      this.ext!.markChanged(run.x, run.y, run.w, run.h); runs++; cells += run.w * run.h;
+      bx0 = Math.min(bx0, run.x); by0 = Math.min(by0, run.y); bx1 = Math.max(bx1, run.x + run.w); by1 = Math.max(by1, run.y + run.h);
+    }
+    const boxCells = runs ? (bx1 - bx0) * (by1 - by0) : 0;   // 量：要是并成一个方框会是多大（和单子并排报）
+    const cellsMs = this.layer.lastMarkMs + (performance.now() - tc);   // 这一帧算这张图（标格 + 出行段 + 报）
     const r = this.layer.range();
     if (r) this.session!.setHostLayers([{ tex: this.ext!, bx: r.x, by: r.y, bw: r.w, bh: r.h, layerId: this.layerId, opacity: 1, erase: !!this.o.erase, blendMode: "source-over" }]);
-    this.board.overlayChanged(this.layer.takeChanged());   // 只报当帧那张真变过的格子（1-4d 第 6 条：显示那一侧只拷这一块）；这一帧什么都没画 = null = 不重合成
-    this.lastFrame = { fresh: tips.length, frozen: frozenHere, tipsMs: t1 - t0, layerMs: t2 - t1, hostMs: performance.now() - t2 };
+    this.board.overlayChanged(ch);
+    this.lastFrame = { fresh: tips.length, frozen: frozenHere, tipsMs: t1 - t0, layerMs: t2 - t1, hostMs: performance.now() - t2, cellsMs, runs, cells, boxCells };
   }
   private finish(): void {
     const landed = !!this.session;

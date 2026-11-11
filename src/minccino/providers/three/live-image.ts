@@ -2,16 +2,24 @@
 // 画画内核把画合成在同一个显卡画面里的一张图上（那张图归内核：不许改采样设置、不许长期拿着）。渲染器自己备一张显示图：
 //   SRGB8_ALPHA8（和 three 给导入的原图建的同一种：采样出来是线性的，导入的图和画走同一条着色器）、全套多级缩小图、放大最近邻 / 缩小三线性、夹边。
 //   内核那张的版本变了 → 一遍小着色器 texelFetch 它（字节 = sRGB 编码值）→ 解成线性 → 写进 sRGB 的显示图（显卡写的时候再编码回去）→ 生成缩小图。
-//   只拷变了的那一块（1-4d 第 6 条，2026-11-11 Claude Opus 5.5）：图给了 changedSince（画画 = 合成图的变化史）就只拷那一块；缩小图每一级只重做那一块牵涉到的格子
-//   （自己的 2×2 平均着色器，不用 generateMipmap——那个只能整套重做；整张和一块用的是同一个着色器，所以一块一块做出来的和整套重做的逐格一样）。
+//   只拷变了的那些格（1-4d 第 6 条，2026-11-11 Claude Opus 5.5）：图给了 changedSince（画画 = 合成图的变化史 = 内核的脏格子位图）就只拷那些格，
+//   缩小图每一级的脏格 = 上一级的位图减半；每一级都把行段当实例一次画完（几百段也是一次显卡调用）。2×2 平均着色器代替 generateMipmap（那个只能整套重做），
+//   整张和几格用的是同一个着色器，所以一格一格做出来的和整套重做的逐格一样。
 //   第 0 行拷到第 0 行（不翻转：画布第 0 行 = 贴图第 0 行）。
 // three 那边用 ExternalTexture 包这张显示图：three r185 绑它时只认 sourceTexture、不碰采样设置（three.module.js setTexture2D），所以不用改 vendor。
 // 这里只用原始 GL；动完显卡由调用的人统一 renderer.resetState() 一次。
 import * as THREE from "three";
-import type { LiveImage } from "../../contract/stream.ts";
+import type { LiveImage, ChangedCells } from "../../contract/stream.ts";
 
+/** 每个实例一个方框（这一级视口里 [0,1] 的 x, y, w, h）：只拷 / 只重做这些格（1-4d 第 6 条）；整张 = 一个实例 (0, 0, 1, 1)。六个顶点拼一个方块。 */
 const VS = `#version 300 es
-void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
+layout(location=0) in vec4 aRect;
+void main() {
+  int i = gl_VertexID;
+  vec2 q = vec2((i == 1 || i == 4 || i == 5) ? 1.0 : 0.0, (i == 2 || i == 3 || i == 5) ? 1.0 : 0.0);
+  vec2 p = aRect.xy + q * aRect.zw;
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
 const FS = `#version 300 es
 precision highp float; precision highp int; precision highp sampler2D;
 uniform sampler2D uSrc;
@@ -28,8 +36,6 @@ void main() {
   ivec2 p = ivec2(gl_FragCoord.xy) * 2, m = uSrcSize - 1;
   o = (texelFetch(uSrc, min(p, m), 0) + texelFetch(uSrc, min(p + ivec2(1, 0), m), 0) + texelFetch(uSrc, min(p + ivec2(0, 1), m), 0) + texelFetch(uSrc, min(p + ivec2(1, 1), m), 0)) * 0.25;
 }`;
-/** 一块格子 [x0, x1) × [y0, y1)。 */
-interface Box { x0: number; y0: number; x1: number; y1: number }
 
 interface Entry {
   readonly tex: any;                 // THREE.ExternalTexture（仓里 three 的类型是简版）
@@ -45,6 +51,7 @@ export class LiveTextures {
   private prog: WebGLProgram | null = null;
   private fbo: WebGLFramebuffer | null = null;
   private vao: WebGLVertexArrayObject | null = null;
+  private buf: WebGLBuffer | null = null;
   private uSrc: WebGLUniformLocation | null = null;
   private ds: WebGLProgram | null = null;
   private dsSrc: WebGLUniformLocation | null = null;
@@ -55,8 +62,9 @@ export class LiveTextures {
    * "full" = 不看变化史、每次整张（改之前的做法，只给探针当对照量）。
    */
   mipMode: "region" | "defer" | "full" = "region";
-  /** 最近一次拷了多大一块（第 0 级的格子数；探针量）。 */
+  /** 最近一次拷了多少格（第 0 级的像素数）、几段（实例数）（探针量）。 */
   lastCopyCells = 0;
+  lastCopyRuns = 0;
   /** 最近一次拷贝（拷 + 生成缩小图）花了多少毫秒（CPU 时间；探针量）。 */
   lastCopyMs = 0;
   /** 这一帧拷了多久（每次 update 从 0 记起；没拷 = 0）。 */
@@ -87,15 +95,14 @@ export class LiveTextures {
       const cur = img.current();   // 只读准备好的结果（合成在编辑器的「准备」里，1-4b）
       if (!cur) continue;
       if (cur.version === e.ver && e.disp && e.w === img.width && e.h === img.height) {
-        if (e.mipsStale) { const t0 = performance.now(); this.mips(e, { x0: 0, y0: 0, x1: e.w, y1: e.h }); e.mipsStale = false; touched = true; this.frameCopyMs += performance.now() - t0; }   // defer：不再变了，整套补上
+        if (e.mipsStale) { const t0 = performance.now(); this.mips(e, "all"); e.mipsStale = false; touched = true; this.frameCopyMs += performance.now() - t0; }   // defer：不再变了，整套补上
         continue;
       }
       const t0 = performance.now();
-      // 从上次拷过的版本到现在变了哪一块：没给口 / 第一次 / 大小变了 / 说不清 = 整张
+      // 从上次拷过的版本到现在变了哪些格：没给口 / 第一次 / 大小变了 / 说不清 = 整张
       const fresh = !e.disp || e.w !== img.width || e.h !== img.height || e.ver < 0;
       const ch = fresh || !img.changedSince || this.mipMode === "full" ? "all" : img.changedSince(e.ver);
-      const box: Box = ch === "all" ? { x0: 0, y0: 0, x1: img.width, y1: img.height } : { x0: Math.max(0, ch.x), y0: Math.max(0, ch.y), x1: Math.min(img.width, ch.x + ch.w), y1: Math.min(img.height, ch.y + ch.h) };
-      this.copy(e, cur.gpuImage as WebGLTexture, img.width, img.height, box);
+      this.copy(e, cur.gpuImage as WebGLTexture, img.width, img.height, ch !== "all" && (ch.w !== img.width || ch.h !== img.height) ? "all" : ch);
       touched = true;
       this.lastCopyMs = performance.now() - t0;
       this.frameCopyMs += this.lastCopyMs;
@@ -117,7 +124,7 @@ export class LiveTextures {
 
   /** 显卡画面丢了：原始 GL 对象全死了，忘掉；恢复后第一帧按需重建、全部重拷。 */
   lost(): void {
-    this.prog = null; this.fbo = null; this.vao = null; this.uSrc = null; this.ds = null;
+    this.prog = null; this.fbo = null; this.vao = null; this.uSrc = null; this.ds = null; this.buf = null;
     for (const e of this.entries.values()) { e.disp = null; e.ver = -1; e.tex.sourceTexture = null; }
   }
 
@@ -128,7 +135,8 @@ export class LiveTextures {
     if (this.ds) gl.deleteProgram(this.ds);
     if (this.fbo) gl.deleteFramebuffer(this.fbo);
     if (this.vao) gl.deleteVertexArray(this.vao);
-    this.prog = null; this.fbo = null; this.vao = null; this.ds = null;
+    if (this.buf) gl.deleteBuffer(this.buf);
+    this.prog = null; this.fbo = null; this.vao = null; this.ds = null; this.buf = null;
   }
 
   private ensureProgram(): void {
@@ -148,11 +156,34 @@ export class LiveTextures {
     gl.deleteShader(v2); gl.deleteShader(f2);
     if (!gl.getProgramParameter(q, gl.LINK_STATUS)) throw new Error(`live-image downsample program: ${gl.getProgramInfoLog(q)}`);
     this.ds = q; this.dsSrc = gl.getUniformLocation(q, "uSrc"); this.dsSize = gl.getUniformLocation(q, "uSrcSize");
-    this.fbo = gl.createFramebuffer(); this.vao = gl.createVertexArray();
+    this.fbo = gl.createFramebuffer();
+    // 方框的实例缓冲：location 0 = 每个实例一个 vec4（divisor 1），每次画重填
+    this.vao = gl.createVertexArray(); this.buf = gl.createBuffer();
+    gl.bindVertexArray(this.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribDivisor(0, 1);
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
   }
 
-  /** 内核那张的 box 那一块拷进显示图第 0 级（第一次 / 大小变了 = 重建显示图、整张），再跟缩小图。 */
-  private copy(e: Entry, src: WebGLTexture, w: number, h: number, box: Box): void {
+  /** 把这些段（这一级的像素；"all" = 整张一个）当实例一次画完：每个段一个方块。返回画了几段。 */
+  private drawRuns(runs: "all" | readonly { readonly x: number; readonly y: number; readonly w: number; readonly h: number }[], lw: number, lh: number): number {
+    const gl = this.gl, n = runs === "all" ? 1 : runs.length;
+    if (!n) return 0;
+    const a = new Float32Array(n * 4);
+    if (runs === "all") { a[2] = 1; a[3] = 1; }
+    else for (let i = 0; i < n; i++) { const r = runs[i]; a[4 * i] = r.x / lw; a[4 * i + 1] = r.y / lh; a[4 * i + 2] = r.w / lw; a[4 * i + 3] = r.h / lh; }
+    gl.bindVertexArray(this.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+    gl.bufferData(gl.ARRAY_BUFFER, a, gl.STREAM_DRAW);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, n);
+    return n;
+  }
+
+  /** 内核那张变了的那些格拷进显示图第 0 级（第一次 / 大小变了 = 重建显示图、整张；一次画完），再跟缩小图。 */
+  private copy(e: Entry, src: WebGLTexture, w: number, h: number, ch: ChangedCells | "all"): void {
     const gl = this.gl;
     this.ensureProgram();
     if (!e.disp || e.w !== w || e.h !== h) {   // 第一次 / 大小变了：重建显示图（不可变大小 + 全套缩小图）
@@ -165,64 +196,59 @@ export class LiveTextures {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       e.disp = t; e.w = w; e.h = h; e.tex.sourceTexture = t;
-      box = { x0: 0, y0: 0, x1: w, y1: h };
+      ch = "all";
     }
-    this.lastCopyCells = Math.max(0, box.x1 - box.x0) * Math.max(0, box.y1 - box.y0);
-    if (box.x1 <= box.x0 || box.y1 <= box.y0) return;   // 版本变了但一格都没变
+    if (ch !== "all" && ch.empty) { this.lastCopyCells = 0; this.lastCopyRuns = 0; return; }   // 版本变了但一格都没变
+    const runs = ch === "all" ? "all" : ch.runs();
+    let cells = 0;
+    if (runs === "all") cells = w * h; else for (const r of runs) cells += r.w * r.h;
+    this.lastCopyCells = cells;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, e.disp, 0);
     gl.viewport(0, 0, w, h);
     for (const cap of [gl.BLEND, gl.DEPTH_TEST, gl.SCISSOR_TEST, gl.CULL_FACE, gl.STENCIL_TEST, gl.RASTERIZER_DISCARD]) gl.disable(cap);
-    gl.enable(gl.SCISSOR_TEST);
-    gl.scissor(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
     gl.colorMask(true, true, true, true);
     gl.useProgram(this.prog);
-    gl.bindVertexArray(this.vao);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, src);
     gl.uniform1i(this.uSrc, 0);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    this.lastCopyRuns = this.drawRuns(runs, w, h);
     if (this.mipMode === "defer") e.mipsStale = true;
-    else this.mips(e, box);
-    gl.disable(gl.SCISSOR_TEST);
+    else this.mips(e, ch);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
   /**
-   * 缩小图：第 0 级的 box 那一块变了 → 一级一级往下，每一级只重做被它牵涉到的格子（上一级 [x0, x1) → 这一级 [⌊x0/2⌋, ⌈x1/2⌉)）。
+   * 缩小图：第 0 级变了的那些格（"all" = 整张）→ 一级一级往下，每一级的脏格 = 上一级的位图减半（half：2×2 格或起来，不会漏），每一级一次画完。
    * 画第 l 级时显示图只开着第 l − 1 级（BASE = MAX = l − 1：读的和写的不是同一级，不算读写打架）；做完恢复成整套。
    */
-  private mips(e: Entry, box: Box): void {
+  private mips(e: Entry, ch: ChangedCells | "all"): void {
     const gl = this.gl, n = levelsOf(e.w, e.h);
     this.ensureProgram();
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
-    for (const cap of [gl.BLEND, gl.DEPTH_TEST, gl.CULL_FACE, gl.STENCIL_TEST, gl.RASTERIZER_DISCARD]) gl.disable(cap);
-    gl.enable(gl.SCISSOR_TEST);
+    for (const cap of [gl.BLEND, gl.DEPTH_TEST, gl.SCISSOR_TEST, gl.CULL_FACE, gl.STENCIL_TEST, gl.RASTERIZER_DISCARD]) gl.disable(cap);
     gl.colorMask(true, true, true, true);
     gl.useProgram(this.ds);
-    gl.bindVertexArray(this.vao);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, e.disp);
     gl.uniform1i(this.dsSrc, 0);
-    let b = box, pw = e.w, ph = e.h;
+    let cur = ch, pw = e.w, ph = e.h;
     for (let l = 1; l < n; l++) {
       const lw = Math.max(1, e.w >> l), lh = Math.max(1, e.h >> l);
-      b = { x0: Math.min(lw, b.x0 >> 1), y0: Math.min(lh, b.y0 >> 1), x1: Math.min(lw, (b.x1 + 1) >> 1), y1: Math.min(lh, (b.y1 + 1) >> 1) };
-      if (b.x1 <= b.x0 || b.y1 <= b.y0) break;
+      if (cur !== "all") { cur = cur.half(); if (cur.empty) break; }
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_BASE_LEVEL, l - 1);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, l - 1);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, e.disp, l);
       gl.viewport(0, 0, lw, lh);
-      gl.scissor(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
       gl.uniform2i(this.dsSize, pw, ph);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      this.drawRuns(cur === "all" ? "all" : cur.runs(), lw, lh);
       pw = lw; ph = lh;
     }
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_BASE_LEVEL, 0);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, n - 1);
-    gl.disable(gl.SCISSOR_TEST);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);

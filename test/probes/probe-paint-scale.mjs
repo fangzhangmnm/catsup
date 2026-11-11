@@ -13,6 +13,7 @@
 //   F wip2021.glb（15534 个三角形）：B 的整条，默认密度 + 4194304 格两档。
 //   G wip2020.glb（4636 个三角形，80 个面积是零）：每块都开始画 → 画一笔 → 存 → 重开 → 冷的照显示、再画一笔（只验不坏）。
 //   I wip2021：工作台允许的最大的笔（400 像素）快速画，一帧最大的数据表离上限多远。
+//   J 跨片的长笔（wip2021 两档 + 小红帽）：每帧脏格子的行段数、总面积、算这张图的时间，和一个方框并排（1-4d 第 6 条，只量）。
 //   H littlered.glb（291 个三角形）：用我们自己的铺法、按 256 见方的密度（铺法自己的二分，基准 256）；硬度 1、一格大小的笔点一下 → 屏幕读色对格子（放大到一格十来个像素，
 //     每一格取它那片像素的中心比）：点到的那格是墨、周围的都不是。它自带的贴图坐标和那张图导入时怎么处理，原样报出来。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-paint-scale.mjs [url] [--models=<文件夹>] [--only=A,B,…]
@@ -388,6 +389,36 @@ if (haveModels && want("H")) await section("H", async () => {
   }
 });
 
+if (haveModels && want("J")) await section("J", async () => {
+  // 1-4d 第 6 条（统筹 11-11）：笔在模型上跨过缝，一帧改到的格子落在画布上隔得很远的几片里。真模型、连成片的铺法（开始画的默认），几笔跨片的长笔，
+  // 每帧：脏格子位图（8 格见方）的行段数（= 实例数）、总面积占画布、算这张图的时间（标格 + 出行段 + 报给内核），和「并成一个方框」并排。只量，不判。
+  console.log("\nJ 跨片的长笔：每帧的脏格子（只量，不判）");
+  const q = (a, k) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(k * s.length))] : 0; };
+  for (const [file, dens] of [["wip2021.glb", null], ["wip2021.glb", 4194304], ["littlered.glb", null]]) {
+    await newFile();
+    await importGlb(file);
+    const def = (await S(() => __H.meshDefs()))[0].def;
+    const p = await S(([d, c]) => __H.paint(d, c ? { density: __H.densityForCells(d, c), name: "跨片" } : { name: "跨片" }), [def, dens]);
+    await S(() => __H.view("front"));
+    await S((t) => { globalThis.__catsup.paint.prep.ensure(t); globalThis.__catsup.paint.ensure(t); }, p.tex);
+    const R = await S((d) => __H.rect(d), def), W = p.width * p.height;
+    const strokes = [
+      ["从头到脚", await S(([a, b]) => __H.line(a.x, a.y, b.x, b.y, 80), [{ x: R.x0 + R.w / 2, y: R.y0 + 4 }, { x: R.x0 + R.w / 2, y: R.y1 - 4 }])],
+      ["横扫三趟", await S((r) => { const out = []; for (let k = 0; k < 3; k++) { const y = r.y0 + r.h * (0.25 + 0.25 * k); for (let i = 0; i <= 50; i++) { const t = i / 50; out.push({ x: k % 2 ? r.x1 - t * r.w : r.x0 + t * r.w, y }); } } return out; }, R)],
+      ["斜着一笔", await S(([a, b]) => __H.line(a.x, a.y, b.x, b.y, 80), [{ x: R.x0 + 4, y: R.y0 + 4 }, { x: R.x1 - 4, y: R.y1 - 4 }])],
+    ];
+    let n = 0;
+    for (const [what, pts] of strokes) {
+      const r = await S(([t, q2]) => __H.stroke(t, q2, { size: 30, hardness: 0.6, measure: true }), [p.tex, pts]);
+      const fs = (r.frames ?? []).filter((f) => f.runs > 0);
+      n += fs.length;
+      const area = fs.map((f) => f.cells / W), box = fs.map((f) => f.boxCells / W), runs = fs.map((f) => f.runs), ms = fs.map((f) => f.cellsMs);
+      const pc = (x) => `${(100 * x).toFixed(2)}%`;
+      say(`${file}${dens ? "、4194304 格" : "、默认密度"}（画布 ${p.width}×${p.height}）${what}：${fs.length} 帧｜脏格总面积 中位 ${pc(q(area, 0.5))}、第 90 ${pc(q(area, 0.9))}、最大 ${pc(q(area, 1))}｜并成一个方框 中位 ${pc(q(box, 0.5))}、第 90 ${pc(q(box, 0.9))}｜行段（实例）中位 ${q(runs, 0.5)}、第 90 ${q(runs, 0.9)}、最多 ${q(runs, 1)}｜算这张图 中位 ${q(ms, 0.5).toFixed(3)}、最大 ${q(ms, 1).toFixed(3)} 毫秒`);
+    }
+    check(n > 0, `${file}${dens ? "、4194304 格" : ""}：量到了 ${n} 帧`);
+  }
+});
 if (haveModels && want("I")) await section("I", async () => {
   console.log("\nI wip2021：工作台允许的最大的笔（400 像素）快速画，一帧最大的数据表离上限多远（统筹 11-11：合 1-7 之前要这个数）");
   await newFile();

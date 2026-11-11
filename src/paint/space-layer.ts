@@ -18,6 +18,7 @@ import type { Reach } from "./tip-reach.ts";
 import { sampleOffset, SAMPLE_Q, type TexelTable } from "./texel-table.ts";
 import { PaintLimitError } from "./paint-limit.ts";
 import { STAMP_FALLOFF_GLSL } from "./kernel/src/backend/gl/stamp-falloff.ts";
+import { DirtyCells } from "./kernel/src/common/dirty-rects.ts";
 import type { Pt3 } from "../kernel/geom.ts";
 
 /** 数据图一行几个数（一维的表按这个宽度折成二维）。 */
@@ -278,15 +279,6 @@ export function uploadCellTable(gpu: SpaceGpu, t: TexelTable): SpaceData {
   return gpu.data(t.width, t.height, cellTable(t), "rgba16ui");
 }
 
-/** 两个格子框（[x0, y0, x1, y1)）的并；null = 空。 */
-function unionBox(a: [number, number, number, number] | null, b: readonly [number, number, number, number] | null): [number, number, number, number] | null {
-  if (!b) return a;
-  if (!a) return [b[0], b[1], b[2], b[3]];
-  return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
-}
-/** 框和一个 [x, y, w, h] 的并。 */
-const unionRect = (a: [number, number, number, number] | null, r: readonly [number, number, number, number]): [number, number, number, number] => unionBox(a, [r[0], r[1], r[0] + r[2], r[1] + r[3]])!;
-
 /** 一笔在一张贴图（名单里的一项）上的薄层：定型层 + 当帧那张。 */
 export class SpaceLayer {
   readonly frozen: SpaceImage;
@@ -305,12 +297,15 @@ export class SpaceLayer {
   private readonly ft: FaceTables;
   private bounds: [number, number, number, number] | null = null;
   /**
-   * 当帧那张上次 takeChanged 之后变过的格子（[x0, y0, x1, y1)，1-4d 第 6 条：显示那一侧只拷这一块）。每帧变的 ⊆ 上一帧的尾巴 ∪ 这一帧新定型的 ∪ 这一帧的尾巴
-   * （定型层只往里画、当帧那张 = 定型层拷过来 + 尾巴；这一笔碰过的范围以外从没写过 = 透明）。定型层清掉重画（抬笔）= 整笔的范围。
+   * 当帧那张上次 takeChanged 之后变过的格子（1-4d 第 6 条：只合成 / 只拷变了的那些）：脏格子位图（内核 dirty-rects.ts，8 格见方），每颗笔尖在每块多边形上的方框直接标进去
+   * （不先攒成单子：花费只随碰到的格数涨，统筹 11-11）。每帧变的 ⊆ 上一帧的尾巴 ∪ 这一帧新定型的 ∪ 这一帧的尾巴（定型层只往里画、当帧那张 = 定型层拷过来 + 尾巴；
+   * 这一笔碰过的范围以外从没写过 = 透明）。定型层清掉重画（抬笔）= 整笔的范围。
    */
-  private changed: [number, number, number, number] | null = null;
-  /** 上一帧尾巴画过的格子（这一帧要还原成定型层的样子）。 */
-  private prevTail: [number, number, number, number] | null = null;
+  private changed: DirtyCells;
+  /** 这一帧标格花了多少毫秒（量；1-4d 第 6 条判据「算这张图 ≤ 0.2 毫秒」）。 */
+  lastMarkMs = 0;
+  /** 上一帧尾巴画过的方框（这一帧要还原成定型层的样子：再标一遍）。 */
+  private prevTail: (readonly [number, number, number, number])[] = [];
   /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）。 */
   readonly peak = { values: 0, table: "", cap: 0 };
 
@@ -319,6 +314,7 @@ export class SpaceLayer {
     ensureProgram(gpu);   // 薄层程序在这个显卡接口上只登记一次（唯一的登记处）
     const t = g.table, W = t.width, H = t.height, X = g.target.xform;
     this.frozen = gpu.image(W, H); this.frame = gpu.image(W, H);
+    this.changed = new DirtyCells(W, H);
     this.jobId = nextJob++;
     this.job = { g, items: [], hardness: o.hardness, color: o.color };
     jobs.set(this.jobId, this.job);
@@ -356,11 +352,12 @@ export class SpaceLayer {
       return out;
     };
     const k = Math.max(0, Math.min(frozenHere, tips.length)), newFrozen = items(0, k), tail = items(k, tips.length);
-    let tailBox: [number, number, number, number] | null = null;
-    for (const it of tail) tailBox = unionRect(tailBox, it.rect);
-    this.changed = unionBox(unionBox(this.changed, this.prevTail), tailBox);
-    for (const it of newFrozen) this.changed = unionRect(this.changed, it.rect);
-    this.prevTail = tailBox;
+    const tm = performance.now(), ch = this.changed, mark = (r: readonly [number, number, number, number]): void => ch.mark(r[0], r[1], r[2], r[3]);
+    for (const r of this.prevTail) mark(r);
+    for (const it of newFrozen) mark(it.rect);
+    for (const it of tail) mark(it.rect);
+    this.prevTail = tail.map((it) => it.rect);
+    this.lastMarkMs = performance.now() - tm;
     this.job.items = [...newFrozen, ...tail];
     for (const it of this.job.items) this.grow(it.rect);
     const data = this.perDraw(tips);
@@ -372,13 +369,15 @@ export class SpaceLayer {
   }
 
   /** 定型层清掉（抬笔时收笔渐细重画整笔用）：下一次 update 从头画。范围留着（只会更大）。 */
-  /** 上次问过之后当帧那张变过的格子（{x, y, w, h}；没变 = null），问完清零。 */
-  takeChanged(): { x: number; y: number; w: number; h: number } | null {
-    const c = this.changed; this.changed = null;
-    return c ? { x: c[0], y: c[1], w: c[2] - c[0], h: c[3] - c[1] } : null;
+  /** 上次问过之后当帧那张变过的格子（脏格子位图；一格都没变 = null），问完换一张空的。 */
+  takeChanged(): DirtyCells | null {
+    const c = this.changed;
+    this.changed = new DirtyCells(c.w, c.h);
+    return c.empty ? null : c;
   }
   resetFrozen(): void {
-    this.changed = unionBox(this.changed, this.bounds);   // 定型层清掉重画：这一笔碰过的整块都可能变
+    const b = this.bounds;   // 定型层清掉重画：这一笔碰过的整块都可能变
+    if (b) this.changed.mark(b[0], b[1], b[2] - b[0], b[3] - b[1]);
     this.gpu.draw({ program: SPACE_TIP.name, target: this.frozen, clear: true, accum: this.o.accum, instances: new Float32Array(0), count: 0, data: this.fixed, uniforms: { u_size: [this.frozen.w, this.frozen.h], u_first: 0, u_hardness: this.o.hardness, u_color: [...this.o.color], u_job: this.jobId } });
   }
   dispose(): void { jobs.delete(this.jobId); if (this.ownTables) releaseFaceTables(this.gpu, this.ft); if (this.ownCells) this.gpu.release(this.fixed.u_cell); this.gpu.release(this.frozen); this.gpu.release(this.frame); }

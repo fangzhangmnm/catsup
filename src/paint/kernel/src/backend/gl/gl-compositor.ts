@@ -12,6 +12,14 @@ import { COMPOSITE_VERT, compositeFragSource, compositeProgramKey } from "./blen
 import type { BlendMode, SourceKind } from "./blend-glsl.ts";
 import type { IndexTexture } from "./gpu-tile-pool.ts";
 import type { Gl2Port, Gl2Texture, Gl2TexSource, Gl2TileArena, PooledFBO, FBOPrec } from "../../common/gl2-port.ts";
+import type { DirtyRect } from "../../common/dirty-rects.ts";
+
+// 铺一个颜色（增量合成时只把那几块铺底；1-4d 第 6 条）。
+const FILL_FRAG = `#version 300 es
+precision highp float;
+uniform vec4 u_color;
+out vec4 o;
+void main(){ o = u_color; }`;
 
 // live 描边 overlay（活动叶层叠加）：直值纹理 + doc 坐标 bbox + 不透明度/擦除/锁α/选区蒙版。
 export interface OverlayDesc {
@@ -291,6 +299,15 @@ export class GLCompositor {
   // 性能计数（dev HUD 用，零成本——只在 pass/floatPass 自增整数）。composite() 入口清零，调用方读 stats。
   //   passes = blend pass 数（≈ 可见层/组单元数，§2 layer-count 假说的直读量）；floatPasses = 浮层 warp pass 数。
   readonly stats = { passes: 0, floatPasses: 0 };
+  /**
+   * 这一帧只在这几块里画（1-4d 第 6 条；render-tree 就地增量时设、合完清掉）：本类发出的每一次 draw 都带上它，newAcc 只把这几块铺底。
+   * 单子 = 脏格子位图的行段，两两不相交（dirty-rects.ts 保证，render-tree 画之前再断言一次）。null = 照旧整幅。
+   */
+  private _rects: readonly DirtyRect[] | null = null;
+  setRects(r: readonly DirtyRect[] | null): void { this._rects = r; }
+  get rects(): readonly DirtyRect[] | null { return this._rects; }
+  /** draw spec 里要加的那一项（没在增量 = 空）。 */
+  private _r(): { rects?: readonly DirtyRect[] } { return this._rects ? { rects: this._rects } : {}; }
   constructor(glctx: Gl2Port, accumPrec: FBOPrec = "u8") {
     this._glctx = glctx;
     this._prec = accumPrec;
@@ -316,10 +333,24 @@ export class GLCompositor {
       read: this._glctx.borrowFBO(docW, docH, this._prec),
       write: this._glctx.borrowFBO(docW, docH, this._prec),
     };
-    if (bg === "checker") this._drawChecker(acc.read, docW, docH);
-    else this._glctx.clearFBO(acc.read, bg ?? [0, 0, 0, 0]);
+    this.fillBg(acc.read, docW, docH, bg);
     return acc;
   }
+  /** 就地增量（1-4d 第 6 条）：拿 base（上一张结果）当累积器的 read，只在那几块里铺底；write 借一张。必须先 setRects。 */
+  accOn(base: PooledFBO, docW: number, docH: number, bg?: Background): Acc {
+    if (!this._rects) throw new Error("GLCompositor.accOn: setRects first (in-place compositing only touches the rects)");
+    const acc: Acc = { read: base, write: this._glctx.borrowFBO(docW, docH, this._prec) };
+    this.fillBg(base, docW, docH, bg);
+    return acc;
+  }
+  /** 把累积器铺底（bg 缺省 = 透明；"checker" = 棋盘）：整幅，或者增量时只铺那几块（别处不碰）。 */
+  fillBg(f: PooledFBO, docW: number, docH: number, bg?: Background): void {
+    if (bg === "checker") { this._drawChecker(f, docW, docH); return; }
+    if (!this._rects) { this._glctx.clearFBO(f, bg ?? [0, 0, 0, 0]); return; }
+    this._glctx.program("fill", COMPOSITE_VERT, FILL_FRAG);
+    this._glctx.draw({ program: "fill", target: f, uniforms: { u_color: bg ?? [0, 0, 0, 0] }, rects: this._rects });
+  }
+
   // 收口：还 write，交出 read（caller 负责 returnFBO(read)）。
   finishAcc(acc: Acc): PooledFBO {
     this._glctx.returnFBO(acc.write);
@@ -335,6 +366,7 @@ export class GLCompositor {
     this._glctx.draw({
       program: "checker", target: f,
       uniforms: { u_docSize: [docW, docH] },
+      ...this._r(),
     });
   }
 
@@ -361,7 +393,7 @@ export class GLCompositor {
     if (sel) textures.u_ovSel = sel.tex;
     if (clipTex) textures.u_clipTex = clipTex;
     this._glctx.draw({
-      program: key, target: acc.write,
+      program: key, target: acc.write, ...this._r(),
       uniforms: {
         u_docSize: [docW, docH],
         u_opacity: opacity,
@@ -405,7 +437,7 @@ export class GLCompositor {
       u_src: f.tex,
     };
     if (clipBase) textures.u_baseTex = clipBase.tex;
-    this._glctx.draw({ program: "warp", target: acc.write, uniforms, textures });
+    this._glctx.draw({ program: "warp", target: acc.write, uniforms, textures, ...this._r() });
     const tmp = acc.read; acc.read = acc.write; acc.write = tmp;
   }
 
@@ -414,7 +446,7 @@ export class GLCompositor {
   presentTo(srcTex: Gl2TexSource, target: PooledFBO, w: number, h: number, unpremult = false): void {
     this._glctx.program("present", COMPOSITE_VERT, PRESENT_FRAG);
     this._glctx.draw({
-      program: "present", target,
+      program: "present", target, ...this._r(),
       viewport: [0, 0, w, h],
       uniforms: { u_flipY: 0, u_unpremult: unpremult ? 1 : 0 },
       textures: { u_src: srcTex },

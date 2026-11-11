@@ -3,6 +3,7 @@
 // 画布大小跟着那一套贴图坐标走（统筹 11-11 裁定，施工记录里有原文）：坐标加高了跟着加高；缩回去时要砍的行 / 列全空白才缩，
 //   有内容就不缩、留着比坐标大、记一笔（不抛：宁可画板大一截，不丢像素）。显示时贴图坐标按画板**实际**的宽高除，所以大一截也显示得对。
 // 「步的去处」是参数：这一张不给（内核的记录随手丢，改大小不留步）；1-8 时换成 HostedSteps（步交给三维的撤销栈）。
+import { DirtyCells } from "./kernel/src/common/dirty-rects.ts";
 import { PaintingWorkpiece, type PaintingData } from "./kernel/src/backend/workpiece/painting-workpiece.ts";
 import { isGroupNode, type TreeNode } from "./kernel/src/backend/workpiece/layer-tree.ts";
 import { GLBoard } from "./kernel/src/shell/gl-board.ts";
@@ -34,6 +35,8 @@ export interface PaintBoardOpts {
 
 /** 画布上一块（格子；[x, x + w) × [y, y + h)）。 */
 export interface ChangedRect { readonly x: number; readonly y: number; readonly w: number; readonly h: number }
+/** 合成图上变了的那些格（内核的脏格子位图）；"all" = 说不清、按整张算。 */
+export type Changed = DirtyCells | "all";
 /** 变化史留几个版本（渲染器一般每帧都拷；隔得再久就按整张）。 */
 const HISTORY = 32;
 /** 两片薄层是不是同一片、叠法一样（不看方框）。 */
@@ -62,9 +65,9 @@ export class PaintBoard {
    * 谁能说「只变了这一块」：只有薄层的内容（overlayChanged(块)，块由画薄层的那一边按它真画过的格子报）。别的一切——落定的内容变了（抬笔落层、撤销、装载、改大小、换底色、画面恢复）、
    * 薄层换了一片、内核的档口叫 invalidate、overlayChanged() 不带块——都按整张。薄层的方框只是长大（同一片、同样的叠法）不算变：方框外面那片从没写过、是透明的。
    */
-  private history: { version: number; change: ChangedRect | "all" }[] = [];
-  /** 上一次合成之后攒下的薄层变化（[x0, y0, x1, y1)；"none" = 没报过；"all" = 按整张）。 */
-  private pending: [number, number, number, number] | "none" | "all" = "none";
+  private history: { version: number; change: Changed | null }[] = [];   // null = 这一版一格都没变
+  /** 上一次合成之后攒下的薄层变化（脏格子位图；null = 没报过；"all" = 按整张）。 */
+  private pending: DirtyCells | null | "all" = null;
   /** 上一次合成时落定内容的键（变了 = 整张）。 */
   private lastCommitted: string | null = null;
 
@@ -88,33 +91,34 @@ export class PaintBoard {
   /** 三维画好的薄层包成内核的纹理对象（外面的图进内核的唯一一道门，画画仓 v0.14.75）：真显卡 = { gl: WebGLTexture }，软件版 = { pixels }。 */
   wrapLayer(src: ExternalImage): ExternalTexture { return this.port.wrapExternal(src); }
   /**
-   * 薄层的内容变了（三维每帧重画了尾巴）：下一次合成要重来。rect = 只在这一块里变了（画布格子）；不给 = 不知道哪里变了（按整张）；null = 什么都没变（不重合成）。
+   * 薄层的内容变了（三维每帧重画了尾巴）：下一次合成要重来。cells = 只在这些格里变了（脏格子位图，画布格子）；不给 = 不知道哪里变了（按整张）；null = 什么都没变（不重合成）。
    */
-  overlayChanged(rect?: ChangedRect | null): void {
-    if (rect === null) return;
+  overlayChanged(cells?: DirtyCells | null): void {
+    if (cells === null) return;
     this.overlayVer++;
-    if (rect === undefined || this.pending === "all") { this.pending = "all"; return; }
-    if (rect.w <= 0 || rect.h <= 0) return;
-    const b: [number, number, number, number] = [rect.x, rect.y, rect.x + rect.w, rect.y + rect.h];
-    this.pending = this.pending === "none" ? b : [Math.min(this.pending[0], b[0]), Math.min(this.pending[1], b[1]), Math.max(this.pending[2], b[2]), Math.max(this.pending[3], b[3])];
+    if (cells === undefined || this.pending === "all" || cells.w !== this.width || cells.h !== this.height) { this.pending = "all"; return; }
+    if (cells.empty) return;
+    const p: DirtyCells = this.pending ?? new DirtyCells(this.width, this.height);
+    this.pending = p;
+    for (const r of cells.runs()) p.mark(r.x, r.y, r.w, r.h);
   }
   /**
    * 从版本 since 到现在的合成图变了哪一块（画布格子；没变 = w = 0）。中间有「说不清」的、或者 since 太老不在变化史里了 = "all"。
    * 显示那一侧（渲染器的显示图）按它只拷这一块；存盘用的合成图从不用它（composeBytes 永远整张重合）。
    */
-  changedSince(since: number): ChangedRect | "all" {
-    if (since === this.shown) return { x: 0, y: 0, w: 0, h: 0 };
+  changedSince(since: number): Changed {
+    const out = new DirtyCells(this.width, this.height);
+    if (since === this.shown) return out;
     if (since > this.shown || since < 0) return "all";
-    let box: [number, number, number, number] | null = null, seen = 0;
+    let seen = 0;
     for (const h of this.history) {
       if (h.version <= since) continue;
       seen++;
       if (h.change === "all") return "all";
-      const c = h.change;
-      if (c.w > 0 && c.h > 0) box = box ? [Math.min(box[0], c.x), Math.min(box[1], c.y), Math.max(box[2], c.x + c.w), Math.max(box[3], c.y + c.h)] : [c.x, c.y, c.x + c.w, c.y + c.h];
+      if (h.change) for (const r of h.change.runs()) out.mark(r.x, r.y, r.w, r.h);
     }
     if (seen !== this.shown - since) return "all";   // 中间有的版本已经不在变化史里了
-    return box ? { x: box[0], y: box[1], w: box[2] - box[0], h: box[3] - box[1] } : { x: 0, y: 0, w: 0, h: 0 };
+    return out;
   }
 
   /**
@@ -188,14 +192,14 @@ export class PaintBoard {
     if (this.disposed) return null;
     const key = this.key();
     if (this.last && this.last.key === key) return { fbo: this.last.fbo, version: this.shown };
-    this.gl.markContentDirty();
-    const fbo = this.gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg, [], this.hostOverlays);
-    if (!fbo) { this.last = null; return null; }
-    this.last = { fbo, key };
+    // 落定的内容变了（抬笔落层、撤销、装载、改大小、换底色、画面恢复）= 告诉内核整张作废；只是薄层变了 = 不作废，薄层自己 markChanged 报了哪些格，内核只重合那些（内核 v0.14.79）
     const committed = this.committedKey();
-    const change: ChangedRect | "all" = committed !== this.lastCommitted || this.pending === "all" ? "all"
-      : this.pending === "none" ? { x: 0, y: 0, w: 0, h: 0 } : { x: this.pending[0], y: this.pending[1], w: this.pending[2] - this.pending[0], h: this.pending[3] - this.pending[1] };
-    this.lastCommitted = committed; this.pending = "none";
+    if (committed !== this.lastCommitted) this.gl.markContentDirty();
+    const fbo = this.gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg, [], this.hostOverlays);
+    if (!fbo) { this.last = null; this.lastCommitted = null; return null; }
+    this.last = { fbo, key };
+    const change: Changed | null = committed !== this.lastCommitted || this.pending === "all" ? "all" : this.pending;
+    this.lastCommitted = committed; this.pending = null;
     this.history.push({ version: ++this.shown, change });
     if (this.history.length > HISTORY) this.history.shift();
     return { fbo, version: this.shown };
@@ -216,7 +220,7 @@ export class PaintBoard {
     if (this.disposed) return null;
     this.gl.markContentDirty();
     const fbo = this.gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg, [], []);
-    this.last = null;   // 显示用的那张被这一次占过：下一帧重合（带薄层）
+    this.last = null; this.lastCommitted = null;   // 显示用的那张被这一次占过：下一帧重合（带薄层，整张：内核那张已经是不带薄层的了）
     if (!fbo) return null;
     const px = this.port.readPixels(fbo, 0, 0, this.width, Math.min(rows, this.height));
     return new Uint8ClampedArray(px.buffer, px.byteOffset, px.byteLength);

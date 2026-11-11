@@ -184,6 +184,11 @@ export class GlRoom {
     }
   }
 
+  /** 这一叶在显卡上的那份已经是现在的像素（同步会走快路径、什么都不传）：增量合成的条件之一（1-4d 第 6 条：本帧层的像素没变）。 */
+  leafUpToDate(leafId: number, pixels: LayerPixels, docW: number, docH: number): boolean {
+    const rec = this.leaves.get(leafId);
+    return !!rec && rec.index.across === tilesAcross(docW) && rec.index.down === tilesDown(docH) && rec.src === pixels && rec.cpuVersion === pixels.contentVersion && rec.gen === this.pool.generation && this.recAlive(rec);
+  }
   private _syncPixels(leafId: number, pixels: LayerPixels, docW: number, docH: number): void {
     const across = tilesAcross(docW), down = tilesDown(docH);
     let rec = this.leaves.get(leafId);

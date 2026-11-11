@@ -80,6 +80,44 @@ function painted(): { s: Scene; def: number; tex: string } {
   return { s, def: d.id, tex };
 }
 
+describe("只合成改到的那些格（1-4d 第 6 条，内核 v0.14.79）", () => {
+  it("一笔当中薄层报格 = 内核只重合那些格、和整张重合逐像素一样；存盘的合成图永远整张（不用增量那张）、和一块新画板合出来的一样", () => {
+    const W = 50, H = 37, port = new SoftGl2Port(), b = new PaintBoard({ port, width: W, height: H });
+    b.setBackground([0.3, 0.5, 0.7]);
+    b.load(layer(W, H, pattern(W, H, true)));
+    const thin = new Uint8Array(W * H * 4), ext = b.wrapLayer({ pixels: thin, w: W, h: H, prec: "u8" });
+    const session = b.openStroke();
+    const tree = (b as unknown as { gl: { _tree: { lastPath: { path: string } } } }).gl._tree;
+    const paths: string[] = [];
+    for (let f = 0; f < 6; f++) {
+      const x = 3 + f * 7, y = 4 + f * 4;
+      for (let yy = y; yy < y + 5; yy++) for (let xx = x; xx < x + 6; xx++) { const i = (yy * W + xx) * 4; thin[i] = 200; thin[i + 1] = 20; thin[i + 2] = 20; thin[i + 3] = 220; }
+      ext.markChanged(x, y, 6, 5);
+      session.setHostLayers([{ tex: ext, bx: 0, by: 0, bw: Math.min(W, x + 6), bh: Math.min(H, y + 5), layerId: b.wp.layerTree!.view().activeId!, opacity: 1, erase: false, blendMode: "source-over" }]);
+      b.overlayChanged();   // 版本往前走（薄层的格子已经直接报给内核了；画板这边按整张记）
+      const shown = readAll(port, b);
+      paths.push(tree.lastPath.path);
+      // 对照：同一个画板强制整张再合一遍
+      (b as unknown as { gl: { markContentDirty(): void } }).gl.markContentDirty();
+      (b as unknown as { last: unknown }).last = null; (b as unknown as { lastCommitted: unknown }).lastCommitted = null;
+      const full = readAll(port, b);
+      let bad = 0; for (let i = 0; i < shown.length; i++) if (shown[i] !== full[i]) bad++;
+      eq(bad, 0, `第 ${f} 帧：增量 = 整张`);
+      (b as unknown as { lastCommitted: unknown }).lastCommitted = b.committedKey();   // 回到「落定内容没变」：下一帧又能增量
+    }
+    assert(paths.slice(1).some((p) => p === "rects"), `一笔当中真的走了只合那些格：${paths.join(",")}`);
+    const bytes = b.composeBytes()!;
+    eq(tree.lastPath.path, "full", "存盘的合成图是整张合的");
+    session.cancel();
+    const fresh = new PaintBoard({ port: new SoftGl2Port(), width: W, height: H });
+    fresh.setBackground([0.3, 0.5, 0.7]); fresh.load(layer(W, H, pattern(W, H, true)));
+    const want = fresh.composeBytes()!;
+    let bad = 0; for (let i = 0; i < bytes.length; i++) if (bytes[i] !== want[i]) bad++;
+    eq(bad, 0, "和一块新画板（同样的层、同样的底色）合出来的逐字节一样（不带薄层）");
+    b.dispose(); fresh.dispose();
+  });
+});
+
 describe("画板登记处（1-3c）", () => {
   it("建：大小 = 那一套坐标的画布、底色 = 材质的底色；不是画 = 抛", () => {
     const { s, def, tex } = painted(), port = new SoftGl2Port(), reg = new PaintBoards({ port: () => port, epoch: () => 0 });

@@ -80,7 +80,9 @@ export class PaintSaver {
           if (t.content.ora) { pins.set(t.guid, { kind: "ready", ora: t.content.ora, composite: t.composite ?? null }); continue; }
           pins.set(t.guid, { kind: "blank", width: place?.uvSet.width ?? board.width, height: place?.uvSet.height ?? board.height }); continue;
         }
-        // 当场拷：分层（内核的冻结拷贝）+ 合成图（显示用的同一张，垫现在的底色）；裁高
+        // 当场拷：分层（内核的冻结拷贝）+ 合成图（垫现在的底色）；裁高
+        //   规矩（1-4d 第 6 条，统筹 11-11）：存盘用的合成图永远整张重新合（composeBytes：作废整棵、不带薄层、整张合），不用显示用的那张——
+        //   那张是增量合出来的（只重合薄层报过的格），宿主漏报一格它就会留着旧像素，那种错只许留在显示上、绝不许跟着进文件。测试 paint-board「存盘的合成图永远整张」
         board.setBackground(base);
         const cb = board.contentBounds(), hasContent = cb !== null;
         const rows = place && board.height > place.uvSet.height && (!cb || cb.y + cb.h <= place.uvSet.height) ? place.uvSet.height : board.height;

@@ -27,10 +27,20 @@ export interface LiveImage {
   readonly kind: "live"; readonly width: number; readonly height: number;
   current(): { readonly gpuImage: unknown; readonly version: number } | null;
   /**
-   * 从版本 since 到现在变了哪一块（贴图格子；没变 = w = 0；说不清 = "all"）。不给这个口 = 每次整张（1-4d 第 6 条：渲染器的显示图只拷变了的那一块、缩小图只重做受影响的那一块）。
-   * 给的人自己负责说真话：只在确切知道「别的地方一个像素都没变」时给块（画画这边由变化史回答，见 paint/board.ts changedSince）。
+   * 从版本 since 到现在变了哪些格（说不清 = "all"）。不给这个口 = 每次整张（1-4d 第 6 条：渲染器的显示图只拷变了的那些格、缩小图逐级只重做受影响的那些格）。
+   * 给的人自己负责说真话：只在确切知道「别的地方一个像素都没变」时给格子（画画这边由变化史回答，见 paint/board.ts changedSince）。
    */
-  changedSince?(since: number): { readonly x: number; readonly y: number; readonly w: number; readonly h: number } | "all";
+  changedSince?(since: number): ChangedCells | "all";
+}
+/**
+ * 一张图上变了的那些格（画画这边 = 内核的脏格子位图 DirtyCells，结构上满足；引擎不 import 它）：runs = 每行连着的脏格并成的段，两两不相交；
+ * half = 下一级缩小图（宽高各减半）上的同一回事（2×2 格或起来，不会漏）。
+ */
+export interface ChangedCells {
+  readonly w: number; readonly h: number;
+  readonly empty: boolean;
+  runs(): readonly { readonly x: number; readonly y: number; readonly w: number; readonly h: number }[];
+  half(): ChangedCells;
 }
 /**
  * 对材质模块的引用：提供者从场景的材质 + 「这个材质用哪张图」那个口拼出来、按对象记住（同一个材质每次给同一个对象）；引擎拿它当着色器缓存键、拿 map 当解码缓存键。

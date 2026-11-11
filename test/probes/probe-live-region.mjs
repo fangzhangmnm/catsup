@@ -70,6 +70,46 @@ await page.mouse.move(pts[0].x, pts[0].y); await page.mouse.down();
 for (const p of pts.slice(1)) { await page.mouse.move(p.x, p.y, { steps: 2 }); await frames(1); }
 await page.mouse.up(); await frames(4);
 r = await compare("再画一笔后"); check(same(r) && r.a[0].ink > 50, `再画一笔后：${say(r)}`);
+
+console.log("\n跨片的一笔（等轴看，从顶面画过棱到正面）：内核那张合成图 = 强制整张重合（逐字节）、显示图 = 整张重拷；一笔当中内核真的只合了脏格");
+/** 内核那张（画板合成出来的）读回，再强制整张重合一遍读回，逐字节比；顺手报这一次走的是哪条路。 */
+const kernelCompare = () => S(() => {
+  const C = globalThis.__catsup, out = [];
+  for (const g of C.paint.boards.guids()) {
+    const b = C.paint.boards.get(g), port = b.port, r = b.compose();
+    if (!r) continue;
+    const path = b.gl._tree.lastPath.path, a = port.readPixels(r.fbo, 0, 0, b.width, b.height);
+    b.gl.markContentDirty(); b.last = null; b.lastCommitted = null;
+    const r2 = b.compose(), c = port.readPixels(r2.fbo, 0, 0, b.width, b.height);
+    b.lastCommitted = b.committedKey();
+    let diff = 0; for (let i = 0; i < a.length; i++) if (a[i] !== c[i]) diff++;
+    out.push({ diff, path });
+  }
+  C.editor.renderer3.resetPaintState(); C.editor.draw();
+  return out;
+});
+await S(() => { const e = globalThis.__catsup.editor; e.cam.setView("iso"); e.zoomExtents(); e.draw(); });
+await frames(2);
+const crossPts = await S(() => {
+  const e = globalThis.__catsup.editor, P = (x, y, z) => ({ x, y, z }), W = [P(0.2, 0.85, 1), P(0.5, 0.5, 1), P(0.55, 0.0, 0.7), P(0.85, 0.0, 0.25)], out = [];
+  for (let k = 0; k + 1 < W.length; k++) for (let i = 0; i < 14; i++) { const t = i / 14, a = W[k], b = W[k + 1]; out.push(e.cam.project(P(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t), e.vp())); }
+  return out;
+});
+const paths = [];
+await page.mouse.move(box.x + crossPts[0].x, box.y + crossPts[0].y); await page.mouse.down();
+for (const [i, q] of crossPts.slice(1).entries()) {
+  await page.mouse.move(box.x + q.x, box.y + q.y, { steps: 2 }); await frames(1);
+  paths.push(await S(() => { const C = globalThis.__catsup, g = C.paint.boards.guids()[0]; return C.paint.boards.get(g).gl._tree.lastPath.path; }));
+  if (i === 20) { const k = await kernelCompare(); check(k.length > 0 && k.every((x) => x.diff === 0), `跨片画到一半（笔还按着）：内核那张 = 整张重合（差 ${k.map((x) => x.diff).join("/")} 字节，这一次走的 ${k.map((x) => x.path).join("/")}）`); }
+}
+await page.mouse.up(); await frames(4);
+let k2 = await kernelCompare();
+check(k2.length > 0 && k2.every((x) => x.diff === 0), `跨片的一笔抬笔后：内核那张 = 整张重合（差 ${k2.map((x) => x.diff).join("/")} 字节）`);
+const nRects = paths.filter((x) => x === "rects").length;
+check(nRects >= 10, `一笔当中内核真的只合了脏格：${nRects} / ${paths.length} 帧走 rects（${paths.join("").replace(/rects/g, "r").replace(/full/g, "f").replace(/same/g, "s")}）`);
+r = await compare("跨片的一笔之后"); check(same(r) && r.a[0].ink > 50, `跨片的一笔之后显示图：${say(r)}`);
+await S(() => { const e = globalThis.__catsup.editor; e.cam.setView("top"); e.zoomExtents(); e.draw(); });
+await frames(2);
 const regionCells = await S(() => globalThis.__catsup.editor.renderer3.live.lastCopyCells);
 
 console.log("\n量：2048 见方，同一长笔，每帧拷显示图");

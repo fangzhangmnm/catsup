@@ -21,11 +21,25 @@ import type { DocNode, DocLeaf } from "./gl-doc-bridge.ts";
 import { buildPlan } from "./render-plan.ts";
 import type { Plan, PlanStep, SegBuild, BgKind } from "./render-plan.ts";
 import { residentMissTiles, segCopyTiles, residentIds, admitWithRegrow } from "./frame-demand.ts";
-import type { PooledFBO } from "../../common/gl2-port.ts";
+import type { PooledFBO, ExternalTexture } from "../../common/gl2-port.ts";
+import { takeExternalChanges } from "../../common/gl2-port.ts";
+import { dirtyRuns, assertRuns, type DirtyRect } from "../../common/dirty-rects.ts";
 import type { GlRoom, FloatInput, OverlayInput, SurrogateInput } from "./gl-room.ts";
 
 // 段缓存：合成结果切 tile + 寻址（内容 straight，与叶同一条 sampleTiled 路径）。
 interface SegEntry { byKey: Map<number, number>; index: IndexTexture; gen: number }
+
+/** 一片宿主薄层的样子（判「还是同一片、叠法没变、方框只长」用）。 */
+interface HostSnap { tex: unknown; layerId: number; opacity: number; erase: boolean; blendMode: string; lockAlpha: boolean; selMask: unknown; bx: number; by: number; bw: number; bh: number }
+/** 计划里只有认识的 pass 种类（增量的守卫：以后加了会往格子外读的 pass，没登记 = 这里不认识 = 整张）。浮层另算（有浮层就整张）。 */
+function onlyKnownSteps(steps: readonly PlanStep[]): boolean {
+  for (const st of steps) {
+    if (st.t === "leaf" || st.t === "seg") continue;
+    if (st.t === "group") { if (!onlyKnownSteps(st.body)) return false; continue; }
+    return false;
+  }
+  return true;
+}
 
 export class RenderTree {
   private _room: GlRoom;
@@ -39,6 +53,15 @@ export class RenderTree {
 
   // 帧统计（HUD）：segBuilds/segHits = 段现算/命中数；passes 从 compositor 读。
   readonly frameStats = { segBuilds: 0, segHits: 0, cachingDegraded: false };
+  /**
+   * 增量合成（CatsUp 贴图主线 1-4d 第 6 条）：上一张结果能不能当底（整张合成过一次之后为真；丢上下文 / 换大小 / 退租 = 假）+ 上一帧的宿主薄层（逐片：哪片、叠法、方框）。
+   * 这一帧只在宿主报过的块里重合要同时满足：上一张还在、没 markDirty、计划签名没变、本帧缓存段全命中、没有浮层 / 替身 / 正在同步的叶、宿主薄层还是同一片（叠法不变、方框只长）、
+   * 每片外来薄层都报过块、本帧层的像素没变、计划里只有认识的 pass 种类。不满足 = 整张（以前的样子）。报来的块记成脏格子位图（dirty-rects.ts，8 格见方），每个 pass 只画那些行段；格子外一个像素都不写。
+   */
+  private _incOk = false;
+  private _lastHost: HostSnap[] | null = null;
+  /** 量 / 测试：上一帧走的哪条路（full 整张 / rects 只合那几块 / same 什么都没变）、几块、占画布多少。 */
+  readonly lastPath = { path: "full" as "full" | "rects" | "same", rects: 0, fraction: 1 };
 
   constructor(room: GlRoom) {
     this._room = room;
@@ -68,6 +91,7 @@ export class RenderTree {
     this._segCache.clear();        // GL 句柄已随 context 死，弃引用
     this._display = null; this._displaySig = null;
     this._dirty = true;
+    this._incOk = false; this._lastHost = null;   // 上一张跟着上下文没了
   }
 
   // ---- 帧入口 ----
@@ -101,12 +125,23 @@ export class RenderTree {
       this._invalidateSegs();
       this._displaySig = null;
       this._dirty = true;
+      this._incOk = false; this._lastHost = null;
       this._lastDocW = docW; this._lastDocH = docH;
     }
     room.pool.frameMaintain();
 
     // pseudo 装置
     room.setFloats(floats);
+    // 增量第一步（1-4d 第 6 条）：不用计划就能查的条件 + 宿主这一帧报的块（每片都取走：取了就清，不管这一帧走不走增量）。
+    //   能走就先进「只画这几块」——下面把宿主薄层转直值那一步也只转这几块（空单子 = 什么都不转）。后面的条件不满足再整张重转。
+    const hostRects = this._takeHostRects(stampOverlays);
+    let rects: DirtyRect[] | "full" = "full";
+    if (hostRects !== "full" && this._incOk && this._display && !this._dirty && this._display.w === docW && this._display.h === docH
+        && floats.length === 0 && surrogates.length === 0 && liveSyncLeafId === null) {
+      rects = dirtyRuns(hostRects, docW, docH);   // 脏格子位图（8 格见方）的行段：两两不相交；过半 = 整张
+      if (rects !== "full") { assertRuns(rects); room.comp.setRects(rects); }
+    }
+    this._lastHost = this._snapHost(stampOverlays);
     room.setStampOverlays(stampOverlays, docW, docH);   // 2026-09-19 多 overlay（组液化 N 叶各一张 W）
 
     const updated = new Set<number>();
@@ -124,7 +159,8 @@ export class RenderTree {
     const sig = this._planSig(plan, docW, docH, bg);
 
     // 快路径：无 dirty 无动态、display 有效且签名没变 → 不重合成（pan/zoom 帧只 present）。
-    if (!this._dirty && updated.size === 0 && this._display && this._displaySig === sig) return this._display;
+    if (!this._dirty && updated.size === 0 && this._display && this._displaySig === sig) { room.comp.setRects(null); this.lastPath.path = "same"; return this._display; }
+    if (rects !== "full" && (this._displaySig !== sig || !onlyKnownSteps(plan.rootSteps))) rects = this._dropRects(stampOverlays, docW, docH);
 
     if (this._dirty) {
       this._invalidateSegs();                        // undo/redo/commit → 重算树（spec:134）
@@ -162,6 +198,8 @@ export class RenderTree {
     };
     const { ok: cachingEnabled, missing } = admitWithRegrow(room.pool, scanMissing, demandOf);
     this.frameStats.cachingDegraded = !cachingEnabled;
+    // 增量第二步：缓存段必须整张建（在几块里建 = 缓存里只有那几块是对的）→ 本帧有段不命中 / 不建缓存 = 整张；本帧层的像素变了 = 整张
+    if (rects !== "full" && (missing.length > 0 || !cachingEnabled || ![...plan.liveLeaves].every((id) => { const l = leafById.get(id); return !!l && room.leafUpToDate(id, l.pixels, docW, docH); }))) rects = this._dropRects(stampOverlays, docW, docH);
 
     // sync 一叶（surrogate 叶从替身换源；surrogate/updated 恒 live，不会藏在段成员里）。
     const syncOne = (id: number) => {
@@ -176,6 +214,11 @@ export class RenderTree {
       if (leaf) room.syncLeafSafe(id, leaf.pixels, docW, docH);
     };
     for (const id of plan.liveLeaves) syncOne(id);
+    if (rects !== "full" && rects.length === 0) {   // 什么都没变：原样交上一张
+      room.comp.setRects(null); room.releaseOverlayFBO(); room.releaseLiveClip();
+      this._displaySig = sig; this.lastPath.path = "same"; this.lastPath.rects = 0; this.lastPath.fraction = 0;
+      return this._display!;
+    }
 
     // 合成：逐段「就地 sync 成员 → 立刻合成」——sync 与 compose 之间不再隔着其他段的上传
     //   （驱逐窗口=0；准入被拒时后段的 sync 只可能驱逐**已合成完**的前段成员，正确性不受损）。
@@ -194,6 +237,23 @@ export class RenderTree {
       if (cachingEnabled) this._buildSeg(b, docW, docH, bg, transient, segLookup);
       else transient.set(b.key, room.composeSegTransient(b, docW, docH, bg, transient, segLookup));
     }
+    if (rects !== "full") {
+      // 就地：上一张当 ping-pong 的一边，只在那几块里铺底、每个 pass 只画那几块；结果要是落在另一张上，只把那几块拷回来
+      const D = this._display!;
+      try {
+        const acc = room.comp.accOn(D, docW, docH, plan.rootBgLive ? bg : undefined);
+        room.composeSteps(plan.rootSteps, acc, docW, docH, transient, segLookup);
+        if (acc.read !== D) { room.comp.presentTo(acc.read, D, docW, docH, false); room.glctx.returnFBO(acc.read); }
+        else room.glctx.returnFBO(acc.write);
+        for (const f of transient.values()) room.glctx.returnFBO(f);
+        room.comp.end();
+        room.releaseOverlayFBO();
+        room.releaseLiveClip();
+      } finally { room.comp.setRects(null); }
+      let area = 0; for (const r of rects) area += r.w * r.h;
+      this._displaySig = sig; this.lastPath.path = "rects"; this.lastPath.rects = rects.length; this.lastPath.fraction = area / (docW * docH);
+      return D;
+    }
     const acc = room.comp.newAcc(docW, docH, plan.rootBgLive ? bg : undefined);
     room.composeSteps(plan.rootSteps, acc, docW, docH, transient, segLookup);
     const fresh = room.comp.finishAcc(acc);
@@ -205,7 +265,50 @@ export class RenderTree {
     if (this._display) room.glctx.returnFBO(this._display);
     this._display = fresh;
     this._displaySig = sig;
+    this._incOk = true;   // 整张合成过：下一帧可以拿它当底
+    this.lastPath.path = "full"; this.lastPath.rects = 0; this.lastPath.fraction = 1;
     return fresh;
+  }
+
+  // ---- 内部：增量合成（1-4d 第 6 条）----
+  /** 宿主这一帧报的块（每片外来薄层都取走）+ 方框长出来的那几条；有不是宿主的薄层 / 从没报过的 / 换了一片或叠法变了 / 方框缩了 = "full"。 */
+  private _takeHostRects(ovs: readonly OverlayInput[]): DirtyRect[] | "full" {
+    let full = false;
+    const out: DirtyRect[] = [], prev = this._lastHost;
+    if (!prev || prev.length !== ovs.length) full = true;
+    ovs.forEach((ov, i) => {
+      if (!("kind" in ov) || ov.kind !== "host") { full = true; return; }
+      const tex = ov.tex as Partial<ExternalTexture>;
+      const ch = tex.external ? takeExternalChanges(tex as ExternalTexture) : null;   // 取了就清（这一帧不走增量也要清）
+      if (!ch) { full = true; return; }
+      const p = prev?.[i];
+      if (!p || p.tex !== ov.tex || p.layerId !== ov.layerId || p.opacity !== ov.opacity || p.erase !== !!ov.erase || p.blendMode !== ov.blendMode || p.lockAlpha !== !!ov.lockAlpha || p.selMask !== ov.selMask) { full = true; return; }
+      if (ov.bx > p.bx || ov.by > p.by || ov.bx + ov.bw < p.bx + p.bw || ov.by + ov.bh < p.by + p.bh) { full = true; return; }   // 方框缩了
+      out.push(...ch);
+      // 方框长出来的那几条：那里以前没有薄层、现在有（薄层那里的像素宿主可能早就画过、当时没报）→ 也要重合
+      const ox0 = p.bx, oy0 = p.by, ox1 = p.bx + p.bw, oy1 = p.by + p.bh, nx0 = ov.bx, ny0 = ov.by, nx1 = ov.bx + ov.bw, ny1 = ov.by + ov.bh;
+      if (ny0 < oy0) out.push({ x: nx0, y: ny0, w: nx1 - nx0, h: oy0 - ny0 });
+      if (ny1 > oy1) out.push({ x: nx0, y: oy1, w: nx1 - nx0, h: ny1 - oy1 });
+      if (nx0 < ox0) out.push({ x: nx0, y: oy0, w: ox0 - nx0, h: oy1 - oy0 });
+      if (nx1 > ox1) out.push({ x: ox1, y: oy0, w: nx1 - ox1, h: oy1 - oy0 });
+    });
+    return full ? "full" : out;
+  }
+  private _snapHost(ovs: readonly OverlayInput[]): HostSnap[] | null {
+    const out: HostSnap[] = [];
+    for (const ov of ovs) {
+      if (!("kind" in ov) || ov.kind !== "host") return null;
+      out.push({ tex: ov.tex, layerId: ov.layerId, opacity: ov.opacity, erase: !!ov.erase, blendMode: ov.blendMode, lockAlpha: !!ov.lockAlpha, selMask: ov.selMask, bx: ov.bx, by: ov.by, bw: ov.bw, bh: ov.bh });
+    }
+    return out;
+  }
+  /** 增量走不成了（后面的条件不满足）：出「只画几块」，宿主薄层整张重转。 */
+  private _dropRects(ovs: readonly OverlayInput[], docW: number, docH: number): "full" {
+    const room = this._room;
+    room.comp.setRects(null);
+    room.releaseOverlayFBO();
+    room.setStampOverlays(ovs, docW, docH);
+    return "full";
   }
 
   // ---- 内部：签名 / 段有效性 ----
@@ -232,6 +335,7 @@ export class RenderTree {
     if (this._display) { this._room.glctx.returnFBO(this._display); this._display = null; }
     this._invalidateSegs();
     this._displaySig = null; this._lastPlan = null;
+    this._incOk = false; this._lastHost = null;
   }
 
   private _invalidateSegs(): void {

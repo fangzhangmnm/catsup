@@ -197,6 +197,12 @@ const checker: CpuDraw = (c) => {
   });
 };
 
+// ---- fill（镜像 FILL_FRAG：铺一个颜色；增量合成只把那几块铺底，1-4d 第 6 条）----
+const fill: CpuDraw = (c) => {
+  const col = c.uniforms.u_color as number[];
+  c.forEachPixel((_px, _py, out) => { out[0] = col[0]; out[1] = col[1]; out[2] = col[2]; out[3] = col[3]; return true; });
+};
+
 // ---- present（镜像 PRESENT_FRAG：可选 flipY / unpremult）----
 const present: CpuDraw = (c) => {
   const flipY = u1(c, "u_flipY");
@@ -937,6 +943,7 @@ const GPU_ONLY = new Set<string>(["present-affine", "present-affine-over", "scre
 export function resolveCpuProgram(name: string): CpuDraw | "gpu-only" | null {
   if (GPU_ONLY.has(name)) return "gpu-only";
   if (name === "checker") return checker;
+  if (name === "fill") return fill;
   if (name === "present") return present;
   if (name === "stamp-accum") return stampAccum;
   if (name === "stamp-color") return stampColor;
