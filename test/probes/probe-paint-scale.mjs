@@ -76,6 +76,14 @@ function helpers() {
   H.densityForCells = (def, cells) => { const k = Sc().mesh(def).kernel, fs = k.faces(), fit = (d) => { const r = L.layoutFaces(k, fs, { density: d }); return r.ok && r.width * r.height <= cells; };
     let lo = 1, hi = 2; while (fit(hi)) { lo = hi; hi *= 2; } while (hi - lo > 1) { const m = (lo + hi) >> 1; if (fit(m)) lo = m; else hi = m; } return lo; };
   H.layoutDensity = (def, base) => { const k = Sc().mesh(def).kernel, r = L.layoutFaces(k, k.faces(), { base }); return r.ok ? r.density : null; };
+  /** 这块网格体（所有摆放）在屏幕上的外接框（CSS 像素）。 */
+  H.rect = (def) => {
+    const k = Sc().mesh(def).kernel, V = vp(); let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const s of e.worldGeom().slots) { if (s.pool.def !== def || s.pool.group !== null) continue; const X = s.xform;
+      for (const v of k.verts()) { const p = k.pt(v), w = { x: X[0] * p.x + X[1] * p.y + X[2] * p.z + X[3], y: X[4] * p.x + X[5] * p.y + X[6] * p.z + X[7], z: X[8] * p.x + X[9] * p.y + X[10] * p.z + X[11] }, q = e.cam.project(w, V);
+        x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x); y1 = Math.max(y1, q.y); } }
+    return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 };
+  };
   H.view = (name, persp = false) => { e.cam.projection = persp ? "persp" : "ortho"; e.cam.setView(name); e.zoomExtents(); e.draw(); };
   H.frames = async (n = 3) => { for (let i = 0; i < n; i++) { e.draw(); await new Promise((r) => requestAnimationFrame(r)); } };
   /** 屏幕一块（CSS 像素）：红的像素数 + 哈希。 */
@@ -133,9 +141,9 @@ const reloaded = async (act) => { const nav = page.waitForEvent("load", { timeou
 const clearNotes = () => S(() => { for (const n of [...document.querySelectorAll("#noticeStack > *")]) n.remove(); });
 const newFile = async () => {
   await S(() => globalThis.__catsup.galleryHost.open());
-  await page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
+  await page.waitForFunction(() => !document.getElementById("galleryFull").hidden, null, { timeout: 120000 });   // 前面画过的文件多了，图库要现做缩略图（软件显卡上慢）
   await page.click("#galleryNew");
-  await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden);
+  await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden, null, { timeout: 120000 });
   await clearNotes(); await inject();
 };
 
@@ -144,19 +152,23 @@ void page.evaluate(() => { void globalThis.__catsup.home.openGallery(); });
 await page.waitForFunction(() => !document.getElementById("sheet").hidden, null, { timeout: 8000 });
 await reloaded(() => page.click(`#sheetChoices button:has-text("选一个文件夹")`));
 const VW = 900, VH = 700;
+/** 一段出了异常：记成红的、说清哪一段，接着跑下一段（不让一段卡住后面全不跑）。 */
+const section = async (name, f) => { try { await f(); } catch (err) { check(false, `${name} 这一段跑到一半出了异常`, String(err?.message ?? err).split("\n")[0]); await page.reload().then(ready).then(inject).catch(() => {}); } };
 
 /** 整条走一遍（B / C / D / F）：画已经开始了、视角摆好了。 */
-async function fullFlow(label, tex, o = {}) {
+async function fullFlow(label, tex, def, o = {}) {
   const prep = await S((t) => { const ms = globalThis.__catsup.paint.prep.ensure(t); return { ms: +ms.toFixed(1), items: globalThis.__catsup.paint.prep.stats().items }; }, tex);
   check(prep.items.length === 1 && prep.items[0].ok, `${label}：准备好了`, JSON.stringify(prep));
   say(`准备（进工作台时做的那一下）：一共 ${prep.ms} ms = 整份几何 ${prep.items[0]?.geoMs.toFixed(1)} ms + 每格的表（含上传）${prep.items[0]?.cellMs.toFixed(1)} ms；内存 ${JSON.stringify(await S(() => __H.mem()))}`);
   const full = { x0: VW * 0.04, y0: VH * 0.08, x1: VW * 0.96, y1: VH * 0.92 };
   const box = (pts, pad = 14) => [Math.min(...pts.map((p) => p.x)) - pad, Math.min(...pts.map((p) => p.y)) - pad, Math.max(...pts.map((p) => p.x)) + pad, Math.max(...pts.map((p) => p.y)) + pad];
-  const yb = o.yBand ?? [0.38, 0.5, 0.6];
+  // 笔画按这块网格体在屏幕上的外接框摆（角色窄、方盒子方，同一套比例都打得中）：软笔、硬笔横着画在上 / 下三成处；跨很多面的一笔竖着从头画到脚
+  const R = await S((d) => __H.rect(d), def), at = (fx, fy) => ({ x: R.x0 + R.w * fx, y: R.y0 + R.h * fy }), seg = (a, b, n = 40) => S(([p, q, k]) => __H.line(p.x, p.y, q.x, q.y, k), [a, b, n]);
+  say(`这块在屏幕上 ${Math.round(R.w)} × ${Math.round(R.h)} 像素`);
   const strokes = [
-    ["软笔（硬度 0.3）", await S(([a, b, y]) => __H.line(a, y, b, y), [VW * 0.4, VW * 0.6, VH * yb[0]]), { hardness: 0.3, size: 22 }],
-    ["硬笔（硬度 1）", await S(([a, b, y]) => __H.line(a, y, b, y), [VW * 0.4, VW * 0.6, VH * yb[2]]), { hardness: 1, size: 10 }],
-    ["跨很多面的一笔", await S(([a, b, y]) => __H.line(a, y, b, y, 90), [VW * 0.03, VW * 0.97, VH * yb[1]]), { hardness: 0.6, size: 16 }],
+    ["软笔（硬度 0.3）", await seg(at(0.3, 0.3), at(0.7, 0.3)), { hardness: 0.3, size: 22 }],
+    ["硬笔（硬度 1）", await seg(at(0.3, 0.68), at(0.7, 0.68)), { hardness: 1, size: 10 }],
+    ["跨很多面的一笔", await seg(at(0.5, 0.02), at(0.5, 0.98), 120), { hardness: 0.6, size: 16 }],
   ];
   for (const [what, pts, opt] of strokes) {
     const before = await S((b) => __H.region(...b), box(pts));
@@ -167,13 +179,13 @@ async function fullFlow(label, tex, o = {}) {
     say(`${what}：${JSON.stringify(await S((x) => __H.timing(x), r))}`);
     if (many !== null) check(many >= (o.manyFaces ?? 20), `${label} 那一笔确实跨了很多面（${many} ≥ ${o.manyFaces ?? 20}）`);
   }
-  const cmp = await S((b) => __H.compare(b[0], b[1]), [tex, yb[1] < 0.5 ? 0.55 : 0.5]);
+  const cmp = await S((b) => __H.compare(b[0], b[1]), [tex, 0.55]);
   for (const run of cmp.runs ?? []) {
     check(run.maxd <= 1 && run.inked > 30, `${label} 真显卡（缓存的每格表）vs 软件版 ${run.accum} 硬度 ${run.hardness}：最大差 ${run.maxd}/255（${cmp.tips} 颗笔尖；范围里 ${run.inRange} 格全比、其中有墨 ${run.inked} 格；范围外每 97 格抽一格共 ${run.outside} 格；真显卡这一笔 ${run.glMs} ms）`);
   }
   if (!cmp.runs) check(false, `${label} 对拍：没找到朝着相机的三角形`, JSON.stringify(cmp));
   // 橡皮 → 撤销 / 重做
-  const ePts = await S(([a, b, y]) => __H.line(a, y, b, y), [VW * 0.42, VW * 0.58, VH * yb[1]]), eb = box(ePts, 20);
+  const ePts = await seg(at(0.35, 0.5), at(0.65, 0.5)), eb = box(ePts, 20);   // 横着擦过那一竖
   const pre = await S((b) => __H.region(...b), full.x0 !== undefined ? [full.x0, full.y0, full.x1, full.y1] : eb), preE = await S((b) => __H.region(...b), eb);
   const er = await S(([t, p]) => __H.stroke(t, p, { erase: true, size: 30, hardness: 0.8 }), [tex, ePts]);
   const post = await S((b) => __H.region(...b), [full.x0, full.y0, full.x1, full.y1]), postE = await S((b) => __H.region(...b), eb);
@@ -194,8 +206,11 @@ async function fullFlow(label, tex, o = {}) {
   check(cold.red > shown.red * 0.8 && cold.red > 50, `${label} 重开后照合成图显示（红像素 存之前 ${shown.red}、重开 ${cold.red}）`);
   await S((t) => globalThis.__catsup.paint.warm(t), tex);
   await page.waitForFunction((t) => globalThis.__catsup.paint.state(t) === "hot", tex, { timeout: 60000 });
+  await S(() => __H.frames(4));
+  const hot = await S((b) => __H.region(...b), [full.x0, full.y0, full.x1, full.y1]);
+  check(hot.hash === cold.hash, `${label} 重开后同一个视角：冷的（合成图）和解开后热的逐像素一样（红像素 ${cold.red} / ${hot.red}；和存之前的 ${shown.red} 不一样 = 重开后视角不同，不是显示不同）`, `${cold.hash} vs ${hot.hash}`);
   const re = await S((t) => globalThis.__catsup.paint.prep.ensure(t), tex);
-  const p2 = await S(([a, b, y]) => __H.line(a, y, b, y), [VW * 0.4, VW * 0.6, VH * 0.7]);
+  const R2 = await S((d) => __H.rect(d), def), p2 = await S(([p, q]) => __H.line(p.x, p.y, q.x, q.y), [{ x: R2.x0 + R2.w * 0.3, y: R2.y0 + R2.h * 0.85 }, { x: R2.x0 + R2.w * 0.7, y: R2.y0 + R2.h * 0.85 }]);
   const b2 = await S((b) => __H.region(...b), box(p2));
   const r2 = await S(([t, p]) => __H.stroke(t, p, { hardness: 1, size: 12, color: [0.95, 0.1, 0.1] }), [tex, p2]);
   const a2 = await S((b) => __H.region(...b), box(p2));
@@ -203,7 +218,7 @@ async function fullFlow(label, tex, o = {}) {
 }
 
 // ---------- A 细分方盒子的梯子 ----------
-if (want("A")) {
+if (want("A")) await section("A", async () => {
   console.log("\nA 细分过的方盒子：96 / 384 / 1536 / 6144 / 24576 张面，默认密度，各画一笔");
   for (const lv of [2, 3, 4, 5, 6]) {
     await newFile();
@@ -216,10 +231,11 @@ if (want("A")) {
     check(!r?.refused && b1.red > b0.red + 10, `${p.faces} 张面（画布 ${p.width}×${p.height}）：画得上（红像素 ${b0.red} → ${b1.red}）`, JSON.stringify({ refused: r?.refused, tips: r?.tips }));
     say(`准备 ${prepMs.toFixed(1)} ms（几何 ${st.items[0]?.geoMs.toFixed(1)} + 每格的表 ${st.items[0]?.cellMs.toFixed(1)}）；这一笔 ${JSON.stringify(await S((x) => __H.timing(x), r))}`);
   }
-}
+});
 // ---------- B / C / D 6144 张面整条 ----------
 for (const [key, label, force, dense] of [["B", "6144 张面", false, 1], ["C", "6144 张面 + 强行对称", true, 1], ["D", "6144 张面、4194304 格", false, 2]]) {
   if (!want(key)) continue;
+  await section(key, async () => {
   console.log(`\n${key} ${label}：整条走一遍`);
   await newFile();
   const def = await S((f) => __H.cube(5, f), force);
@@ -228,10 +244,11 @@ for (const [key, label, force, dense] of [["B", "6144 张面", false, 1], ["C", 
   say(`${p.faces} 张面、${p.tris} 个三角形；画布 ${p.width}×${p.height}（${p.width * p.height} 格），每米 ${p.pxPerM} 格`);
   if (dense > 1) check(p.width * p.height === 4194304, `${label}：格数 = 2048² = 4194304（宽 1024 定死，密度二分到正好铺满 1024 × 4096）`, `${p.width}x${p.height}`);
   await S(() => __H.view("front"));
-  await fullFlow(label, p.tex, { manyFaces: 20 });
+  await fullFlow(label, p.tex, def, { manyFaces: 20 });
+  });
 }
 // ---------- E 每张面三角形的上限 ----------
-if (want("E")) {
+if (want("E")) await section("E", async () => {
   console.log("\nE 每张面三角形的上限：72 段顶盖（70 个）量每帧；1026 段（1024 个）画得上；1027 段（1025 个）报人话");
   for (const segs of [72, 1026, 1027]) {
     await newFile();
@@ -263,7 +280,7 @@ if (want("E")) {
       check(capTris === 1025 && typeof prob === "string" && /这张面太大了/.test(prob) && /1025 个三角形/.test(prob) && r?.refused === prob, `顶盖 1025 个三角形：准备时就报「${prob}」，这一笔不开始`, JSON.stringify({ capTris, prob, r: r?.refused }));
     }
   }
-}
+});
 // ---------- F / G / H 真模型（手动跑的一档）----------
 const haveModels = models && ["wip2021.glb", "wip2020.glb", "littlered.glb"].every((f) => existsSync(path.join(models, f)));
 if ((want("F") || want("G") || want("H")) && !haveModels) {
@@ -278,7 +295,7 @@ const importGlb = async (file) => {
   return notes;
 };
 if (haveModels && want("F")) {
-  for (const dense of [1, 2]) {
+  for (const dense of [1, 2]) await section(`F${dense}`, async () => {
     const label = `wip2021${dense > 1 ? "、4194304 格" : "、默认密度"}`;
     console.log(`\nF ${label}：整条走一遍`);
     await newFile();
@@ -289,10 +306,10 @@ if (haveModels && want("F")) {
     if (dense > 1) { await S(() => globalThis.__catsup.editor.undo()); p = await S(([d]) => __H.paint(d, { density: __H.densityForCells(d, 4194304), name: "规模" }), [def]); }
     say(`网格体 ${defs.length} 块，画的那块 ${p.faces} 张面、${p.tris} 个三角形；画布 ${p.width}×${p.height}（${p.width * p.height} 格），每米 ${p.pxPerM} 格`);
     await S(() => __H.view("front"));
-    await fullFlow(label, p.tex, { manyFaces: 30, yBand: [0.3, 0.42, 0.55] });
-  }
+    await fullFlow(label, p.tex, def, { manyFaces: 30 });
+  });
 }
-if (haveModels && want("G")) {
+if (haveModels && want("G")) await section("G", async () => {
   console.log("\nG wip2020（80 个面积是零的三角形）：开始画、画一笔、存、重开、再画");
   await newFile();
   const notes = await importGlb("wip2020.glb");
@@ -321,11 +338,12 @@ if (haveModels && want("G")) {
   const t0 = texs[0].tex;
   await S((t) => globalThis.__catsup.paint.warm(t), t0); await page.waitForFunction((t) => globalThis.__catsup.paint.state(t) === "hot", t0, { timeout: 60000 });
   await S((t) => globalThis.__catsup.paint.prep.ensure(t), t0);
-  const pts2 = await S(([a, b, y]) => __H.line(a, y, b, y, 90), [VW * 0.03, VW * 0.97, VH * 0.3]);
-  const b2 = await S(() => __H.region(20, 190, 880, 230)), r2 = await S(([x, q]) => __H.stroke(x, q, { hardness: 1, size: 14 }), [t0, pts2]), a2 = await S(() => __H.region(20, 190, 880, 230));
+  const R0 = await S((d) => __H.rect(d), defs[0].def), yy = R0.y0 + R0.h * 0.35;   // 最大那块在屏幕上的外接框，横着画过它三成五高的地方
+  const pts2 = await S(([a, b, y]) => __H.line(a, y, b, y, 60), [R0.x0 - 10, R0.x1 + 10, yy]);
+  const b2 = await S((y) => __H.region(20, y - 20, 880, y + 20), yy), r2 = await S(([x, q]) => __H.stroke(x, q, { hardness: 1, size: 14 }), [t0, pts2]), a2 = await S((y) => __H.region(20, y - 20, 880, y + 20), yy);
   check(!r2?.refused && r2?.tips > 0, `wip2020 重开后最大那块换一行再画一笔：没出错（红像素 ${b2.red} → ${a2.red}${a2.red > b2.red ? "" : "；这一行没打中这块"}）`);
-}
-if (haveModels && want("H")) {
+});
+if (haveModels && want("H")) await section("H", async () => {
   console.log("\nH 小红帽：按 256 见方的密度、一格大小的硬笔点一下 = 点到哪格就是哪格");
   await newFile();
   const notes = await importGlb("littlered.glb");
@@ -363,7 +381,7 @@ if (haveModels && want("H")) {
     check(!res.err && !res.refused && res.cellsSeen >= 9 && res.wrong.length === 0, `点到的那格（屏幕上一格约 ${res.side} 像素、窗口里看了 ${res.cellsSeen} 格，各取它那片像素的中心）：只有那一格是墨`, JSON.stringify(res).slice(0, 400));
     say(`放大后一格 ${zoom} 像素（横着量）；点在 ${JSON.stringify(res.px)}`);
   }
-}
+});
 
 console.log(`\n${pass} 过 · ${failN} 红${haveModels ? "" : " · 真模型那一档没跑"}`);
 if (errs.length) { console.log("页面错误：", errs.slice(0, 8)); process.exitCode = 1; }
