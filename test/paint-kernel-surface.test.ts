@@ -87,7 +87,7 @@ describe("三维能碰画画内核的哪些口（白名单）", () => {
     for (const [mod, names] of Object.entries({ ...PENDING, ...ALLOWED })) {
       let src = "";
       try { src = fs.readFileSync(KERNEL + mod, "utf8"); } catch { missing.push(`${mod}（文件没了）`); continue; }
-      for (const n of names) if (!new RegExp(`export\\s+(?:declare\\s+)?(?:abstract\\s+)?(?:class|function|const|let|interface|type|enum)\\s+${n}\\b|export\\s*\\{[^}]*\\b${n}\\b`).test(src)) missing.push(`${mod} ${n}`);
+      for (const n of names) if (!new RegExp(`export\\s+(?:declare\\s+)?(?:abstract\\s+)?(?:async\\s+)?(?:class|function|const|let|interface|type|enum)\\s+${n}\\b|export\\s*\\{[^}]*\\b${n}\\b`).test(src)) missing.push(`${mod} ${n}`);
     }
     for (const [mod, names] of Object.entries(PENDING)) if (ALLOWED[mod]) for (const n of names) if (ALLOWED[mod].includes(n)) missing.push(`${mod} ${n}（两张表都有）`);
     eq(missing.join("；"), "");
