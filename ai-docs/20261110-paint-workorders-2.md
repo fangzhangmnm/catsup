@@ -135,4 +135,43 @@
 
 ## 施工记录
 
-（小弟写）
+### 1-0½（v0.19.4，11-10 深夜，Claude Opus 5.5；分支 `textures-table` @ a6b9923，副本文件夹 `.claude/worktrees/textures-table`；停在分支等审）
+
+- **做了什么**：照第一到第四节做。图是贴图表里的一行（`Scene.textures`，GUID → 一行；文件 `CATSUP_textures` 1.0），材质不装图、用 `channels` 指它（`CATSUP_material` 1.3）。问「这个材质用哪张图」只有一个口：`format/document.ts colorMapIn`（场景里 = `Scene.colorMapOf`），查表、不扫表。用起来和以前一样：导入图、涂到面上、吸色、撤销、存盘重开、跨文件粘贴、导出模型都走一遍了（下面的门）。
+- **改了的文件**（第四节那张表都对上了，另外多出来的标了「新」）：
+  - 格式层：`document.ts`（`TextureDoc` / `TextureContent` / `CarriedJson` / `ColorMap` / `colorMapIn` / `MaterialDoc.channels` / `CatsupDocument.textures`；`ImageAsset` 退役，校验改名 `assertSizedImage`）、新 `texture-table.ts`（一行的读写，读写两端一份）、`read.ts`、`write.ts`（`writeCatsup` 和 `writeGltfModel` 都改问那个口）、`scene-doc.ts`、`migrate/index.ts`（拍子 + 头注释）、`migrate/material.ts`（老文件搬表）、`entry-kinds.ts` / `entry-canon.ts`（第四种条目）、`scene-store.ts`。
+  - 场景：`scene.ts`（贴图表、`texturesFrozen`、`colorMapOf`、`addTexture`、两种拷贝都浅拷贴图表）、`resources.ts`（贴图那一节 + `unusedTextures`）。
+  - 指令：`ops.ts`（`addTexture` / `purgeTextures`；`addMaterial` 改带 `channels`，碰到旧形状直接拒）、`history.ts`（两条新指令归骨架档 + 那句注释）、`transfer.ts` / `paste-plan.ts`（载荷带 `textures`）。
+  - 编辑器：新 `editor/paint-material.ts`（蘸材质、吸色从 `editor.ts` 搬出来），`editor.ts` 4121 → 4114 行（棘轮调低到 4114）。
+  - 渲染：`minccino/contract/stream.ts`（`MaterialRef { color, map?: TextureRef }`）、`stream-provider.ts`（拼引用、按对象记住）、`pool-mesh.ts`（环境多一个 `mapOf`）、`render3.ts`（解码按图缓存）。
+  - 界面：`main.ts`（色板）、`paste-actions.ts`（撞车行）、`hierarchy-window.ts`（资源页「贴图」一节 + 清理钮）。
+  - 复现包：`scripts/replay-repro.mjs`。
+  - 测试：新 `test/textures-table.test.ts`（登记进 `run.mjs`）、新 `test/probes/probe-textures-table.mjs`、新 `test/fixtures/export-model/`（改之前冻的两份导出），跟着改的 `format-scenes.ts`（`scenePainted` 换新指令、指纹按那个口、新 golden 场景 `sharedTextures`）、`format-stamps` / `mesh-format` / `identity-id3` / `pool-mesh` / `face-sides` / `mesh-view` / `object-model` / `format` 这几个测试，探针 `probe-render-baseline` / `probe-scene` / `probe-followme`（造场景改新指令、能传网址）、`probe-shelf`（页底多一颗钮）。
+  - 冻样本、`api/` 重打、流程图追记、`CLAUDE.md` 现状行、版本。
+- **门**：
+  1. `npm test` 1794 + 内核 549 全过，45 秒；`tsc` 干净。截图基线整套跑了：`box-textured` 0 像素差、`style-pixel-textured` 0、`style-realistic-textured` 56 像素（0.007%，容差内）；别的场景普遍 0.1% 左右，拿 main 的包对照一样（原来就有的噪声）。截图基线探针原来用旧形状的「加材质」造带图场景，改成先 `addTexture` 再 `channels`，画面没变。
+  2. 老文件：每一代冻样本里的 `painted.glb`（v3 起几代）读进来，贴图表一行、材质的 `channels.color` 指它、字节和尺寸（0.5 × 0.5）对、场景指纹和现在造的一样（测试「贴图表：老文件」）。另外老文件没有 `sizeM` = 一米、两个材质各有各的图 = 两行。
+  3. 写两遍一样：`painted` 和一个「共用的图 + 分层的画 + 不认识的种类 + 行里不认识的键」的场景，写 → 读 → 写，两次字节相等。
+  4. 不带贴图的文件：没有 `CATSUP_textures`。拿改之前的写入器（main eb1d59e）和现在的写同一份文档逐字比：没有材质的场景一个字节不差；有一个纯色材质的场景，唯一的差别是材质扩展 `minor` 2 → 3，二进制一样。
+  5. 导出模型：动手之前用改之前的代码把 `painted` 导出两份（带图 / 不带图）冻成 `test/fixtures/export-model/`；现在导出来二进制逐字节一样、JSON 除了 `asset.generator`（里面是版本号，升版本一定变）一个字不差（测试里比的时候把 generator 对齐）。
+  6. 拿 v0.18.50（53878ec）的真格式层当读者跑了一遍（不进测试套），新文件 = `painted` + 第二个材质共用同一张图 + 一张孤儿图：
+     - 老版本打开：三个材质，两个带图的图都对、尺寸 0.5 × 0.5、字节对；提示一次「材质扩展新一点」。
+     - 老版本存回去：`CATSUP_textures` 原样带着（两行）；材质扩展被它重写成 1.2，`channels` 没了、`sizeM` 还在。
+     - 本版再打开：图都在、字节对；材质和组件的 GUID 都不变；两个带图的材质各拿到一张新身份的贴图；原来那两行（共用的那张 + 孤儿）都是孤儿，资源页能清。
+     - 第二节没写到的一处（报过，Fable 同意记成已知代价、已经补进第二节和 `migrate/index.ts` 头注释）：① 只在「新文件被老版本打开再存一遍」这条路上发生；② 两个材质原来共用一张图，老版本给每个材质各写了一份 → 本版铸出两张新贴图，图一个字节不丢，丢的是「共用」这层关系，文件里多一份同样的字节，原来那一行变孤儿；③ 不为它按内容认图。
+  7. 新测试都过（`test/textures-table.test.ts`）：两个材质指同一张贴图存盘重开还是同一张（标准那一半一条 image、导出模型也一条）；不认识的 `content.kind` 整行和字节原样带回；`sizeM` / `layout` 都有、都没有、尺寸不合法 = 读取失败并说是哪一行；`channels` 指着不存在的 GUID = 这一槽空、`readNotes` 记一笔；清掉材质之后贴图还在、是孤儿，`purgeTextures` 能清它、不能清被指着的、一步撤销；跨文件粘贴带图的组件贴图跟着走、GUID 不变、再贴不多，目标已有同一个 GUID 而内容不同 = 撞车询问里贴图自己一行；第一次涂图一步撤干净、重做 GUID 一样。真编辑器里另跑了 `probe-textures-table`：油漆桶蘸图涂一张面 = 三条指令一步、撤一次贴图和材质都没了、重做 GUID 一样；再蘸同一张图涂别处不多东西；两个材质共用一张图都涂上，渲染器解码缓存里一张图、着色器两份；吸色吸到的是那张图。
+  8. 守卫（同一个测试文件）：`src` 里没有读材质 `.texture`、没有 `texture: { mimeType` 的旧形状、`Material` 没有 `texture` 字段、`ImageAsset` 不在了；删贴图只有 `purgeTextures` 那一行；「用哪张图」只经那个口（别处不读颜色那一槽）。身份层的守卫照过。
+  9. 冻样本：新签名目录 `v3.5.0-4.2.0-7.0.0-2.0.0-1.3.0-1.4.0-1.0.0-1.2.0-1.0.0-1.0.0`，17 个（多了一个 golden 场景 `sharedTextures`：两个材质共用一张图各涂一面、一张孤儿图、一张分层的画，涂过的面建成组件再摆一份）。`api/` 重打；流程图文末一节「涂一张图这一路」；`CLAUDE.md` 现状行。
+  10. 版本 v0.19.4。
+- 其余探针在分支包上都跑过、全绿：`probe-default-back`、`probe-export`、`probe-surface`、`probe-two-sides`、`probe-scene`、`probe-followme`、`probe-hierarchy`（资源页出现「（还没有贴图）」那一行）、`probe-shelf`、`probe-tool-locks`、`probe-mesh-flatten`、`probe-undo-fuzz`、`probe-input-gate`。
+- **和施工单不一样的地方 / 我定的**（请看）：
+  1. 复现包（你定的，照做）：重放脚本版本不一样先说一句；旧形状的「加材质」拒绝那一条、说清是哪一条为什么，整个重放停下。以前「加材质」里的图字节进复现包时，`JSON.stringify` 把字节数组变成一个键是 0、1、2… 的普通对象（没转 base64、也没丢），重放时从来没转回字节；新的「加贴图」照这个存法，重放脚本里转回字节（拿手搓的新旧两个包试过）。指令类型旁边那句注释补在 `history.ts` 第 4 行（「复现包 / 黑匣子 / 脚本都读它」那句在那里）。
+  2. 贴图表太新（更新版写的）时：不许加贴图、不许清理、会新建或更新贴图的粘贴也拒绝，提示行说原因（不然存盘时新加的和原样带回的那张表打架）。这种文件里老版本存过、标准那一半带图的材质照样现铸一行显示，写盘时这几行只靠标准那一半表达、不写进原样带回的表（下次打开再铸）——图不丢。
+  3. 贴图的用量借身份层 `Usage` 里 `placed` 那一格放「几个材质指着它」（不管那个材质自己有没有面在用）；能清理 = 没有材质指着、架上也没收。没往身份层加字段。
+  4. 粘贴撞车弹窗里「材质也跟着：不跟」= 材质和贴图都不跟（贴图是材质的样子，不然留下来的材质会因为它指的图被更新而变样）；只有贴图那一行撞车时这个开关也出来，标签还叫「材质也跟着」。
+  5. 贴图条目在身份层不指别人：`layout.definition`（单品的画）这一版没有入口造它，原样带，不当引用走。
+  6. 身份层比两份贴图是不是一样时，不认识的部分先把文件里的 bufferView 号换成字节本身再比（两份文件各编各的号；身份层按键比对象，比不出 Map 里的东西）。
+  7. 渲染：槽表签名里材质的号带上图的号——粘贴「更新」换了一张图而材质对象没变时，那个池会重建、交出新的引用（不然块版本不变、渲染器拿着旧图）。
+  8. `api/` 重打时多了 `api/src/paint/`（83 个文件、448K，是画画内核那份拷贝的接口）：脚本对全部 `src` 生成，我照脚本的输出提交了；要不要在脚本里排除那个文件夹，你定。
+  9. 色板、资源页「贴图」那一节都是第一版摆法：色板里一个带图的材质一格（两个材质共用一张图 = 两格）；资源页一行 = 名字 · 尺寸 · 几个材质在用（没人用写「清掉材质后图会留下」），清理钮在页底。
+- **没测**：真机；资源页「贴图」那一节只在无头浏览器里看到「（还没有贴图）」那一行和按钮状态，没截图看有图时的样子；分层的画、不认识的种类显示成灰色占位这件事没在画面上验（这一版没有入口造它们，只在格式层测了读写）。
