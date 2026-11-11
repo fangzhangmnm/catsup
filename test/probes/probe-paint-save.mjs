@@ -3,7 +3,8 @@
 // 真的编辑器 + 真的会话 + 真的文件夹家（假选夹 = OPFS 子目录，照 probe-folder-home）+ 无头 swiftshader。
 // ① 画了存、刷新：读回来的画是冷的（画板 0），屏幕上照存下的合成图；② 冷热之间显示不变（同一块屏幕像素：冷的 = 合成图、热起来 = 内核现合成）；
 // ③ 落笔撞上冷的画：这一笔不开始、提示行「这张画还在打开」、同时解开，之后能画；④ 编码正在跑时画一笔、挪一个点：存完仍然算改过，再存才干净；
-// ⑤ 编码中途抛：存盘没成、明说、夹里的文件一个字节不动、仍然算改过；⑥ 十张画的文件：全部显示出来之后画板数 0；⑦ 编码正在跑时落笔要等多久（量）。
+// ⑤ 编码中途抛：存盘没成、明说、夹里的文件一个字节不动、仍然算改过；⑥ 十张画的文件：全部显示出来之后画板数 0；⑦ 编码正在跑时落笔要等多久（量）；
+// ⑧ 读进来时丢过东西：自动保存不写、人按保存先问（先不存 / 存）。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-paint-save.mjs [url]
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -171,6 +172,29 @@ check(st.paints === 10 && st.boards === 0, "十张画、画板 0", JSON.stringif
 check((st.sig.match(/:cold:/g) ?? []).length === 5, "有内容的五张照合成图显示（另外五张没画过：照底色）", st.sig.slice(0, 80));
 let shown = 0; for (let i = 0; i < 5; i++) if ((await region(i)).colored > 20) shown++;
 check(shown === 5, `五个顶面上都看得见画（${shown}/5）`);
+const mem = await S(() => { const C = globalThis.__catsup, rows = [...C.editor.sceneRef.textures.values()].filter((t) => t.content.kind === "layered"), r3 = C.editor.renderer3;
+  return { ora: rows.reduce((n, t) => n + t.content.ora.length, 0), png: rows.reduce((n, t) => n + (t.composite?.png.length ?? 0), 0), withComposite: rows.filter((t) => t.composite).length, texCache: r3.texCache?.size ?? null, boards: C.paint.boards.count };
+});
+console.log(`    冷的常驻（量）：分层字节合计 ${(mem.ora / 1024).toFixed(1)} KB、合成图合计 ${(mem.png / 1024).toFixed(1)} KB（${mem.withComposite} 张有合成图）——都是文件里本来就有的字节；画板 ${mem.boards}；渲染器解码过的图 ${mem.texCache} 张（显卡上每张一份显示用的图）`);
+
+console.log("\n⑧ 读进来时丢过东西：点头才存（统筹 11-11：会丢的四种）");
+await S(() => { globalThis.__catsup.session.noteFormat({ readNotes: { newerMinor: [], newerPatch: [], foreignPaintSlots: 2 } }); });   // 等于读进来一份有这种坏数据的文件（读入记号就是这一份）
+check(await S(() => globalThis.__catsup.session.heldForLoss), "拦着");
+await stroke(tops10[0], 0, 0.3);
+const b8 = await fileBytes();
+check(await S(async () => globalThis.__catsup.session.save({ implicit: true })) === false, "自动保存不写");
+const a8 = await fileBytes();
+check(!!b8 && !!a8 && b8.length === a8.length && b8.every((x, i) => x === a8[i]), "夹里的文件没动");
+const sheetUp = () => page.waitForFunction(() => !document.getElementById("sheet").hidden, null, { timeout: 8000 });
+let p8 = page.evaluate(() => globalThis.__catsup.session.save());
+await sheetUp();
+check(/存了会丢掉/.test(await S(() => document.getElementById("sheet").textContent)), "人按保存：先问");
+await page.click(`#sheetChoices button:has-text("先不存")`);
+check(await p8 === false && await S(() => globalThis.__catsup.session.heldForLoss), "先不存 = 没存、还拦着");
+p8 = page.evaluate(() => globalThis.__catsup.session.save());
+await sheetUp();
+await page.click(`#sheetChoices button:has-text("存（丢掉这几处）")`);
+check(await p8 === true && await S(() => !globalThis.__catsup.session.heldForLoss && !globalThis.__catsup.session.dirty()), "点了存 = 存上了、放开了");
 
 await browser.close();
 if (errs.length) { console.log("页面错误：", errs.slice(0, 5)); process.exitCode = 1; }

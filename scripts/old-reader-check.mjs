@@ -7,6 +7,7 @@
 //   · 不带贴图坐标的文件：旧读者照常打开；它再存一遍 = 和原文件逐字节一样（只抹掉 asset.generator 和 CATSUP_document.bake.generator：每个版本存盘都写自己的版本号）。例外（已知代价，1-0½ 门 6 记过）：比贴图表还老的读者（没有 CATSUP_textures 的版本）
 //     读带贴图表的文件会重写材质扩展，不逐字节；这种单独数出来，并检查这一版再读它存的那份能开、几何一样。
 //     另一类单独数：只差拍子（二进制一字不差，JSON 里只有某个扩展的 version / minor / patch 不同 = 旧读者按它自己的拍子写回；比如 v0.18.50 比材质扩展 1.3 老）。
+//   · 认识贴图坐标的读者（CATSUP_mesh major ≥ 2，v0.19.20 起；1-8b 加）：带贴图坐标的文件也照常打开、再存按上面那条判（逐字节 / 只差拍子）。
 // 不进测试套（要动 git、要旧代码）；结果写进施工记录。
 import { execFileSync } from "node:child_process";
 import { mkdirSync, existsSync } from "node:fs";
@@ -88,9 +89,10 @@ for (const c of commits) {
   const dir = join(tmpdir(), "catsup-old-reader", c);
   if (!existsSync(join(dir, "src/format/index.ts"))) { mkdirSync(dir, { recursive: true }); execFileSync("bash", ["-c", `git -C "${repo}" archive ${c} src | tar -x -C "${dir}"`]); }
   const O = await import(pathToFileURL(join(dir, "src/format/index.ts")).href);
+  const knowsUv = (O.FORMAT.CATSUP_mesh?.major ?? 0) >= 2;   // 认识贴图坐标的读者（v0.19.20 起）：带贴图坐标的文件也要能开、再存和别的一样判（1-8b 起加的这一条）
   const r = { uvFiles: 0, uvRefused: 0, uvOpened: [], plain: 0, plainIdentical: 0, plainStampOnly: 0, stampPaths: new Set(), plainKnownCost: 0, plainBad: [] };
   for (const f of files) {
-    if (hasUv(f.bytes)) {
+    if (hasUv(f.bytes) && !knowsUv) {
       r.uvFiles++;
       try { O.readCatsup(f.bytes); r.uvOpened.push(f.name); }
       catch (e) { if (e instanceof O.FormatTooNewError && e.extension === "CATSUP_mesh") r.uvRefused++; else r.uvOpened.push(`${f.name}（抛的不是格式太新：${String(e).slice(0, 80)}）`); }
@@ -110,7 +112,7 @@ for (const c of commits) {
   }
   const ok = r.uvRefused === r.uvFiles && !r.plainBad.length;
   if (!ok) bad++;
-  console.log(`${c}：带贴图坐标 ${r.uvFiles} 份，拒开（格式太新，报 CATSUP_mesh）${r.uvRefused} 份${r.uvOpened.length ? `，没拒开 ${r.uvOpened.length} 份：${r.uvOpened.slice(0, 5).join("；")}` : ""}；`
+  console.log(`${c}：${knowsUv ? "（认识贴图坐标的读者：带贴图坐标的也按下面「打开再存」判）" : ""}带贴图坐标 ${r.uvFiles} 份，拒开（格式太新，报 CATSUP_mesh）${r.uvRefused} 份${r.uvOpened.length ? `，没拒开 ${r.uvOpened.length} 份：${r.uvOpened.slice(0, 5).join("；")}` : ""}；`
     + `不带的 ${r.plain} 份，打开再存逐字节一样 ${r.plainIdentical} 份${r.plainStampOnly ? `、只差拍子（旧读者按自己的拍子写回 ${[...r.stampPaths].join("、")}，内容一字不差）${r.plainStampOnly} 份` : ""}${r.plainKnownCost ? `、已知代价（比贴图表老的读者重写材质扩展，几何一样）${r.plainKnownCost} 份` : ""}${r.plainBad.length ? `，不对 ${r.plainBad.length} 份：${r.plainBad.slice(0, 5).join("；")}` : ""} → ${ok ? "过" : "不过"}`);
 }
 console.log(`文件：golden ${files.filter((f) => f.name.startsWith("golden")).length} 份 + 随机 ${N} 份（种子 ${SEED}）`);

@@ -37,6 +37,32 @@ export const READ_NOTE_SAY: { readonly [K in keyof Required<FormatReadNotes>]: S
 /** 故意不说的键（每一个写明为什么）。守卫只放过这几个「有值也不说」。 */
 export const SILENT_NOTES: Readonly<Partial<Record<keyof FormatReadNotes, string>>> = { newerPatch: "家族纪律：patch 比本版新 = 可无脑降，静默" };
 
+/**
+ * 读入时记下的每一种：再存盘会不会把东西去掉（贴图主线 1-8b，统筹 11-11 定）。true = 会丢 → 第一次存盘之前要用户明着点一次头，在那之前自动保存不写这份文件。
+ * 每个键都要表态（类型上少一个编译不过；守卫 test/format-notes-guard.test.ts 钉住哪几个是 true）。
+ */
+export const LOSSY_NOTES: { readonly [K in keyof Required<FormatReadNotes>]: boolean } = {
+  newerMinor: false, newerPatch: false, deskTooNew: false, referencesTooNew: false, shelfTooNew: false,
+  danglingShelfRefs: true,       // 「保存后就没了」
+  remintedGuids: false, builtinFrontSlots: false, texturesTooNew: false,
+  danglingTextureRefs: true,     // 「再存盘会去掉这些引用」
+  unknownTextureKinds: false,
+  uvDropped: true,               // 「再存盘会把这些坏的部分去掉」
+  paintUnplaced: false,
+  foreignPaintSlots: true,       // 「再存盘会去掉这些引用」
+  orphanPaintTextures: false,
+};
+/** 这次读入记下的、会丢东西的那几种说的话（没有 = 空）。 */
+export function lossySay(n: FormatReadNotes | undefined): string[] {
+  if (!n) return [];
+  const out: string[] = [];
+  for (const k of Object.keys(LOSSY_NOTES) as (keyof FormatReadNotes)[]) {
+    const v = n[k];
+    if (!LOSSY_NOTES[k] || v === undefined || v === null || (Array.isArray(v) && !v.length) || v === 0) continue;
+    out.push(...(READ_NOTE_SAY[k] as (x: unknown) => string[])(v));
+  }
+  return out;
+}
 export function formatNotesSay(n: FormatReadNotes): string[] {
   const out: string[] = [];
   for (const k of Object.keys(READ_NOTE_SAY) as (keyof FormatReadNotes)[]) {

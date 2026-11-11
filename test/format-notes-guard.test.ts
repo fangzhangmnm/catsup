@@ -2,7 +2,7 @@
 // ① 读源码：FormatReadNotes（src/format/migrate/index.ts）的每一个键，READ_NOTE_SAY（src/app/format-notes.ts）里都有一行，反过来也一样。
 // ② 每个键造一份样本：说出来的话不空、不带 undefined / NaN / [object …]；只有 SILENT_NOTES 里登记过、写了理由的键可以不说。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { READ_NOTE_SAY, SILENT_NOTES, formatNotesSay } from "../src/app/format-notes.ts";
+import { READ_NOTE_SAY, SILENT_NOTES, formatNotesSay, LOSSY_NOTES, lossySay } from "../src/app/format-notes.ts";
 import type { FormatReadNotes } from "../src/format/migrate/index.ts";
 const { readFileSync } = (await import("node:fs" as string)) as { readFileSync(p: string, enc: string): string };
 
@@ -53,5 +53,17 @@ describe("读入时记下的每一种都要说出来（1-2½）", () => {
     }
     const total = formatNotesSay(SAMPLE).length;
     assert(total >= KEYS.length - Object.keys(SILENT_NOTES).length, `一共说了 ${total} 句`);
+  });
+});
+
+describe("会丢 / 不丢的名单（1-8b，统筹 11-11 定）", () => {
+  it("每个键都表态；会丢的正好是这四种：uvDropped、foreignPaintSlots、danglingTextureRefs、danglingShelfRefs", () => {
+    eq(Object.keys(LOSSY_NOTES).sort().join(", "), KEYS.join(", "), "名单的键 = 接口的键");
+    eq(Object.entries(LOSSY_NOTES).filter(([, v]) => v).map(([k]) => k).sort().join(", "), "danglingShelfRefs, danglingTextureRefs, foreignPaintSlots, uvDropped");
+  });
+  it("lossySay：只说会丢的那几种；空的 / 0 不算", () => {
+    eq(lossySay({ newerMinor: [], newerPatch: [], foreignPaintSlots: 2, remintedGuids: 3 } as FormatReadNotes).length, 1, "只说会丢的");
+    eq(lossySay({ newerMinor: [], newerPatch: [], uvDropped: [] } as FormatReadNotes).length, 0, "空数组不算");
+    eq(lossySay(undefined).length, 0);
   });
 });

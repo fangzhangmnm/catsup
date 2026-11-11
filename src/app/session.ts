@@ -24,7 +24,7 @@ import { isForeignGlb } from "../format/gltf-import.ts";
 import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
 import { defaultDesk, emptyReferences, type DeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
-import { formatNotesSay } from "./format-notes.ts";
+import { formatNotesSay, lossySay } from "./format-notes.ts";
 import type { Xform } from "../scene/xform.ts";
 import { AUTOSAVE_IDLE_MS, DOC_EXT, DOC_EXTS, defaultDocName, downloadName, hex4, RELOAD_PUSH_WAIT_MS } from "../config.ts";
 import { bareName, docSuffixOf, fullName } from "./doc-names.ts";
@@ -199,9 +199,19 @@ export class Session {
   /** 读取侧三级拍子提示（家族纪律：minor 更新提示一次、patch 静默；desk 太新 = 原字节带回 + 默认显示）。每次载入说一次。 */
   private noteFormat(doc: CatsupDocument): void {
     const n = doc.readNotes;
+    this.lossyHold = lossySay(n);   // 1-8b：读进来时丢过东西 = 先拦着（每次载入重算）
+    if (!this.lossyHold.length) this.lossyHold = null;
     if (!n) return;
     for (const line of formatNotesSay(n)) this.d.setStatus(line);
+    if (this.lossyHold) this.d.setStatus("这份文件读进来时有坏的部分：自动保存先不写它；按「保存」时会问你要不要这样存");
   }
+  /**
+   * 读进来时丢过东西（会丢的那几种读入记号，format-notes.ts LOSSY_NOTES）：第一次存盘之前要用户明着点一次头；在那之前自动保存 / 切后台落本机都不写这份文件
+   * （崩溃快照照拍：它不动原文件）。贴图主线 1-8b，统筹 11-11。null = 没拦着。
+   */
+  private lossyHold: string[] | null = null;
+  /** 正拦着（探针 / 状态用）。 */
+  get heldForLoss(): boolean { return this.lossyHold !== null; }
   constructor(private d: SessionDeps) {
     this.savedRevision = this.lastSeenRevision = d.editor.revision;
     this.savedRefRev = this.lastSeenRefRev = this.refRev();
@@ -633,7 +643,7 @@ export class Session {
   }
   beginLazyBlank(): void {
     this.forkBaseRev = null;
-    this.loaded = null;
+    this.loaded = null; this.lossyHold = null;
     this.pushPending = false; this.createPending = false;
     this.lazy = false;   // loadKernel 会同步 changed → noteChange；此刻别当首笔
     this.d.editor.loadScene(nameRoot(new Scene(new Kernel())), "新建");
@@ -666,7 +676,7 @@ export class Session {
   async newDoc(): Promise<boolean> {
     if (!(await this.leaveGate())) return false;
     if (hasStore()) { this.beginLazyBlank(); return true; }
-    this.loaded = null;
+    this.loaded = null; this.lossyHold = null;
     this.lazy = false; this.createPending = false;
     this.d.editor.loadScene(nameRoot(new Scene(new Kernel())), "新建");
     this.d.editor.setGrid({ ...NEW_DOC_GRID }, true);
@@ -865,6 +875,18 @@ export class Session {
       if (opts.implicit) return false;
       slowSay ??= setTimeout(() => this.d.setStatus("上一次保存还在路上，等它落地就存…"), SAVE_WAIT_SAY_MS);
       await this.inflight;
+    }
+    if (this.lossyHold) {   // 读进来时丢过东西（1-8b）：自动的不写；人按的先问
+      clearTimeout(slowSay);
+      if (opts.implicit) return false;
+      const v = await openChoiceSheet<"save" | "copy" | "later">("这份文件存了会丢掉一些东西", `${this.lossyHold.join("；")}。`, [
+        { label: "存（丢掉这几处）", value: "save" as const, primary: true },
+        { label: "另存一份新的（这份不动）", value: "copy" as const },
+        { label: "先不存", value: "later" as const },
+      ]);
+      if (v === "copy") { await this.exportProject(); return false; }
+      if (v !== "save") return false;
+      this.lossyHold = null;
     }
     clearTimeout(slowSay);
     const home = this.home;
