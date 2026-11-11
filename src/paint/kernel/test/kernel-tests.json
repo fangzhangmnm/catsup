@@ -69,6 +69,7 @@
     "test/history.test.mjs",
     "test/host-overlay.test.mjs",
     "test/host-external.test.mjs",
+    "test/gl-board-dispose.test.mjs",
     "test/hosted-steps.test.mjs",
     "test/layer-cap-budget.test.mjs",
     "test/layer-ops-undo-fuzz.test.mjs",

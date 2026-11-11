@@ -2,8 +2,8 @@
   "about": "Paint kernel copied verbatim from WeebPaint by scripts/pull-paint-kernel.sh. Do not edit here: change it in WeebPaint, then pull again. test/paint-kernel-guard.test.ts checks every hash.",
   "source": {
     "repo": "WeebPaint",
-    "commit": "0989e761ab1554a8dd2a953e9e8211fd0dff5970",
-    "version": "v0.14.75-2026-11-11"
+    "commit": "871cd5b8619f3cd561c7ad90538700615bbc5a78",
+    "version": "v0.14.77-2026-11-11"
   },
   "files": {
     "src/backend/algorithms/README.md": "07faa259a0e864acc853614fc284f75fda2d259efacf5483ff993f75323fa434",
@@ -42,7 +42,7 @@
     "src/backend/gl/region-programs.ts": "2f087a931325a4fbb956e0b2938d96b6d9cbc483ca5ab912be6fa5189cc9812c",
     "src/backend/gl/region-stroke.ts": "a9596a21c4739e2a87bb423b060188c383ea8f8e5b44e6d691225b3a81839203",
     "src/backend/gl/render-plan.ts": "c3fdf01b425a99d96e5a665b846fc600afcd7f03036d46ed8864bfb186716b9c",
-    "src/backend/gl/render-tree.ts": "3004202fd2eb03495c742b60acc183e808b3e8e16bf2eb160d57e5c809d9b625",
+    "src/backend/gl/render-tree.ts": "d55072a7bef12ce582fe035f372e3d5697f2ef118c9aff4e5cc4a1cef4f12818",
     "src/backend/gl/stamp-falloff.ts": "9998662d4838ceeb354b577b9c3d196f67c6c50950bdf45c2f011fee0e867563",
     "src/backend/gl/tile-bridge.ts": "a0455b5029ca2d3477f1accdbbc8175cad2f4d3085582f684c81b69e6f49e565",
     "src/backend/jpeg-codec.ts": "9dfc17a0ddd46864c52bfb7a0e733801b0371d3996c150aaf8190150ecb69693",
@@ -93,7 +93,7 @@
     "src/common/tile-geometry.ts": "cb107eadc29fc3d9f4516cd39791fbe828b1a2c7629b98aa45e554c98ffa2c5c",
     "src/common/verbs.ts": "9825ea6ff68e4b6387e6d0107b152a17fab4b6d41fa36b266abab35fa4805cc4",
     "src/shell/browser-gl2-port.ts": "f1a4be7c447287248303d00fbeeaf1a3aa817b77a89b6a206196d30e6cc5b5db",
-    "src/shell/gl-board.ts": "fdae8702654629c2496d9d60b3e2e4bd6cefb7d006174a16003f1709913eae4a",
+    "src/shell/gl-board.ts": "dfd859f54b4ff94cf1aa7da2d235d256735ca81e7a7d9b6c219cbd88f90fda6e",
     "test/alpha-audit.test.mjs": "02456db1756fd08f0b5f20d2d0d35dcf1d1fbc6a5e6739ad3ceeb3d9fe578c4b",
     "test/anim-curve.test.mjs": "f58a915bf3ff68c7489c4901a68a84c7487011f5329f3764148e09c8dad6a545",
     "test/app-version.test.mjs": "670b064a75aaae9458e1f96db328199a93be60b0cce1985efb37abdda2b3da5a",
@@ -121,6 +121,7 @@
     "test/frame-demand.test.mjs": "5b1ecd5799334215051082394d978efb2c2c135f0063e31ffc9d1a18bc97a338",
     "test/full-mock-multiplayer.test.mjs": "3c577192272fc8f9ffb65df78a969357827b356c3780e7c1ae8375662b3d573f",
     "test/full-painting-roundtrip.test.mjs": "15bfd111c630d994560cbce303490bb109304d533bfd20b51fe6605309bfbd14",
+    "test/gl-board-dispose.test.mjs": "14b48f32921a6ab4aca6deddd2d11a513859dafa1f65ce843b99de57d7ff0b60",
     "test/gl-compose-plan.test.mjs": "2777553d72601e1bc3177f7e26636c7e95bb201e447ec607b618b870e9c726b7",
     "test/gl-doc-bridge.test.mjs": "ced285e2e553f589db743c6e8aa1e709d3e1163211872ec278d8a37d8a332086",
     "test/gl-group-clip.test.mjs": "99341a4a5cdfd4de632c1d22039a8e85c8c9679731a0cdda226fe87337e8d612",
@@ -132,7 +133,7 @@
     "test/host-overlay.test.mjs": "0a8aa8b6bbd76830c93e9d55eacd5092103a87e9558c879a4da11b00a205e86d",
     "test/hosted-steps.test.mjs": "9f17e687ff0ee209eb266d458e89620361ed46bf0f017cc148eb60899810ada7",
     "test/kernel-shim.mjs": "dcf663ec7e7cebcc1c07e5f3d8002b12baf04b615de90c0d7600b8c119d46f19",
-    "test/kernel-tests.json": "02294cb902113e2d0a9fa0ff68231b5cdc23c3c668053835b49cacc6958f1cde",
+    "test/kernel-tests.json": "f6a19fd6c917c5b8ae8b0cddbf304ad0ac7d6acc46613202e4d81e67cfeadb6b",
     "test/layer-cap-budget.test.mjs": "71050c769b32c2895933fc0c7dc0757ef37277d7c96fe62be599dc47f833fc7a",
     "test/layer-ops-undo-fuzz.test.mjs": "b30dc705c6a85f31a24da0de01e0fd6cac522741b06c2f14891488a2d37fc59f",
     "test/layer-tiles.test.mjs": "1fc2781d69ed76472a30c783001ff097a37e0b58f981bb1610eef107e67d09ad",

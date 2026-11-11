@@ -32,6 +32,9 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   // 建在别人的画面上 / 交出贴图句柄 / 外面的图进内核的门（0-4、v0.14.75）
   "src/shell/browser-gl2-port.ts": ["BrowserGl2Port"],   // 内核的显卡接口建在渲染器的画面上
   "src/common/gl2-port.ts": ["Gl2Port", "PooledFBO", "ExternalImage", "ExternalTexture"],   // 内核显卡接口的类型；ExternalImage / ExternalTexture = wrapExternal 交薄层
+  // 图块池（额度、压缩的接线）（0-3a，统筹 11-11）
+  "src/backend/tiles/app-tile-pool.ts": ["appTilePool", "setTilePoolCodec", "setTilePoolLeakReporter"],   // 开机设一次额度（池上的 setRawQuotaBytes）、接压缩的编码器、泄漏上报；空闲时压最老的、切后台全压（照画画仓 tile-jobs.ts）
+  "src/backend/tiles/cpu-tile-compression.ts": ["deflateTileCodec"],   // 压缩用的编码器（和画画软件同一个）
   // 公式的文本（笔尖边缘的曲线：GLSL 片段和同一算式的 JavaScript）
   "src/backend/gl/stamp-falloff.ts": ["stampFalloff", "STAMP_FALLOFF_GLSL"],   // 标准答案和薄层着色器用的边缘曲线（和二维同一条）
 };

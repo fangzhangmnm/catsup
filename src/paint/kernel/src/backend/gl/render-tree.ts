@@ -224,6 +224,16 @@ export class RenderTree {
     return true;
   }
 
+  /**
+   * 退租（GLBoard.dispose；CatsUp 0-3a 补全寿命：宿主有很多块画板、会扔，建和拆要成对）：借的 display 离屏图还池、段缓存的索引纹理逐个删。
+   * 叶记录（room.leaves）归 GlRoom.dispose。之后不可再用（GLBoard 那层拦）。画画软件一辈子一块画板，不调。
+   */
+  dispose(): void {
+    if (this._display) { this._room.glctx.returnFBO(this._display); this._display = null; }
+    this._invalidateSegs();
+    this._displaySig = null; this._lastPlan = null;
+  }
+
   private _invalidateSegs(): void {
     for (const seg of this._segCache.values()) seg.index.dispose();
     this._segCache.clear();

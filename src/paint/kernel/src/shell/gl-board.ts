@@ -39,8 +39,21 @@ export class GLBoard {
     this._raster = new RasterService(this._room);
     // context-loss（Port onInvalidated 广播：结构已重建/generation 已 ++）：底层纹理/FBO 全没了
     //   → 机房+执行器全量作废，下帧从 CPU SSoT 重建（CPU 恒驻留）。
-    this._glctx.onInvalidated(() => { this._tree.handleContextRestored(); });
+    this._glctx.onInvalidated(() => { if (!this._disposed) this._tree.handleContextRestored(); });
   }
+
+  // ---- 退租（CatsUp 0-3a，2026-11-11）：原来只有建、没有拆，因为画画软件一辈子只有一块画板；宿主有很多块、会扔，建和拆要成对。----
+  //   拆 = 合成树还掉借的离屏图、删段缓存 → 机房退租（GlRoom.dispose：叶的索引纹理 / 选区 / 填充 / 浮层纹理 / arena / live clip / overlay FBO）。
+  //   离屏图还进 Port 的池（池归 Port、跨租户共享，不清；宿主扔光了自己清）。调两次没事；拆了之后再用 = 抛。画画软件自己不调。
+  private _disposed = false;
+  get disposed(): boolean { return this._disposed; }
+  dispose(): void {
+    if (this._disposed) return;
+    this._disposed = true;
+    this._tree.dispose();
+    this._room.dispose();
+  }
+  private _live(): void { if (this._disposed) throw new Error("GLBoard: disposed (a disposed board cannot be used again)"); }
 
   get memory() { return this._room.memory; }
   get stats(): { passes: number; floatPasses: number } { return this._room.stats; }
@@ -48,7 +61,7 @@ export class GLBoard {
   get frameStats() { return this._tree.frameStats; }
   // 驻留降级累计（v0.10.8）：syncLeafSafe 吞掉的 GPU_POOL_EXHAUSTED 次数（board 盯涨出声）。
   get syncDrops(): number { return this._room.syncStats.drops; }
-  markContentDirty(): void { this._tree.markDirty(); }
+  markContentDirty(): void { this._live(); this._tree.markDirty(); }
 
   // S8 brush commit：merge(base⊕stroke) 在 GPU（live 同一 shader）→ tile-diff 落盘 → GPU 收养。
   //   apply = CPU 落盘回调（Layer.applyRegionDiff）。false = GPU 无法保证完整（调用方按未提交处理）。
@@ -56,6 +69,7 @@ export class GLBoard {
     leafId: number, pixels: LayerPixels, ov: OverlayInput, docW: number, docH: number,
     apply: (px: Uint8ClampedArray, x: number, y: number, w: number, h: number) => { tx: number; ty: number }[],
   ): boolean {
+    this._live();
     if (this._glctx.isLost) return false;
     return this._raster.bakeStamps(leafId, pixels, ov, docW, docH, apply);
   }
@@ -66,11 +80,12 @@ export class GLBoard {
   //   ② 预借一张 doc 尺寸 u8 FBO 再还回池，让首笔的 W 命中池而不是当场 createTexture——**守卫**：池里已有同尺寸空闲件 = 空操作跳过；
   //      池预算装不下 = 跳过（退化为首笔当场分配，不出错）。幂等（program 已注册 = Map 查一次）。
   warmUp(docW: number, docH: number, schedule: (fn: () => void) => void): void {
+    this._live();
     const port = this._glctx;
     if (port.isLost) return;
     const ids = [...REGION_PROGRAM_IDS];
     const step = () => {
-      if (port.isLost) return;
+      if (port.isLost || this._disposed) return;   // 排着的预热片在退租之后到点 = 不做
       for (let i = 0; i < 2 && ids.length; i++) warmRegionProgram(port, ids.shift()!);
       if (ids.length) schedule(step);
       else schedule(() => this._preborrowDocFBO(docW, docH));   // program 都起完再预借（顺序无关，只是别挤在一个片里）
@@ -79,7 +94,7 @@ export class GLBoard {
   }
   private _preborrowDocFBO(docW: number, docH: number): void {
     const port = this._glctx;
-    if (port.isLost || docW <= 0 || docH <= 0) return;
+    if (port.isLost || this._disposed || docW <= 0 || docH <= 0) return;
     if (!port.fboPoolHas || port.fboPoolBudgetBytes == null) return;          // 实现体没观测口 = 不做（软域/未来 port）
     if (port.fboPoolHas(docW, docH, "u8")) return;                             // 已有同尺寸空闲件：预借是空操作
     const need = docW * docH * 4;
@@ -91,6 +106,7 @@ export class GLBoard {
   // 2026-09-18 区域程序：造一笔的 GPU 驻留写靶（RegionStroke）。caps 守卫 / 显存不够在构造里响亮 throw；
   //   错误信息附 caps 快照（黑匣子可查「哪台设备没浮点 FBO」，doc §3.7）。
   openRegion(leafId: number, pixels: LayerPixels, docW: number, docH: number, selMask: SelMaskPlane | null, lockAlpha: boolean, snapshot = false): RegionStroke {
+    this._live();
     if (this._glctx.isLost) throw new Error("REGION_GL_LOST (context lost; try again)");
     try { return new RegionStroke(this._room, leafId, pixels, docW, docH, selMask, { lockAlpha, snapshot }); }
     catch (e) { throw new Error(`${String((e as { message?: unknown })?.message ?? e)} caps=${JSON.stringify(this._glctx.caps)}`); }
@@ -102,6 +118,7 @@ export class GLBoard {
     shape: Parameters<RasterService["rasterizeStampsToBytes"]>[1],
     bx: number, by: number, bw: number, bh: number,
   ): Uint8ClampedArray | null {
+    this._live();
     if (this._glctx.isLost) return null;
     return this._raster.rasterizeStampsToBytes(stamps, shape, bx, by, bw, bh);
   }
@@ -111,12 +128,14 @@ export class GLBoard {
   //   surrogate/overlay（v0.9.18 timelapse 采帧 WYSIWYG，同 pickColor 待遇）：save/export 不传，语义不变。
   compositeToBytes(nodes: DocNode[], docW: number, docH: number,
                    surrogates: readonly SurrogateInput[] = [], overlays: readonly OverlayInput[] = []): { data: Uint8ClampedArray; w: number; h: number } | null {
+    this._live();
     if (this._glctx.isLost) return null;
     return this._raster.compositeToBytes(nodes, docW, docH, surrogates, overlays);
   }
 
   // S8 吸管：一次性合成（compositeOnce，不建缓存）+ 1px readback。bg 语义同 render 的 docBg。
   pickColor(doc: GLDoc, docBg: string | null, x: number, y: number, surrogates: readonly SurrogateInput[] = [], overlays: readonly OverlayInput[] = []): [number, number, number, number] | null {
+    this._live();
     if (this._glctx.isLost) return null;
     const bg: Background | undefined = docBg === "checker" ? "checker"
       : docBg ? [...hexToRgb(docBg), 1] as [number, number, number, number] : undefined;
@@ -126,6 +145,7 @@ export class GLBoard {
   // 给自由变换 commit 用：warp 源 → straight RGBA **字节**（_bakeDown typed-array source-over 落层，
   //   复用 live warp；v0.6.38 去 canvas 化）。
   warpToBytes(src: Parameters<RasterService["warpToBytes"]>[0], srcW: number, srcH: number, hinv: number[], mode: number, bx: number, by: number, bw: number, bh: number) {
+    this._live();
     return this._raster.warpToBytes(src, srcW, srcH, hinv, mode, bx, by, bw, bh);
   }
 
@@ -135,6 +155,7 @@ export class GLBoard {
    * 或者直接给一个不透明的颜色 [r, g, b, a]（0..1）当底——三维放材质自己的底色，交出去的图就是不透明的。GL 丢了 = null。
    */
   composite(doc: GLDoc, docBg: string | readonly [number, number, number, number] | null, floats: FloatInput[] = [], stampOverlays: readonly OverlayInput[] = [], liveSyncLeaf: DocLeaf | null = null, surrogates: readonly SurrogateInput[] = []): PooledFBO | null {
+    this._live();
     if (this._glctx.isLost) return null;
     const bg: Background | undefined = Array.isArray(docBg) ? [docBg[0], docBg[1], docBg[2], docBg[3]] as [number, number, number, number]
       : docBg === "checker" ? "checker" : typeof docBg === "string" && docBg ? [...hexToRgb(docBg), 1] as [number, number, number, number] : undefined;
@@ -145,6 +166,7 @@ export class GLBoard {
   // liveSyncLeaf 只取 id（标 updated，像素变更由 contentVersion 快路径自己发现）。
   // gridBg 非空 = 透明显示模式（docBg 应为 null）：present 时整屏「主题底(voidColor)+点网格」，doc 真透明叠上。
   render(doc: GLDoc, affine6: number[], canvasW: number, canvasH: number, scale: number, voidColor: string, docBg: string | null, floats: FloatInput[] = [], stampOverlays: readonly OverlayInput[] = [], liveSyncLeaf: DocLeaf | null = null, surrogates: readonly SurrogateInput[] = [], gridBg: { dotColor: string; stepPx: number; radiusPx: number } | null = null): void {
+    this._live();
     if (this._glctx.isLost) return;
     const bg: Background | undefined = docBg === "checker" ? "checker"
       : docBg ? [...hexToRgb(docBg), 1] as [number, number, number, number] : undefined;
