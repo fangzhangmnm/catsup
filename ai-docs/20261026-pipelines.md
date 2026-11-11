@@ -784,6 +784,7 @@ SpaceStroke（paint/space-stroke.ts；目标名单 + 相机两个函数 + 内核
 ```
 进网格体 → 工作台下拉「画画」（modes/paint.ts；只对网格体）
   每帧准备之前 PaintWorkbench.tick()：换了工作台 / 正在编辑的物件 → 三角格子算好 + 这个物件上冷的画 warm()（1-8b）
+  　　　　　　　　　　　　　　　　　　 然后每帧 keepPrepared：新建的画建画板、热的画的每份摆放 SpacePrep.ensure（键对上 = 空操作；撤销改了模型 = 这一帧重建，1-4c）；出了画画工作台 = SpacePrep.release()
   开始画（没画 / 选中了没画的面）：右下「开始画」= 动作 mesh.startPaint → startPaint 指令（一步撤销）
 笔 / 橡皮（编辑器的工具只交「哪把、哪个阶段、在哪」：ToolCtx.paint → 宿主）
   down：射线打正在编辑的这个物件（surface-pick）→ 面 → 它走的画 → 门（1-8b：冷的 = 不开始 + 解开；只能看不能画 = 说）
