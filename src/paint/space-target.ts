@@ -9,8 +9,8 @@ import { type Xform, applyDir, applyPt, invert } from "../scene/xform.ts";
 import { buildTriGrid, castRay, type PickMesh, type TriGrid } from "./surface-pick.ts";
 import { buildTexelTable, paintFaces, type PaintMesh, type TexelTable } from "./texel-table.ts";
 
-/** 目标的网格体（MeshKernel 满足）。 */
-export interface TargetMesh extends PickMesh, PaintMesh {}
+/** 目标的网格体（MeshKernel 满足）。rev = 修改号（任何改动都换一个从没用过的新值；画画的准备按它判过期，space-prep.ts）。 */
+export interface TargetMesh extends PickMesh, PaintMesh { readonly rev: number }
 /** 名单里的一项。 */
 export interface PaintTarget {
   /** 名单里的身份（摆放 + 画）。 */

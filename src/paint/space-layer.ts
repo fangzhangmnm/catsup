@@ -186,6 +186,21 @@ export function packCell(out: Uint16Array, c: number, idPlus1: number, ox: numbe
   const b = 4 * c;
   out[b] = idPlus1 & 0xffff; out[b + 1] = idPlus1 >>> 16; out[b + 2] = ox + 32768; out[b + 3] = oy + 32768;
 }
+/**
+ * 一项目标上跟这一笔无关、只跟物件和画布有关的那几个上限（画画的准备进工作台时就查，落笔之前就知道画不了；SpaceLayer 建的时候再查一遍）：
+ * 画布每边 ≤ 显卡上限、多边形块数 ≤ MAX_POLYS、每张面三角形 ≤ MAX_TRIS、面表 / 三角形表放得进数据图。超了 = 抛 PaintLimitError（带人话、点出是哪张面）。
+ */
+export function checkLayerLimits(gpu: SpaceGpu, t: TexelTable): void {
+  if (t.width > gpu.maxSize || t.height > gpu.maxSize) throw new PaintLimitError(`SpaceLayer: canvas ${t.width}x${t.height} exceeds GPU max ${gpu.maxSize}`, `这张画画不了：画布（${t.width} × ${t.height}）比这台设备的显卡能放的（每边 ${gpu.maxSize}）大`);
+  if (t.polys.length > MAX_POLYS) throw new PaintLimitError(`SpaceLayer: ${t.polys.length} canvas polygons (> ${MAX_POLYS})`, `这个物件画不了：画布上的块太多（${t.polys.length} 块，最多 ${MAX_POLYS} 块）`);
+  let nt = 0;
+  for (const [f, fp] of t.faces) {
+    if (fp.tris.length > MAX_TRIS) throw new PaintLimitError(`SpaceLayer: face ${f} has ${fp.tris.length} triangles (> ${MAX_TRIS})`, `这张面太大了，画不了（面 ${f}：切出来 ${fp.tris.length} 个三角形，笔每张面最多 ${MAX_TRIS} 个）；把它切成几块就能画`);
+    nt += fp.tris.length;
+  }
+  const cap = Math.min(DATA_W * gpu.maxSize, MAX_DATA);
+  if (Math.max(2 * t.faces.size, TRI_STRIDE * nt) > cap) throw new PaintLimitError(`SpaceLayer: ${t.faces.size} faces / ${nt} triangles do not fit data images (cap ${cap} values)`, "这个物件画不了：面太多，笔的数据表放不下");
+}
 /** 每格的表传到显卡上（画布每边超过显卡上限 = 抛 PaintLimitError）。 */
 export function uploadCellTable(gpu: SpaceGpu, t: TexelTable): SpaceData {
   if (t.width > gpu.maxSize || t.height > gpu.maxSize) throw new PaintLimitError(`cellTable: canvas ${t.width}x${t.height} exceeds GPU max ${gpu.maxSize}`, `这张画画不了：画布（${t.width} × ${t.height}）比这台设备的显卡能放的（每边 ${gpu.maxSize}）大`);
@@ -220,12 +235,12 @@ export class SpaceLayer {
     this.jobId = nextJob++;
     this.job = { g, items: [], hardness: o.hardness, color: o.color };
     jobs.set(this.jobId, this.job);
+    checkLayerLimits(gpu, t);
     if (o.cells && (o.cells.w !== W || o.cells.h !== H || o.cells.format !== "rgba16ui")) throw new Error(`SpaceLayer: borrowed cell table ${o.cells.w}x${o.cells.h} ${o.cells.format} does not match canvas ${W}x${H}`);
     // 每张面的三角形（贴图坐标三个角 + 世界里的公式，减去落笔点）
     const faces: number[] = [], tris: number[] = [];
     const R = (v: Pt3): Pt3 => ({ x: X[0] * v.x + X[1] * v.y + X[2] * v.z, y: X[4] * v.x + X[5] * v.y + X[6] * v.z, z: X[8] * v.x + X[9] * v.y + X[10] * v.z });
     for (const [f, fp] of t.faces) {
-      if (fp.tris.length > MAX_TRIS) throw new PaintLimitError(`SpaceLayer: face ${f} has ${fp.tris.length} triangles (> ${MAX_TRIS})`, `这张面太大了，画不了（面 ${f}：切出来 ${fp.tris.length} 个三角形，笔每张面最多 ${MAX_TRIS} 个）；把它切成几块就能画`);
       this.faceSlot.set(f, faces.length / 2);
       faces.push(tris.length / TRI_STRIDE, fp.tris.length);
       const inv: TriInv[] = [];

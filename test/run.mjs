@@ -222,6 +222,8 @@ import "./paint-space-path.test.ts";
 import "./paint-space-reach.test.ts";
 import "./paint-space-truth.test.ts";
 import "./paint-space-guard.test.ts";
+import "./paint-space-limits.test.ts";   // 1-4c：画画路径上的容量上限，每个一条顶到它的测试（2026-11-11 Opus）
+import "./paint-space-prep.test.ts";   // 1-4c：画画的准备（整份几何 + 每格的表）缓存、过期、放（2026-11-11 Opus）
 import "./paint-board.test.ts";
 import "./paint-display-uv.test.ts";
 import "./paint-kernel-surface.test.ts";

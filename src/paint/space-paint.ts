@@ -5,7 +5,8 @@
 // 橡皮 = 同一支笔，交给档口时 erase = true。取消 = 档口取消（零痕迹）。
 import { SpaceStroke, type SpaceCamera } from "./space-stroke.ts";
 import { SpaceLayer } from "./space-layer.ts";
-import type { SpaceGpu, SpaceImage } from "./space-gpu.ts";
+import type { SpacePrep } from "./space-prep.ts";
+import type { SpaceData, SpaceGpu, SpaceImage } from "./space-gpu.ts";
 import type { PaintBoards } from "./boards.ts";
 import type { PaintBoard } from "./board.ts";
 import type { PaintTarget } from "./space-target.ts";
@@ -23,6 +24,8 @@ export interface SpacePaintDeps {
   readonly targets: (texture: Guid) => PaintTarget[];
   /** 三维的显卡接口（真显卡版 / 软件版）。 */
   readonly gpu: () => SpaceGpu | null;
+  /** 画画的准备（1-4c）：整份几何 + 每格的表，落笔只取现成的；没准备好 = 这一笔不开始（PrepPendingError / 建不了的那个错）。 */
+  readonly prep: SpacePrep;
   /** 这张离屏图在这个显卡接口上交给内核的形态（真显卡 = { gl }，软件版 = { pixels }）。 */
   readonly external: (img: SpaceImage) => { readonly gl: WebGLTexture } | { readonly pixels: Uint8Array | Uint8ClampedArray };
   readonly camera: () => SpaceCamera;
@@ -66,11 +69,15 @@ export class SpacePaintStroke {
     this.board = d.boards.ensure(d.scene(), texture);   // 第一笔时建画板
     const targets = d.targets(texture);
     if (targets.length !== 1) throw new Error(`SpacePaintStroke: ${targets.length} placements of this paint (1-4b handles exactly one)`);
-    this.stroke = new SpaceStroke(targets, d.camera(), o.brush);
+    const ready = targets.map((t) => d.prep.take(t));   // 没准备好 / 过期了 = 抛 PrepPendingError（不现建：建表不许在落笔那一下）；建不了 = 抛那个错
+    this.cells = ready[0].cells;
+    this.stroke = new SpaceStroke(targets, d.camera(), o.brush, { geos: ready.map((r) => r.geo) });
     this.unhook = d.boards.onPrepare(() => this.prepare());
     this.untrack = d.boards.trackOpen(texture, () => this.cancel());   // 撤销 / 重做之前：开着的这一笔先取消（1-8a）
   }
   private readonly untrack: () => void;
+  /** 借来的每格的表（画画的准备那里的；这一笔不放）。 */
+  private readonly cells: SpaceData;
 
   down(x: number, y: number, p: number, t: number | null = null): void { this.stroke.down(x, y, p, t); this.dirty = true; }
   move(x: number, y: number, p: number, t: number | null = null): void { this.stroke.move(x, y, p, t); this.dirty = true; }
@@ -90,7 +97,7 @@ export class SpacePaintStroke {
   /** 现在的范围（报给内核的那一块；探针用）。 */
   range(): { x: number; y: number; w: number; h: number } | null { return this.layer?.range() ?? null; }
   tipCount(): number { return this.stroke.tipCount(); }
-  /** 落笔那一下建各种表（每格的紧凑表、三角形公式、两张离屏图）花了多少毫秒（量）。 */
+  /** 落笔那一下建各种表（三角形公式、两张离屏图；每格的表是借来的现成的）花了多少毫秒（量）。 */
   buildMs = 0;
   /** 上一次「准备」各段（量；毫秒）：取新笔尖 + 算碰到哪些三角形 / 画薄层（含上传、拷定型层）/ 交给档口。fresh = 这一帧给的笔尖数。 */
   lastFrame = { fresh: 0, frozen: 0, tipsMs: 0, layerMs: 0, hostMs: 0 };
@@ -110,7 +117,7 @@ export class SpacePaintStroke {
     if (!tips.length && !this.layer) return;
     if (!this.layer) {
       const t0 = performance.now();
-      this.layer = new SpaceLayer(this.gpu, this.stroke.geos[0], 0, { hardness: this.o.brush.hardness, color: this.o.color, accum: this.o.accum, origin: tips[0].tip });
+      this.layer = new SpaceLayer(this.gpu, this.stroke.geos[0], 0, { hardness: this.o.brush.hardness, color: this.o.color, accum: this.o.accum, origin: tips[0].tip, cells: this.cells });
       this.buildMs = performance.now() - t0;
       this.session = this.board.openStroke();
       this.layerId = this.board.wp.layerTree!.view().activeId!;

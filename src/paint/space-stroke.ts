@@ -37,6 +37,8 @@ export interface SpaceStrokeOpts {
   readonly smooth?: { tau?: number; deadzone?: number; tailBow?: number };
   /** 拐角选项（度；不给 = 不限）。 */
   readonly maxAngleDeg?: number;
+  /** 现成的整份几何（和 targets 一一对应；画画的准备 space-prep.ts 缓存的）。不给 = 现建（测试）。 */
+  readonly geos?: readonly TargetGeo[];
 }
 
 export class SpaceStroke {
@@ -52,7 +54,8 @@ export class SpaceStroke {
   worldSize = 0;
 
   constructor(targets: readonly PaintTarget[], camera: SpaceCamera, settings: ResolvedBrush, opts: SpaceStrokeOpts = {}) {
-    this.geos = targets.map(buildTargetGeo);
+    if (opts.geos && opts.geos.length !== targets.length) throw new Error(`SpaceStroke: ${opts.geos.length} prepared geometries for ${targets.length} targets`);
+    this.geos = opts.geos ?? targets.map(buildTargetGeo);
     this.cam = { ray: camera.ray, pixelSize: camera.pixelSize, ...(camera.occluded ? { occluded: camera.occluded } : {}) };   // 一笔之内不变
     this.settings = settings; this.opts = opts;
   }

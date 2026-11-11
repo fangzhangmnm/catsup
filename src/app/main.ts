@@ -84,6 +84,7 @@ import { buildTargetGeo } from "../paint/space-target.ts";
 import { tipReach, sphereTriDist } from "../paint/tip-reach.ts";
 import { strokeTruth8 } from "../paint/tip-truth.ts";
 import { paintTargets } from "../paint/paint-targets.ts";
+import { SpacePrep } from "../paint/space-prep.ts";
 import { SpacePaintStroke, hookBrush } from "../paint/space-paint.ts";
 import { PALETTE, PRESETS, PRESET_IDS, isPresetId, isDarkPaper, SCREENS, SCREEN_IDS, isScreenId, type Preset, type MarkAccent } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
 import { makeBudgetWatch } from "./budget-notice.ts";
@@ -287,7 +288,8 @@ editor.registerUndoComponent(paintBoards.undoComponent());
 paintAfterCommit = () => { paintBoards.follow(editor.sceneRef); for (const r of paintBoards.takePending()) editor.recordUndo(PAINT_UNDO_KIND, r); };
 paintBeforeHistoryMove = () => paintBoards.cancelOpen();
 editor.provider.setPaint(paintBoards);
-editor.beforeRender = () => paintBoards.prepare(editor.sceneRef);   // 每帧开画之前的「准备」（1-4b 统筹 B）：画板跟大小、这一笔的薄层、合成
+const paintPrep = new SpacePrep(() => editor.renderer3.offscreenGpu(), () => editor.docEpoch);   // 画画的准备（1-4c）：整份几何 + 每格的表，进工作台时建、落笔只取现成的；换文件自己放
+editor.beforeRender = () => { paintPrep.checkEpoch(); paintBoards.prepare(editor.sceneRef); };   // 每帧开画之前的「准备」（1-4b 统筹 B）：画板跟大小、这一笔的薄层、合成
 
 // ---------- 工具条 ----------
 // 工具表只有 id / 图标 / 名字：键名不手抄——提示 / 小三角 / 手腕面板读 controller/keymap.ts toolKeyText（按工作台、按真按键现算；user 10-28 晚「tooltip你没有更新，这背后有什么架构问题」）。守卫 test/tool-tips.test.ts。
@@ -2481,8 +2483,12 @@ function paintStrokeGate(texture: string): "warming" | "view-only" | null {
       if (gate) return { guid: g, refused: gate };
       const cam = editor.cam, gpu = editor.renderer3.offscreenGpu() as unknown as { glTexture(img: unknown): WebGLTexture } | null;
       const brush = hookBrush(o);
+      // 调试钩子没有工作台：这里先替它把准备做了（量出来单独报 prepMs，不算进落笔）；真的笔（1-7）在进工作台时做
+      const pb = paintBoards.ensure(editor.sceneRef, g), pt = paintTargets(editor.worldGeom(), editor.sceneRef, g, { width: pb.width, height: pb.height }), prepMs = paintPrep.ensure(pt);
+      const prob = paintPrep.problem(pt);
+      if (prob !== null) return { guid: g, refused: prob === "pending" ? "pending" : String((prob as { say?: string }).say ?? prob), prepMs };   // 撞到容量上限：这一笔不开始，交出那句人话
       const st = new SpacePaintStroke({
-        boards: paintBoards, scene: () => editor.sceneRef, gpu: () => editor.renderer3.offscreenGpu(),
+        boards: paintBoards, scene: () => editor.sceneRef, gpu: () => editor.renderer3.offscreenGpu(), prep: paintPrep,
         targets: (t) => { const b = paintBoards.get(t)!; return paintTargets(editor.worldGeom(), editor.sceneRef, t, { width: b.width, height: b.height }); },
         external: (img) => ({ gl: gpu!.glTexture(img) }),
         camera: () => ({
@@ -2510,7 +2516,14 @@ function paintStrokeGate(texture: string): "warming" | "view-only" | null {
       if (o.cancel) st.cancel(); else st.up();
       editor.draw();
       if (o.measure) { sync(); paintBoards.measureSync = null; }
-      return { guid: g, tips, range, ...(o.measure ? { frames, buildMs, upMs: performance.now() - u0, up: st.lastUp } : {}) };
+      return { guid: g, tips, range, prepMs, ...(o.measure ? { frames, buildMs, upMs: performance.now() - u0, up: st.lastUp } : {}) };
+    },
+    /** 画画的准备（1-4c）：ensure = 给这张画的每份摆放建好（返回毫秒）；problem = null / "pending" / 错；stats = 几项、显卡字节、各项建了多久。 */
+    prep: {
+      ensure: (guid: string) => { const b = paintBoards.ensure(editor.sceneRef, guid); return paintPrep.ensure(paintTargets(editor.worldGeom(), editor.sceneRef, guid, { width: b.width, height: b.height })); },
+      problem: (guid: string) => { const b = paintBoards.get(guid); if (!b) return "no-board"; const p = paintPrep.problem(paintTargets(editor.worldGeom(), editor.sceneRef, guid, { width: b.width, height: b.height })); return p === null || p === "pending" ? p : String((p as { say?: string }).say ?? p); },
+      stats: () => paintPrep.stats(),
+      release: () => paintPrep.release(),
     },
     lab: { SpaceLayer, SPACE_TIP, SoftSpaceGpu, buildTargetGeo, tipReach, sphereTriDist, strokeTruth8, gpu: () => editor.renderer3.offscreenGpu(), targets: (guid: string) => { const b = paintBoards.get(guid); return b ? paintTargets(editor.worldGeom(), editor.sceneRef, guid, { width: b.width, height: b.height }) : []; } },
     /** 屏幕上一点（CSS 像素）按 1-3a 的落点落在这张画的哪一格（探针拿它和屏幕上读到的颜色对）；只看摆在最外层的那一份。 */
