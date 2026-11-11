@@ -19,13 +19,12 @@ import { ID_STRIDE } from "../scene/world-view.ts";
 import { cellSay } from "./canvas-size-picker.ts";
 import { inputGate } from "./input-dom.ts";
 import { mountImageView } from "./ui/image-view.ts";
-import { createFloatWin, type MenuWindowSpec } from "./ui/menu-window.ts";
-import { mountSelectField } from "./ui/select-field.ts";
+import { createBareFloatWin } from "./ui/bare-float-win.ts";
+import type { PopupMenuItem } from "./ui/popup-menu.ts";
 
 export interface CanvasWindowDeps {
   readonly editor: Editor;
   readonly boards: PaintBoards;
-  readonly store: MenuWindowSpec<string>["store"];
   hint(text: string): void;
   onOpenChange?(open: boolean): void;
   /** 这张画最近一次存下去的字节多大（热的画存过之后贴图行里没有字节，得问存盘那边；paint/save.ts PaintSaver.lastSizes）。 */
@@ -51,30 +50,27 @@ export interface CanvasWindowProbe {
   selected: number[]; hover: number | null; debugView: boolean;
   /** 读回了几次 / 线重算了几次 / 冷图解了几次（开着画一笔：笔当中不涨）。 */
   readbacks: number; outlines: number; decodes: number;
-  hoverLine: string; statsLine: string;
+  hoverLine: string; statsLine: string; showNums: boolean; collapsed: boolean;
   /** 图上一点（格）在页面上的位置（探针点它用）。 */
   screenOf(x: number, y: number): { x: number; y: number } | null;
 }
 
 export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
   const { editor, boards } = d;
-  const win = createFloatWin({ id: "canvas", title: "画布", store: d.store, bodyClass: "canvas-win-body", winClass: "canvas-win", resize: { min: { w: 240, h: 220 } }, onOpenChange: (o) => { if (o) { stamp = ""; key = ""; sync(); } else { hover = null; editor.draw(); } d.onOpenChange?.(o); } });
-  const body = win.body;
-  // —— 上面一行：哪张画（下拉）· 每格归谁（开关）· 整张 ——
-  const bar = document.createElement("div"); bar.className = "canvas-win-bar";
-  const pickBtn = document.createElement("button"); pickBtn.type = "button"; pickBtn.className = "select-field";
-  const ownBtn = document.createElement("button"); ownBtn.type = "button"; ownBtn.className = "strip-action"; ownBtn.textContent = "每格归谁"; ownBtn.title = "调试视图：每格按它归哪块多边形上色，没人要的格子画成棋盘格（画画时笔尖落在哪格、颜色往哪张面上去，看这个）";
-  const fitBtn = document.createElement("button"); fitBtn.type = "button"; fitBtn.className = "strip-action"; fitBtn.textContent = "整张"; fitBtn.title = "整张画放进窗口";
-  bar.append(pickBtn, ownBtn, fitBtn);
-  const viewHost = document.createElement("div"); viewHost.className = "canvas-win-view";
+  // 壳 = 没有标题栏的浮窗（ui/bare-float-win.ts，照参考窗；画画手感账 P-10）：左上圆钮（点收起、拖挪窗）、右上「…」和 ×、右下斜纹角；画布贴满
+  const win = createBareFloatWin({ id: "canvas", label: "画布小窗", icon: "checkerboard-background", min: { w: 200, h: 160 },
+    more: { items: () => menuItems(), onPick: (id) => pickMenu(id) },
+    onOpenChange: (o) => { if (o) { stamp = ""; key = ""; sync(); } else { hover = null; pinned = null; editor.draw(); } d.onOpenChange?.(o); } });
+  win.el.classList.add("canvas-win");
+  const viewHost = win.body; viewHost.classList.add("canvas-win-view");
   const empty = document.createElement("div"); empty.className = "canvas-win-empty"; empty.hidden = true;
-  viewHost.append(empty);
-  const hoverLine = document.createElement("div"); hoverLine.className = "canvas-win-line is-hover";
-  const statsLine = document.createElement("div"); statsLine.className = "canvas-win-line";
-  body.append(bar, viewHost, hoverLine, statsLine);
+  // 叠在画布上的两条：上沿 = 停在 / 点到一张面时它是谁（只在那时浮出来）；下沿 = 这张画的数（「…」里「显示数字」开了才出，半透明）
+  const hoverLine = document.createElement("div"); hoverLine.className = "canvas-win-line canvas-win-info"; hoverLine.hidden = true;
+  const statsLine = document.createElement("div"); statsLine.className = "canvas-win-line canvas-win-stats"; statsLine.hidden = true;
+  viewHost.append(empty, hoverLine, statsLine);
 
   // —— 状态 ——
-  let def: number | null = null, tex: string | null = null, outline: AtlasOutline | null = null, key = "", stamp = "", selKey = "", hover: number | null = null, debugView = false;
+  let def: number | null = null, tex: string | null = null, outline: AtlasOutline | null = null, key = "", stamp = "", selKey = "", hover: number | null = null, pinned: number | null = null, debugView = false, showNums = false;
   let readbacks = 0, outlines = 0, decodes = 0, owner: { key: string; canvas: HTMLCanvasElement } | null = null;
   const work = document.createElement("canvas");   // 读回的那张图放这里（只是显示：字节不经它进出文件）
   const coldIds = new WeakMap<object, number>(); let coldNext = 1;
@@ -82,17 +78,25 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
   const view = mountImageView(viewHost, {
     pick: (x, y) => outline?.facesAt(x, y)[0] ?? null,
     hover: (id) => { hover = id; writeHover(); editor.draw(); },
-    click: (id) => { if (id !== null) selectIn3d(id); },
+    click: (id) => { pinned = id; writeHover(); if (id !== null) selectIn3d(id); },   // 点到的那张面：它是谁那一行留着（触屏没有悬停），点空处收起
   });
-  const field = mountSelectField(pickBtn, {
-    items: () => (def === null ? [] : paintsOf(editor.sceneRef, def).map((p) => ({ value: p.tex, label: `${p.name}（${p.uvSet.width} × ${p.uvSet.height}）` }))),
-    value: () => tex ?? "",
-    onChange: (v) => { tex = v; key = ""; stamp = ""; sync(); },
-    ariaLabel: "哪张画",
-  });
-  ownBtn.addEventListener("click", () => { debugView = !debugView; stamp = ""; sync(); });
-  fitBtn.addEventListener("click", () => view.fit());
-  inputGate.face({ kind: "refwin", label: "画布小窗", rank: 21, root: ".float-win[data-win=canvas]", up: () => win.isOpen() && win.el.contains(document.activeElement) });   // 有焦点（下拉 / 按钮）时键盘归它；不挡三维
+  /** 「…」菜单：最上面一节 = 这个物件的每一张画（当前那张打勾，点了就换）；下面 = 每格归谁（开关）· 整张 · 显示数字（开关）。 */
+  const menuItems = (): PopupMenuItem<string>[] => {
+    const all = def === null ? [] : paintsOf(editor.sceneRef, def);
+    return [
+      ...all.map((p, i) => ({ id: `tex:${p.tex}`, label: `${p.name}（${p.uvSet.width} × ${p.uvSet.height}）`, checked: p.tex === tex, ...(i === 0 ? { sectionBefore: "这个物件的画" } : {}) })),
+      { id: "own", label: "每格归谁", checked: debugView, hint: "调试视图", ...(all.length ? { separatorBefore: true } : {}) },
+      { id: "fit", label: "整张" },
+      { id: "nums", label: "显示数字", checked: showNums },
+    ];
+  };
+  const pickMenu = (id: string): void | "keep" => {
+    if (id.startsWith("tex:")) { tex = id.slice(4); key = ""; stamp = ""; pinned = null; sync(); return; }
+    if (id === "own") { debugView = !debugView; stamp = ""; sync(); return "keep"; }
+    if (id === "fit") { view.fit(); return; }
+    if (id === "nums") { showNums = !showNums; statsLine.hidden = !showNums || !outline; return "keep"; }
+  };
+  inputGate.face({ kind: "refwin", label: "画布小窗", rank: 21, root: ".float-win[data-win=canvas]", up: () => win.isOpen() && win.el.contains(document.activeElement) });   // 有焦点（圆钮 / 菜单）时键盘归它；不挡三维
 
   /** 看哪个物件：正在编辑的网格体；不在网格体里 = 选中的那一个物件（是网格体的话）；都不是 = null。 */
   const currentDef = (): number | null => {
@@ -120,10 +124,9 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
       if (body?.kind === "mesh") for (const f of sel) { const t = S.facePaint(def!, body.kernel.faceMat[f])?.textureDoc.guid; if (t && all.some((p) => p.tex === t)) { if (t !== tex) { tex = t; key = ""; stamp = ""; } break; } }
     }
     if (tex === null || !all.some((p) => p.tex === tex)) { tex = all[0]?.tex ?? null; key = ""; stamp = ""; }
-    field.refresh();
     const p = place();
     if (!p || def === null) {
-      outline = null; view.setLines(new Float32Array(0), new Float32Array(0)); view.setImage(null, 1, 1);
+      outline = null; view.setLines(new Float32Array(0), new Float32Array(0)); view.setImage(null, 1, 1); hoverLine.hidden = true; statsLine.hidden = true;
       empty.hidden = false;
       empty.textContent = def === null ? "进到一个画过的物件里（或者选中它），这里显示它的画布" : "这个物件还没开始画：点上面的「开始画…」";
       hoverLine.textContent = ""; statsLine.textContent = ""; return;
@@ -188,16 +191,19 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     owner = { key, canvas: c };
     return c;
   }
+  /** 停在 / 点到一张面时它是谁：只在那时浮出来（悬停优先，没悬停 = 最后点到的那张；都没有 = 收起）。 */
   function writeHover(): void {
-    const p = place();
-    if (hover === null || !outline || !p) { hoverLine.textContent = outline ? "（把指针放在一张面上看它是谁；点一下 = 在三维里选中它）" : ""; return; }
-    const r = outline.rings.get(hover)!, n = r.length / 2; let a = 0, cx = 0, cy = 0;
+    const p = place(), f = hover ?? pinned;
+    if (f === null || !outline || !p || !outline.rings.has(f)) { hoverLine.textContent = ""; hoverLine.hidden = true; return; }
+    hoverLine.hidden = false;
+    const r = outline.rings.get(f)!, n = r.length / 2; let a = 0, cx = 0, cy = 0;
     for (let i = 0; i < n; i++) { const j = (i + 1) % n; a += r[2 * i] * r[2 * j + 1] - r[2 * j] * r[2 * i + 1]; cx += r[2 * i]; cy += r[2 * i + 1]; }
     const share = outline.facesAt(cx / n, cy / n).length;
-    hoverLine.textContent = `面 ${hover} · 第 ${outline.patchOf.get(hover)} 片 · 占 ${Math.round(Math.abs(a) / 2)} 格 · 一格约 ${cellSay(scaleOf(def!) / p.uvSet.pxPerM)}${share > 1 ? ` · 这块 ${share} 张面共用（镜像 / 复制出来的面）` : ""}`;
+    hoverLine.textContent = `面 ${f} · 第 ${outline.patchOf.get(f)} 片 · 占 ${Math.round(Math.abs(a) / 2)} 格 · 一格约 ${cellSay(scaleOf(def!) / p.uvSet.pxPerM)}${share > 1 ? ` · 这块 ${share} 张面共用（镜像 / 复制出来的面）` : ""}`;
   }
   function writeStats(): void {
-    const p = place(); if (!p || !outline || def === null) return;
+    const p = place(); if (!p || !outline || def === null) { statsLine.hidden = true; return; }
+    statsLine.hidden = !showNums;   // 数照算（探针核对），显示与否看「显示数字」
     const W = p.uvSet.width, H = p.uvSet.height, row = editor.sceneRef.textures.get(tex!), hot = boards.get(tex!);
     const saved = hot ? d.savedSizes?.(tex!) ?? null : null;   // 热的：存盘那边最近一次编的；冷的：贴图行里读进来的
     const ora = saved ? saved.ora : row?.content.kind === "layered" ? row.content.ora?.byteLength ?? 0 : 0, png = saved ? saved.png : row?.composite?.png.byteLength ?? 0;
@@ -221,8 +227,8 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
   let peekCache: { k: string; set: Set<number> } | null = null;
   return {
     el: win.el,
-    toggle: (a) => win.toggle(a, "end"),
-    open: (a) => win.open(a, "end"),
+    toggle: (a) => win.toggle(a),
+    open: (a) => win.open(a),
     isOpen: () => win.isOpen(),
     sync, frame,
     peekWorld() {
@@ -237,7 +243,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     probe: () => ({
       open: win.isOpen(), def, tex, width: outline?.width ?? 0, height: outline?.height ?? 0, faces: [...(outline?.faces ?? [])],
       thin: (outline?.thin.length ?? 0) / 4, thick: (outline?.thick.length ?? 0) / 4, patches: outline?.patches ?? 0, covered: outline?.covered ?? 0, shared: outline?.shared ?? 0,
-      selected: editingDef() ? editor.selectedMeshFaces().filter((f) => outline?.rings.has(f)) : [], hover, debugView, readbacks, outlines, decodes,
+      selected: editingDef() ? editor.selectedMeshFaces().filter((f) => outline?.rings.has(f)) : [], hover, debugView, showNums, collapsed: win.collapsed(), readbacks, outlines, decodes,
       hoverLine: hoverLine.textContent ?? "", statsLine: statsLine.textContent ?? "",
       screenOf: (x, y) => { const r = viewHost.querySelector("canvas")?.getBoundingClientRect(); if (!r) return null; const p = view.toScreen(x, y); return { x: r.left + p.x, y: r.top + p.y }; },
     }),

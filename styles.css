@@ -490,15 +490,35 @@ body.doc-locked .walk-btn[data-edits] { opacity: .45; }
 /* 能改大小的浮窗：右下角一个拖角（createFloatWin resize；画布小窗，施工单十六） */
 .float-grip { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none;
   background: linear-gradient(135deg, transparent 0 55%, var(--line, #bbb) 55% 62%, transparent 62% 72%, var(--line, #bbb) 72% 79%, transparent 79%); }
-/* 画布小窗（app/canvas-window.ts）：上面一行（哪张画 · 每格归谁 · 整张）→ 图（占满剩下的）→ 底下两行（悬停的是谁 / 这张画的数） */
-.float-win.canvas-win { width: min(92vw, 440px); height: min(72vh, 500px); max-height: none; }
-.float-win .canvas-win-body { display: flex; flex-direction: column; gap: 4px; overflow: hidden; padding: 6px 6px 18px; }
-.canvas-win-bar { display: flex; align-items: center; gap: 6px; flex: none; }
-.canvas-win-bar .select-field { flex: 1 1 auto; min-width: 0; }
-.canvas-win-view { position: relative; flex: 1 1 auto; min-height: 80px; border-radius: 6px; overflow: hidden; }
-.canvas-win-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; color: var(--muted); font-size: 13px; background: var(--panel, #fff); }
-.canvas-win-line { flex: none; font-size: 12px; line-height: 1.35; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1.35em; overflow-wrap: anywhere; }
-.canvas-win-line.is-hover { color: var(--hud-text, #333); }
+/* 没有标题栏的浮窗壳（ui/bare-float-win.ts；照参考窗 0.4.3 的样子和数，等界面零件库收了浮窗的壳换成共享的 = 家族周账 F-253）：
+   左上圆钮（点收起、拖挪）· 右上「…」×· 右下斜纹角；28 px 的钮、可点区 36 px、触屏 44 px；一圈淡边；闲置 0.35、离窗全隐；收起 = 44 px 圆钮 */
+.float-win.bare-win { padding: 0; }
+.bare-body { position: absolute; inset: 0; overflow: hidden; }
+.bare-knob, .bare-btn { position: absolute; top: 0; z-index: 3; width: 36px; height: 36px; padding: 0; border: 0; background: none; cursor: pointer; color: var(--ink); opacity: .85; transition: opacity .35s; touch-action: none; }
+.bare-knob { left: 0; cursor: grab; } .bare-knob:active { cursor: grabbing; }
+.bare-close { right: 0; } .bare-more { right: 36px; }
+.bare-dot { position: absolute; left: 4px; top: 4px; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 16px; line-height: 1;
+  background: color-mix(in srgb, var(--panel, #fff) 82%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink, #333) 28%, transparent); }
+.bare-dot svg, .bare-dot .ico { width: 16px; height: 16px; pointer-events: none; }
+.bare-knob:hover, .bare-btn:hover { opacity: 1; }
+@media (pointer: coarse) { .bare-knob, .bare-btn { width: 44px; height: 44px; } .bare-more { right: 44px; } .bare-dot { left: 8px; top: 8px; } }
+.bare-win .float-grip { width: 19px; height: 19px; z-index: 3; opacity: .85; transition: opacity .35s; }
+.bare-win.idle :is(.bare-knob, .bare-btn, .float-grip) { opacity: .35; }
+.bare-win.away :is(.bare-knob, .bare-btn, .float-grip) { opacity: 0; }
+/* 收起 = 一颗 44 px 圆钮（同一个图标、同一个位置；原来的宽高留在行内样式里，类名一摘就回来）；它是唯一的回来路：不淡 */
+.float-win.bare-win.collapsed { width: 44px !important; height: 44px !important; min-width: 0; min-height: 0; border-radius: 50%; overflow: visible; background: transparent; border: 0; box-shadow: none; }
+.bare-win.collapsed :is(.bare-body, .bare-btn, .float-grip) { display: none; }
+.bare-win.collapsed .bare-knob { width: 44px; height: 44px; opacity: .9 !important; }
+.bare-win.collapsed .bare-knob .bare-dot { left: 0; top: 0; width: 44px; height: 44px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink, #333) 28%, transparent), 0 4px 14px rgba(0,0,0,.18); }
+/* 画布小窗（app/canvas-window.ts）：画布贴满；叠在画布上的两条 = 上沿「停在 / 点到的那张面是谁」（只在那时浮出来）、下沿「这张画的数」（「…」里「显示数字」开了才出） */
+.float-win.canvas-win { width: min(92vw, 440px); height: min(72vh, 440px); max-height: none; }
+.canvas-win-view { background: #6b6f75; }
+.canvas-win-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 40px 16px 16px; color: var(--muted); font-size: 13px; background: var(--panel, #fff); }
+.canvas-win-line { position: absolute; z-index: 2; font-size: 12px; line-height: 1.35; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; pointer-events: none;
+  padding: 3px 8px; border-radius: 8px; color: var(--hud-text, #333); background: color-mix(in srgb, var(--panel, #fff) 78%, transparent); }
+.canvas-win-line[hidden] { display: none; }
+.canvas-win-info { left: 40px; right: 76px; top: 6px; }
+.canvas-win-stats { left: 6px; right: 24px; bottom: 6px; color: var(--muted); }
 /* 层级浮窗（hierarchy-window.ts；0.18 I1）：一行 = 小三角 · 名字 · [锁] · 小眼睛 · …，缩进 = padding-left；没起名（四位码）= 等宽淡色（MoonSinger 同款） */
 .float-win .tree-body { padding: 4px 2px; }
 .tree-row { display: flex; align-items: center; gap: 2px; min-height: 32px; border-radius: 6px; user-select: none; -webkit-user-select: none; }

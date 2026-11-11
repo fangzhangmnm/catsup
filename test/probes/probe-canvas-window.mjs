@@ -36,6 +36,16 @@ const S = (f, a) => page.evaluate(f, a);
 const ready = () => page.waitForFunction(() => globalThis.__catsup?.session && globalThis.__catsup.home);
 const reloaded = async (act) => { const nav = page.waitForEvent("load", { timeout: 30000 }); await act(); await nav; await ready(); await page.waitForTimeout(900); };
 const frames = (n = 4) => S(async (n) => { for (let i = 0; i < n; i++) { globalThis.__catsup.editor.draw(); await new Promise((r) => requestAnimationFrame(r)); } }, n);
+/** 从「…」菜单里点一项：按菜单项的字认（等于 label，或者 label 后面紧跟「（」——画那几行是「名字（宽 × 高）」）。 */
+const menu = async (label) => {
+  await page.click('.float-win[data-win="canvas"] .bare-more'); await page.waitForSelector(".popup-menu .menu-item");
+  const i = await S((label) => [...document.querySelectorAll(".popup-menu .menu-item")].findIndex((b) => { const t = b.textContent.trim(); return t === label || t.startsWith(label + "（") || t.startsWith(label + "调试视图"); }), label);
+  if (i < 0) throw new Error(`菜单里没有「${label}」：${await S(() => [...document.querySelectorAll(".popup-menu .menu-item")].map((b) => b.textContent.trim()).join(" | "))}`);
+  await page.locator(".popup-menu .menu-item").nth(i).click(); await frames(1);
+  if (await S(() => !!document.querySelector(".popup-menu"))) await page.keyboard.press("Escape");   // 开关那几项点了菜单留着：收掉（菜单已经关了就别按——Esc 会落到编辑器上、退出这一层）
+  await frames(1);
+};
+const rect = () => S(() => { const r = document.querySelector('.float-win[data-win="canvas"]').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
 const W = () => S(() => { const w = globalThis.__catsup.canvasWin(); if (!w) return null; const p = w.probe(); delete p.screenOf; return p; });
 await page.goto(url, { waitUntil: "load" }); await ready(); await page.waitForTimeout(600);
 void page.evaluate(() => { void globalThis.__catsup.home.openGallery(); });
@@ -93,6 +103,12 @@ await S((f) => { const e = globalThis.__catsup.editor; e.selectExpand({ face: e.
 w = await W();
 check(w.tex === otherTex && w.selected.join(",") === String(fB), "选了另一张画上的面：小窗切到那张画、高亮它", JSON.stringify({ tex: w.tex, sel: w.selected }));
 
+const nameOf = (t) => S((t) => globalThis.__catsup.editor.sceneRef.textures.get(t).name, t);
+await menu(await nameOf(setup.texs.find((t) => t !== otherTex))); w = await W();
+check(w.tex !== otherTex, `从「…」里换画：小窗切到另一张（${w.tex?.slice(0, 8)}）`);
+await menu(await nameOf(otherTex)); w = await W();
+check(w.tex === otherTex, "再从「…」里换回来");
+
 console.log("\n④ 小窗里点 = 三维里选中；悬停 = 三维那边亮、底下一行写它是谁");
 const centerOf = (f) => S(([def, f]) => { const e = globalThis.__catsup.editor, Sc = e.sceneRef, k = Sc.mesh(def).kernel, p = Sc.facePaint(def, k.faceMat[f]), v = k.cornerValues(f, p.uvSet.guid); let x = 0, y = 0; const n = v.length / 2; for (let i = 0; i < n; i++) { x += v[2 * i]; y += v[2 * i + 1]; } return globalThis.__catsup.canvasWin().probe().screenOf(x / n, y / n); }, [setup.def, f]);
 const fC = truth[otherTex].faces[2], hBefore = await S(() => globalThis.__catsup.editor.history.position());
@@ -111,6 +127,9 @@ console.log("\n⑤ 底下那行数");
 const mem = await S(([w0, h0]) => { const b = (n) => (n >= 1 << 20 ? `${Number((n / (1 << 20)).toFixed(n >= 10 << 20 ? 0 : 1))} MB` : `${Math.max(1, Math.round(n / 1024))} KB`); let d = 0; for (let w = w0, h = h0; ; w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) { d += w * h * 4; if (w === 1 && h === 1) break; } return b(d + 4 * w0 * h0 * 4 + w0 * h0 * 8); }, [truth[otherTex].w, truth[otherTex].h]);
 w = await W();
 const pct = Math.round((1000 * w.covered) / (w.width * w.height)) / 10;
+check(!w.showNums && await S(() => document.querySelector(".canvas-win-stats").hidden), "那行数默认不显示（数照算）");
+await menu("显示数字"); w = await W();
+check(w.showNums && await S(() => !document.querySelector(".canvas-win-stats").hidden), "「…」里「显示数字」= 叠在画布下沿的那条出来");
 check(w.statsLine.includes(`${truth[otherTex].w} × ${truth[otherTex].h}`) && w.statsLine.includes(`${w.patches} 片 · ${w.faces.length} 张面`) && w.statsLine.includes(`面占画布 ${pct}%`) && w.statsLine.includes(`打开画占显存 ${mem}`) && /存进文件占|还没编进过文件/.test(w.statsLine),
   `「${w.statsLine}」`);
 console.log("\n⑥ 开着小窗画一笔：一笔当中不读回、不重算线；抬笔之后读回一次");
@@ -133,7 +152,7 @@ w = await W();
 check(bytes.ora > 0 && w.statsLine.includes(`存进文件占（最近一次编的）分层 ${say(bytes.ora)} · 合成图 ${bytes.png ? say(bytes.png) : "没有"}`), `画了一笔、存了以后：文件里分层 ${bytes.ora} 字节、合成图 ${bytes.png} 字节（读的真文件），和那行对得上`, w.statsLine);
 
 console.log("\n⑦ 「每格归谁」");
-await page.click('.canvas-win-bar button:has-text("每格归谁")'); await frames(2);
+await menu("每格归谁");
 const own = await S((t) => {
   const C = globalThis.__catsup, w = C.canvasWin(), p = w.probe(), cv = document.querySelector(".canvas-win-view canvas"), g = cv.getContext("2d"), r = cv.getBoundingClientRect(), dpr = cv.width / r.width;
   const at = (x, y) => { const s = p.screenOf(x, y); const d = g.getImageData(Math.round((s.x - r.left) * dpr), Math.round((s.y - r.top) * dpr), 1, 1).data; return [d[0], d[1], d[2]]; };
@@ -143,8 +162,34 @@ const own = await S((t) => {
 const grey = (c) => c[0] === c[1] && c[1] === c[2] && (c[0] === 200 || c[0] === 235);
 check(own.debug && !grey(own.face) && grey(own.corner), `面上的格子上了色 ${own.face.join(",")}、没人要的角是棋盘格的灰 ${own.corner.join(",")}`);
 
+console.log("\n⑦½ 壳（照参考窗）：左上圆钮点 = 收起 / 恢复、拖 = 挪窗；收起后拖小图标挪位置；右下角改大小；浏览器窗口缩小后还在屏幕里");
+const knob = async () => { const b = await page.locator('.float-win[data-win="canvas"] .bare-knob').boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+const r0 = await rect();
+let k = await knob(); await page.mouse.click(k.x, k.y); await frames(2);
+const r1 = await rect(), col1 = (await W()).collapsed;
+k = await knob(); await page.mouse.click(k.x, k.y); await frames(2);
+const r2 = await rect(), col2 = (await W()).collapsed;
+check(col1 && Math.round(r1.w) === 44 && Math.round(r1.h) === 44 && Math.abs(r1.x - r0.x) < 1 && Math.abs(r1.y - r0.y) < 1 && !col2 && Math.abs(r2.w - r0.w) < 1 && Math.abs(r2.h - r0.h) < 1,
+  `点左上圆钮：收成 ${Math.round(r1.w)} × ${Math.round(r1.h)}、位置不动；再点：恢复 ${Math.round(r2.w)} × ${Math.round(r2.h)}（原来 ${Math.round(r0.w)} × ${Math.round(r0.h)}）`);
+k = await knob(); await page.mouse.move(k.x, k.y); await page.mouse.down(); await page.mouse.move(k.x - 60, k.y + 40, { steps: 6 }); await page.mouse.up(); await frames(2);
+const r3 = await rect();
+check(!(await W()).collapsed && Math.abs(r3.x - (r0.x - 60)) < 2 && Math.abs(r3.y - (r0.y + 40)) < 2, `按住左上圆钮拖：窗挪了（${Math.round(r0.x)},${Math.round(r0.y)} → ${Math.round(r3.x)},${Math.round(r3.y)}）、没收起`);
+k = await knob(); await page.mouse.click(k.x, k.y); await frames(1);
+k = await knob(); await page.mouse.move(k.x, k.y); await page.mouse.down(); await page.mouse.move(k.x - 50, k.y + 30, { steps: 6 }); await page.mouse.up(); await frames(2);
+const r4 = await rect();
+check((await W()).collapsed && Math.abs(r4.x - (r3.x - 50)) < 2 && Math.abs(r4.y - (r3.y + 30)) < 2, "收起后拖那颗小图标：挪了位置、还是收着");
+k = await knob(); await page.mouse.click(k.x, k.y); await frames(1);
+const r5 = await rect(), g = await page.locator('.float-win[data-win="canvas"] .float-grip').boundingBox();
+await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2); await page.mouse.down(); await page.mouse.move(g.x + g.width / 2 + 70, g.y + g.height / 2 + 50, { steps: 6 }); await page.mouse.up(); await frames(2);
+const r6 = await rect();
+check(Math.abs(r6.w - (r5.w + 70)) < 3 && Math.abs(r6.h - (r5.h + 50)) < 3, `拖右下角：${Math.round(r5.w)} × ${Math.round(r5.h)} → ${Math.round(r6.w)} × ${Math.round(r6.h)}`);
+await page.setViewportSize({ width: 700, height: 520 }); await page.waitForTimeout(300); await frames(2);
+const r7 = await rect();
+check(r7.x >= 0 && r7.y >= 0 && r7.x + r7.w <= 700 + 0.5 && r7.y + r7.h <= 520 + 0.5, `浏览器窗口缩到 700 × 520：小窗还在屏幕里（${Math.round(r7.x)},${Math.round(r7.y)} ${Math.round(r7.w)} × ${Math.round(r7.h)}）`);
+await page.setViewportSize({ width: 1280, height: 800 }); await frames(2);
+
 console.log("\n⑧ 关掉 / 没在编辑这个物件");
-await page.click('.canvas-win-bar button:has-text("每格归谁")');
+await menu("每格归谁");
 await S(() => { const e = globalThis.__catsup.editor; e.exitTo(0); }); await frames(2);
 w = await W();
 check(w.open && w.def === setup.def, "退到最外层：选着这个物件 = 小窗照样看它", JSON.stringify({ def: w.def }));
@@ -153,7 +198,7 @@ const c2 = await centerOf(w.faces[0]);
 const hpos = await S(() => globalThis.__catsup.editor.history.position());
 if (c2) { await page.mouse.click(c2.x, c2.y); await frames(2); }
 check(await S(() => globalThis.__catsup.editor.history.position()) === hpos && /没在编辑这个物件/.test(await S(() => document.querySelector("#hint")?.textContent ?? "")), "没在编辑这个物件时点小窗里的面：说一句、选区不动");
-await page.click('.float-win[data-win="canvas"] .float-close'); await frames(2);
+await page.click('.float-win[data-win="canvas"] .bare-close'); await frames(2);
 check(!(await W()).open && (await S(() => globalThis.__catsup.editor.viewExtras?.().peekFaces ?? null)) === null, "关掉：三维那边不再要亮");
 
 check(errs.length === 0, "没有报错", errs.slice(0, 3).join(" | "));

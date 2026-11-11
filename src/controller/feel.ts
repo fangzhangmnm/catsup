@@ -22,6 +22,10 @@ export const PLANE_NEAR_PX = 24;
 export const RAY_PARALLEL_DEG = 10;
 /** 桌面帧的点按 / 拖动门槛（frameEps 里的 tap / drag；drag 按 vp.h / 800 缩放，tap 不缩）。 */
 export const FRAME_TAP = 4, FRAME_DRAG = 16;
+/** 没有标题栏的浮窗（ui/bare-float-win.ts，画布小窗）：左上圆钮按下之后动过这么多 CSS 像素才算拖（挪窗），没动过 = 点（收起 / 恢复）。照参考窗 0.4.3 的 4 px（独立的量，不借 FRAME_TAP：那个是三维帧的单位）。 */
+export const FLOAT_KNOB_DRAG_PX = 4;
+/** 同上：窗上不动这么多毫秒 = 小零件（圆钮 / 斜纹角）淡到 0.35（照参考窗 IDLE_DIM_MS）。 */
+export const FLOAT_IDLE_MS = 2500;
 
 // ---------- VR 帧容差（度；原 xr-pointer-frame.ts，独立的角度常量，不从视场推——user 2026-09-08 调参纪律）----------
 export const EPS_VR_DEG: EpsSet = { point: 1.0, edge: 0.7, line: 0.5, combo: 1.2, hit: 1.0, snap: 0.8, planeNear: 2.0, tap: 0.4, drag: 1.2 };

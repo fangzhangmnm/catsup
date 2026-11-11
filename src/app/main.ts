@@ -1232,7 +1232,7 @@ const canvasBtn = document.createElement("button"); canvasBtn.type = "button"; c
 refBtn.before(canvasBtn);
 // eslint-disable-next-line no-var
 var canvasWin: CanvasWindow | null = null;   // var：每帧的准备 / 渲染的 viewExtras 比它先写
-canvasBtn.addEventListener("click", () => { (canvasWin ??= mountCanvasWindow({ editor, boards: paintBoards, store: WIN_POS, savedSizes: (t) => paintSaver.lastSizes(t), hint: (t) => { hintEl.textContent = t; }, onOpenChange: (o) => { canvasBtn.classList.toggle("is-open", o); canvasBtn.setAttribute("aria-pressed", o ? "true" : "false"); } })).toggle(canvasBtn); syncUi(); });
+canvasBtn.addEventListener("click", () => { (canvasWin ??= mountCanvasWindow({ editor, boards: paintBoards, savedSizes: (t) => paintSaver.lastSizes(t), hint: (t) => { hintEl.textContent = t; }, onOpenChange: (o) => { canvasBtn.classList.toggle("is-open", o); canvasBtn.setAttribute("aria-pressed", o ? "true" : "false"); } })).toggle(canvasBtn); syncUi(); });
 const syncCanvasBtn = (): void => { const any = [...editor.sceneRef.textures.values()].some((t) => t.content.kind === "layered"); canvasBtn.hidden = !any && !canvasWin?.isOpen(); };
 // ---------- B43 尺度参考：数据懒加载 + 视图 ☰「参考」页 ----------
 let ladder: Ladder | null = null;

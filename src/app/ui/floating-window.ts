@@ -48,6 +48,8 @@ export interface FloatingWindowSpec {
   onOpenChange?: (open: boolean) => void;
   /** 藏着时量不到尺寸的兜底（恢复位置时钳用）。 */
   fallbackSize?: { w: number; h: number };
+  /** 屏底被占掉的高度（px：底部抽屉、软键盘）：拖 / 恢复 / 改大小 / 视口钳制都让出这么多，右下角的改大小角不被盖住（照参考窗的 bottomFloor）。不给 = 0（别的浮窗照旧）。 */
+  bottomFloor?: () => number;
 }
 
 export interface FloatingWindowHandle {
@@ -85,10 +87,19 @@ function sizeOf(en: Entry, hint?: { width?: number; height?: number }): { w: num
   return { w: en.el.offsetWidth || hint?.width || fb.w, h: en.el.offsetHeight || hint?.height || fb.h };
 }
 function writePos(en: Entry, pos: PanelPos): void { en.el.style.left = `${pos.left}px`; en.el.style.right = "auto"; en.el.style.top = `${pos.top}px`; }
+/** 这扇窗能用的视口高（减掉屏底被占掉的那一截）。 */
+const vhOf = (en: Entry): number => vh() - Math.max(0, en.spec.bottomFloor?.() ?? 0);
 function clampEntry(en: Entry): void {
   if (en.el.hidden || !(vw() > 0) || !(vh() > 0)) return;
+  // 能改大小的窗：比能用的地方还大（浏览器窗口缩小了、软键盘起来了）= 先缩到放得下（不小于最小值），再挪（照参考窗：窗不跑出屏幕）
+  const rs = en.spec.resize;
+  if (rs) {
+    const maxW = Math.max(rs.min.w, vw() - 2 * EDGE_MARGIN), maxH = Math.max(rs.min.h, vhOf(en) - floatingTopFloor() - EDGE_MARGIN);
+    if (en.el.offsetWidth > maxW + 0.5) en.el.style.width = `${maxW}px`;
+    if (en.el.offsetHeight > maxH + 0.5) en.el.style.height = `${maxH}px`;
+  }
   const { w, h } = sizeOf(en), r = en.el.getBoundingClientRect(), cur = { left: r.left, top: r.top };
-  const next = clampPanelPos(cur, { w, h }, { w: vw(), h: vh() }, floatingTopFloor());
+  const next = clampPanelPos(cur, { w, h }, { w: vw(), h: vhOf(en) }, floatingTopFloor());
   if (Math.abs(next.left - cur.left) > 0.5 || Math.abs(next.top - cur.top) > 0.5) writePos(en, next);
 }
 
@@ -100,6 +111,7 @@ function ensureViewportListener(): void {
   vpListening = true;
   window.addEventListener("resize", onViewport);
   window.addEventListener("orientationchange", onViewport);
+  window.visualViewport?.addEventListener("resize", () => { if (_stack.some((en) => en.spec.bottomFloor)) onViewport(); });   // 软键盘：只有给了底地板的窗跟（别的浮窗照旧不跟 visualViewport，WeebPaint 0828 那个抖）
 }
 
 export function registerFloatingWindow(el: HTMLElement, spec: FloatingWindowSpec): FloatingWindowHandle {
@@ -117,9 +129,9 @@ export function registerFloatingWindow(el: HTMLElement, spec: FloatingWindowSpec
       if (!pos) { el.style.left = ""; el.style.right = ""; el.style.top = ""; el.style.width = ""; el.style.height = ""; return; }
       if (spec.resize) {
         if (pos.width) el.style.width = `${clampSize(pos.width, spec.resize.min.w, Math.max(spec.resize.min.w, vw() - 24))}px`;
-        if (pos.height) el.style.height = `${clampSize(pos.height, spec.resize.min.h, Math.max(spec.resize.min.h, vh() - floatingTopFloor() - EDGE_MARGIN))}px`;
+        if (pos.height) el.style.height = `${clampSize(pos.height, spec.resize.min.h, Math.max(spec.resize.min.h, vhOf(en) - floatingTopFloor() - EDGE_MARGIN))}px`;
       }
-      writePos(en, clampPanelPos({ left: pos.left, top: pos.top }, sizeOf(en, pos), { w: vw(), h: vh() }, floatingTopFloor()));
+      writePos(en, clampPanelPos({ left: pos.left, top: pos.top }, sizeOf(en, pos), { w: vw(), h: vhOf(en) }, floatingTopFloor()));
     },
     dispose() {
       en.drag?.dispose(); en.resize?.dispose();
@@ -136,7 +148,7 @@ export function registerFloatingWindow(el: HTMLElement, spec: FloatingWindowSpec
   if (rs?.grip) {
     en.resize = attachPanelResize(el, rs.grip, {
       getSize: () => ({ w: el.offsetWidth, h: el.offsetHeight }), min: rs.min,
-      max: () => { const r = el.getBoundingClientRect(); return { w: vw() - r.left - EDGE_MARGIN, h: vh() - r.top - EDGE_MARGIN }; },
+      max: () => { const r = el.getBoundingClientRect(); return { w: vw() - r.left - EDGE_MARGIN, h: vhOf(en) - r.top - EDGE_MARGIN }; },
       onResize: (s) => { el.style.width = `${s.w}px`; el.style.height = `${s.h}px`; rs.onResize?.(s); },
     });
   }
