@@ -54,6 +54,9 @@ export function upkeepAfter(env: ForceEnv, op: Op, snaps: UpkeepSnaps, commit: (
   const pendingOf = (def: number): number[] => (live(def) ? [...unplacedPaintFaces(env.scene, def, touched(def)).values()].flat() : []);
   const layoutIn = (def: number, faces: readonly number[]): void => { if (faces.length) commit({ op: "meshLayoutPaint", def, faces: [...faces].sort((a, b) => a - b) }); };
   const handled = new Set<number>();
+  // 并面丢了画的张数先拿走：后面补进同一步的指令（补位置 / 对称化）各自在内核的影子上跑、换回来的时候这个数会被换掉
+  let dropped = 0;
+  for (const [def, sn] of snaps.paint) if (live(def) && env.scene.mesh(def).kernel.rev !== sn.rev) dropped += env.scene.mesh(def).kernel.takeDroppedFaces();
   if (snaps.force) {
     const hook: ForcePaintHook = {
       pending: (def) => pendingOf(def).length > 0,
@@ -69,14 +72,14 @@ export function upkeepAfter(env: ForceEnv, op: Op, snaps: UpkeepSnaps, commit: (
     const n = forceAfter(env, op, snaps.force, commit, hook);
     if (n) notes.push(n);
   }
-  let unplaced = 0, dropped = 0;
+  let unplaced = 0;
   for (const [def, sn] of snaps.paint) {
     if (!live(def)) continue;
     const k = env.scene.mesh(def).kernel;
     if (k.rev === sn.rev) continue;
     if (!handled.has(def)) layoutIn(def, pendingOf(def));
     unplaced += pendingOf(def).length;   // 补完还没有位置的 = 画布上放不下的
-    dropped += k.takeDroppedFaces();
+    k.takeDroppedFaces();   // 收尾自己的指令（补位置 / 对称化）不会丢画；有也已经数过了，清零免得留到下一步
   }
   if (unplaced) notes.push(`有 ${unplaced} 张面在画布上放不下，先照底色显示`);
   if (dropped) notes.push(`有 ${dropped} 张面的画没带过来（并面时两边的位置对不上）`);
