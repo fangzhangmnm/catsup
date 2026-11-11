@@ -1,6 +1,8 @@
 import type { Gl2Port } from "./kernel/src/common/gl2-port.ts";
 import type { LiveImage } from "../minccino/contract/stream.ts";
 import { PaintBoard } from "./board.ts";
+import { HostedSteps } from "./kernel/src/backend/workpiece/hosted-steps.ts";
+import type { UndoComponent } from "../editor/history.ts";
 import type { Scene } from "../scene/scene.ts";
 import type { Guid } from "../format/guid.ts";
 export interface PaintBoardsOpts {
@@ -12,7 +14,15 @@ export interface PaintBoardsOpts {
     readonly log?: (msg: string) => void;
     /** 准备里动过显卡（合成了）：通知渲染器作废它的状态缓存。 */
     readonly touched?: () => void;
+    /** 内核说这张画以前的步全作废（装载 / 状态不可信）：三维的撤销栈把它的记录摘掉（History.dropRecords）；tell = 状态不可信那一种，要在提示行告诉用户 why。刚建画板那一次不叫。 */
+    readonly undoReset?: (texture: Guid, why: string, tell: boolean) => void;
 }
+/** 「画」这种撤销记录：哪张贴图 + 内核封的那一步（内核的对象，三维不看里面）。 */
+export interface PaintRec {
+    readonly texture: Guid;
+    readonly step: Parameters<HostedSteps["flip"]>[0];
+}
+export declare const PAINT_UNDO_KIND = "paint";
 export declare class PaintBoards {
     private readonly entries;
     private port;
@@ -37,8 +47,33 @@ export declare class PaintBoards {
     };
     /** 只给量的时候用（探针）：每段前后等显卡把活做完，量到的才是显卡真花的时间。平时 null。 */
     measureSync: (() => void) | null;
-    /** 换文件全销毁；画没了的销毁；其余跟着坐标改大小、垫底色（prepare 的第一步；测试也直接调）。 */
+    /** 换文件全销毁；画没了 = 歇着（栈里也没有它的记录了 = 扔）；回来了 = 接着用；垫底色（prepare 的第一步；测试也直接调）。不改大小（1-8a：跟大小在提交的收尾里，follow）。 */
     sync(scene: Scene): void;
+    /**
+     * 跟着那一套贴图坐标的画布大小（裁定在 board.ts follow 头）：编辑器每条指令提交的收尾里调（1-8a），改大小时内核封的那一步进 pending、由编辑器挂进那条指令的那一步。
+     * 歇着的不动。返回有没有改。
+     */
+    follow(scene: Scene): boolean;
+    private pending;
+    private resetWhy;
+    /** 内核交来、还没挂进三维的栈的步（取走 = 交给编辑器挂上；记录数跟着加）。 */
+    takePending(): PaintRec[];
+    /** 正开着的一笔（档口开着令牌）：撤销 / 重做之前取消它们（beforeHistoryMove）。返回撤掉登记。 */
+    trackOpen(texture: Guid, cancel: () => void): () => void;
+    private readonly opens;
+    /** 撤销 / 重做之前：开着的那几笔全部取消（零痕迹）。 */
+    cancelOpen(): void;
+    /** 这张画的状态不可信：叫内核把以前的步全部作废（onReset → undoReset → 三维的栈摘掉记录）。 */
+    distrust(texture: Guid, why: string): void;
+    /** 灌一份内容（调试钩子；以后读文件）：内核装载 = 这张画以前的步全作废（不用告诉用户：是装载，不是出错）。 */
+    load(texture: Guid, data: Parameters<PaintBoard["load"]>[0]): void;
+    /** 歇着、而且三维的栈里一条它的记录都没有了 = 扔。 */
+    private retire;
+    private recordGone;
+    /** 「画」这一种撤销成分（编辑器 registerUndoComponent 登记）。 */
+    undoComponent(): UndoComponent<PaintRec>;
+    /** 翻过一步：下一帧重新合成（内容键里有作品的版本号，这里只是保险）。 */
+    private overlayTouched;
     board(texture: Guid): {
         readonly width: number;
         readonly height: number;
@@ -51,4 +86,4 @@ export declare class PaintBoards {
     private resig;
 }
 /** 浏览器里：内核的显卡接口建在渲染器的画面上（整个程序一个）。 */
-export declare function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void, touched?: () => void): PaintBoards;
+export declare function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void, touched?: () => void, undoReset?: (texture: Guid, why: string, tell: boolean) => void): PaintBoards;

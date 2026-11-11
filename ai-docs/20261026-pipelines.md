@@ -692,3 +692,21 @@ SpaceStroke（paint/space-stroke.ts；目标名单 + 相机两个函数 + 内核
 - 实测（node）：`uvPainted` 样本 11 KB（12 张面、一套 1024×256、一张两层的画 2.3 KB），来回一趟和再存都逐字节一样。
 - 拿旧版本真代码读新文件：`node scripts/old-reader-check.mjs [--n 200] [--seed 1] [提交…]`（默认 v0.18.50 = 53878ec、v0.19.18 = 609bff1；各读 17 份 golden + 200 份随机）。
 - **还随整个模型涨的点**：没有新的（贴图坐标跟着网格体本来就整份存）。
+
+## 追记 2026-11-11（贴图主线 1-8a，Claude Opus 5.5，等 Fable 看过才合）：撤销加上画（画的每一步进三维的撤销栈）
+
+```
+一笔：调试钩子 / 以后的笔 → SpacePaintStroke 抬笔 → 档口 end（内核落层、封一步）→ HostedSteps.onStep → 画板登记处 pending
+      → commitStep → Editor.commitRecordsStep(画一笔 / 擦一笔, pending) → History.commitRecords：一条空的 batch 记号指令 + 「画」记录（不拷场景）；文档算改过
+      （什么都没改的一笔 = 内核不封步 = 不长一步）
+改模型：Editor.commitIn → History.commit（影子换真身）→ 收尾（补位置 / 强行对称）→ host.afterCommit：PaintBoards.follow（画板跟着贴图坐标改大小，内核封一步）
+      → takePending → History.record("paint", …) 挂在这条指令的那一步上（同一步：撤销一起退）。「准备」里不再改大小。
+撤销 / 重做：host.beforeHistoryMove → 开着的那一笔取消（零痕迹）→ History.undo / redo = 整步事务：
+      ① 每种成分问一遍（画 = 画板在不在、有没有一笔开着、内核 directionOf 认不认这个方向；同一张画只问它这一步里第一条）→ 有一条说不能 = 什么都不碰、提示行「撤销没做成：…」
+      ② 翻：撤销 = 指令倒着、记录倒着（一条指令里先翻画、再翻模型）；重做 = 正着。中间抛了 = 翻过的倒着再翻；翻回去也抛 = 那张画 distrust（内核 clear → onReset → dropRecords 摘掉它的全部记录、通知用户）
+丢一步（截断重做段 / 额度驱逐）：成分的 dispose → 内核 drop + 画板记录数减一；画没了（物件删了 / 开始画被撤销）= 画板歇着（不合成），歇着而且记录数到零 = 扔
+```
+
+- 碰多少东西：一笔的记录 = 内核那一步（图块的差量，内核自己的账）；三维这边一条记录、一个数。撤销一步 = 挨个问 + 挨个翻，O(这一步的记录数)；不画画时多一圈「问」（没有 check 的成分跳过）。
+- 实测（node，同一串 300 步挪点；main vs 这条分支，各跑五遍取中位）：撤到头每步约 3–9 µs（两边在噪声里，分支不慢）、撤销记录 633 KB 两边一样。
+- **还随整个模型涨的点**：没有新的。摘记录（dropRecords）扫整个栈一遍，只在「这张画以前的步全作废」时发生。

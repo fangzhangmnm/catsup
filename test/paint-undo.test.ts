@@ -1,108 +1,17 @@
 // 画的每一步进三维的撤销栈（贴图主线 1-8a，施工单 ai-docs/20261111-paint-workorders-12.md + 统筹 11-11 裁定）。created 2026-11-11 by Claude Opus 5.5
 // node 里用真的 History、真的画板登记处、画画内核的软件显卡；编辑器做的那几件事照样串起来：每条指令提交之后 follow + 把内核封的步挂进这一步（afterCommit）、
 // 一笔 = 落层之后 commitRecords 一步（commitStep）、每次之后 sync（每帧的「准备」）。一笔 = 交给档口一块矩形色块当薄层（像素进出照样走内核）。
-// ① 混着来回逐字节对：随机「画一笔 / 擦一笔 / 挪点 / 挤出 + 补位置（让画布加高）/ 换材质」，中间插「撤几步再做新的」（截断）；一路撤到头每退一步都和当时一样，再一路重做回来。几个种子。
+// ① 混着来回逐字节对：在 paint-undo-random.test.ts（拆开跑）。架子在 paint-undo-kit.ts。
 // ② 一笔画到两张贴图：一次撤销两张都退；第二张翻不成（问的时候说不能 / 翻的时候抛）= 什么都没动；翻回去也抛 = 那张画的步作废、记录摘掉、说出来。
 // ③ 额度：最老的步被挤掉时内核那边活着的步数跟着减；画没了的画板歇着，栈里没有它的记录了才扔。
 // ④ 画布加高那一步：挤出让画布加高，撤销之后画板和贴图坐标都缩回去，再重做回来；加高之后在新的行上画过、又撤销到加高之前也缩得回去。
 // ⑤ 统筹点的两个例子：开始画 → 画一笔 → 撤两下 → 重做两下；删掉画着的物件（清理掉定义）再撤销回来，画和它之前的每一步都还能撤。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { SoftGl2Port } from "../src/paint/kernel/src/backend/soft-gl2-port.ts";
-import { PaintBoards, PAINT_UNDO_KIND, type PaintRec } from "../src/paint/boards.ts";
-import { History, StepFlipError, type UndoComponent } from "../src/editor/history.ts";
-import { Scene } from "../src/scene/scene.ts";
+import { PAINT_UNDO_KIND } from "../src/paint/boards.ts";
+import { StepFlipError } from "../src/editor/history.ts";
 import type { Op } from "../src/editor/ops.ts";
-import { brepToMesh } from "../src/scene/kinds.ts";
-import { translation } from "../src/scene/xform.ts";
-import { mintGuid } from "../src/format/guid.ts";
-import { sceneBox, sceneFingerprint } from "./format-scenes.ts";
-
-const hash = (u: Uint8Array): string => { let h = 2166136261; for (let i = 0; i < u.length; i++) { h ^= u[i]; h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
-const rng = (seed: number) => { let s = seed >>> 0; return () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296; };
-
-function rig(nMesh = 1, opts: { quota?: number } = {}) {
-  const s0 = new Scene(sceneBox(2, 1.5)), defs: number[] = [];
-  for (let i = 0; i < nMesh; i++) { const d = s0.mintDef(`画盒${i}`, sceneBox(1, 1)); d.body = brepToMesh(s0.brep(d.id)); s0.mintInstance(s0.root, null, d.id, translation({ x: 3 + 2 * i, y: 0, z: 0 })); defs.push(d.id); }
-  const port = new SoftGl2Port(), resets: string[] = [];
-  let h!: History<string>;
-  const boards = new PaintBoards({ port: () => port, epoch: () => 0, undoReset: (tex, why, tell) => { resets.push(`${tex.slice(0, 4)} ${tell ? "说了" : "没说"} ${why}`); h.dropRecords(PAINT_UNDO_KIND, (d) => (d as PaintRec).texture === tex); } });
-  h = new History<string>(s0, opts.quota ? { quotaBytes: opts.quota } : undefined);
-  h.registerComponent(boards.undoComponent() as unknown as UndoComponent);
-  const cur = (): Scene => (h as unknown as { current: Scene }).current;
-  const afterCommit = (): void => { boards.follow(cur()); for (const r of boards.takePending()) h.record(PAINT_UNDO_KIND, r); };   // 编辑器 commitIn 的收尾（main.ts paintAfterCommit）
-  const commit = (op: Op, join = false): void => { h.commit(cur(), op, join, "b", { title: op.op }); afterCommit(); boards.sync(cur()); };
-  const textures: string[] = [], paintMatGuid = new Map<number, string>();
-  let plain = -1;
-  const startPaint = (def: number, density = 8): string => {
-    const tex = mintGuid(), mat = mintGuid();
-    commit({ op: "startPaint", def, faces: cur().mesh(def).kernel.faces(), uvSet: mintGuid(), textureGuid: tex, materialGuid: mat, names: { uvSet: "UV", paint: "画", material: "画" }, color: [0.9, 0.85, 0.7], density } as Op);
-    textures.push(tex); paintMatGuid.set(def, mat);
-    return tex;
-  };
-  /** 这个物件自己那张画的材质（按身份号找：几个物件的画材质都叫「画」）。 */
-  const paintMat = (def: number): number => cur().materials.findIndex((m) => m.guid === paintMatGuid.get(def));
-  /** 一笔（可以同时画到几张贴图）：每张一个档口、交一块矩形色块当薄层、落层；攒着的步交给三维的栈当一步（编辑器 commitRecordsStep）。 */
-  const stroke = (texs: string[], rnd: () => number, erase = false): void => {
-    const ss = texs.map((tex) => {
-      const b = boards.ensure(cur(), tex), W = b.width, H = b.height, s = b.openStroke(), layerId = b.wp.layerTree!.view().activeId!;
-      const bw = 1 + Math.floor(rnd() * Math.min(24, W - 1)), bh = 1 + Math.floor(rnd() * Math.min(12, H - 1)), bx = Math.floor(rnd() * (W - bw)), by = Math.floor(rnd() * (H - bh));
-      const px = new Uint8Array(W * H * 4), c = [Math.floor(rnd() * 255), Math.floor(rnd() * 255), Math.floor(rnd() * 255)], a = 120 + Math.floor(rnd() * 135);
-      for (let y = by; y < by + bh; y++) for (let x = bx; x < bx + bw; x++) { const o = (y * W + x) * 4; px[o] = (c[0] * a) / 255; px[o + 1] = (c[1] * a) / 255; px[o + 2] = (c[2] * a) / 255; px[o + 3] = a; }
-      s.setHostLayers([{ tex: b.wrapLayer({ pixels: px, w: W, h: H, prec: "u8" }), bx, by, bw, bh, layerId, opacity: 1, erase, blendMode: "source-over" }]);
-      return s;
-    });
-    for (const s of ss) s.end();
-    h.commitRecords("b", { title: erase ? "擦一笔" : "画一笔" }, boards.takePending().map((data) => ({ kind: PAINT_UNDO_KIND, data })));
-    boards.sync(cur());
-  };
-  const undo = (): void => { boards.cancelOpen(); h.undo(); boards.sync(cur()); };
-  const redo = (): void => { boards.cancelOpen(); h.redo(cur()); boards.sync(cur()); };
-  /** 模型（含贴图坐标）+ 每张画的大小和像素。 */
-  const shot = (): string => {
-    const parts = [sceneFingerprint(cur())];
-    for (const g of textures) {   // 每张画：大小 + 每层的像素（内核 exportData = 编码器的读口，CPU 那份；不合成，快）
-      const b = boards.get(g); if (!b) { parts.push(`${g.slice(0, 4)} 没有画板`); continue; }
-      const d = b.wp.exportData(), layers = (d.nodes as { pixels?: { rect: { x: number; y: number; w: number; h: number }; bytes: Uint8ClampedArray } | null }[]).map((n) => (n.pixels ? `${n.pixels.rect.x},${n.pixels.rect.y},${n.pixels.rect.w},${n.pixels.rect.h}:${hash(new Uint8Array(n.pixels.bytes.buffer, n.pixels.bytes.byteOffset, n.pixels.bytes.byteLength))}` : "空"));
-      parts.push(`${g.slice(0, 4)} ${b.width}x${b.height} ${layers.join(" | ")}`);
-    }
-    return parts.join("\n");
-  };
-  const plainMat = (): number => { if (plain < 0) { commit({ op: "addMaterial", name: "灰", color: [0.5, 0.5, 0.5] } as Op); plain = cur().materials.length - 1; } return plain; };
-  const paintRecords = (tex: string): number => { let n = 0; for (const list of (h as unknown as { entries: { kind: string; data: unknown }[][] }).entries) for (const e of list) if (e.kind === PAINT_UNDO_KIND && (e.data as PaintRec).texture === tex) n++; return n; };
-  const live = (tex: string): number => (boards as unknown as { entries: Map<string, { steps: { liveCount(): number } }> }).entries.get(tex)?.steps.liveCount() ?? -1;
-  return { h, boards, port, defs, cur, commit, startPaint, stroke, undo, redo, shot, plainMat, paintMat, textures, resets, paintRecords, live };
-}
-
-describe("画进三维的撤销栈：混着来回逐字节对（1-8a）", () => {
-  for (const seed of [1, 7, 42]) it(`种子 ${seed}：画 / 擦 / 挪点 / 挤出加高 / 换材质 + 截断，一路撤到头、再一路重做回来，每一步逐字节对`, () => {
-    const r = rig(2), rnd = rng(seed), texs = r.defs.map((d) => r.startPaint(d, 160));   // 密度大：画布满得快，挤出会让它加高
-    for (const t of texs) r.boards.ensure(r.cur(), t);
-    r.plainMat();
-    const base = r.h.steps(), states = [r.shot()];
-    let grew = 0;
-    for (let n = 0; n < 40; n++) {
-      const pick = rnd();
-      if (pick < 0.12 && r.h.steps() > base) { const k = 1 + Math.floor(rnd() * 3); for (let i = 0; i < k && r.h.steps() > base; i++) r.undo(); states.length = r.h.steps() - base + 1; continue; }   // 撤几步，下一个动作截断
-      const def = r.defs[Math.floor(rnd() * r.defs.length)], k = r.cur().mesh(def).kernel;
-      if (pick < 0.45) r.stroke([texs[r.defs.indexOf(def)]], rnd);
-      else if (pick < 0.55) r.stroke([texs[r.defs.indexOf(def)]], rnd, true);
-      else if (pick < 0.68) { const v = k.verts()[Math.floor(rnd() * k.verts().length)], p = k.pt(v); r.commit({ op: "meshMove", def, moves: [{ v, to: { x: p.x + (rnd() - 0.5) * 0.1, y: p.y, z: p.z + (rnd() - 0.5) * 0.1 } }] } as Op); }
-      else if (pick < 0.85) {
-        const h0 = r.boards.get(texs[r.defs.indexOf(def)])!.height, f = k.faces()[Math.floor(rnd() * k.faces().length)];
-        r.commit({ op: "meshExtrude", def, faces: [f], offset: { x: 0, y: 0, z: 0.9 } } as Op);   // 挤得高：新长出来的侧面大，画布很快放不下
-        r.commit({ op: "meshLayoutPaint", def } as Op, true);   // 收尾补位置（同一步）：放不下就加高
-        if (r.boards.get(texs[r.defs.indexOf(def)])!.height > h0) grew++;
-      } else { const f = k.faces()[Math.floor(rnd() * k.faces().length)]; r.commit({ op: "meshPaintFaces", def, faces: [f], material: rnd() < 0.5 ? r.plainMat() : r.paintMat(def) } as Op); }
-      if (r.h.steps() - base + 1 === states.length) { eq(r.shot(), states[states.length - 1], "什么都没改的动作（在空白处擦）不长一步，也一个字节不变"); continue; }
-      states.push(r.shot());
-      eq(states.length, r.h.steps() - base + 1, "一个动作 = 一步");
-    }
-    for (let i = states.length - 1; i > 0; i--) { r.undo(); eq(r.shot(), states[i - 1], `撤到第 ${i - 1} 步`); }
-    for (let i = 1; i < states.length; i++) { r.redo(); eq(r.shot(), states[i], `重做到第 ${i} 步`); }
-    console.log(`    种子 ${seed}：${states.length - 1} 步，加高 ${grew} 次`);
-    assert(grew > 0, `种子 ${seed}：混的动作里要有让画布加高的（这次 ${grew} 次）`);
-  });
-});
+import { sceneFingerprint } from "./format-scenes.ts";
+import { rig, rng } from "./paint-undo-kit.ts";
 
 describe("一笔画到两张贴图（1-8a）", () => {
   const two = () => { const r = rig(2), rnd = rng(3), texs = r.defs.map((d) => r.startPaint(d)); r.stroke(texs, rnd); r.stroke(texs, rnd); return { r, texs }; };

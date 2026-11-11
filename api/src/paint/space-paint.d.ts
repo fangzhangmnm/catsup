@@ -19,6 +19,8 @@ export interface SpacePaintDeps {
         readonly pixels: Uint8Array | Uint8ClampedArray;
     };
     readonly camera: () => SpaceCamera;
+    /** 一笔落层之后（内核封的那几步在画板登记处攒着）：交给三维的撤销栈当一步（1-8a；label = 画一笔 / 擦一笔）。不给 = 不进三维的栈（测试）。 */
+    readonly commitStep?: (erase: boolean) => void;
 }
 export interface SpacePaintOpts {
     readonly brush: ResolvedBrush;
@@ -48,6 +50,7 @@ export declare class SpacePaintStroke {
     private drawn;
     private readonly unhook;
     constructor(d: SpacePaintDeps, texture: Guid, o: SpacePaintOpts);
+    private readonly untrack;
     down(x: number, y: number, p: number, t?: number | null): void;
     move(x: number, y: number, p: number, t?: number | null): void;
     /** 抬笔：整笔重画一次（收笔渐细）→ 落层（内核一步）。在下一次「准备」里做完；这里先把它准备好。 */

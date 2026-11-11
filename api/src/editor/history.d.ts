@@ -35,6 +35,19 @@ export interface UndoComponent<R = unknown> {
     /** 字节估计（配额用；量纲：字节；量级即可）。 */
     bytes(record: R): number;
     dispose?(record: R): void;
+    /** 翻之前先问（整步事务第一段）：这一步里这种成分的全部记录（按要翻的先后）现在能不能按 dir 翻；不能 = 原因，能 = null。不给 = 永远能。不许改任何状态。 */
+    check?(records: readonly R[], dir: "undo" | "redo", host: UndoHost): string | null;
+    /** 翻回去也抛了 = 这条记录背后的状态不可信：成分自己走「不可恢复」那条路（可以调 History.dropRecords），返回给用户的一句话。 */
+    untrusted?(record: R, cause: unknown): string;
+    /** 记录被 dropRecords 摘掉（背后的东西已经自己作废，不 dispose）。 */
+    forget?(record: R): void;
+}
+/** 撤销 / 重做没做成，三维的状态和撤销栈的游标都没动（refused = 问的时候就说不能；rolled-back = 翻了一半抛了、已经翻回去）。untrusted = 翻回去也失败、已作废的那几样的说法。 */
+export declare class StepFlipError extends Error {
+    readonly reason: "refused" | "rolled-back";
+    readonly label: StepLabel | undefined;
+    readonly untrusted: readonly string[];
+    constructor(reason: "refused" | "rolled-back", why: string, label: StepLabel | undefined, untrusted?: readonly string[]);
 }
 export type OpTier = "kernel" | "mesh" | "skeleton" | "scene";
 /** 这条 op 的撤销记录怎么记：kernel = 一个 brep 池的差量（+ 骨架）；skeleton = 只拷骨架；scene = 整份场景拷。 */
@@ -54,6 +67,7 @@ export declare class History<M = unknown> {
     private evicted;
     private current;
     private labels;
+    private recordOnly;
     private readonly quota;
     private readonly components;
     private readonly host;
@@ -89,6 +103,15 @@ export declare class History<M = unknown> {
     topLabel(): StepLabel | undefined;
     /** 只改会话（选区 / 进出组件）的一步：0 条 op，只有会话记录——「撤销也撤选区」（user 10-27「这个我们要」）。 */
     commitSession(before: M, after?: M, label?: StepLabel): void;
+    /** 一步只有成分记录（画一笔，1-8a）：一条空的 batch 记号指令（进指令流、重放是空操作，不拷场景）+ 这些记录。没有记录 = 不做。 */
+    commitRecords(before: M, label: StepLabel, records: readonly {
+        readonly kind: string;
+        readonly data: unknown;
+    }[]): void;
+    /**
+     * 摘记录（只给「这张画以前的步全作废」用）：所有步里这种成分、pred 为真的记录摘掉（调 forget，不调 dispose）；摘空了的「只有记录」的步整步删掉，游标和驱逐线跟着重算。返回摘了几条。
+     */
+    dropRecords(kind: string, pred: (data: unknown) => boolean): number;
     /** 撤销一步（这一步的全部 op）：自反交换倒着走。返回场景 + 这一步之前的会话 + 标签；没得撤 → null。「之后」的会话由 sealStep 在步结束时封，这里不再补记。 */
     undo(): {
         scene: Scene;
@@ -115,8 +138,11 @@ export declare class History<M = unknown> {
     replay(): Scene;
     /** 应用 ops[0..i) 后的状态（新实例，全量重放）。 */
     stateAt(i: number): Scene;
-    /** 自反交换 ops[i] 的记录（撤 = 倒序、重做 = 正序）；记录被换成反向包。 */
-    private swap;
+    /**
+     * 整步事务（头注释那一节）：ops[start..end) 的记录按方向排好先后（撤 = 指令倒着、每条指令的记录倒着；重做 = 正着）→ ① 每种成分问一遍 → ② 翻；
+     * 中间抛了 = 翻过的倒着再翻一遍、抛 StepFlipError；翻回去又抛的那几条，走完之后调成分的 untrusted。游标归调用的人改（只在这里没抛时）。
+     */
+    private flipStep;
     /** 从最老端整步驱逐到配额之内；最新一步永不驱逐。驱逐 = 丢撤销记录、游标之前不能再撤；指令流留着。 */
     private evictToQuota;
 }

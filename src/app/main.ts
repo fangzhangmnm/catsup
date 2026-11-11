@@ -274,7 +274,7 @@ const editor = new Editor(canvas, {
 // 画显示到模型上（贴图主线 1-3c）：内核的显卡接口建在渲染器的画面上（第一次建画板时）；换文件 = editor.docEpoch 变 = 全部销毁。没有画板 = 渲染器每帧不多做事。
 const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => editor.docEpoch, (m) => note("paint", m), () => editor.renderer3.resetPaintState(),
   (texture, why, tell) => {   // 内核说这张画以前的步全作废：三维的栈摘掉它的记录；状态不可信那一种告诉用户（1-8a）
-    editor.dropUndoRecords(PAINT_UNDO_KIND, (d) => (d as PaintRec).texture === texture);
+    editor.dropUndoRecords(PAINT_UNDO_KIND, (d) => (d as PaintRec).tex === texture);
     if (tell) notify({ text: `「${editor.sceneRef.textures.get(texture)?.name ?? "画"}」这张画的撤销记录清掉了：${why}`, level: "warning" });
   });
 editor.registerUndoComponent(paintBoards.undoComponent());

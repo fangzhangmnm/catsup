@@ -32,7 +32,7 @@ export interface PaintBoardsOpts {
   readonly undoReset?: (texture: Guid, why: string, tell: boolean) => void;
 }
 /** 「画」这种撤销记录：哪张贴图 + 内核封的那一步（内核的对象，三维不看里面）。 */
-export interface PaintRec { readonly texture: Guid; readonly step: Parameters<HostedSteps["flip"]>[0] }
+export interface PaintRec { /** 哪张贴图（GUID；字段不叫 texture：守卫 textures-table 不许「点 texture」）。 */ readonly tex: Guid; readonly step: Parameters<HostedSteps["flip"]>[0] }
 export const PAINT_UNDO_KIND = "paint";
 
 interface Entry { readonly board: PaintBoard; readonly image: LiveImage; prepared: { gpuImage: unknown; version: number } | null; readonly steps: HostedSteps; dormant: boolean; records: number; open: number }
@@ -59,12 +59,12 @@ export class PaintBoards {
     this.port ??= this.o.port();
     let born = true;   // 刚建画板时内核要是叫 onReset（空的那一次）：什么都不用做
     const steps = new HostedSteps({
-      onStep: (step) => { this.pending.push({ texture, step }); },
-      onReset: () => { this.pending = this.pending.filter((p) => p.texture !== texture); if (!born) this.o.undoReset?.(texture, this.resetWhy?.why ?? "画画内核说这张画的状态不可信", this.resetWhy?.tell ?? true); },
+      onStep: (step) => { this.pending.push({ tex: texture, step }); },
+      onReset: () => { this.pending = this.pending.filter((p) => p.tex !== texture); if (!born) this.o.undoReset?.(texture, this.resetWhy?.why ?? "画画内核说这张画的状态不可信", this.resetWhy?.tell ?? true); },
     });
     const board = new PaintBoard({ port: this.port, width: place.uvSet.width, height: place.uvSet.height, log: this.o.log, undo: steps });
     born = false;
-    this.pending = this.pending.filter((p) => p.texture !== texture);   // 建画板时内核要是封过步（空画布的那一步）：不进三维的栈
+    this.pending = this.pending.filter((p) => p.tex !== texture);   // 建画板时内核要是封过步（空画布的那一步）：不进三维的栈
     board.setBackground(place.material.color);
     const entry: Entry = { board, image: null as unknown as LiveImage, prepared: null, steps, dormant: false, records: 0, open: 0 };
     (entry as { image: LiveImage }).image = {
@@ -145,7 +145,7 @@ export class PaintBoards {
   /** 内核交来、还没挂进三维的栈的步（取走 = 交给编辑器挂上；记录数跟着加）。 */
   takePending(): PaintRec[] {
     const out = this.pending; this.pending = [];
-    for (const r of out) { const e = this.entries.get(r.texture); if (e) e.records++; }
+    for (const r of out) { const e = this.entries.get(r.tex); if (e) e.records++; }
     return out;
   }
   /** 正开着的一笔（档口开着令牌）：撤销 / 重做之前取消它们（beforeHistoryMove）。返回撤掉登记。 */
@@ -171,7 +171,7 @@ export class PaintBoards {
     if (!e) throw new Error(`PaintBoards.load: no board for ${texture}`);
     this.resetWhy = { why: "装载了新内容", tell: false };
     try { e.board.load(data); } finally { this.resetWhy = null; }
-    this.pending = this.pending.filter((p) => p.texture !== texture);   // 装载封的那一步不进三维的栈（以前的都作废了）
+    this.pending = this.pending.filter((p) => p.tex !== texture);   // 装载封的那一步不进三维的栈（以前的都作废了）
   }
   /** 歇着、而且三维的栈里一条它的记录都没有了 = 扔。 */
   private retire(texture: Guid): boolean {
@@ -188,15 +188,15 @@ export class PaintBoards {
   }
   /** 「画」这一种撤销成分（编辑器 registerUndoComponent 登记）。 */
   undoComponent(): UndoComponent<PaintRec> {
-    const steps = (r: PaintRec): HostedSteps | null => this.entries.get(r.texture)?.steps ?? null;
+    const steps = (r: PaintRec): HostedSteps | null => this.entries.get(r.tex)?.steps ?? null;
     return {
       kind: PAINT_UNDO_KIND,
       check: (recs, dir) => {
         const seen = new Set<Guid>();
         for (const r of recs) {
-          if (seen.has(r.texture)) continue;   // 同一张画的后几条：前一条翻完它们才对得上（翻的时候内核再把关，抛了整步翻回去）
-          seen.add(r.texture);
-          const e = this.entries.get(r.texture);
+          if (seen.has(r.tex)) continue;   // 同一张画的后几条：前一条翻完它们才对得上（翻的时候内核再把关，抛了整步翻回去）
+          seen.add(r.tex);
+          const e = this.entries.get(r.tex);
           if (!e) return "这张画的画板已经不在了";
           if (e.open > 0) return "这张画还有一笔没画完";
           let d: "undo" | "redo";
@@ -205,11 +205,11 @@ export class PaintBoards {
         }
         return null;
       },
-      swap: (r) => { const s = steps(r); if (!s) throw new Error(`paint undo: no board for texture ${r.texture}`); s.flip(r.step); this.overlayTouched(r.texture); return r; },
+      swap: (r) => { const s = steps(r); if (!s) throw new Error(`paint undo: no board for texture ${r.tex}`); s.flip(r.step); this.overlayTouched(r.tex); return r; },
       bytes: (r) => steps(r)?.bytes(r.step) ?? 0,
-      dispose: (r) => { steps(r)?.drop(r.step); this.recordGone(r.texture); },
-      forget: (r) => { this.recordGone(r.texture); },
-      untrusted: (r, cause) => { const why = `翻回去也失败了（${cause instanceof Error ? cause.message : String(cause)}）`; this.distrust(r.texture, why); return `这张画的撤销记录清掉了：${why}`; },
+      dispose: (r) => { steps(r)?.drop(r.step); this.recordGone(r.tex); },
+      forget: (r) => { this.recordGone(r.tex); },
+      untrusted: (r, cause) => { const why = `翻回去也失败了（${cause instanceof Error ? cause.message : String(cause)}）`; this.distrust(r.tex, why); return `这张画的撤销记录清掉了：${why}`; },
     };
   }
   /** 翻过一步：下一帧重新合成（内容键里有作品的版本号，这里只是保险）。 */

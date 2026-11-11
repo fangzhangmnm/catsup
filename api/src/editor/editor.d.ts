@@ -24,7 +24,7 @@ import { type ImportScene } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import type { Surface } from "./commands/action.ts";
 import type { CommandId, Params as CmdParams } from "./commands/command.ts";
-import { type StepLabel } from "./history.ts";
+import { type StepLabel, type UndoComponent } from "./history.ts";
 import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
 import { type ConflictRow, type Decision, type PasteWays } from "./paste-plan.ts";
 import { WorldView } from "../scene/world-view.ts";
@@ -112,6 +112,9 @@ export type EditorTrace = {
 };
 export interface EditorHost {
     hint(text: string | null): void;
+    /** 每条指令提交完（收尾之后、这一步还开在栈顶）：画板跟着贴图坐标改大小、内核封的那几步挂进这一步（1-8a）。beforeHistoryMove = 撤销 / 重做之前：开着的那一笔先取消。 */
+    afterCommit?(): void;
+    beforeHistoryMove?(): void;
     /** 跟指针的提示框；measure = 手势中的读数（user 2026-10-25「优先显示长度，参考只是参考」：第一行、最显眼）；scale = B43 尺度参考（拖动时才有；样式归宿主画）。 */
     tip(text: string | null, clientX: number, clientY: number, scale?: ScaleTipView | null, measure?: string): void;
     trace?(entry: EditorTrace): void;
@@ -749,7 +752,17 @@ export declare class Editor {
     private installScene;
     private pruneSelection;
     private fail;
-    /** 刚提交的那一步：op + 它之前的活动池 B-rep（复现包「上一步」；成功但错的也能寄）。没有 / 池不是 brep → null。 */
+    private undoExtras;
+    registerUndoComponent<R>(c: UndoComponent<R>): void;
+    recordUndo(kind: string, data: unknown): void;
+    commitRecordsStep(label: StepLabel, records: readonly {
+        readonly kind: string;
+        readonly data: unknown;
+    }[]): void;
+    dropUndoRecords(kind: string, pred: (d: unknown) => boolean): number;
+    /** 撤销 / 重做没做成（整步事务：什么都没动）：提示行说原因（翻回去也失败、已作废的那几样一起说）。 */
+    private flipRefused;
+    /** 刚提交的那一步：op + 它之前的活动池 B-rep（复现包「上一步」；算法在 last-step.ts，1-8a 腾行时搬出去）。 */
     lastStep(): {
         op: Op;
         brep: BrepSnapshot;
