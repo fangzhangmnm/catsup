@@ -77,6 +77,7 @@ export class GlOffscreenGpu implements OffscreenGpu {
     gl.colorMask(true, true, true, true);
     gl.disable(gl.SCISSOR_TEST);
     if (d.clear) { gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
+    if (d.count === 0) { this.restore(); this.lastDrawMs = performance.now() - t0; return; }   // 只清、不画（软件版同样：没有实例就什么都不写）
     if (d.scissor) { gl.enable(gl.SCISSOR_TEST); gl.scissor(d.scissor.x, d.scissor.y, d.scissor.w, d.scissor.h); }
     gl.enable(gl.BLEND);
     if (d.accum === "max") { gl.blendEquation(gl.MAX); gl.blendFunc(gl.ONE, gl.ONE); }

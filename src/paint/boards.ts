@@ -8,6 +8,7 @@ import { BrowserGl2Port } from "./kernel/src/shell/browser-gl2-port.ts";
 import type { Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
 import type { LiveImage } from "../minccino/contract/stream.ts";
 import { PaintBoard } from "./board.ts";
+import { UndoStack } from "./kernel/src/backend/workpiece/undo-stack.ts";
 import { paintPlaceOf } from "../scene/paint.ts";
 import type { Scene } from "../scene/scene.ts";
 import type { Guid } from "../format/guid.ts";
@@ -45,7 +46,8 @@ export class PaintBoards {
     const place = paintPlaceOf(scene, texture);
     if (!place) throw new Error(`PaintBoards.ensure: texture ${texture} is not a placed paint`);
     this.port ??= this.o.port();
-    const board = new PaintBoard({ port: this.port, width: place.uvSet.width, height: place.uvSet.height, log: this.o.log });
+    // 步先进内核自带的撤销栈（1-4b；接进三维的撤销 = 1-8 换 HostedSteps）。已知的别扭：跟着坐标改大小也会落成这个栈里的一步（只有调试钩子够得着）
+    const board = new PaintBoard({ port: this.port, width: place.uvSet.width, height: place.uvSet.height, log: this.o.log, undo: new UndoStack({ maxQuotaBytes: 256 * 1024 * 1024 }) });
     board.setBackground(place.material.color);
     const entry: Entry = { board, image: null as unknown as LiveImage, prepared: null };
     (entry as { image: LiveImage }).image = {

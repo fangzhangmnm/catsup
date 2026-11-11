@@ -201,6 +201,11 @@ export class SpaceLayer {
     for (const d of Object.values(data)) this.gpu.release(d);
   }
 
+  /** 定型层清掉（抬笔时收笔渐细重画整笔用）：下一次 update 从头画。范围留着（只会更大）。 */
+  resetFrozen(): void {
+    this.frozenItems = []; this.frozenTips = 0;
+    this.gpu.draw({ program: SPACE_TIP.name, target: this.frozen, clear: true, accum: this.o.accum, instances: new Float32Array(0), count: 0, data: this.fixed, uniforms: { u_size: [this.frozen.w, this.frozen.h], u_first: 0, u_hardness: this.o.hardness, u_color: [...this.o.color], u_job: this.jobId } });
+  }
   dispose(): void { jobs.delete(this.jobId); for (const d of Object.values(this.fixed)) this.gpu.release(d); this.gpu.release(this.frozen); this.gpu.release(this.frame); }
 
   private grow(r: readonly [number, number, number, number]): void {

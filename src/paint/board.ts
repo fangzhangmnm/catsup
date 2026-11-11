@@ -8,7 +8,7 @@ import { isGroupNode, type TreeNode } from "./kernel/src/backend/workpiece/layer
 import { GLBoard } from "./kernel/src/shell/gl-board.ts";
 import { poolCapacityForBudget } from "./kernel/src/backend/gl/gl-room.ts";
 import type { DocNode } from "./kernel/src/backend/gl/gl-doc-bridge.ts";
-import type { Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
+import type { ExternalImage, ExternalTexture, Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
 import type { StepSink } from "./kernel/src/backend/workpiece/undo-stack.ts";
 import { PaintingView } from "./kernel/src/backend/workpiece/painting-view.ts";
 import { StrokeSession, type StrokeSessionDeps } from "./kernel/src/backend/stroke-session.ts";
@@ -32,6 +32,7 @@ export interface PaintBoardOpts {
 export class PaintBoard {
   readonly wp: PaintingWorkpiece;
   private readonly gl: GLBoard;
+  private readonly port: Gl2Port;
   private readonly log: (msg: string) => void;
   private bg: readonly [number, number, number, number] = [1, 1, 1, 1];
   /** 合成出来的那张图（内核的，下一次合成之前有效）+ 合成它时的内容键。 */
@@ -49,6 +50,7 @@ export class PaintBoard {
     if (!(o.width >= 1 && o.height >= 1)) throw new Error(`PaintBoard: bad size ${o.width}x${o.height}`);
     this.wp = new PaintingWorkpiece({ tree: { width: o.width, height: o.height }, ...(o.undo ? { undo: o.undo } : {}) });
     this.gl = new GLBoard(o.port, poolCapacityForBudget(BUDGET_BYTES));
+    this.port = o.port;
     this.log = o.log ?? (() => {});
     o.port.onInvalidated(() => { this.last = null; this.restores++; });   // 画面丢了又恢复：内核从内存里的图块重建（GLBoard 自己管），这边只作废缓存、让渲染器重拷
   }
@@ -57,6 +59,8 @@ export class PaintBoard {
   get height(): number { return this.tree().height; }
   /** 内容键：作品的提交版本（画、撤销、改大小都算）+ 大小 + 底色 + 恢复次数。变了 = 下一次合成出新图。 */
   private key(): string { return `${this.wp.commitVersion}|${this.width}x${this.height}|${this.bg.join(",")}|${this.restores}|${this.overlayVer}`; }
+  /** 三维画好的薄层包成内核的纹理对象（外面的图进内核的唯一一道门，画画仓 v0.14.75）：真显卡 = { gl: WebGLTexture }，软件版 = { pixels }。 */
+  wrapLayer(src: ExternalImage): ExternalTexture { return this.port.wrapExternal(src); }
   /** 薄层的内容变了（三维每帧重画了尾巴）：下一次合成要重来。 */
   overlayChanged(): void { this.overlayVer++; }
 
