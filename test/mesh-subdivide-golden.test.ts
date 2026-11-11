@@ -98,3 +98,24 @@ describe("细分：不随面数平方涨", () => {
     eq(k.check().length, 0);
   });
 });
+
+describe("一批删（removeFaces / removeVertices）和逐个删结果一样", () => {
+  it("6 种网格体 × 随机挑一批面：一批删 vs 逐张 removeFace，点 / 边 / 面 / 列和之后分到的编号逐位相同；再删孤点也一样", () => {
+    let s = 7;
+    const r = (): number => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+    for (const name of ["box", "torus12", "openGrid", "sharpMatNgons", "nonManifoldFin", "withColumn"]) for (let trial = 0; trial < 4; trial++) {
+      const a = CASES[name](), b = a.clone(), pick = a.faces().filter(() => r() < 0.4);
+      a.removeFaces(pick); for (const f of pick) b.removeFace(f);
+      const va = a.verts().filter((v) => !a.vEdges(v).length);
+      a.removeVertices(va); for (const v of b.verts()) if (!b.vEdges(v).length) b.removeVertex(v);
+      eq(dump(a), dump(b), `${name} 第 ${trial} 次（删 ${pick.length} 张）`);
+      eq(a.check().length, 0);
+    }
+  });
+  it("一批删点里有还连着边的点 → 抛（和 removeVertex 一样）", () => {
+    const k = CASES.box();
+    let threw = false;
+    try { k.removeVertices([k.verts()[0]]); } catch (e) { threw = /still has edges/.test(String(e)); }
+    assert(threw, "应该抛");
+  });
+});

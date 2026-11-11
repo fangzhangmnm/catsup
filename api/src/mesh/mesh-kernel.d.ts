@@ -88,6 +88,14 @@ export declare class MeshKernel {
     addFace(ring: readonly number[], mat: number, origin: FaceOrigin): number;
     /** 删面；它独占的边（没别的面、不是裸线）一起删；孤立的顶点留着（Blender 同款：删面留点线，要删干净用 ops 的 deleteFaces(onlyFaces=false)）。 */
     removeFace(f: number): void;
+    /**
+     * 一次删一批面（连同只属于这批面的边；裸线不删）。结果和对每张逐个 removeFace 一样：删掉的面和边、空出来的编号都一样
+     * （空闲编号表本来就一直排着序，之后分到的编号也一样），但邻接表只查一次、空闲编号只排一次序——逐个删 = 每删一张整张邻接表重建一次，
+     * 随面数平方涨（W-10：细分 6400 面要 44–54 秒，样本 test/mesh-subdivide-golden.test.ts）。
+     */
+    removeFaces(fs: readonly number[]): void;
+    /** 一次删一批孤立的点（没有边的；有边的 → 抛，和 removeVertex 一样）。邻接表只查一次（W-10）。 */
+    removeVertices(vs: readonly number[]): void;
     removeEdge(e: number): void;
     removeVertex(v: number): void;
     ensureEdge(a: number, b: number): number;
@@ -122,6 +130,9 @@ export declare class MeshKernel {
     hasFlag(e: number, mask: number): boolean;
     private keyOf;
     private touch;
+    /** 邻接表整张重建过几次（给测试用：「没多做事」的直接证明，test/mesh-subdivide-golden.test.ts）。 */
+    get adjacencyBuilds(): number;
+    private adjBuilds;
     private adjacency;
     triangles(): {
         tris: Int32Array;

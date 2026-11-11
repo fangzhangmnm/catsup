@@ -123,6 +123,38 @@ export class MeshKernel {
     this.changes.f(f); this.touch(true);
     for (let i = 0; i < vs.length; i++) { const e = this.edgeOf(vs[i], vs[(i + 1) % vs.length]); if (e >= 0 && this.eFaces(e).length === 0 && !(this.edgeFlags[e] & F_WIRE)) this.removeEdge(e); }
   }
+  /**
+   * 一次删一批面（连同只属于这批面的边；裸线不删）。结果和对每张逐个 removeFace 一样：删掉的面和边、空出来的编号都一样
+   * （空闲编号表本来就一直排着序，之后分到的编号也一样），但邻接表只查一次、空闲编号只排一次序——逐个删 = 每删一张整张邻接表重建一次，
+   * 随面数平方涨（W-10：细分 6400 面要 44–54 秒，样本 test/mesh-subdivide-golden.test.ts）。
+   */
+  removeFaces(fs: readonly number[]): void {
+    const gone = new Set<number>();
+    for (const f of fs) if (this.hasF(f)) gone.add(f);
+    if (!gone.size) return;
+    this.adjacency();   // 删之前的邻接：一条边的面全在这一批里 = 删完它就没有面了
+    const cand = new Set<number>();
+    for (const f of gone) { const vs = this.faceVerts(f); for (let i = 0; i < vs.length; i++) { const e = this.edgeOf(vs[i], vs[(i + 1) % vs.length]); if (e >= 0) cand.add(e); } }
+    const doomed: number[] = [], L = this.eF.list, S = this.eF.start;
+    for (const e of cand) {
+      if (this.edgeFlags[e] & F_WIRE) continue;
+      let all = true; for (let i = S[e]; i < S[e + 1]; i++) if (!gone.has(L[i])) { all = false; break; }
+      if (all) doomed.push(e);
+    }
+    for (const f of gone) { this.fAlive[f] = 0; this.fFree.push(f); this.changes.f(f); }
+    for (const e of doomed) { this.edgeKey.delete(this.keyOf(this.edgeA[e], this.edgeB[e])); this.eAlive[e] = 0; this.edgeFlags[e] = 0; this.eFree.push(e); this.changes.e(e); }
+    this.fFree.sort((a, b) => b - a); this.eFree.sort((a, b) => b - a);
+    this.touch(true);
+  }
+  /** 一次删一批孤立的点（没有边的；有边的 → 抛，和 removeVertex 一样）。邻接表只查一次（W-10）。 */
+  removeVertices(vs: readonly number[]): void {
+    const list = [...new Set(vs)].filter((v) => this.hasV(v));
+    if (!list.length) return;
+    for (const v of list) if (this.vEdges(v).length) throw new Error(`removeVertices: vertex ${v} still has edges`);
+    for (const v of list) { this.vAlive[v] = 0; this.vFree.push(v); this.changes.v(v); }
+    this.vFree.sort((a, b) => b - a);
+    this.touch(true);
+  }
   removeEdge(e: number): void {
     if (!this.hasE(e)) return;
     if (this.eFaces(e).length) throw new Error(`removeEdge: edge ${e} still belongs to a face`);

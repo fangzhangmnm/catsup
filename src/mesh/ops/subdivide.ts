@@ -70,8 +70,8 @@ export function catmullClark(m: MeshKernel): number {
   const halves: { a: number; b: number; e: number; fl: number }[] = [];
   for (const e of edges) if (m.edgeFlags[e]) halves.push({ a: m.edgeA[e], b: m.edgeB[e], e, fl: m.edgeFlags[e] });
   // ---- 写：清空、按 点 → 边点 → 面点 的顺序加回来（确定性）----
-  for (const f of faces) m.removeFace(f);
-  for (const v of verts) if (m.hasV(v) && !m.vEdges(v).length) m.removeVertex(v);
+  m.removeFaces(faces);   // 一批删（W-10：逐张删每张都重建一次邻接表，随面数平方涨；结果逐位一样，样本 test/mesh-subdivide-golden.test.ts）
+  m.removeVertices(verts.filter((v) => m.hasV(v) && !m.vEdges(v).length));
   const nv = new Map<number, number>(), ne = new Map<number, number>(), nf = new Map<number, number>();
   for (const v of verts) nv.set(v, m.addVertex(vp.get(v)!));
   for (const e of edges) ne.set(e, m.addVertex(ep.get(e)!));
