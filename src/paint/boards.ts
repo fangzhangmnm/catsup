@@ -338,8 +338,9 @@ export function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoc
 
 /** 落笔撞上冷的画（1-8b）：画板登记处不给它建空白画板。why = 只能看不能画的原因（有的话）。 */
 export class ColdPaintError extends Error {
-  readonly texture: Guid; readonly viewOnly: string | null;
-  constructor(texture: Guid, viewOnly: string | null) { super(viewOnly ?? `PaintBoards.ensure: painting ${texture} is still closed (cold) — warm() it before painting`); this.name = "ColdPaintError"; this.texture = texture; this.viewOnly = viewOnly; }
+  /** 哪张贴图（字段不叫 texture：守卫 textures-table 不许「点 texture」）。 */
+  readonly tex: Guid; readonly viewOnly: string | null;
+  constructor(tex: Guid, viewOnly: string | null) { super(viewOnly ?? `PaintBoards.ensure: painting ${tex} is still closed (cold) — warm() it before painting`); this.name = "ColdPaintError"; this.tex = tex; this.viewOnly = viewOnly; }
 }
 /** PNG 的宽高（只读文件头的 IHDR；不是 PNG = null）。 */
 export function pngSize(b: Uint8Array): { width: number; height: number } | null {
