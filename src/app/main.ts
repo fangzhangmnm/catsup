@@ -88,7 +88,7 @@ import type { PaintDeskDoc } from "../format/document.ts";
 import { mountPaintSliders } from "./paint-sliders.ts";
 import type { SpacePaintDeps } from "../paint/space-paint.ts";
 import { PAINT_STEP_LABELS } from "../editor/step-labels.ts";   // 画板登记处（贴图主线 1-3c）：一张贴图一块画板；这一张只有调试钩子 __catsup.paint 建
-import { paintPlaceOf } from "../scene/paint.ts";
+import { meshBodyIssues, paintPlaceOf } from "../scene/paint.ts";
 import { buildTriGrid, pickSurface } from "../paint/surface-pick.ts";   // 调试钩子 __catsup.paint.cellAt：1-3a 的落点
 import { applyDir, applyPt, invert } from "../scene/xform.ts";
 // 调试钩子 __catsup.paint.lab（贴图主线 1-4b）：探针在页面里拿三维的空间层那几块（薄层、软件版、名单、找面、真显卡版）对拍；没有界面入口
@@ -2599,6 +2599,8 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
   paint: {
     /** 笔的种类表（paint/brush-kinds.ts；probe-live-region 按它跑）。 */
     brushKinds: BRUSH_KIND_IDS,
+    /** 网格体的全部自检（内核不变量 + 画的规矩；scene/paint.ts meshBodyIssues）：空 = 过（规模探针 K 坏面那一段用）。 */
+    issues: (def: number) => meshBodyIssues(editor.sceneRef, def as never),
     /** 读数那一组的两个开关（统筹 11-11）：探针用——setPath = 角标「走法」那一下、check = 跑一次核对（true = 都对上）、state = 现在的开关。 */
     diag: { setPath: (p: typeof displayDiag.path) => setDisplayPath(p, displayDiag.check), setCheck: (on: boolean) => { displayDiag.check = on; displayDiag.penUp = false; }, check: () => runPaintCheck(), detail: () => paintCheckDetail(), state: () => ({ ...displayDiag }), log: () => debugLogText() },
     boards: paintBoards,

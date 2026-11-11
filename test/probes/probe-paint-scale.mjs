@@ -9,6 +9,7 @@
 //   C 同一个盒子开强行对称（两半共用画布上同一块：一颗笔尖下同一块挂两张面）：B 的整条。
 //   D 4194304 格（「2048 见方」那一档；「开始画」没有画布大小的参数，铺法宽度定死 1024、给密度只长高度 → 二分出正好铺满 1024 × 4096 的密度，格数、表的大小和 2048² 一样）：B 的整条。
 //   E 每张面三角形的上限：72 段圆柱的顶盖（70 个三角形）量一笔的每帧；1026 段（顶盖 1024 个三角形）画得上、真显卡和软件版一样；1027 段（1025 个）准备时报那句人话、这一笔不开始。
+//   K 带坏面的小网格体（1-4d 第 5 条，每次都跑）：96 张面的方盒子，正面上一张压成零面积、一张压成很细：开始画前后自检过、整条走一遍（画、对拍、橡皮、存、重开、再画）、重开后自检过。
 // 手动跑的一档 = user 自己的真模型（不进仓：--models=<文件夹> 或环境变量 CATSUP_USER_MODELS；没给 = 明着说没跑，不算绿）：
 //   F wip2021.glb（15534 个三角形）：B 的整条，默认密度 + 4194304 格两档。
 //   G wip2020.glb（4636 个三角形，80 个面积是零）：每块都开始画 → 画一笔 → 存 → 重开 → 冷的照显示、再画一笔（只验不坏）。
@@ -65,6 +66,19 @@ function helpers() {
     for (let i = 0; i < levels; i++) { e.runAction("mesh.subdivide"); await sleep(0); }
     e.exitTo(0); e.clearSelection?.();
     return inst.def;
+  };
+  /** 1-4d 第 5 条：在朝前（−y，正面看得见）的面里造两张坏面——一张四个角压到两个点上（零面积）、一张两个角压到离对边万分之一（很细）。返回两张面的面积和一张好面的面积。（细分是 Catmull–Clark，方盒子已经圆了：按面心的 y 挑，不按 y = −0.5） */
+  H.badFaces = (def) => {
+    const k = Sc().mesh(def).kernel, cy = (f) => { const vs = k.faceVerts(f); return vs.reduce((s, v) => s + k.pt(v).y, 0) / vs.length; };
+    const front = k.faces().filter((f) => k.faceVerts(f).length === 4).sort((a, b) => cy(a) - cy(b));
+    const f1 = front[0], v1 = k.faceVerts(f1), f2 = front.find((f) => k.faceVerts(f).every((v) => !v1.includes(v))), v2 = k.faceVerts(f2), good = front.find((f) => f !== f1 && f !== f2 && k.faceVerts(f).every((v) => !v1.includes(v) && !v2.includes(v)));
+    const p = (v) => ({ ...k.pt(v) }), lerp = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t });
+    e.commitOp({ op: "meshMove", def, moves: [{ v: v1[2], to: p(v1[1]) }, { v: v1[3], to: p(v1[0]) }] });
+    const [a, b, c, d] = v2.map(p);
+    e.commitOp({ op: "meshMove", def, moves: [{ v: v2[2], to: lerp(b, c, 1e-4) }, { v: v2[3], to: lerp(a, d, 1e-4) }] });
+    const area = (f) => { const ps = k.faceVerts(f).map((v) => k.pt(v)); let nx = 0, ny = 0, nz = 0; for (let i = 0; i < ps.length; i++) { const a = ps[i], b = ps[(i + 1) % ps.length]; nx += (a.y - b.y) * (a.z + b.z); ny += (a.z - b.z) * (a.x + b.x); nz += (a.x - b.x) * (a.y + b.y); } return Math.hypot(nx, ny, nz) / 2; };
+    const ctr = (f) => { const ps = k.faceVerts(f).map((v) => k.pt(v)); return { x: ps.reduce((s, q) => s + q.x, 0) / ps.length, y: ps.reduce((s, q) => s + q.y, 0) / ps.length, z: ps.reduce((s, q) => s + q.z, 0) / ps.length }; };
+    return { faces: k.faces().length, zeroArea: area(f1), thin: area(f2), normal: area(good), at: [ctr(f1), ctr(f2)] };
   };
   H.addPrim = (def, kind, o, size, segments) => e.commitOp({ op: "meshAddPrimitive", def, kind, frame: { o, x: P(1, 0, 0), y: P(0, 1, 0), z: P(0, 0, 1) }, size, segments });
   H.meshDefs = () => [...Sc().defs.values()].filter((d) => d.body.kind === "mesh").map((d) => ({ def: d.id, faces: d.body.kernel.faces().length })).sort((a, b) => b.faces - a.faces);
@@ -286,6 +300,31 @@ if (want("E")) await section("E", async () => {
       check(capTris === 1025 && typeof prob === "string" && /这张面太大了/.test(prob) && /1025 个三角形/.test(prob) && r?.refused === prob, `顶盖 1025 个三角形：准备时就报「${prob}」，这一笔不开始`, JSON.stringify({ capTris, prob, r: r?.refused }));
     }
   }
+});
+// ---------- K 带坏面的小网格体（每次都跑的那一档；1-4d 第 5 条）----------
+if (want("K")) await section("K", async () => {
+  console.log("\nK 带坏面的小网格体（细分两次的方盒子 96 张面，正面上一张压成零面积、一张压成很细）：开始画、画一笔、存、重开、自检过");
+  await newFile();
+  const def = await S(() => __H.cube(2, false));
+  const bad = await S((d) => __H.badFaces(d), def);
+  check(bad.zeroArea < 1e-12 && bad.thin > 0 && bad.thin < 1e-3 * bad.normal, `坏面造出来了：零面积那张 ${bad.zeroArea}、很细那张 ${bad.thin.toExponential(2)}（好面 ${bad.normal}）`, JSON.stringify(bad));
+  const iss0 = await S((d) => globalThis.__catsup.paint.issues(d), def);
+  check(iss0.length === 0, "开始画之前：自检过", iss0.join("；"));
+  const p = await S((d) => __H.paint(d), def);
+  say(`${p.faces} 张面、${p.tris} 个三角形；画布 ${p.width}×${p.height}，每米 ${p.pxPerM} 格`);
+  const iss1 = await S((d) => globalThis.__catsup.paint.issues(d), def);
+  check(iss1.length === 0, "开始画之后：自检过（画的规矩：每张走画的面都有位置）", iss1.join("；"));
+  await S(() => __H.view("front"));
+  // 先一笔正好从两张坏面上走过（世界里两张坏面的中心投到屏幕，往两边各伸出去一截）
+  const thru = await S(([a, b]) => { const e = globalThis.__catsup.editor, V = e.vp(), A = e.cam.project(a, V), B = e.cam.project(b, V), dx = B.x - A.x, dy = B.y - A.y, n = Math.hypot(dx, dy) || 1, ext = 40;
+    return [{ x: A.x - (dx / n) * ext, y: A.y - (dy / n) * ext }, { x: B.x + (dx / n) * ext, y: B.y + (dy / n) * ext }]; }, bad.at);
+  const tp = await S(([p, q]) => __H.line(p.x, p.y, q.x, q.y, 40), thru);
+  const tb = [Math.min(thru[0].x, thru[1].x) - 30, Math.min(thru[0].y, thru[1].y) - 30, Math.max(thru[0].x, thru[1].x) + 30, Math.max(thru[0].y, thru[1].y) + 30];
+  const before = await S((b) => __H.region(...b), tb), rt = await S(([t, pts]) => __H.stroke(t, pts, { hardness: 0.6, size: 30 }), [p.tex, tp]), afterT = await S((b) => __H.region(...b), tb);
+  check(!rt?.refused && rt?.tips > 0 && afterT.red > before.red + 10, `一笔从两张坏面上走过：画得上（红像素 ${before.red} → ${afterT.red}，${rt?.tips} 颗笔尖）`, JSON.stringify(rt));
+  await fullFlow("带坏面", p.tex, def, { manyFaces: 3 });
+  const after = await S(() => { const ds = __H.meshDefs(); return ds.map((d) => ({ def: d.def, faces: d.faces, issues: globalThis.__catsup.paint.issues(d.def) })); });
+  check(after.length >= 1 && after.every((d) => d.issues.length === 0) && after.some((d) => d.faces === bad.faces), `存、重开、再画之后：自检过（${after.map((d) => `${d.faces} 张面`).join("、")}）`, JSON.stringify(after));
 });
 // ---------- F / G / H 真模型（手动跑的一档）----------
 const haveModels = models && ["wip2021.glb", "wip2020.glb", "littlered.glb"].every((f) => existsSync(path.join(models, f)));
