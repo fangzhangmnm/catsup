@@ -88,6 +88,8 @@ export interface Preset {
    *  正在编辑的那一个的结构线任何画风都画（2026-10-29 Opus；以前的第三档 active「只画编辑中的」= none + 结构线，退役）。 */
   readonly material: { readonly shade: "camera" | "none" | "flat" | "tron" | "pbr"; readonly texFilter: "asset" | "nearest"; readonly edges: "none" | "all"; readonly colorize: "model" | "part" | "none"; readonly flat: FlatShade | null; readonly tron: TronShade | null; readonly pbr: PbrShade | null;
     /** 涂装车间的表面层（写实那条路按顺序叠；空 = 没有）。 */ readonly surface: readonly SurfaceLayer[];
+    /** 在哪个空间混（ai-docs/20261111-color-space-convention.md 第二节第 3、4、6 条）：srgb = 复古（贴图的数原样用，缩小图在 sRGB 的数上取平均）；linear = 写实（取样后解成线性算光，缩小图在线性里取平均）。 */
+    readonly mixSpace: "srgb" | "linear";
     /** 标记闪（两色的屏没有颜色可用时，选中靠闪）：periodMs 一个来回多久，亮的半拍 = 标记色、暗的半拍 = off 色（sRGB）。边的标记材质和辅助几何的选中 / 将删 / 检查色一起闪；面不闪（user 10-29「面可以先不闪」）。 */
     readonly blink?: { readonly periodMs: number; readonly off: number };
     /** 标记色是这个画风本身的一部分（1-bit 只有两色 / Tron 的 Clu 橙）：视口设置「选中色」不覆盖它。 */
@@ -126,7 +128,7 @@ export const PRESETS = {
     id: "white", name: "线稿", note: "跟着相机的平光 + 线稿（建模时的默认看法）", brief: "建模的默认看法",   // T96 user「白模这个名字不对（sketchup线稿）」：界面叫「线稿」（app 里不出现 SketchUp 字样）；id 不动
     source: "CatsUp 现状（≈ 实验室「最省 · 白模」）",
     colors: { ink: INK, paper: PAPER, ...BLUE },
-    material: { shade: "camera", texFilter: "asset", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
+    material: { shade: "camera", mixSpace: "srgb", texFilter: "asset", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
     light: { ground: null, ao: null, env: null },
     post: { pixelOutline: null, bloom: null },
     screen: "native",
@@ -137,7 +139,7 @@ export const PRESETS = {
     id: "pixelOutline", name: "像素描边", brief: "1/3 分辨率 + 一格黑描边", note: "按 1/3 分辨率画、最近邻放大，模型外轮廓和前后错开处描一格黑线；不打光、贴图最近邻；模型自己的线稿不画（选中 / 悬停的边、网格、吸附照常按原分辨率画）",
     source: "实验室 平涂 flat.js ·「像素描边」（contrast 0、pixelate 3、pixOutline、outlineTint 1、outlineShade 0.25、outlineDark；BASE 的 pixInner true、outline #1b1b1b、background #fde6bd）",
     colors: { ink: 0x1b1b1b, paper: 0xfde6bd, ...RED },
-    material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
+    material: { shade: "none", mixSpace: "srgb", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
     light: { ground: null, ao: null, env: null },
     post: { pixelOutline: { side: "inside", color: 0x1b1b1b, tint: 1, shade: 0.25, darkSide: true, inner: true, width: 1 }, bloom: null },   // inside：线稿画着（edges all），描边和它合成一条
     screen: "pixel3",
@@ -150,7 +152,7 @@ export const PRESETS = {
     id: "onebit", name: "1-bit 线稿", brief: "黑线白纸（两色）", note: "线稿的两色版：按 1/3 分辨率画，面是纸、线和描边是墨；网格和选中的面是网点。",
     source: "CatsUp 自己的（Opus 2026-10-29）：线稿 + 平涂纸面 + 描边那遍最后两色量化（中间调用 4×4 Bayer 网点）",
     colors: { ...ONEBIT, accent: ONEBIT.ink, warn: ONEBIT.ink },   // 选中 = 墨：边和别的边一样、面 = 网点（往白里提 55% 的灰被抖成两色）
-    material: { shade: "flat", texFilter: "nearest", edges: "all", colorize: "none", flat: { base: ONEBIT.paper, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 90 }, tron: null, pbr: null, surface: [],
+    material: { shade: "flat", mixSpace: "srgb", texFilter: "nearest", edges: "all", colorize: "none", flat: { base: ONEBIT.paper, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 90 }, tron: null, pbr: null, surface: [],
       ownMarks: true },   // 不闪（user 10-29 先「1bit其实我的建议是可以闪」、试过后「1bit感觉不用闪」）：选中的面 = 更密的网点，选中的边和别的边一样是墨
     light: { ground: null, ao: null, env: null, gridColor: ONEBIT.ink, gridStipple: true },   // 墨色点线（规整，不靠抖动）
     post: { pixelOutline: { side: "inside", color: ONEBIT.ink, tint: 0, shade: 1, darkSide: false, inner: true, width: 1 }, bloom: null, dither: { dark: ONEBIT.ink, light: ONEBIT.paper } },
@@ -163,7 +165,7 @@ export const PRESETS = {
     note: "一件一色的色纸：每个材质一张纸、没上色的是纸白，贴图印不上去；面按朝向分明暗（光跟着相机），零件之间、贴地处叠出一层层硬边的影子（多重阴影：从 20 个方向烘的遮蔽，改完模型停手约 0.25 秒后跟上）；地面是纸色；模型自己的线稿不画",
     source: "实验室 平涂 flat.js ·「剪纸 · 色纸」（colMode part、shadowTint #a7859c、contrast 0.4、ramp 1、bands 2、soft 0.12、ao 0.8、aoSoft 0、aoRadius 0.8、aoGround 2、facet 1、light −30° / 60°、background #f7efe0、ground #efe4cf；BASE 的 base #f2efe8、groundOn 1）",
     colors: { ink: INK, paper: 0xf7efe0, ...BLUE },
-    material: { shade: "flat", texFilter: "asset", edges: "none", colorize: "part", flat: { base: 0xf2efe8, shadowTint: 0xa7859c, contrast: 0.4, ramp: 1, steps: 1, soft: 0.12, lightAz: -30, lightEl: 60 }, tron: null, pbr: null, surface: [] },
+    material: { shade: "flat", mixSpace: "srgb", texFilter: "asset", edges: "none", colorize: "part", flat: { base: 0xf2efe8, shadowTint: 0xa7859c, contrast: 0.4, ramp: 1, steps: 1, soft: 0.12, lightAz: -30, lightEl: 60 }, tron: null, pbr: null, surface: [] },
     light: { ground: { color: 0xefe4cf, on: 1, grid: 0 }, ao: { amount: 0.8, radius: 0.8, groundRadius: 2, soft: 0 }, env: null },
     post: { pixelOutline: null, bloom: null },
     screen: "native",
@@ -175,7 +177,7 @@ export const PRESETS = {
     note: "深色的面、青色发光的硬边（轮廓加粗、线芯发白）、被挡住的边淡淡透出来、青色地格；画面最多 240 行、整数倍放大进 CRT 电视（扫描线、荫罩、色度横糊、四角暗）；选中的面被风格认领成 Clu 橙。和实验室不一样：屏幕先不弯、没有街机机框、扫描线那道光不跑、被挡住的边是实线不是虚线",
     source: "实验室 硬边线 tron.js ·「青 Tron · 复古」（lineColor #3fe6ff、lineWidth 1、profile 1.3、lineCore 0.45、hiddenLines 0.12、faceColor #06141e、backColor #1c0b10、shade 0.55、facet 1、bloom 1.0、bloomRadius 0.7、rim 0.25、rimPower 3、background #010307、grid 0.55、vignette 0.55、glowCap 1.8、res ps1 = 240 行、screen crt-tv；Clu 橙 #ff9a2e 是 Opus 选的，待 user 调）",
     colors: TRON,
-    material: { shade: "tron", texFilter: "asset", edges: "all", colorize: "none", flat: null, tron: { face: 0x06141e, back: 0x1c0b10, shade: 0.55, rim: 0.25, rimPower: 3, line: TRON.ink, core: 0.45, widthPx: 1, profile: 1.3, hidden: 0.12, select: TRON.accent }, pbr: null, surface: [], ownMarks: true },
+    material: { shade: "tron", mixSpace: "srgb", texFilter: "asset", edges: "all", colorize: "none", flat: null, tron: { face: 0x06141e, back: 0x1c0b10, shade: 0.55, rim: 0.25, rimPower: 3, line: TRON.ink, core: 0.45, widthPx: 1, profile: 1.3, hidden: 0.12, select: TRON.accent }, pbr: null, surface: [], ownMarks: true },
     light: { ground: { color: TRON.paper, on: 0, grid: 0 }, ao: null, env: null, gridColor: 0x207380, axisColors: [TRON.ink, TRON.ink, TRON.ink] },   // 地格 = 编辑器的网格（跟单位 / 格距走，T57），线色 = 青线 × 0.5、辉光来提亮；以前地面自己画的那张地格（grid 0.55）退了
     post: { pixelOutline: null, bloom: { amount: 1.0, radius: 0.7, cap: 1.8, vignette: 0.55 } },
     screen: "crt3",   // T85 user「tron的分辨率能不能别那么拉跨。先试下像素描边的分辨率」：240 行太糊 → 像素描边那档（×3）+ CRT 外观；240 行留在屏幕下拉里
@@ -187,7 +189,7 @@ export const PRESETS = {
     note: "照模型上色：材质色和贴图都进底色，光是程序海天（漫反射球谐、镜面按粗糙度）+ 太阳投影 + 世界空间遮蔽（改完模型停手约 0.25 秒后跟上）；背景是那片海天、地面浅灰；模型自己的线稿不画。粗糙度先统一 0.6、不是金属（CatsUp 的材质还没有粗糙度 / 金属度这两项）",
     source: "实验室 表面 material.js ·「写实」（colMode full、rough 0.6、spec 1、envAmt 1、envBg、aoMode 世界空间 × 1、exposure 0.9、ground #9a9a96；useOrm = 读模型的粗糙度 / 金属度——CatsUp 材质没有这两项，用滑杆值；BASE 的 sunAz 35 / sunEl 45、metal 0）",
     colors: { ink: INK, paper: PAPER, ...RED },   // 背景是那片海天；纸只给字的底板 / 界面日夜
-    material: { shade: "pbr", texFilter: "asset", edges: "none", colorize: "model", flat: null, tron: null, pbr: { base: 0xd6d6d6, metal: 0, rough: 0.6, coat: 0, coatRough: 0.05, spec: 1 }, surface: [] },
+    material: { shade: "pbr", mixSpace: "linear", texFilter: "asset", edges: "none", colorize: "model", flat: null, tron: null, pbr: { base: 0xd6d6d6, metal: 0, rough: 0.6, coat: 0, coatRough: 0.05, spec: 1 }, surface: [] },
     light: { ground: { color: 0x9a9a96, on: 1, grid: 0 }, ao: { amount: 1, radius: 0.5, groundRadius: 0.25, soft: 1 }, env: { recipe: "sky-sea", amount: 1, exposure: 0.9, sunAz: 35, sunEl: 45 } },
     post: { pixelOutline: null, bloom: null },
     screen: "native",
@@ -199,7 +201,7 @@ export const PRESETS = {
     colors: { ink: INK, paper: PAPER, ...RED },
     note: "不借模型颜色的青铜：金属高光映出程序海天、太阳打出投影，缝里和凹处积着铜绿（世界空间遮蔽，改完模型停手约 0.25 秒后跟上），表面有砂铸的坑洼和一层蜡；背景是那片海天、地面浅灰；模型自己的线稿不画。和实验室不一样：没有倒角（CatsUp 还没给这个几何通道）、没有镜头炫光",
     source: "实验室 表面 material.js ·「铸铜」（base #b3804e、metal 1、rough 0.38、pattern 9 砂铸 × 0.5、patina 0.75 #3b4632、coat 0.25 / 0.22、spec 1、envSource 程序海天 × 1.1、sunAz 35 / sunEl 45、exposure 0.95、aoMode 世界空间 × 1、ground #9a9a96；BASE 的 aoSoft 1；遮蔽半径照 material.js 模型 0.5 / 地面 0.25；太阳色 1.7 / 1.6 / 1.45、天光 / 地光照 LIGHT 段）",
-    material: { shade: "pbr", texFilter: "asset", edges: "none", colorize: "none", flat: null, tron: null, pbr: { base: 0xb3804e, metal: 1, rough: 0.38, coat: 0.25, coatRough: 0.22, spec: 1 },
+    material: { shade: "pbr", mixSpace: "linear", texFilter: "asset", edges: "none", colorize: "none", flat: null, tron: null, pbr: { base: 0xb3804e, metal: 1, rough: 0.38, coat: 0.25, coatRough: 0.22, spec: 1 },
       surface: [{ recipe: "sand-cast", amount: 0.5, color: 0 }, { recipe: "patina", amount: 0.75, color: 0x3b4632 }] },   // 写实 + 涂装车间：砂铸 → 铜绿
     light: { ground: { color: 0x9a9a96, on: 1, grid: 0 }, ao: { amount: 1, radius: 0.5, groundRadius: 0.25, soft: 1 }, env: { recipe: "sky-sea", amount: 1.1, exposure: 0.95, sunAz: 35, sunEl: 45 } },
     post: { pixelOutline: null, bloom: null },

@@ -1,7 +1,8 @@
 // providers/three/live-image.ts —— 活的图（契约 LiveImage）在渲染器这边的样子：一张专用的显示图（贴图主线 1-3c）。created 2026-11-11 by Claude Opus 5.5
 // 画画内核把画合成在同一个显卡画面里的一张图上（那张图归内核：不许改采样设置、不许长期拿着）。渲染器自己备一张显示图：
-//   SRGB8_ALPHA8（和 three 给导入的原图建的同一种：采样出来是线性的，导入的图和画走同一条着色器）、全套多级缩小图、放大最近邻 / 缩小三线性、夹边。
-//   内核那张的版本变了 → 一遍小着色器 texelFetch 它（字节 = sRGB 编码值）→ 解成线性 → 写进 sRGB 的显示图（显卡写的时候再编码回去）→ 生成缩小图。
+//   RGBA8（不自动解码：取样拿到的就是存着的 sRGB 的数；颜色空间约定 ai-docs/20261111-color-space-convention.md，2026-11-11 起，以前是 SRGB8_ALPHA8）、全套多级缩小图、放大最近邻 / 缩小三线性、夹边。
+//   内核那张的版本变了 → 一遍小着色器 texelFetch 它（字节 = sRGB 的数）→ 原样写进显示图 → 生成缩小图。
+//   缩小图在哪个空间取平均跟着画风走（setMipSpace）：复古 = 在 sRGB 的数上平均；写实 = 解成线性、平均、编码回去。换了 = 活的图整张重拷、冷的合成图缩小图整套重做。
 //   只拷变了的那些格（1-4d 第 6 条，2026-11-11 Claude Opus 5.5）：图给了 changedSince（画画 = 合成图的变化史 = 内核的脏格子位图）就只拷那些格，
 //   缩小图每一级的脏格 = 上一级的位图减半；每一级都把行段当实例一次画完（几百段也是一次显卡调用）。2×2 平均着色器代替 generateMipmap（那个只能整套重做），
 //   整张和几格用的是同一个着色器，所以一格一格做出来的和整套重做的逐格一样。
@@ -28,17 +29,21 @@ const FS = `#version 300 es
 precision highp float; precision highp int; precision highp sampler2D;
 uniform sampler2D uSrc;
 out vec4 o;
-float dec(float c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
-void main() { vec4 t = texelFetch(uSrc, ivec2(gl_FragCoord.xy), 0); o = vec4(dec(t.r), dec(t.g), dec(t.b), t.a); }`;
-/** 缩小图的一级：上一级（采样时只开着那一级）的 2×2 个格子取平均（sRGB 的图读出来是线性的、写回去再编码 = 在线性里平均）；上一级是单数边时最后一行 / 列夹住。 */
+void main() { o = texelFetch(uSrc, ivec2(gl_FragCoord.xy), 0); }`;
+/** 缩小图的一级：上一级（采样时只开着那一级）的 2×2 个格子取平均；上一级是单数边时最后一行 / 列夹住。uLinear = 解成线性再平均、编码回 sRGB（写实）；不然在 sRGB 的数上平均（复古）。 */
 const DS = `#version 300 es
 precision highp float; precision highp int; precision highp sampler2D;
 uniform sampler2D uSrc;
 uniform ivec2 uSrcSize;
+uniform bool uLinear;
 out vec4 o;
+vec3 dec(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+vec3 enc(vec3 l) { return mix(l * 12.92, 1.055 * pow(max(l, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), l)); }
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy) * 2, m = uSrcSize - 1;
-  o = (texelFetch(uSrc, min(p, m), 0) + texelFetch(uSrc, min(p + ivec2(1, 0), m), 0) + texelFetch(uSrc, min(p + ivec2(0, 1), m), 0) + texelFetch(uSrc, min(p + ivec2(1, 1), m), 0)) * 0.25;
+  vec4 a = texelFetch(uSrc, min(p, m), 0), b = texelFetch(uSrc, min(p + ivec2(1, 0), m), 0), c = texelFetch(uSrc, min(p + ivec2(0, 1), m), 0), d = texelFetch(uSrc, min(p + ivec2(1, 1), m), 0);
+  if (uLinear) o = vec4(enc((dec(a.rgb) + dec(b.rgb) + dec(c.rgb) + dec(d.rgb)) * 0.25), (a.a + b.a + c.a + d.a) * 0.25);
+  else o = (a + b + c + d) * 0.25;
 }`;
 
 interface Entry {
@@ -69,6 +74,17 @@ export class LiveTextures {
   private ds: WebGLProgram | null = null;
   private dsSrc: WebGLUniformLocation | null = null;
   private dsSize: WebGLUniformLocation | null = null;
+  private dsLinear: WebGLUniformLocation | null = null;
+  /** 缩小图在哪个空间取平均（画风的 mixSpace；复古 = srgb，写实 = linear）。 */
+  mipSpace: "srgb" | "linear" = "srgb";
+  /** 换画风：空间变了 = 活的图下一帧整张重拷、冷的合成图缩小图整套重做（一张图里不混两种平均法）。动了显卡：调用的人 resetState() 一次。 */
+  setMipSpace(sp: "srgb" | "linear"): boolean {
+    if (sp === this.mipSpace) return false;
+    this.mipSpace = sp;
+    for (const e of this.entries.values()) e.ver = -1;
+    if (!this.gl.isContextLost()) for (const s of this.statics) if (s.disp) this.mips(s.disp, s.w, s.h, "all");
+    return true;
+  }
   /**
    * 缩小图怎么跟（1-4d 第 6 条要量两种做法）："region" = 每次只重做变了的那一块牵涉到的格子（默认）；
    * "defer" = 画的时候只拷第 0 级、缩小图等不再变了（有一帧没有新版本）再整套做一次——只给探针量，缩小着看会看不到正在画的那一笔；
@@ -105,11 +121,11 @@ export class LiveTextures {
 
   /**
    * 画的合成图（冷的画）的显示图：位图传进第 0 级（字节原样，不翻、不预乘——ImageBitmap 不看那几个 UNPACK 开关，和 three 传它时一样），缩小图走 mips()。
-   * 同一张显示图的设置和活的图一样（SRGB8_ALPHA8、放大最近邻 / 缩小三线性、夹边）。动了显卡：调用的人 resetState() 一次。
+   * 同一张显示图的设置和活的图一样（RGBA8、放大最近邻 / 缩小三线性、夹边）。动了显卡：调用的人 resetState() 一次。
    */
   fromBitmap(bmp: ImageBitmap): unknown {
     const tex = new (THREE as any).ExternalTexture(null);
-    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.colorSpace = THREE.NoColorSpace;   // 存的就是 sRGB 的数、不自动解码（颜色空间约定）；用它的着色器自己决定要不要解成线性
     tex.userData = { paint: true };
     const s: StaticEntry = { tex, bmp, w: bmp.width, h: bmp.height, disp: null };
     this.statics.add(s);
@@ -133,7 +149,7 @@ export class LiveTextures {
   private makeDisplay(w: number, h: number): WebGLTexture {
     const gl = this.gl, t = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.texStorage2D(gl.TEXTURE_2D, levelsOf(w, h), gl.SRGB8_ALPHA8, w, h);
+    gl.texStorage2D(gl.TEXTURE_2D, levelsOf(w, h), gl.RGBA8, w, h);   // 不自动解码（颜色空间约定）
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -146,7 +162,7 @@ export class LiveTextures {
     let e = this.entries.get(img);
     if (!e) {
       const tex = new (THREE as any).ExternalTexture(null);
-      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.colorSpace = THREE.NoColorSpace;   // 存的就是 sRGB 的数、不自动解码（颜色空间约定）；用它的着色器自己决定要不要解成线性
       e = { tex, disp: null, w: 0, h: 0, ver: -1, mipsStale: false };
       this.entries.set(img, e);
     }
@@ -226,7 +242,7 @@ export class LiveTextures {
     gl.attachShader(q, v2); gl.attachShader(q, f2); gl.linkProgram(q);
     gl.deleteShader(v2); gl.deleteShader(f2);
     if (!gl.getProgramParameter(q, gl.LINK_STATUS)) throw new Error(`live-image downsample program: ${gl.getProgramInfoLog(q)}`);
-    this.ds = q; this.dsSrc = gl.getUniformLocation(q, "uSrc"); this.dsSize = gl.getUniformLocation(q, "uSrcSize");
+    this.ds = q; this.dsSrc = gl.getUniformLocation(q, "uSrc"); this.dsSize = gl.getUniformLocation(q, "uSrcSize"); this.dsLinear = gl.getUniformLocation(q, "uLinear");
     this.fbo = gl.createFramebuffer();
     // 方框的实例缓冲：location 0 = 每个实例一个 vec4（divisor 1），每次画重填
     this.vao = gl.createVertexArray(); this.buf = gl.createBuffer();
@@ -301,6 +317,7 @@ export class LiveTextures {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, disp);
     gl.uniform1i(this.dsSrc, 0);
+    gl.uniform1i(this.dsLinear, this.mipSpace === "linear" ? 1 : 0);
     let cur = ch, pw = w, ph = h;
     for (let l = 1; l < n; l++) {
       const lw = Math.max(1, w >> l), lh = Math.max(1, h >> l);

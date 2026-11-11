@@ -226,12 +226,11 @@ const TEX_FRAG = /* glsl */`
   varying vec2 vUv;
   varying vec3 vColor;
   varying vec3 vNormal;
-  // 贴图按 sRGB 存（过滤 / 缩小图在线性里做），采样出来是线性的；纯色面的颜色是 sRGB 的值、直接出——所以贴图采样之后先编码回 sRGB，再和纯色面走同一段明暗。
-  // 以前直接把线性值写出去 = 导入的图比它的字节暗（128 显示成 55）；W-14（2026-11-11，Claude Opus 5.5）修。
-  vec3 toSrgb(vec3 l) { return mix(l * 12.92, 1.055 * pow(max(l, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), l)); }
+  // 复古那条路（颜色空间约定第二节第 3 条）：贴图不自动解码，取样拿到的就是存着的 sRGB 的数（过滤 / 缩小图也在这些数上做）；明暗 = 直接乘一个系数，和纯色面同一段。
+  // 历史：W-14（v0.19.17）时贴图是会自动解码的格式、这里先编码回 sRGB——放大逐级对，缩小着看（线性里平均）偏白；2026-11-11 换成不解码的格式，这一步去掉。
   void main() {
     float k = uUnlit ? 1.0 : 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));
-    vec3 t = toSrgb(texture2D(uMap, vUv).rgb);
+    vec3 t = texture2D(uMap, vUv).rgb;
     vec3 c = t * vColor;
     #ifdef SEL
     c = t * uMark;   // 标记：贴图 × 状态色（和以前的贴图高亮同一个式子）
@@ -884,7 +883,7 @@ export class Renderer3 implements RenderProvider {
     const paintBase = map && !isLive(map) ? map.paint?.base : undefined;   // 画的合成图：解好之前占位用材质的底色（1-8b 统筹审查：不许先闪一下灰）
     const fill = paintBase ? [0, 1, 2].map((i) => Math.round(Math.min(1, Math.max(0, paintBase[i] ?? 1)) * 255)) : [200, 200, 200];
     tex = new THREE.DataTexture(new Uint8Array([fill[0], fill[1], fill[2], 255]), 1, 1);
-    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.colorSpace = THREE.NoColorSpace;   // 存的就是 sRGB 的数、不自动解码（颜色空间约定）
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.needsUpdate = true;
     this.applyTexFilter(tex);
@@ -901,7 +900,7 @@ export class Renderer3 implements RenderProvider {
         if (paint) { real = this.liveTextures().fromBitmap(bmp); this.renderer.resetState(); }
         else {
           real = new THREE.Texture(bmp);
-          real.colorSpace = THREE.SRGBColorSpace; real.wrapS = real.wrapT = THREE.RepeatWrapping;
+          real.colorSpace = THREE.NoColorSpace; real.wrapS = real.wrapT = THREE.RepeatWrapping;   // RGBA8：取样拿到 sRGB 的数（颜色空间约定）；缩小图是驱动做的，在 sRGB 的数上平均
           real.flipY = false; real.generateMipmaps = true; real.minFilter = THREE.LinearMipmapLinearFilter;
           real.needsUpdate = true; this.applyTexFilter(real);
         }
@@ -922,7 +921,7 @@ export class Renderer3 implements RenderProvider {
   /** 活的图（画）的专用显示图：第一次用到时建；显卡画面丢了忘掉原始 GL 对象、恢复后重拷。 */
   private live: LiveTextures | null = null;
   private liveTextures(): LiveTextures {
-    if (!this.live) { const lt = new LiveTextures(this.renderer.getContext()); this.live = lt; this.renderer.domElement.addEventListener?.("webglcontextlost", () => lt.lost()); }
+    if (!this.live) { const lt = new LiveTextures(this.renderer.getContext()); lt.mipSpace = this.preset.material.mixSpace; this.live = lt; this.renderer.domElement.addEventListener?.("webglcontextlost", () => lt.lost()); }
     return this.live;
   }
   /** 画画内核共用的显卡画面（契约 RenderProvider.paintGl）。 */
@@ -964,6 +963,7 @@ export class Renderer3 implements RenderProvider {
     if (p === this.preset) return;
     this.preset = p; this.poolKey = "";
     for (const t of this.texCache.values()) this.applyTexFilter(t);
+    if (this.live?.setMipSpace(p.material.mixSpace)) this.renderer.resetState();   // 画的显示图：缩小图换平均的空间（复古 sRGB / 写实线性），整套重做
   }
   getPreset(): PresetId { return this.preset.id as PresetId; }
   /** 贴图过滤跟预设走（像素风 = 最近邻；不改资产，只改采样）。 */

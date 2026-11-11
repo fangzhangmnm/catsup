@@ -64,7 +64,6 @@ const FACE_FS = /* glsl */`
   #endif
   #ifdef TEX
   in vec2 vUv; uniform sampler2D uMap;
-  vec3 toSrgb(vec3 l) { return mix(l * 12.92, 1.055 * pow(max(l, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), l)); }
   #endif
   uniform bool uModelColor;   // 照模型上色（写实）：顶点色（材质色，sRGB）/ 贴图进底色；false = 材料本色（铸铜）
   uniform vec3 uBase;
@@ -91,7 +90,7 @@ const FACE_FS = /* glsl */`
     float specAA = min(0.3 * (dot(dNx, dNx) + dot(dNy, dNy)), 0.2);
     vec3 base = uModelColor ? pow(max(c, 0.0), vec3(2.2)) : pow(uBase, vec3(2.2));
     #ifdef TEX
-    if (uModelColor) base = pow(max(toSrgb(texture(uMap, vUv).rgb) * vColor, 0.0), vec3(2.2));   // 贴图按 sRGB 存、采样出来是线性：先编码回 sRGB，再和纯色面走同一个 2.2（以前直接用精确的 sRGB 曲线，暗处和同色的纯色面差到 8 级；W-14，2026-11-11）
+    if (uModelColor) base = pow(max(texture(uMap, vUv).rgb * vColor, 0.0), vec3(2.2));   // 写实那条路（颜色空间约定第二节第 4 条）：贴图不自动解码，取样拿到 sRGB 的数，和纯色面走同一个 2.2 解成线性（W-14 那步编码回 sRGB 不要了：格式换成不解码的）
     #endif
     float occl = 1.0, sh = 1.0;
     if (uAoOn) { occl = aoAt(P, Nf); if (uSunOn) sh = sunShadow(P, Nf); }
