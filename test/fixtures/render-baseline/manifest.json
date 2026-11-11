@@ -45,8 +45,8 @@
     "fixture-painted": {
       "w": 744,
       "h": 1133,
-      "frozenAt": "2026-10-30",
-      "version": "v0.17.51-2026-10-29"
+      "frozenAt": "2026-11-11",
+      "version": "v0.19.17-20261111"
     },
     "fixture-guided": {
       "w": 744,
@@ -69,8 +69,8 @@
     "box-textured": {
       "w": 744,
       "h": 1133,
-      "frozenAt": "2026-10-30",
-      "version": "v0.18.14-2026-10-30"
+      "frozenAt": "2026-11-11",
+      "version": "v0.19.17-20261111"
     },
     "style-pixel-sel": {
       "w": 744,
@@ -87,8 +87,8 @@
     "style-pixel-textured": {
       "w": 744,
       "h": 1133,
-      "frozenAt": "2026-10-30",
-      "version": "v0.18.14-2026-10-30"
+      "frozenAt": "2026-11-11",
+      "version": "v0.19.17-20261111"
     },
     "style-papercut-boxes": {
       "w": 744,
@@ -141,8 +141,8 @@
     "marks-painted-selall": {
       "w": 744,
       "h": 1133,
-      "frozenAt": "2026-10-30",
-      "version": "v0.17.59-2026-10-30"
+      "frozenAt": "2026-11-11",
+      "version": "v0.19.17-20261111"
     },
     "dim-context-sel": {
       "w": 744,
