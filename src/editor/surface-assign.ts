@@ -12,6 +12,8 @@ import { applyNormal, applyPt } from "../scene/xform.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { ToolPointer } from "./editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "./tool-handler.ts";
+import { type MeshKernel, FF_HIDDEN } from "../mesh/mesh-kernel.ts";
+import { edgeSmooth } from "../mesh/edge-smooth.ts";
 
 export const SURFACE_TIERS = [
   { id: "smooth", label: "平滑组", hint: "沿软边连通的面 = 一张逻辑面（单击）" },
@@ -37,10 +39,35 @@ export function sidesForAssign(k: Kernel, seed: FaceId, side: Side, tier: Surfac
 }
 /** 屏上 (x, y) 看到的是面 f 的哪一侧：射线和面的法向（世界系，逆转置）反向 = 看到 +n 那侧（0）。 */
 export function sideSeen(ctx: ToolCtx, f: FaceId, s: { x: number; y: number }): Side {
+  if (ctx.selection().kind === "mesh") return 0;   // 网格体一张面只有一侧（W-12）
   const rec = ctx.kernel().planeOf(f);
   if (!rec) return 0;
   const n = applyNormal(ctx.ctxXform(), rec.plane.n), d = ctx.frame().ray(s.x, s.y, ctx.vp()).dir;
   return n.x * d.x + n.y * d.y + n.z * d.z < 0 ? 0 : 1;
+}
+
+/**
+ * 网格体的三档（W-12，2026-11-11 Claude Opus 5.5）：平滑组 = 沿平滑的边（edge-smooth.ts edgeSmooth：手标 + 默认平滑）走；到锐角为止 = 平滑 ∨ 两张面的夹角 ≤ 阈值；连通体 = 沿任何边。
+ * 藏起来的面不走、不涂。和硬表面那一份（kernel/flood.ts）分开写：网格体没有两侧、没有膜。
+ */
+export function meshFacesForAssign(m: MeshKernel, seed: number, tier: SurfaceTier, sharpDeg: number): number[] {
+  if (!m.hasF(seed)) return [];
+  const cosMax = Math.cos((sharpDeg * Math.PI) / 180), out = [seed], seen = new Set([seed]);
+  const crosses = (e: number, a: number, b: number): boolean => {
+    if (tier === "connected") return true;
+    if (edgeSmooth(m, e)) return true;
+    if (tier === "smooth") return false;
+    const na = m.faceNormal(a), nb = m.faceNormal(b);
+    return na.x * nb.x + na.y * nb.y + na.z * nb.z >= cosMax - 1e-12;
+  };
+  for (let i = 0; i < out.length; i++) {
+    const f = out[i];
+    for (const e of m.fEdges(f)) {
+      if (e < 0) continue;
+      for (const g of m.eFaces(e)) if (!seen.has(g) && !(m.faceFlags[g] & FF_HIDDEN) && crosses(e, f, g)) { seen.add(g); out.push(g); }
+    }
+  }
+  return out.sort((a, b) => a - b);
 }
 
 export interface SurfaceAssignOpts {
@@ -48,7 +75,7 @@ export interface SurfaceAssignOpts {
   /** 这个工具的动词名（提示用：「涂了 N 张面」）。 */
   readonly verb: string;
   /** 把值指派给这些面（活动池本地 id）；sides 与 faces 对齐 = 各涂哪一侧（DT8：0 = +n、1 = −n；不给 = 两侧）。 */
-  apply(ctx: ToolCtx, faces: readonly FaceId[], sides?: readonly Side[]): void;
+  apply(ctx: ToolCtx, faces: readonly FaceId[], sides?: readonly Side[]): boolean | void;   // false = 没做成（被拒：提示行已经是拒绝的原因，工具不再说「涂了」）
   /** 吸：从这张面的这一侧读值回工具的「蘸的」。 */
   sample(ctx: ToolCtx, face: FaceId, side: Side): void;
   /** 这张面这一侧现在的值叫什么（吸色提示用）；不给就只说「这张面」。 */
@@ -112,11 +139,17 @@ export class SurfaceAssignTool implements ToolHandler {
       else ctx.hint("吸色：点一张面");
       return;
     }
-    if (dragged && scrub.length) { this.opts.apply(ctx, scrub, scrub.map((x) => scrubSide.get(x) ?? 0)); ctx.hint(`${this.opts.verb}了 ${scrub.length} 张面（刮过的，看到的那一侧）`); return; }
+    if (dragged && scrub.length) { if (this.opts.apply(ctx, scrub, scrub.map((x) => scrubSide.get(x) ?? 0)) === false) return; ctx.hint(`${this.opts.verb}了 ${scrub.length} 张面（刮过的，看到的那一侧）`); return; }
     if (f === null) { if (this.poolHit) ctx.hint("这张面在子 group / 组件里：双击进入后再" + this.opts.verb); return; }
     // DT8 两个表面：涂点到的那一侧（射线打到的那面），灌的时候按侧走（B17 / DT10）
     const seedSide = sideSeen(ctx, f, ev);
     const sel = ctx.selection();
+    if (sel.kind === "mesh") {   // 网格体（W-12）：点在面选区里 = 整个选区；否则按档灌。一侧，不分正反
+      const fs = n === 1 && sel.faces.size && sel.faces.has(f) ? [...sel.faces] : meshFacesForAssign(ctx.mesh(), f, tierMax(ctx.config.get("surface", "tier") as SurfaceTier, tierOfClicks(n)), ctx.config.get("surface", "sharpDeg"));
+      if (this.opts.apply(ctx, fs) === false) return;
+      ctx.hint(`${this.opts.verb}了 ${fs.length} 张面`);
+      return;
+    }
     if (n === 1 && sel.faces.size && sel.faces.has(f)) {
       // 选区：从点到的那张面的那一侧按侧走到选区里连着的面；连不到的面涂朝着镜头的那一侧
       const inSel = sel.faces;
@@ -124,13 +157,13 @@ export class SurfaceAssignTool implements ToolHandler {
       const got = new Set(reached.map((x) => x.face));
       const rest = [...inSel].filter((x) => !got.has(x));
       const all = [...reached, ...rest.map((x) => ({ face: x, side: this.facingSide(ctx, x) }))];
-      this.opts.apply(ctx, all.map((x) => x.face), all.map((x) => x.side));
+      if (this.opts.apply(ctx, all.map((x) => x.face), all.map((x) => x.side)) === false) return;
       ctx.hint(`${this.opts.verb}了选区 ${inSel.size} 张面（看到的那一侧）`);
       return;
     }
     const tier = tierMax(ctx.config.get("surface", "tier") as SurfaceTier, tierOfClicks(n));
     const hits = sidesForAssign(ctx.kernel(), f, seedSide, tier, ctx.config.get("surface", "sharpDeg"));
-    this.opts.apply(ctx, hits.map((x) => x.face), hits.map((x) => x.side));
+    if (this.opts.apply(ctx, hits.map((x) => x.face), hits.map((x) => x.side)) === false) return;
     const nFaces = new Set(hits.map((x) => x.face)).size, both = hits.length - nFaces;
     ctx.hint(`${this.opts.verb}了 ${nFaces} 张面（${SURFACE_TIERS.find((t) => t.id === tier)!.label}${both ? `；其中 ${both} 张两侧都灌到了` : ""}）`);
   }

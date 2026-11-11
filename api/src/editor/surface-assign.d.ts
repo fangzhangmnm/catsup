@@ -4,6 +4,7 @@ import { type Side } from "../kernel/flood.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { ToolPointer } from "./editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "./tool-handler.ts";
+import { type MeshKernel } from "../mesh/mesh-kernel.ts";
 export declare const SURFACE_TIERS: readonly [{
     readonly id: "smooth";
     readonly label: "平滑组";
@@ -34,12 +35,17 @@ export declare function sideSeen(ctx: ToolCtx, f: FaceId, s: {
     x: number;
     y: number;
 }): Side;
+/**
+ * 网格体的三档（W-12，2026-11-11 Claude Opus 5.5）：平滑组 = 沿平滑的边（edge-smooth.ts edgeSmooth：手标 + 默认平滑）走；到锐角为止 = 平滑 ∨ 两张面的夹角 ≤ 阈值；连通体 = 沿任何边。
+ * 藏起来的面不走、不涂。和硬表面那一份（kernel/flood.ts）分开写：网格体没有两侧、没有膜。
+ */
+export declare function meshFacesForAssign(m: MeshKernel, seed: number, tier: SurfaceTier, sharpDeg: number): number[];
 export interface SurfaceAssignOpts {
     readonly tool: Tool;
     /** 这个工具的动词名（提示用：「涂了 N 张面」）。 */
     readonly verb: string;
     /** 把值指派给这些面（活动池本地 id）；sides 与 faces 对齐 = 各涂哪一侧（DT8：0 = +n、1 = −n；不给 = 两侧）。 */
-    apply(ctx: ToolCtx, faces: readonly FaceId[], sides?: readonly Side[]): void;
+    apply(ctx: ToolCtx, faces: readonly FaceId[], sides?: readonly Side[]): boolean | void;
     /** 吸：从这张面的这一侧读值回工具的「蘸的」。 */
     sample(ctx: ToolCtx, face: FaceId, side: Side): void;
     /** 这张面这一侧现在的值叫什么（吸色提示用）；不给就只说「这张面」。 */

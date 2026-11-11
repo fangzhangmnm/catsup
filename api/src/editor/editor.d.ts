@@ -1043,7 +1043,7 @@ export declare class Editor {
     /** 蘸的材质在文档材质表里的索引（没有就在这一步里新建：图 = addTexture + addMaterial，paint-material.ts 算）；null = 默认。 */
     private materialIndexForPick;
     /** 给活动池里的这些面涂当前材质（op）。 */
-    paintFaces(faces: readonly FaceId[], sides?: readonly (0 | 1)[]): void;
+    paintFaces(faces: readonly FaceId[], sides?: readonly (0 | 1)[]): boolean;
     /** 吸色：把这张面这一侧的材质设成油漆桶当前「蘸的」（没材质 = 默认正面；默认背面 = 那一格）。 */
     pickMaterialOf(face: FaceId, side?: 0 | 1): void;
     /** 把选区（面）涂上当前材质。 */
