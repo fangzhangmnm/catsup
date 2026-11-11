@@ -12,9 +12,15 @@ export interface PaintMeterBadge {
         max: Record<string, number>;
         gapMs: number;
         dropped: number;
+        checks: number;
+        mismatches: number;
+        skipped: number;
     };
 }
 export declare function mountPaintMeterBadge(o: {
     sceneMs(): number;
     copyMs(): number;
+    mipsMs(): number;
+    pathLabel(): string;
+    check(): boolean;
 }): PaintMeterBadge;

@@ -13,16 +13,21 @@ export declare class LiveTextures {
     /**
      * 缩小图怎么跟（1-4d 第 6 条要量两种做法）："region" = 每次只重做变了的那一块牵涉到的格子（默认）；
      * "defer" = 画的时候只拷第 0 级、缩小图等不再变了（有一帧没有新版本）再整套做一次——只给探针量，缩小着看会看不到正在画的那一笔；
-     * "full" = 不看变化史、每次整张（改之前的做法，只给探针当对照量）。
+     * "full" = 不看变化史、每次整张（同一个着色器；读数角标「强制整张」、探针当对照量）；
+     * "driver" = 每次整张、缩小图交给驱动的 generateMipmap（= 改之前那条路；读数角标「测量用」，只为量会不会负优化——远看的颜色可能和冷的合成图差一点）。
+     * 换做法用 setMipMode（换了 = 下一帧整张重拷，两种算法的缩小图不混在一张图里）。
      */
-    mipMode: "region" | "defer" | "full";
+    mipMode: "region" | "defer" | "full" | "driver";
+    setMipMode(m: "region" | "defer" | "full" | "driver"): void;
     /** 最近一次拷了多少格（第 0 级的像素数）、几段（实例数）（探针量）。 */
     lastCopyCells: number;
     lastCopyRuns: number;
     /** 最近一次拷贝（拷 + 生成缩小图）花了多少毫秒（CPU 时间；探针量）。 */
     lastCopyMs: number;
-    /** 这一帧拷了多久（每次 update 从 0 记起；没拷 = 0）。 */
+    /** 这一帧拷第 0 级花了多久（不含缩小图；每次 update 从 0 记起；没拷 = 0）。 */
     frameCopyMs: number;
+    /** 这一帧做缩小图花了多久（读数角标单列：缩小图每级一趟，真机上占多少要一眼看得见；统筹 11-11）。 */
+    frameMipsMs: number;
     private readonly gl;
     constructor(gl: WebGL2RenderingContext);
     get size(): number;
@@ -57,4 +62,18 @@ export declare class LiveTextures {
      * 画第 l 级时显示图只开着第 l − 1 级（BASE = MAX = l − 1：读的和写的不是同一级，不算读写打架）；做完恢复成整套。
      */
     private mips;
+    /**
+     * 核对（读数角标「核对」开着时；统筹 11-11）：每张活的图的显示图每一级读回 → 按现在的做法整张重拷（同一张合成图）→ 再读回，逐字节比。
+     * 整张那份留下来当现在的显示图（对不上时它才是对的）。读回会等显卡做完：只在核对那一帧做。动了显卡：调用的人 resetState() 一次。
+     */
+    verify(): {
+        w: number;
+        h: number;
+        levels: {
+            level: number;
+            diff: number;
+            box: readonly [number, number, number, number] | null;
+        }[];
+    }[];
+    private readLevels;
 }

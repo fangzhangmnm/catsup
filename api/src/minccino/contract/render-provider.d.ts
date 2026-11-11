@@ -125,6 +125,23 @@ export interface RenderProvider {
     resetPaintState(): void;
     /** 画进离屏图的那个小显卡接口（契约 offscreen-gpu.ts；贴图主线 1-4b）：真显卡版，建在这个画面上；不是 WebGL2 = null。每个动作做完自己归位并作废 three 的状态缓存。 */
     offscreenGpu(): import("./offscreen-gpu.ts").OffscreenGpu | null;
+    /** 缩小图怎么做："region" = 只重做变了的格（正式）；"full" = 每帧整张（同一个着色器）；"driver" = 整张 + 驱动的 generateMipmap（只为测量）。换了 = 下一帧整张重拷。 */
+    liveMips(mode: "region" | "full" | "driver"): void;
+    /** 这一帧拷第 0 级 / 做缩小图各花了多少毫秒（CPU 交给显卡的时间）。 */
+    liveFrameMs(): {
+        copy: number;
+        mips: number;
+    };
+    /** 核对：每张活的图的显示图每一级读回 → 整张重拷 → 再读回，逐字节比（契约 pixel-diff.ts 的比法）；动完显卡自己作废 three 的状态缓存。 */
+    liveVerify(): {
+        w: number;
+        h: number;
+        levels: {
+            level: number;
+            diff: number;
+            box: readonly [number, number, number, number] | null;
+        }[];
+    }[];
     lastBudget: BudgetReport | null;
     lastMeasurement: Measurement | null;
     lastPlan: {

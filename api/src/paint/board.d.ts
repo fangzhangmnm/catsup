@@ -106,6 +106,14 @@ export declare class PaintBoard {
      * 同步：真显卡上是一次读回（会等显卡做完）。显卡画面丢了 / 扔过 = null。
      */
     composeBytes(rows?: number): Uint8ClampedArray | null;
+    /**
+     * 核对（读数角标「核对」开着时；统筹 11-11）：现在显示的那张合成图（可能是只合了脏格的）读回 → 强制整张重合（同样的内容、同样垫着薄层）→ 再读回，逐字节比。
+     * 整张那张留下来当现在的图；对不上 = 变化史记一版「整张」（显示那一侧下一帧整张重拷，不留着错的）。没合成过 / 画面丢了 = null。读回会等显卡做完：只在核对那一帧做。
+     */
+    verifyFull(): {
+        diff: number;
+        box: readonly [number, number, number, number] | null;
+    } | null;
     /** 显示的那张合成图上一格的颜色（RGBA 字节，垫着底色、不透明；吸管用，1-7）。出界 / 显卡画面丢了 = null。 */
     pixelAt(x: number, y: number): Uint8Array | null;
     /** 现在的底色（sRGB 0..1，三个数）。 */

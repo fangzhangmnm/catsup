@@ -46,6 +46,14 @@ export declare class PaintBoards {
     private readonly jobs;
     /** 每帧开画之前的准备（编辑器的 beforeRender 调）：sync → 这一帧的准备活 → 合成。一块画板都没有 = 什么都不做。 */
     prepare(scene: Scene): void;
+    /**
+     * 核对（读数角标「核对」；统筹 11-11）：这块画板的内核合成图 vs 强制整张重合（PaintBoard.verifyFull），完了把「准备好的」换成整张那张——
+     * 显示那一侧的核对从它重拷（不换的话 current() 还交帧头那张：内核整张重合可能换了一张图，显示图的核对会拿旧的比旧的，什么都看不出来；探针丢报那条抓到的）。
+     */
+    verifyFull(texture: Guid): {
+        diff: number;
+        box: readonly [number, number, number, number] | null;
+    } | null;
     /** 上一次「准备」两段（量；毫秒）：这一帧的准备活（薄层）/ 内核合成（含缩小图）。 */
     lastPrepare: {
         jobsMs: number;
