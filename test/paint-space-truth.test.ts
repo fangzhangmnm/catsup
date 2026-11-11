@@ -1,9 +1,9 @@
-// 空间里的笔：标准答案（贴图主线 1-4a 第四节 + 第六节测试 9 的格子那一半、测试 11 铺法换掉结果不变）。created 2026-11-11 by Claude Opus 5.5
+// 空间里的笔：标准答案（贴图主线 1-4a 第四节 + 第六节测试 9 的格子那一半、测试 11 铺法换掉结果不变；审后补：块边上的格子）。created 2026-11-11 by Claude Opus 5.5
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { FRESH } from "../src/mesh/corner-columns.ts";
 import { buildTargetGeo, type TargetGeo } from "../src/paint/space-target.ts";
-import { tipReach } from "../src/paint/tip-reach.ts";
+import { sphereTriDist, tipReach } from "../src/paint/tip-reach.ts";
 import { strokeTruth, tipCellsInPoly } from "../src/paint/tip-truth.ts";
 import { SpaceStroke } from "../src/paint/space-stroke.ts";
 import { positionOnFace, samplePoint } from "../src/paint/texel-table.ts";
@@ -113,5 +113,42 @@ describe("标准答案（1-4a 测试 11：铺法换掉，结果不变）", () =>
       assert(a.w > 0 && b.w > 0, "有线");
       assert(Math.abs(a.w - b.w) <= a.cell + b.cell + 1e-9, `x = ${x0}：宽度 ${a.w.toFixed(4)} vs ${b.w.toFixed(4)}，只许差 ${(a.cell + b.cell).toFixed(4)}`);
     }
+  });
+});
+
+describe("标准答案（1-4a 审后补：块边上多归的格子）", () => {
+  it("一笔沿着 90° 折缝画（两张面各成一块）：中心在块外面的格子 = 块边上离格子中心最近的那一点、按定义直接算的值", () => {
+    const m = new MeshKernel(), v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0), P(1, 0, -1), P(1, 1, -1)].map((p) => m.addVertex(p));
+    const A = m.addFace([v[0], v[1], v[2], v[3]], -1, FRESH), B = m.addFace([v[2], v[1], v[4], v[5]], -1, FRESH);
+    const uv = laidOut(m, "uv", m.faces(), { density: 40 }), g = buildTargetGeo(targetOf(m, uv)), t = g.table, hardness = 0.3;
+    eq(t.polys.length, 2, "折角两边各成一块");
+    // 这张面上：画布坐标 → 世界（面是平的、铺法是仿射的：拿面上三个角解出来，不经过格子表）
+    const toWorld = (f: number) => { const c = m.cornerValues(f, "uv")!, w = m.faceVerts(f).map((k) => m.pt(k));
+      const e1 = [c[2] - c[0], c[3] - c[1]], e2 = [c[4] - c[0], c[5] - c[1]], det = e1[0] * e2[1] - e1[1] * e2[0];
+      return (x: number, y: number): Pt3 => { const dx = x - c[0], dy = y - c[1], a = (dx * e2[1] - dy * e2[0]) / det, b = (e1[0] * dy - e1[1] * dx) / det;
+        return P(w[0].x + a * (w[1].x - w[0].x) + b * (w[2].x - w[0].x), w[0].y + a * (w[1].y - w[0].y) + b * (w[2].y - w[0].y), w[0].z + a * (w[1].z - w[0].z) + b * (w[2].z - w[0].z)); }; };
+    const inside = (ring: ArrayLike<number>, x: number, y: number): boolean => { let o = false; for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) { const xi = ring[i], yi = ring[i + 1], xj = ring[j], yj = ring[j + 1]; if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) o = !o; } return o; };
+    const nearest = (ring: ArrayLike<number>, x: number, y: number): [number, number] => { let bx = 0, by = 0, bd = Infinity;
+      for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) { const ax = ring[j], ay = ring[j + 1], dx = ring[i] - ax, dy = ring[i + 1] - ay, s = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy))), qx = ax + s * dx, qy = ay + s * dy, d = Math.hypot(x - qx, y - qy);
+        if (d < bd) { bd = d; bx = qx; by = qy; } }
+      return [bx, by]; };
+    // 笔尖：贴着折缝（偏 A 一点）从 y = 0.2 走到 0.8
+    const tips = Array.from({ length: 13 }, (_, i) => ({ x: 0.97, y: 0.2 + 0.05 * i, z: 0, r: 0.15, alpha: 0.9 }));
+    const startOf = (p: Pt3): number => { let b = -1, bd = Infinity; for (let k = 0; k < g.grid.face.length; k++) { const d = sphereTriDist(p.x, p.y, p.z, g.wpos, 9 * k); if (d < bd) { bd = d; b = k; } } return b; };
+    const cells = strokeTruth([g], tips.map((tip) => ({ tip, reach: tipReach([g], tip, [{ ti: 0, tri: startOf(tip) }]) })), hardness, "max").get(0) ?? new Map<number, number>();
+    const direct = (p: Pt3): number => { let val = 0; for (const tp of tips) { const d = Math.hypot(p.x - tp.x, p.y - tp.y, p.z - tp.z); if (d < tp.r) val = Math.max(val, stampFalloff(d, tp.r, hardness * tp.r) * tp.alpha); } return val; };
+    let outside = 0, inked = 0;
+    for (const f of [A, B]) {
+      const poly = t.faces.get(f)!.poly, ring = t.polys[poly], W = toWorld(f);
+      for (let c = 0; c < t.owner.length; c++) {
+        if (t.owner[c] !== poly) continue;
+        const x = (c % t.width) + 0.5, y = Math.floor(c / t.width) + 0.5;
+        if (inside(ring, x, y)) continue;
+        const [sx, sy] = nearest(ring, x, y), want = direct(W(sx, sy)), have = cells.get(c) ?? 0;
+        assert(Math.abs(have - want) <= 1e-9, `面 ${f} 格子 (${x - 0.5}, ${y - 0.5})：${have} vs 定义 ${want}`);
+        outside++; if (have > 0) inked++;
+      }
+    }
+    assert(outside > 200 && inked > 20, `块外的格子 ${outside} 个，其中吃到墨的 ${inked} 个`);
   });
 });
