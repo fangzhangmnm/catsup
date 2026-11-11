@@ -177,7 +177,7 @@ export type Op =
   /** 翻转这些面的朝向（单面网格的正面 = 环的绕向）。 */
   | { op: "meshFlip"; def: number; faces: number[] }
   /** 开始画（贴图主线 1-3b；editor/paint-ops.ts）：给这些面铺一套贴图坐标、建一张没有字节的分层贴图和一个接着它的材质、把面换成它。三个 GUID 写在指令里（重放得到同一个身份）。 */
-  | { op: "startPaint"; def: number; faces: number[]; uvSet: Guid; textureGuid: Guid; materialGuid: Guid; names: { uvSet: string; paint: string; material: string }; color: [number, number, number]; density?: number; /** 没给密度时画布边长（2026-11-11 开始画时选；缺 = 1024，老指令流重放不变）。 */ canvas?: number }
+  | { op: "startPaint"; def: number; faces: number[]; uvSet: Guid; textureGuid: Guid; materialGuid: Guid; names: { uvSet: string; paint: string; material: string }; color: [number, number, number]; density?: number; /** 没给密度时画布边长（2026-11-11 开始画时选；缺 = 1024，老指令流重放不变）。 */ canvas?: number; /** 铺法（施工单十五）：faces = 一张面一块（缺 = 这个）、patches = 按朝向连成片。名字避开贴图行的 layout（那是「画铺在哪个定义的哪一套坐标上」）。 */ arrange?: "faces" | "patches" }
   /** 给网格体的面换材质（1-3b）：material = 文档材质的下标、null = 默认；可以换成这个定义自己的画，别的定义的画拒绝；从画换走角上的数留着。 */
   | { op: "meshPaintFaces"; def: number; faces: number[]; material: number | null }
   /** 给走画但还没有位置的面补一块（1-3b；每一步做完的收尾补进同一步）：faces = 只看这些（不给 = 全部）。放不下的不拒绝，留着没有值。 */
@@ -957,7 +957,7 @@ export function describeOp(op0: Op): string {
     case "meshDuplicate": return `meshDuplicate def=${op.def} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFill": return `meshFill def=${op.def} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFlip": return `meshFlip def=${op.def} faces=${op.faces.length}`;
-    case "startPaint": return `startPaint def=${op.def} faces=${op.faces.length} uv=${op.uvSet.slice(0, 4)}${op.density !== undefined ? ` density=${op.density}` : ""}${op.canvas !== undefined ? ` canvas=${op.canvas}` : ""}`;
+    case "startPaint": return `startPaint def=${op.def} faces=${op.faces.length} uv=${op.uvSet.slice(0, 4)}${op.density !== undefined ? ` density=${op.density}` : ""}${op.canvas !== undefined ? ` canvas=${op.canvas}` : ""}${op.arrange !== undefined ? ` arrange=${op.arrange}` : ""}`;
     case "meshPaintFaces": return `meshPaintFaces def=${op.def} faces=${op.faces.length} material=${op.material ?? "default"}`;
     case "meshLayoutPaint": return `meshLayoutPaint def=${op.def}${op.faces ? ` faces=${op.faces.length}` : ""}`;
     case "paste": return `paste${op.brep ? ` brep=${op.brep.faces.length}f` : ""}${op.mesh ? ` mesh=${op.mesh.faces.length}f` : ""}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${op.closure ? ` closure=${op.closure.definitions.length}d` : ""}${op.merge ? ` merge=${op.merge.entries}` : ""}${op.shelve?.length ? ` shelve=${op.shelve.length}` : ""}${at}`;

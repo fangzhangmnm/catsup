@@ -5,7 +5,7 @@
 import type { Op } from "./ops.ts";
 import type { DefId, Scene } from "../scene/scene.ts";
 import { COLOR_CHANNEL, COLOR_VALUE, paintIn } from "../format/document.ts";
-import { layoutAppend, layoutFaces } from "../paint/layout.ts";
+import { gapForCanvas, layoutAppend, layoutFaces } from "../paint/layout.ts";
 import { unplacedPaintFaces } from "../scene/paint.ts";
 
 export type PaintOutcome = null | { readonly rejected: string } | { readonly target: string };
@@ -52,7 +52,9 @@ export function applyStartPaint(s: Scene, op: StartPaint): PaintOutcome {
   const uvTaken = [...s.defs.values()].some((x) => x.body.kind === "mesh" && x.body.uvSets.has(op.uvSet)) || k.columnDefs().some((c) => c.guid === op.uvSet);
   const taken = [uvTaken ? `贴图坐标 ${op.uvSet}` : "", s.textures.has(op.textureGuid) ? `贴图 ${op.textureGuid}` : "", s.materials.some((m) => m.guid === op.materialGuid) ? `材质 ${op.materialGuid}` : ""].filter(Boolean);
   if (taken.length) return { rejected: `开始画：这些身份已经有了（${taken.join("、")}），换新的再来` };
-  const r = layoutFaces(k, faces, op.density !== undefined ? { density: op.density } : { base: op.canvas ?? 1024 });   // 没给密度 = 画布 canvas 见方里找最大密度（缺 = 1024）
+  // 没给密度 = 画布 canvas 见方里找最大密度（缺 = 1024）；留的格数跟着画布走（1024 = 4，和以前一样）；铺法缺 = 一张面一块（施工单十五：缺的时候和以前逐位相同）
+  const base = op.canvas ?? 1024, gap = gapForCanvas(base), style = op.arrange === "patches" ? "patches" as const : "faces" as const;
+  const r = layoutFaces(k, faces, op.density !== undefined ? { density: op.density, gap, style } : { base, gap, style });
   if (!r.ok) return { rejected: `开始画：铺不下——${r.reason}` };
   // 查完了，动手
   k.addColumn({ guid: op.uvSet, arity: 2 });
@@ -75,7 +77,7 @@ export function applyMeshLayoutPaint(s: Scene, op: MeshLayoutPaint): PaintOutcom
   if (!d || d.body.kind !== "mesh") return { target: `definition ${op.def} (not a mesh)` };
   const b = d.body, k = b.kernel, pending = unplacedPaintFaces(s, op.def, op.faces ?? null);
   for (const g of [...pending.keys()].sort()) {
-    const row = b.uvSets.get(g)!, r = layoutAppend(k, g, [], pending.get(g)!, { width: row.width, height: row.height }, row.pxPerM, { partial: true });
+    const row = b.uvSets.get(g)!, r = layoutAppend(k, g, [], pending.get(g)!, { width: row.width, height: row.height }, row.pxPerM, { partial: true, gap: gapForCanvas(row.width) });   // 补面也按那张画布的宽留格（施工单十五第四节）
     if (!r.ok) continue;   // partial 不会走到这里（放不下的进 unplaced）
     for (const [f, v] of r.values) k.setFaceValues(f, g, v);
     if (r.height !== row.height) b.uvSets.set(g, Object.freeze({ ...row, height: r.height }));

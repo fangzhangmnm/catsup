@@ -26,7 +26,7 @@ const canvasOf = (v: unknown): number => ((CANVAS_SIZES as readonly number[]).in
 
 export const startPaint: Command<MeshUnit> = {
   id: "mesh.startPaint", unit: "mesh", title: "开始画",
-  defaults: () => ({ canvas: 1024 }),
+  defaults: () => ({ canvas: 1024, arrange: "patches" }),   // 界面发出去的永远带这两个（施工单十五）；没给的老入口 = 1024 见方、连成片
   params: () => [],   // 画布边长由「开始画」那张面板选（没有马后炮）
   quickCount: (env, u) => facesToStart(env.scene, u).length,
   plan(env, u, v) {
@@ -36,7 +36,7 @@ export const startPaint: Command<MeshUnit> = {
     const only = mats.size === 1 ? [...mats][0] : null;
     const color: [number, number, number] = only ? [only.color[0], only.color[1], only.color[2]] : FACE_GREY;
     const taken = new Set([...s.textures.values()].map((t) => t.name)), name = ((): string => { if (!taken.has("画")) return "画"; let i = 2; while (taken.has(`画 ${i}`)) i++; return `画 ${i}`; })();
-    return { ops: [{ op: "startPaint", def: u.def, faces, uvSet: mintGuid(), textureGuid: mintGuid(), materialGuid: mintGuid(), names: { uvSet: name, paint: name, material: name }, color, canvas: canvasOf(v.canvas) }], count: faces.length };
+    return { ops: [{ op: "startPaint", def: u.def, faces, uvSet: mintGuid(), textureGuid: mintGuid(), materialGuid: mintGuid(), names: { uvSet: name, paint: name, material: name }, color, canvas: canvasOf(v.canvas), arrange: v.arrange === "faces" ? "faces" : "patches" }], count: faces.length };
   },
   done: (n) => `开始画了：${n} 张面铺上了一张画，现在用笔在上面画`,
   none: "开始画：这个物件已经有画了，直接用笔画（要给别的面另开一张：先选中那几张面）",
