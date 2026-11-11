@@ -70,7 +70,8 @@ import { DEFAULT_SNAP, Editor, GRID_PLANES, TOOLS, UNIT_SYSTEMS, isUnitSystem, s
 import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { Renderer3 } from "../minccino/providers/three/render3.ts";
-import { browserPaintBoards } from "../paint/boards.ts";   // 画板登记处（贴图主线 1-3c）：一张贴图一块画板；这一张只有调试钩子 __catsup.paint 建
+import { browserPaintBoards, PAINT_UNDO_KIND, type PaintRec } from "../paint/boards.ts";
+import { PAINT_STEP_LABELS } from "../editor/step-labels.ts";   // 画板登记处（贴图主线 1-3c）：一张贴图一块画板；这一张只有调试钩子 __catsup.paint 建
 import { paintPlaceOf } from "../scene/paint.ts";
 import { buildTriGrid, pickSurface } from "../paint/surface-pick.ts";   // 调试钩子 __catsup.paint.cellAt：1-3a 的落点
 import { applyDir, applyPt, invert } from "../scene/xform.ts";
@@ -221,7 +222,11 @@ const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.is
 // ---------- Editor ----------
 let _session: Session | null = null;   // editor.host.changed 要同步喂 session（lazyblank 首笔安家）；session 在 editor 之后才建
 installInputDom();   // 输入闸的门口：window 捕获监听按注册先后跑，要排第一（ai-docs/20261105-input-gate-design.md）
+// 画的撤销（贴图主线 1-8a）：编辑器比画板登记处先建，宿主钩子经这两个转接（登记处建好之后赋值）
+let paintAfterCommit: (() => void) | null = null, paintBeforeHistoryMove: (() => void) | null = null;
 const editor = new Editor(canvas, {
+  afterCommit: () => paintAfterCommit?.(),   // 每条指令提交完：画板跟大小、内核封的那几步挂进这一步
+  beforeHistoryMove: () => paintBeforeHistoryMove?.(),   // 撤销 / 重做之前：开着的那一笔先取消
   editHold: () => inputGate.held(),   // 编辑器的口问这里；理由在 session 建好之后登记
   optionKv: { get: (k) => deviceKvGet(k), set: (k, v) => deviceKvSet(k, v) },   // 工具选项 device 持久化（surface 组：user「锐角阈值和模式的持久化不同工具共享」）
   hint: (t) => { hintEl.textContent = t ?? hintDefault(); },
@@ -267,7 +272,14 @@ const editor = new Editor(canvas, {
   readout: (text) => { readoutEl.textContent = text; readoutEl.hidden = !READOUT_ON || !text; },   // 右下血槽位（A28）；10-25 先不显示（READOUT_ON）
 }, new Renderer3(canvas, perf));
 // 画显示到模型上（贴图主线 1-3c）：内核的显卡接口建在渲染器的画面上（第一次建画板时）；换文件 = editor.docEpoch 变 = 全部销毁。没有画板 = 渲染器每帧不多做事。
-const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => editor.docEpoch, (m) => note("paint", m), () => editor.renderer3.resetPaintState());
+const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => editor.docEpoch, (m) => note("paint", m), () => editor.renderer3.resetPaintState(),
+  (texture, why, tell) => {   // 内核说这张画以前的步全作废：三维的栈摘掉它的记录；状态不可信那一种告诉用户（1-8a）
+    editor.dropUndoRecords(PAINT_UNDO_KIND, (d) => (d as PaintRec).texture === texture);
+    if (tell) notify({ text: `「${editor.sceneRef.textures.get(texture)?.name ?? "画"}」这张画的撤销记录清掉了：${why}`, level: "warning" });
+  });
+editor.registerUndoComponent(paintBoards.undoComponent());
+paintAfterCommit = () => { paintBoards.follow(editor.sceneRef); for (const r of paintBoards.takePending()) editor.recordUndo(PAINT_UNDO_KIND, r); };
+paintBeforeHistoryMove = () => paintBoards.cancelOpen();
 editor.provider.setPaint(paintBoards);
 editor.beforeRender = () => paintBoards.prepare(editor.sceneRef);   // 每帧开画之前的「准备」（1-4b 统筹 B）：画板跟大小、这一笔的薄层、合成
 
@@ -2433,7 +2445,7 @@ void (async () => {
   paint: {
     boards: paintBoards,
     ensure: (guid?: string) => { const g = guid ?? [...editor.sceneRef.textures.keys()].find((t) => paintPlaceOf(editor.sceneRef, t)); if (!g) throw new Error("no placed paint in this scene"); const b = paintBoards.ensure(editor.sceneRef, g); editor.draw(); return { guid: g, width: b.width, height: b.height }; },
-    fill: (guid: string, rgba: ArrayLike<number>) => { const b = paintBoards.get(guid); if (!b) throw new Error(`no board for ${guid}`); b.load({ width: b.width, height: b.height, nodes: [{ name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: { rect: { x: 0, y: 0, w: b.width, h: b.height }, bytes: new Uint8ClampedArray(rgba) } }] }); editor.draw(); },
+    fill: (guid: string, rgba: ArrayLike<number>) => { const b = paintBoards.get(guid); if (!b) throw new Error(`no board for ${guid}`); paintBoards.load(guid, { width: b.width, height: b.height, nodes: [{ name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: { rect: { x: 0, y: 0, w: b.width, h: b.height }, bytes: new Uint8ClampedArray(rgba) } }] }); editor.draw(); },
     list: () => paintBoards.guids().map((g) => ({ guid: g, width: paintBoards.get(g)!.width, height: paintBoards.get(g)!.height })),
     stats: () => (editor.renderer3 as unknown as { liveStats(): { images: number; copyMs: number } }).liveStats(),
     /** 一整笔（贴图主线 1-4b；探针用）：屏幕点（CSS 像素）→ 1-4a 控制器 → 薄层（真显卡）→ 档口；每一点画一帧（准备在 draw 里）；cancel = 取消。第一笔时建画板。 */
@@ -2450,6 +2462,7 @@ void (async () => {
           ray: (sx, sy) => cam.ray(sx, sy, editor.vp()),
           pixelSize: (p) => { const vp = editor.vp(); if (cam.projection !== "persp") return (2 * cam.halfH) / vp.h; const e = cam.eye(), f = cam.forward(), d = (p.x - e.x) * f.x + (p.y - e.y) * f.y + (p.z - e.z) * f.z; return (2 * Math.tan(cam.fovY / 2) * d) / vp.h; },
         }),
+        commitStep: (erase) => editor.commitRecordsStep(erase ? PAINT_STEP_LABELS.erase : PAINT_STEP_LABELS.stroke, paintBoards.takePending().map((data) => ({ kind: PAINT_UNDO_KIND, data }))),   // 一笔 = 三维的一步（1-8a）
       }, g, { brush, color: [o.color?.[0] ?? 0.1, o.color?.[1] ?? 0.1, o.color?.[2] ?? 0.1], accum: o.accum ?? "over", erase: o.erase });
       // measure：每一帧各段（射线 + 走步 = move；准备里的取新笔尖 / 画薄层 / 交给档口；内核合成；拷到显示图；整帧）
       const frames: Record<string, number>[] = [], R3 = editor.renderer3 as unknown as { liveStats(): { copyMs: number } };

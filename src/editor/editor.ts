@@ -73,7 +73,8 @@ import { actionById, commandById, placementsAt, routesOf } from "./commands/regi
 import type { Surface } from "./commands/action.ts";
 import type { Command, CommandEnv, CommandId, ObjectUnit, Params as CmdParams, PlanOut, PoolUnit, Unit, UnitKind } from "./commands/command.ts";
 import { planWeld } from "../kernel/weld.ts";
-import { History, OpApplyError, type StepLabel } from "./history.ts";
+import { lastStepOf } from "./last-step.ts";
+import { History, OpApplyError, StepFlipError, type StepLabel, type UndoComponent } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
 import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
 import { accept as transferAccept, castPayload, extractForCopy as transferExtract, transferSay } from "./transfer.ts";   // 拷贝走 extractForCopy：带着画的面先拒（1-3b）
@@ -145,6 +146,8 @@ export type EditorTrace =
 
 export interface EditorHost {
   hint(text: string | null): void;
+  /** 每条指令提交完（收尾之后、这一步还开在栈顶）：画板跟着贴图坐标改大小、内核封的那几步挂进这一步（1-8a）。beforeHistoryMove = 撤销 / 重做之前：开着的那一笔先取消。 */
+  afterCommit?(): void; beforeHistoryMove?(): void;
   /** 跟指针的提示框；measure = 手势中的读数（user 2026-10-25「优先显示长度，参考只是参考」：第一行、最显眼）；scale = B43 尺度参考（拖动时才有；样式归宿主画）。 */
   tip(text: string | null, clientX: number, clientY: number, scale?: ScaleTipView | null, measure?: string): void;
   trace?(entry: EditorTrace): void;
@@ -237,8 +240,6 @@ declare const STEP_PASS_BRAND: unique symbol;
 export interface StepPass { readonly [STEP_PASS_BRAND]: true }
 const STEP_PASS = Object.freeze({}) as StepPass;
 
-/** 只记骨架（内核没动）的 op：复现包「上一步」的内核 = 现在这份。 */
-const SKELETON_ONLY: ReadonlySet<string> = new Set(["setMeshMirror", "transformInstance", "placeInstance", "eraseInstance", "moveInstance", "purgeMaterials", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "addTexture", "purgeTextures", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
 
 export class Editor {
   readonly cam = new OrbitCamera();
@@ -1265,7 +1266,7 @@ export class Editor {
       finally { this.mirrorMerging = false; }
     }
     if (symBefore) this.mirrorForceAfter(pass, op, symBefore);   // 同一步里补一条对称（撤销一下 = 一起撤）
-    this.host.changed();   // HUD（撤销钮 / 选项条 / 数值小窗）随每个 op 刷新
+    this.host.afterCommit?.(); this.host.changed();   // afterCommit：画板跟大小、那几步挂进这一步（1-8a）   // HUD（撤销钮 / 选项条 / 数值小窗）随每个 op 刷新
     return r.events;
   }
   /** 一步中途失败：把这一步已经提交的 op 撤掉（回到这一步之前，连会话），丢掉重做队列，这一步剩下的提交一律不执行。 */
@@ -1318,25 +1319,22 @@ export class Editor {
     this.host.hint(`操作失败（${where === "commit" ? "提交" : "预演"}）：${msg}`);
   }
 
-  /** 刚提交的那一步：op + 它之前的活动池 B-rep（复现包「上一步」；成功但错的也能寄）。没有 / 池不是 brep → null。 */
-  lastStep(): { op: Op; brep: BrepSnapshot; pool: PoolRef } | null {
-    const pos = this.history.position();
-    if (pos === 0) return null;
-    const op = this.history.log()[pos - 1];
-    const pool: PoolRef = ("at" in op && op.at) ? op.at : { def: this.scene.root, group: null };
-    try {
-      if (!this.scene.hasPool(pool) || this.scene.kindOf(pool.def) !== "brep") return null;
-      const k = this.history.beforeLastOp(pool) ?? (this.history.log()[pos - 1] && SKELETON_ONLY.has(op.op) ? this.scene.kernelOf(pool) : null);   // 按记录倒推，不重放指令流（v0.15.32）
-      if (!k) return null;
-      return { op, brep: k.toBrep(), pool };
-    } catch { return null; }
-  }
+  // —— 外加的撤销成分（画，1-8a；施工单 ai-docs/20261111-paint-workorders-12.md）：登记（换文件新建的栈也带上）/ 在栈顶那一步挂记录 / 一步只有记录（文档算改过）/ 摘记录 ——
+  private undoExtras: UndoComponent[] = [];
+  registerUndoComponent<R>(c: UndoComponent<R>): void { this.undoExtras.push(c as UndoComponent); this.history.registerComponent(c as UndoComponent); }
+  recordUndo(kind: string, data: unknown): void { this.history.record(kind, data); }
+  commitRecordsStep(label: StepLabel, records: readonly { readonly kind: string; readonly data: unknown }[]): void { if (!records.length) return; this.history.commitRecords(this.sessionSnap(), label, records); this._revision++; this.host.changed(); }
+  dropUndoRecords(kind: string, pred: (d: unknown) => boolean): number { const n = this.history.dropRecords(kind, pred); this.host.changed(); return n; }
+  /** 撤销 / 重做没做成（整步事务：什么都没动）：提示行说原因（翻回去也失败、已作废的那几样一起说）。 */
+  private flipRefused(what: "撤销" | "重做", e: StepFlipError): void { this.host.hint(`${what}没做成：${e.message}${e.untrusted.length ? `；${e.untrusted.join("；")}` : ""}`); this.host.trace?.({ kind: "fail", where: what === "撤销" ? "undo" : "redo", op: null, message: e.message }); this.host.changed(); this.draw(); }
+  /** 刚提交的那一步：op + 它之前的活动池 B-rep（复现包「上一步」；算法在 last-step.ts，1-8a 腾行时搬出去）。 */
+  lastStep(): { op: Op; brep: BrepSnapshot; pool: PoolRef } | null { return lastStepOf(this.history, this.scene); }
 
   undo(): void {
-    this.last = null;
+    this.last = null; this.host.beforeHistoryMove?.();   // 开着的那一笔先取消（1-8a：不许带着开着的令牌翻）
     if (this.gestureActive()) { this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }
     if (this.refuse()) return;
-    const r = this.history.undo();
+    let r: ReturnType<History<Session>["undo"]>; try { r = this.history.undo(); } catch (e) { if (e instanceof StepFlipError) { this.flipRefused("撤销", e); return; } throw e; }   // 整步事务（1-8a）
     if (!r) { const n = this.history.evictedSteps(); this.host.hint(n ? `撤到头了（更早的 ${n} 步超过 128 MB 配额，撤不回去）` : "没有可撤销的"); return; }
     this.deferredBefore = null;
     this.installScene(r.scene, r.before);   // 撤销 = 回到这一步之前：场景 + 在哪个组件里 + 选区一起（先装好，再碰界面）
@@ -1348,11 +1346,12 @@ export class Editor {
     this.draw();
   }
   redo(): void {
-    this.last = null;
+    this.last = null; this.host.beforeHistoryMove?.();
     if (this.refuse()) return;
     let r: ReturnType<History<Session>["redo"]>;
     try { r = this.history.redo(this.scene); }
     catch (err) {
+      if (err instanceof StepFlipError) { this.flipRefused("重做", err); return; }   // 整步事务（1-8a）：什么都没动
       const cause = err instanceof OpApplyError ? err.cause : err;
       if (err instanceof OpApplyError) this.installScene(err.restored, this.sessionSnap());   // 场景和会话一起回到重做前（§2 乱用表）
       this.host.trace?.({ kind: "fail", where: "redo", op: null, message: cause instanceof Error ? cause.message : String(cause) });
@@ -1379,7 +1378,7 @@ export class Editor {
     this.cancelGesture();
     this.scene = s;
     this.ctx = ROOT_CONTEXT;   // 装场景：不经写口
-    this.history = new History<Session>(s);
+    this.history = new History<Session>(s); for (const c of this.undoExtras) this.history.registerComponent(c);   // 外加的撤销成分（画）换文件也带上
     this._revision++;
     this.selection = this.blankSelection(); this.selectedPools.clear(); this.selectedGuides.clear();   // 装场景：不经写口
     this.clearCharged();

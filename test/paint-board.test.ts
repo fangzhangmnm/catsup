@@ -1,6 +1,6 @@
 // 画板和画板登记处（贴图主线 1-3c，施工单 ai-docs/20261111-paint-workorders-10.md）：内核的软件显卡上跑。created 2026-11-11 by Claude Opus 5.5
 // 画板：灌进去的字节合成出来一字不差（不透明的底色垫在透明处）、内容 / 底色没变 = 同一张图同一个版本；跟着坐标加高 / 缩回空白 / 有内容不缩（统筹 11-11 裁定）。
-// 登记处：换文件全部销毁、画没了那块销毁、跟着场景里那一套坐标改大小、签名跟着变。
+// 登记处：换文件全部销毁、画没了那块销毁（三维的栈里没有它的记录时；有记录 = 歇着，1-8a）、跟着场景里那一套坐标改大小（follow，1-8a 起在提交的收尾里）、签名跟着变。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { SoftGl2Port } from "../src/paint/kernel/src/backend/soft-gl2-port.ts";
 import { PaintBoard } from "../src/paint/board.ts";
@@ -104,13 +104,16 @@ describe("画板登记处（1-3c）", () => {
     s.textures.delete(tex);   // 贴图表里那一行没了（清理贴图）：材质不再指着画
     reg.sync(s); eq(reg.count, 0, "画没了"); eq(reg.sig(), "", "签名跟着空");
   });
-  it("跟着场景里那一套坐标改大小（加高）；签名跟着变", () => {
+  it("跟着场景里那一套坐标改大小（加高；1-8a 起在提交的收尾里 follow，「准备」里的 sync 不改大小）；签名跟着变", () => {
     const { s, def, tex } = painted(), port = new SoftGl2Port(), reg = new PaintBoards({ port: () => port, epoch: () => 0 });
     const b = reg.ensure(s, tex), sig0 = reg.sig(), body = s.def(def).body;
     if (body.kind !== "mesh") throw new Error("not mesh");
     const [g, row] = [...body.uvSets][0];
     body.uvSets.set(g, { ...row, height: row.height + 64 });
     reg.sync(s);
+    eq(b.height, row.height, "「准备」里不改大小");
+    reg.follow(s);
     eq(b.height, row.height + 64, "跟着加高"); assert(reg.sig() !== sig0, "签名变了");
+    eq(reg.takePending().length, 1, "加高封了一步，等着挂进三维的栈");
   });
 });

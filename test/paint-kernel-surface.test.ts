@@ -27,8 +27,8 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "src/backend/workpiece/painting-view.ts": ["PaintingView"],   // 档口要的那一层（档口的叶从它拿）
   "src/backend/tiles/tile-layer.ts": ["LayerPixels"],   // 落层回调的参数类型，只当类型用
   // 撤销步（0-2）
-  "src/backend/workpiece/undo-stack.ts": ["StepSink", "UndoStack"],   // StepSink = 步的去处；UndoStack = 内核自带的栈，到期：1-8 换成 HostedSteps 时删
-  "src/backend/workpiece/hosted-steps.ts": ["HostedSteps", "StepHost"],   // 宿主管撤销（1-8 用）
+  "src/backend/workpiece/undo-stack.ts": ["StepSink"],   // 步的去处（画板交给作品的那个口）；UndoStack 在 1-8a 换成 HostedSteps 时删了（测试里照用，测试不受这张表限制）
+  "src/backend/workpiece/hosted-steps.ts": ["HostedSteps", "StepHost"],   // 宿主管撤销：内核封好的每一步交给三维的撤销栈（1-8a）
   // 建在别人的画面上 / 交出贴图句柄 / 外面的图进内核的门（0-4、v0.14.75）
   "src/shell/browser-gl2-port.ts": ["BrowserGl2Port"],   // 内核的显卡接口建在渲染器的画面上
   "src/common/gl2-port.ts": ["Gl2Port", "PooledFBO", "ExternalImage", "ExternalTexture"],   // 内核显卡接口的类型；ExternalImage / ExternalTexture = wrapExternal 交薄层
@@ -40,6 +40,7 @@ const PENDING: Readonly<Record<string, readonly string[]>> = {};
 /** 只是说明（不查）：测试里用到、src 里不用的内核名字。 */
 export const TEST_ONLY: Readonly<Record<string, readonly string[]>> = {
   "src/backend/soft-gl2-port.ts": ["SoftGl2Port"],   // 不带浏览器时交薄层、走预览 / 落层 / 撤销（space-stroke-kernel、paint-board、space-vs-kernel2d）
+  "src/backend/workpiece/undo-stack.ts": ["UndoStack"],   // 内核自带的栈（1-8a 起 src 不用了；space-stroke-kernel 这类老测试还用它）
   "src/backend/gl/gl-stamp.ts": ["GLStampRasterizer"],   // 对拍：三维的薄层 vs 内核二维的笔尖（space-vs-kernel2d）
 };
 

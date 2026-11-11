@@ -26,6 +26,8 @@ export interface SpacePaintDeps {
   /** 这张离屏图在这个显卡接口上交给内核的形态（真显卡 = { gl }，软件版 = { pixels }）。 */
   readonly external: (img: SpaceImage) => { readonly gl: WebGLTexture } | { readonly pixels: Uint8Array | Uint8ClampedArray };
   readonly camera: () => SpaceCamera;
+  /** 一笔落层之后（内核封的那几步在画板登记处攒着）：交给三维的撤销栈当一步（1-8a；label = 画一笔 / 擦一笔）。不给 = 不进三维的栈（测试）。 */
+  readonly commitStep?: (erase: boolean) => void;
 }
 export interface SpacePaintOpts {
   readonly brush: ResolvedBrush;
@@ -66,7 +68,9 @@ export class SpacePaintStroke {
     if (targets.length !== 1) throw new Error(`SpacePaintStroke: ${targets.length} placements of this paint (1-4b handles exactly one)`);
     this.stroke = new SpaceStroke(targets, d.camera(), o.brush);
     this.unhook = d.boards.onPrepare(() => this.prepare());
+    this.untrack = d.boards.trackOpen(texture, () => this.cancel());   // 撤销 / 重做之前：开着的这一笔先取消（1-8a）
   }
+  private readonly untrack: () => void;
 
   down(x: number, y: number, p: number, t: number | null = null): void { this.stroke.down(x, y, p, t); this.dirty = true; }
   move(x: number, y: number, p: number, t: number | null = null): void { this.stroke.move(x, y, p, t); this.dirty = true; }
@@ -123,9 +127,11 @@ export class SpacePaintStroke {
     this.lastFrame = { fresh: tips.length, frozen: frozenHere, tipsMs: t1 - t0, layerMs: t2 - t1, hostMs: performance.now() - t2 };
   }
   private finish(): void {
-    if (this.session) this.session.end();
+    const landed = !!this.session;
+    if (this.session) this.session.end();   // 内核落层、封一步（经 HostedSteps 交到画板登记处攒着）
     this.board.overlayChanged();
     this.close();
+    if (landed) this.d.commitStep?.(!!this.o.erase);   // 攒着的那几步交给三维的撤销栈：一笔 = 一步（1-8a）
   }
-  private close(): void { this.unhook(); this.layer?.dispose(); this.layer = null; this.session = null; }
+  private close(): void { this.unhook(); this.untrack(); this.layer?.dispose(); this.layer = null; this.session = null; }
 }
