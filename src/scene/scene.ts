@@ -66,7 +66,9 @@ export interface BrepBody {
  * width / height = 画布的格数（整数）；pxPerM = 铺的时候用的密度（每米几格）。条目不可变（改 = 换一个对象）；表的先后没有意思。
  * 只经 startPaint（加）和 meshLayoutPaint（换高）两条指令改（守卫 test/paint-start-guard.test.ts）。
  */
-export interface UvSetRow { readonly guid: Guid; readonly name: string; readonly width: number; readonly height: number; readonly pxPerM: number }
+export interface UvSetRow { readonly guid: Guid; readonly name: string; readonly width: number; readonly height: number; readonly pxPerM: number;
+  /** 按一格多大开的 = "density"（加面放不下时画布长大）；缺 = 按总大小开的（画布不自己变大；施工单十六第四节，文件里 CATSUP_mesh 2.1）。 */
+  readonly fit?: "density" }
 export interface MeshBody { readonly kind: "mesh"; kernel: MeshKernel; materialSlots: number[]; /** 有哪几套贴图坐标（GUID → 一行；1-3b）。撤销跟着骨架快照走（浅拷）。 */ uvSets: Map<Guid, UvSetRow>; }
 export type Body = BrepBody | MeshBody;   // card 2026-10-24 sunset（body-kind.ts 头注释）
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */

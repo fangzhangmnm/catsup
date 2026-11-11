@@ -26,9 +26,9 @@ export function rig(nMesh = 1, opts: { quota?: number; epoch?: () => number; act
   const commit = (op: Op, join = false): void => { h.commit(cur(), op, join, "b", { title: op.op }); afterCommit(); boards.sync(cur()); };
   const textures: string[] = [], paintMatGuid = new Map<number, string>();
   let plain = -1;
-  const startPaint = (def: number, density = 8): string => {
+  const startPaint = (def: number, density = 8, fit?: "density"): string => {   // fit = density：按一格多大开（加面放不下时画布能长大；不给 = 按总大小，画布不长，施工单十六第四节）
     const tex = mintGuid(), mat = mintGuid();
-    commit({ op: "startPaint", def, faces: cur().mesh(def).kernel.faces(), uvSet: mintGuid(), textureGuid: tex, materialGuid: mat, names: { uvSet: "UV", paint: "画", material: "画" }, color: [0.9, 0.85, 0.7], density } as Op);
+    commit({ op: "startPaint", def, faces: cur().mesh(def).kernel.faces(), uvSet: mintGuid(), textureGuid: tex, materialGuid: mat, names: { uvSet: "UV", paint: "画", material: "画" }, color: [0.9, 0.85, 0.7], density, ...(fit ? { fit } : {}) } as Op);
     textures.push(tex); paintMatGuid.set(def, mat);
     return tex;
   };

@@ -9,7 +9,7 @@
 // 没有 faceStart 键 = 0.14 的三角汤最小形（migrate/mesh.ts 读成每三角一面）。created 2026-10-27 by Claude Fable 5.1
 import { UV_CANVAS_EPS, type MeshDoc, type UvSetDoc } from "./document.ts";
 import type { ViewSink } from "./brep-codec.ts";
-import { MESH_STAMP_NO_UV, migrateExtension, stampOf, type FormatReadNotes, type UvDropWhy } from "./migrate/index.ts";
+import { MESH_STAMP_NO_UV, MESH_STAMP_UV_NO_FIT, migrateExtension, stampOf, type FormatReadNotes, type Stamp, type UvDropWhy } from "./migrate/index.ts";
 import { isGuid } from "./guid.ts";
 import { polygonsFromTriangles } from "./migrate/mesh.ts";
 
@@ -18,7 +18,8 @@ const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object
 export function encodeMeshItem(m: MeshDoc, sink: ViewSink): Record<string, unknown> {
   const bv = (a: ArrayBufferView, count: number): { bufferView: number; count: number } => ({ bufferView: sink.add(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)), count });
   const uv = m.uvSets ?? [];
-  const stamp = uv.length ? stampOf("CATSUP_mesh") : { version: MESH_STAMP_NO_UV.major, ...(MESH_STAMP_NO_UV.minor ? { minor: MESH_STAMP_NO_UV.minor } : {}), ...(MESH_STAMP_NO_UV.patch ? { patch: MESH_STAMP_NO_UV.patch } : {}) };   // 没有贴图坐标 = 照旧 1.2（逐字节）
+  const st = (s: Stamp): Record<string, number> => ({ version: s.major, ...(s.minor ? { minor: s.minor } : {}), ...(s.patch ? { patch: s.patch } : {}) });
+  const stamp = !uv.length ? st(MESH_STAMP_NO_UV) : uv.some((u) => u.fit === "density") ? stampOf("CATSUP_mesh") : st(MESH_STAMP_UV_NO_FIT);   // 没有贴图坐标 = 照旧 1.2；有坐标、没有按密度开的 = 照旧 2.0（逐字节）；有 fit = 2.1
   return {
     ...stamp,
     positions: bv(m.positions, m.positions.length / 3),
@@ -27,7 +28,7 @@ export function encodeMeshItem(m: MeshDoc, sink: ViewSink): Record<string, unkno
     edgePairs: bv(m.edgePairs, m.edgePairs.length / 2), edgeFlags: bv(m.edgeFlags, m.edgeFlags.length),
     ...(m.smoothDefault ? { smoothDefault: { mode: m.smoothDefault.mode, deg: m.smoothDefault.deg } } : {}),
     ...(m.mirror ? { mirror: { mode: m.mirror.mode, axis: m.mirror.axis } } : {}),
-    ...(uv.length ? { uvSets: uv.map((u) => ({ guid: u.guid, name: u.name, width: u.width, height: u.height, pxPerM: u.pxPerM, loopUv: bv(u.loopUv, u.loopUv.length / 2) })) } : {}),
+    ...(uv.length ? { uvSets: uv.map((u) => ({ guid: u.guid, name: u.name, width: u.width, height: u.height, pxPerM: u.pxPerM, ...(u.fit === "density" ? { fit: "density" } : {}), loopUv: bv(u.loopUv, u.loopUv.length / 2) })) } : {}),
   };
 }
 
@@ -83,7 +84,7 @@ function readUvSets(raw: unknown, d: MeshDoc, sliceOf: (bv: number) => ArrayBuff
     if (lb !== null) { try { loopUv = new Float32Array(sliceOf(lb)); } catch { loopUv = null; } }
     if (!loopUv) { drop(id, 0, "no-loopUv"); continue; }
     if (loopUv.length !== 2 * d.loopVert.length) { drop(id, 0, "bad-length"); continue; }
-    kept.push({ guid: id.guid, name, width: r.width, height: r.height, pxPerM: r.pxPerM, loopUv });
+    kept.push({ guid: id.guid, name, width: r.width, height: r.height, pxPerM: r.pxPerM, ...(r.fit === "density" ? { fit: "density" as const } : {}), loopUv });   // fit 缺 / 不认识 = size（2.1）
   }
   const count = new Map<string, number>();
   for (const u of kept) count.set(u.guid, (count.get(u.guid) ?? 0) + 1);

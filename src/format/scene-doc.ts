@@ -80,7 +80,7 @@ export function materializeDefinitions(scene: Scene, entries: readonly Definitio
     const d = e.def, def = scene.def(idOf.get(d.guid)!);
     // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
     if (d.kind === "mesh" && d.mesh) {
-      def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: slotsOf(d), uvSets: new Map((d.mesh.uvSets ?? []).map((u) => [u.guid, Object.freeze({ guid: u.guid, name: u.name, width: u.width, height: u.height, pxPerM: u.pxPerM })])) };   // 贴图坐标（1-2½）：表的行 + 内核里同 GUID 的列
+      def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: slotsOf(d), uvSets: new Map((d.mesh.uvSets ?? []).map((u) => [u.guid, Object.freeze({ guid: u.guid, name: u.name, width: u.width, height: u.height, pxPerM: u.pxPerM, ...(u.fit ? { fit: u.fit } : {}) })])) };   // 贴图坐标（1-2½）：表的行 + 内核里同 GUID 的列
       if (d.mesh.mirror) scene.meshMirrors.set(def.id, { mode: d.mesh.mirror.mode, axis: d.mesh.mirror.axis });
       placeInstances(def.id, e, () => null);   // 网格体没有组
       continue;

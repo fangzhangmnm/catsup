@@ -39,6 +39,8 @@ export interface LayoutOptions {
   readonly minFill?: number;
   /** 片的朝向：box = 包围盒最小的（默认，施工单十六）；seed = 种子最长的边（施工单十五；量的时候对照用）。 */
   readonly orient?: "box" | "seed";
+  /** 给了密度时：画布取接近正方形、够用的最小宽高（施工单十六第四节「按一格多大」开始画），留的格数跟着挑出来的宽走；不给 = 以前（宽 = base，不够才加宽）。 */
+  readonly squarish?: boolean;
 }
 /** 连成片的门槛：和种子的朝向夹角小于它才收进这一片（施工单十五第五节：先定 45°，量过可能调）。 */
 export const PATCH_MAX_DEG = 45;
@@ -324,6 +326,7 @@ export function layoutFaces(m: LayoutMesh, faces: readonly number[], opts: Layou
   if (!fs.length) return { ok: true, width: base, height: 256, density: opts.density ?? 0, blocks: [], values: new Map() };
   const units = opts.style === "patches" ? patchesOf(m, fs, { maxDeg: opts.maxDeg, minFill: opts.minFill, orient: opts.orient }) : unitsByFace(fs);
   const what = opts.style === "patches" ? "片" : "面";
+  if (opts.density !== undefined && opts.squarish) return squarish(m, units, opts.density, maxSize, what, fs.length);
   if (opts.density !== undefined) {
     const d = opts.density, flat = units.map((u) => ({ face: u.seed, ...placeUnit(m, u, d) }));
     const widest = flat.reduce((a, b) => (b.w > a.w ? b : a));
@@ -347,6 +350,26 @@ export function layoutFaces(m: LayoutMesh, faces: readonly number[], opts: Layou
   return { ok: true, width: base, height: base, density: lo, blocks: r.blocks, values: r.values };
 }
 
+/** 按密度铺时画布的宽从这些里挑（128，然后 256 的倍数——步长照现在的规矩）。 */
+function widthsUpTo(maxSize: number): number[] { const out = [128]; for (let w = 256; w <= maxSize; w += 256) out.push(w); return out; }
+/**
+ * 按一格多大铺（施工单十六第四节）：密度定了，画布取接近正方形、够用的最小宽高——宽从小往大试（留的格数跟着这个宽走 = gapForCanvas），
+ * 排完的高（往上取到步长）不超过宽就是它；宽高不必是 2 的幂。试到上限都放不下 = 说原因。
+ */
+function squarish(m: LayoutMesh, units: readonly Unit[], d: number, maxSize: number, what: string, faceCount: number): LayoutResult {
+  const flat = units.map((u) => ({ face: u.seed, ...placeUnit(m, u, d) })), widest = flat.reduce((a, b) => (b.w > a.w ? b : a));
+  let last: { W: number; H: number } | null = null;
+  for (const W of widthsUpTo(maxSize)) {
+    const gap = gapForCanvas(W);
+    if (widest.w + 2 * gap > W) continue;
+    const r = tryDensity(m, units, d, W, gap, Infinity)!, H = upStep(r.height, stepOf(W));
+    last = { W, H };
+    if (H <= W) return { ok: true, width: W, height: H, density: d, blocks: r.blocks, values: r.values };
+  }
+  if (!last) return { ok: false, reason: `${what} ${widest.face} 在每米 ${d} 格下要 ${widest.w} 格宽，画布最多 ${maxSize}`, face: widest.face, need: widest.w };
+  return { ok: false, reason: `每米 ${d} 格铺这 ${faceCount} 张面要 ${last.W} × ${last.H} 格，超过上限 ${maxSize}`, need: last.H };
+}
+
 /**
  * 给新面补一块（以后加面用）：已经铺好的面（在 guid 这一列上有值的）一个数都不变；新面各铺一块，放在画布上空着的地方（左上优先），放不下就把画布往下加高
  * （256 的倍数；画布比 256 窄时按画布宽度的倍数）。坐标的单位是格、不是零到一的比例，所以加高不会动到已有的东西。
@@ -355,7 +378,7 @@ export function layoutFaces(m: LayoutMesh, faces: readonly number[], opts: Layou
  *   从上到下、从左到右找第一个放得下的地方。每行记着「从这格往右连着几格空」，找的时候只看这个数。代价随画布大小涨、不随面数涨（只有收集已有块那一步随面数涨）。
  * partial（meshLayoutPaint 用）：加到上限还放不下的面不铺、记进 unplaced，其余照铺；不给 = 放不下就整个不铺、说原因（1-3a 的行为）。
  */
-export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly number[], add: readonly number[], canvas: { width: number; height: number }, density: number, opts: Omit<LayoutOptions, "density" | "base"> & { readonly partial?: boolean } = {}): LayoutResult {
+export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly number[], add: readonly number[], canvas: { width: number; height: number }, density: number, opts: Omit<LayoutOptions, "density" | "base"> & { readonly partial?: boolean; /** 画布能不能往下长（缺 = 能；施工单十六第四节：按总大小开的画 = 不能，fit = "size"）。 */ readonly grow?: boolean } = {}): LayoutResult {
   const gap = Math.max(0, Math.round(opts.gap ?? 4)), maxSize = opts.maxSize ?? 4096, W = canvas.width;
   const C = Math.max(1, Math.ceil(W / 256)), gw = Math.ceil(W / C), gh = Math.ceil(Math.max(maxSize, canvas.height) / C);
   const occ = new Uint8Array(gw * gh), run = new Int32Array(gw * gh);   // run[j·gw + i] = 第 j 行从第 i 格往右连着几格空
@@ -398,6 +421,7 @@ export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly numbe
   for (const s of sizes) {
     if (s.w + 2 * gap > W) { if (opts.partial) { unplaced.push(s.face); continue; } return { ok: false, reason: `面 ${s.face} 要 ${s.w + 2 * gap} 格宽，画布只有 ${W}`, face: s.face, need: s.w + 2 * gap }; }
     let at = find(s.w, s.h, H);
+    if (!at && opts.grow === false) { if (opts.partial) { unplaced.push(s.face); continue; } return { ok: false, reason: `这张画定的是 ${W} × ${canvas.height}，放不下了`, face: s.face, need: s.h }; }   // 按总大小开的画：不长大（施工单十六第四节）
     if (!at) {   // 现在的画布里放不下：往下找，画布加高（256 的倍数；画布比 256 窄时按画布宽度的倍数）
       at = find(s.w, s.h, maxSize);
       if (!at) { if (opts.partial) { unplaced.push(s.face); continue; } return { ok: false, reason: `补面 ${s.face} 要把画布加高到超过上限 ${maxSize}`, face: s.face, need: maxSize + 1 }; }

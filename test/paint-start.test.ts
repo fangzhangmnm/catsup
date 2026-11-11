@@ -143,11 +143,11 @@ describe("改了模型新面自动铺上（1-3b 测试 B）", () => {
 });
 
 describe("画布加高（1-3b 测试 C）", () => {
-  it("一直加新面：高按 256 的倍数涨、已有的角不变；到上限之后放不下的面没有值、张数对、建模那一步照样做成", () => {
+  it("一直加新面（按一格多大开的画，fit = density；施工单十六第四节）：高按 256 的倍数涨、已有的角不变；到上限之后放不下的面没有值、张数对、建模那一步照样做成", () => {
     const N = 24;
     const r = rig((m) => { for (let i = 0; i < N; i++) { const z = i * 3; m.addFace([P(0, 0, z), P(10, 0, z), P(10, 2, z), P(0, 2, z)].map((p) => m.addVertex(p)), -1, FRESH); } });
     const faces = r.k().faces();
-    r.step(startOp(r.def, [faces[0]], { density: 100 }));   // 1000 × 200 一块：画布 1024 × 256
+    r.step(startOp(r.def, [faces[0]], { density: 100, fit: "density" }));   // 1000 × 200 一块：画布 1024 × 256（接近正方形、够用的最小宽高）
     const uv = uvOf(r.s, r.def), mat = r.s.materials.length - 1;
     eq(r.s.mesh(r.def).uvSets.get(uv)!.height, 256);
     let full = 0;
@@ -163,6 +163,29 @@ describe("画布加高（1-3b 测试 C）", () => {
     assert(full > 0, "加到上限之后真的有放不下的");
     eq([...unplacedPaintFaces(r.s, r.def, null).values()].flat().length, full, "放不下的张数对");
     eq(r.s.mesh(r.def).uvSets.get(uv)!.height, 4096, "到了上限");
+  });
+  it("按总大小开的画（缺 fit，施工单十六第四节）：画布不自己变大——加面只在现有宽高里找地方，找不到的先没有位置，提示行说这张画定的是多大", () => {
+    const N = 6;
+    const r = rig((m) => { for (let i = 0; i < N; i++) { const z = i * 3; m.addFace([P(0, 0, z), P(10, 0, z), P(10, 2, z), P(0, 2, z)].map((p) => m.addVertex(p)), -1, FRESH); } });
+    const faces = r.k().faces();
+    r.step(startOp(r.def, [faces[0]], { density: 50 }));   // 老入口：给了密度、没给 fit = 按总大小（500 × 100 一块，画布 1024 × 256：一行两块、两行 = 放得下四块）
+    const uv = uvOf(r.s, r.def), mat = r.s.materials.length - 1;
+    eq(r.s.mesh(r.def).uvSets.get(uv)!.fit, undefined, "没记 fit = 按总大小");
+    let note = "";
+    for (let i = 1; i < N; i++) note = r.step({ op: "meshPaintFaces", def: r.def, faces: [faces[i]], material: mat }) || note;
+    eq(r.s.mesh(r.def).uvSets.get(uv)!.height, 256, "画布没变大");
+    const left = [...unplacedPaintFaces(r.s, r.def, null).values()].flat().length;
+    eq(left, 2, "六张面：四张放进去了、两张先没有位置");
+    assert(/这张画定的是 1024 × 256，不自己变大/.test(note), `提示行：${note}`);
+  });
+  it("按一格多大开（fit = density）：画布接近正方形、够用的最小；那一套记 fit；每张面的边长 ÷（空间里的边长 × 密度）都在 [cos 45°, 1]", () => {
+    const r = rig(boxMesh), fs = r.k().faces();
+    r.step(startOp(r.def, fs, { density: 40, fit: "density", arrange: "patches" }));
+    const uv = uvOf(r.s, r.def), row = r.s.mesh(r.def).uvSets.get(uv)!;
+    eq(row.fit, "density"); eq(row.pxPerM, 40);
+    assert(row.height <= row.width && row.width <= 512, `画布 ${row.width} × ${row.height}`);
+    const k = r.k(), cos = Math.cos(Math.PI / 4);
+    for (const f of fs) { const p = k.facePts(f), v = k.cornerValues(f, uv)!, n = p.length; for (let i = 0; i < n; i++) { const j = (i + 1) % n, w = Math.hypot(p[j].x - p[i].x, p[j].y - p[i].y, p[j].z - p[i].z), c = Math.hypot(v[2 * j] - v[2 * i], v[2 * j + 1] - v[2 * i + 1]) / (w * 40); assert(c >= cos - 1e-6 && c <= 1 + 1e-6, `面 ${f} 边 ${i}：${c}`); } }
   });
 });
 
@@ -229,7 +252,7 @@ describe("强行对称（1-3b 测试 E）", () => {
   });
   it("两半都换成画（形状本来对称）：只给留着那半铺，补一次对称化让另一半照抄", () => {
     const r = sym(), all = r.k().faces(), top = all.filter((f) => r.k().faceVerts(f).every((v) => r.k().pt(v).z > 0.99));
-    r.step(startOp(r.def, top));
+    r.step(startOp(r.def, top, { density: 50, fit: "density" }));   // 按一格多大开：加面放不下时画布能长大（按总大小开的不长，施工单十六第四节）
     const uv = uvOf(r.s, r.def), paint = r.s.materials.length - 1, n0 = distinctBoxes(r.k(), uv), before = canon(r.s, r.def);
     const bottom = r.k().faces().filter((f) => r.k().faceVerts(f).every((v) => r.k().pt(v).z < 0.01));
     eq(bottom.length, 2, "底面两半各一张");

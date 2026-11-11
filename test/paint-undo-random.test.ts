@@ -7,7 +7,7 @@ import { rig, rng } from "./paint-undo-kit.ts";
 
 describe("画进三维的撤销栈：混着来回逐字节对（1-8a）", () => {
   for (const seed of [1, 7, 42]) it(`种子 ${seed}：画 / 擦 / 挪点 / 挤出加高 / 换材质 + 截断，一路撤到头、再一路重做回来，每一步逐字节对`, () => {
-    const r = rig(2), rnd = rng(seed), texs = r.defs.map((d) => r.startPaint(d, 160));   // 密度大：画布满得快，挤出会让它加高
+    const r = rig(2), rnd = rng(seed), texs = r.defs.map((d) => r.startPaint(d, 160, "density"));   // 密度大：画布满得快，挤出会让它加高（按一格多大开的才长大，施工单十六第四节）
     for (const t of texs) r.boards.ensure(r.cur(), t);
     r.plainMat();
     const base = r.h.steps(), states = [r.shot()];

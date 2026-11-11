@@ -236,6 +236,16 @@ function paintedMesh(s0: Scene, faces: (all: number[]) => number[]): { s: Scene;
   s.addTexture({ ...s.textures.get(tex)!, content: { kind: "layered", ora: ORA_TWO_LAYERS_1024x256 } });
   return { s, def: d.id, uv, tex, mat };
 }
+/** 按一格多大开的画（CATSUP_mesh 2.1；施工单十六第四节）：那一套贴图坐标记 fit = density（画布接近正方形、以后加面能长大）。 */
+export function sceneUvDensityFit(): Scene {
+  let s = new Scene(sceneBox(2, 1.5));
+  const d = s.mintDef("按密度的画盒", sceneBox(1, 1)); d.body = brepToMesh(s.brep(d.id));
+  s.mintInstance(s.root, null, d.id, translation({ x: 3, y: 0, z: 0 }));
+  const k = s.mesh(d.id).kernel, tex = mintGuid();
+  s = applyOp(s, { op: "startPaint", def: d.id, faces: k.faces(), uvSet: mintGuid(), textureGuid: tex, materialGuid: mintGuid(), names: { uvSet: "UV", paint: "画", material: "画" }, color: [0.9, 0.85, 0.7], density: 40, fit: "density", arrange: "patches" }).scene;
+  s.addTexture({ ...s.textures.get(tex)!, content: { kind: "layered", ora: ORA_TWO_LAYERS_1024x256 } });   // 画的字节格式层不解释（和上面几个样本同一份；有字节才写得出去）
+  return s;
+}
 /** 带贴图坐标的网格体（CATSUP_mesh 2.0；贴图主线 1-2½，契约第六节）：一套贴图坐标 + 一张两层的颜色贴图。 */
 export function sceneUvPainted(): Scene { return paintedMesh(new Scene(sceneBox(2, 1.5)), (all) => all).s; }
 /** 同上，画带着存盘时另存的合成图（textures 1.1，贴图主线 1-8b）。 */
@@ -263,7 +273,7 @@ export function sceneUvTwoSets(): Scene {
   s = applyOp(s, { op: "purgeTextures", textures: [texB] }).scene;
   return s;
 }
-export const SCENE_DOCS: Record<string, () => Scene> = { uvPaintedComposite: sceneUvPaintedComposite, uvPaintedTall: sceneUvPaintedTall, uvPainted: sceneUvPainted, uvTwoSets: sceneUvTwoSets, sharedTextures: sceneSharedTextures, sided: sceneSided, grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
+export const SCENE_DOCS: Record<string, () => Scene> = { uvDensityFit: sceneUvDensityFit, uvPaintedComposite: sceneUvPaintedComposite, uvPaintedTall: sceneUvPaintedTall, uvPainted: sceneUvPainted, uvTwoSets: sceneUvTwoSets, sharedTextures: sceneSharedTextures, sided: sceneSided, grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
 /** 参考窗牌组（CATSUP_references 1.0 + desk 1.1 refPanel；2026-10-25 Opus）：清单字节 = @internal/reference-window 0.5.0 encodeDeck 的真实输出
  *  （一张图、一张文字、一张只放内存的视频——后者只在清单里记大小、没有字节），窗开着。format 层不懂清单：这里只钉「目录原样进出」。 */
 export const REF_MANIFEST = '{"version":1,"minor":1,"patch":0,"index":1,"items":[{"kind":"image","src":".catsup/references/r0.png","vp":null,"name":"格子.png"},{"kind":"text","src":".catsup/references/r1.txt","vp":null,"name":"尺寸"},{"kind":"video","vp":null,"name":"walk.webm","mime":"video/webm","ram":{"bytes":10}}]}';

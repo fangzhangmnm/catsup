@@ -18,7 +18,7 @@ export function meshDocFromKernel(m: MeshKernel, uvSets: readonly UvSetMeta[] = 
   const uv = uvSets.map((r) => {
     const loopUv = new Float32Array(2 * loop.length).fill(NaN);
     faces.forEach((f, i) => { const v = m.cornerValues(f, r.guid); if (v) loopUv.set(v, 2 * faceStart[i]); });
-    return { guid: r.guid, name: r.name, width: r.width, height: r.height, pxPerM: r.pxPerM, loopUv };
+    return { guid: r.guid, name: r.name, width: r.width, height: r.height, pxPerM: r.pxPerM, ...(r.fit ? { fit: r.fit } : {}), loopUv };
   });
   return { positions, faceStart, faceLen, loopVert: Int32Array.from(loop), faceMat, faceFlags, edgePairs: Int32Array.from(pairs), edgeFlags: Uint8Array.from(flags), smoothDefault: { mode: m.smoothDefault.mode, deg: m.smoothDefault.deg }, ...(uv.length ? { uvSets: uv } : {}) };
 }

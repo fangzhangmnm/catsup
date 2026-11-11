@@ -815,3 +815,20 @@ layoutFaces(style = patches)：patchesOf（种子按面积、一样大看面心�
 
 - 碰多少：tick = 比一个键；换物件那一下 = 三角格子（随这个物件的面数）+ 冷的画各解开一次。落笔 = 建这一笔的表（随画布格子数，见 1-4b）。不进画画工作台 = 一点不多做。
 - 实测（无头 swiftshader）：24576 张面、画布 1024²，切进来 261 ms；存了重开等画热好 1408 ms（解开 1024² 的分层字节）。
+
+## 追记 2026-11-11（施工单十六，Claude Opus 5.5）：画布小窗、按一格多大开始画、按总大小的画不长大
+
+```
+画布小窗（app/canvas-window.ts；关着什么都不做）
+  界面例行刷新 syncUi → canvasWin.sync()：物件 / 画 / 选区变了才动；线的键 =（物件、画、那一套坐标、宽高、网格体修改号）变了才 atlasOutline 重算
+  每帧开画之前 beforeRender → … → paintBoards.prepare → canvasWin.frame()：比一次「落定的内容的键」（PaintBoard.committedKey，不含薄层）
+     一笔当中不变 = 什么都不做；抬笔 / 撤销 / 装载 = composeBytes 读回一次 → 小窗的 2D 画布（只是显示）
+  小窗里悬停 → ViewState.peekFaces（editor.viewExtras）→ highlightMarks 当悬停画；小窗里点 → editor.selectExpand（一步）
+开始画「按一格多大」→ runAction("mesh.startPaint", { density }) → op { density, fit: "density" }
+  → layoutFaces(squarish)：宽 128 / 256 / 512 / 768 … 挨个试（留格跟着宽），排完的高 ≤ 宽 = 定 → 那一套记 fit = density
+补面（画的维护那一步 meshLayoutPaint）→ layoutAppend(grow = fit === "density")：按总大小的画不长大，放不下的先没位置（照底色），提示行说「这张画定的是 W × H」
+```
+
+- 碰多少东西：小窗开着、一笔当中每帧 = 一次字符串比较（不读回、不重算线）；读回一次 = 画布大小（只在抬笔之后）；线重算 = 这张 atlas 上的面 + 每张面在画布上的面积（盖住 / 共用按格子中心数）。按一格多大开始画 = 试几个宽、每个宽排一次（2048 以内最多 9 个宽）。
+- 实测（probe-canvas-window，盒子两张画 256 见方）：开着小窗画一笔 25 个点，一笔当中读回 0 次、线重算 0 次，抬笔之后读回 1 次。
+- **还随整个模型涨的点**：小窗的线重算随这张 atlas 上的面数（只在模型 / 画变了时）；「每格归谁」随画布大小（只在打开那个开关、画变了时）。

@@ -119,7 +119,10 @@ export const defaultLayers = (): LayerDoc[] => [{ ...DEFAULT_LAYER }];
 /** 网格身体载荷（CATSUP_mesh 1.0.0，2026-10-27 M3）：多边形面是真相（三角形只是 bake 的派生物）。positions f64 xyz（米，定义坐标；顶点下标空间）；faceStart / faceLen / loopVert = 每面的顶点环；faceMat −1 = 默认槽；
  *  faceFlags bit0 = 隐藏；edgePairs（成对）+ edgeFlags 只列带标记的边（软 1 / 平滑 2 / 接缝 4 / 隐藏 8 / 裸线 16）。0.14 的三角汤最小形读时迁成这个形（migrate/mesh.ts）。 */
 /** 一套贴图坐标（CATSUP_mesh 2.0；贴图主线 1-2½，契约 ai-docs/20261110-painting-data-contract.md 第五节）。loopUv = 每个角一对 32 位浮点（单位 = 格，画布左上角是原点），和 loopVert 同序、长度 = 2 × loopVert.length；这一套不管的面，它的角写 NaN（明着的「没有」）。 */
-export interface UvSetDoc { guid: Guid; name: string; width: number; height: number; pxPerM: number; loopUv: Float32Array }
+export interface UvSetDoc { guid: Guid; name: string; width: number; height: number; pxPerM: number; loopUv: Float32Array;
+  /** 开的时候定住的是什么（CATSUP_mesh 2.1；施工单十六第四节，user 11-11「如果是指定贴图大小的话，后面自动涨也不好」）：density = 按一格多大开的（加面放不下时画布照规矩长大）；
+   *  缺 = size = 按总大小开的（画布不自己变大，加面只在现有宽高里找地方）。只写 density；读到别的值 = 当 size。 */
+  fit?: "density" }
 /** 一套贴图坐标除了角上的数之外的那几样（内存里 MeshBody.uvSets 的一行就是这个形状）。 */
 export type UvSetMeta = Omit<UvSetDoc, "loopUv">;
 /** 角上的数算「在画布里」的容差（读文件的收口和内存里的自检 scene/paint.ts paintIssues 用同一个数：读进来的一定过自检）。 */

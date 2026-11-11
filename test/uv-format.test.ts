@@ -13,7 +13,7 @@ import { meshBodyIssues } from "../src/scene/paint.ts";
 import { formatNotesSay } from "../src/app/format-notes.ts";
 import type { Scene } from "../src/scene/scene.ts";
 import type { CatsupDocument, MeshDoc } from "../src/format/document.ts";
-import { sceneUvPainted, sceneUvTwoSets, sceneMeshed, sceneFingerprint } from "./format-scenes.ts";
+import { sceneUvPainted, sceneUvTwoSets, sceneMeshed, sceneFingerprint, sceneUvDensityFit } from "./format-scenes.ts";
 
 type AnyJson = Record<string, any>;   // eslint-disable-line @typescript-eslint/no-explicit-any
 type Glb = { json: AnyJson; bin: Uint8Array };
@@ -70,6 +70,27 @@ describe("贴图坐标进文件：往返和拍子（1-2½）", () => {
   it("① 不带贴图坐标的网格体照旧盖 1.2（字节和以前一样：和 2.0 之前的写法同一个拍子、没有 uvSets 键）", () => {
     const md = meshItem(glbOf(sceneMeshed()));
     eq(md.version, 1); eq(md.minor, 2); assert(!("uvSets" in md), "没有 uvSets 键");
+  });
+  it("① 按一格多大开的（fit = density，施工单十六第四节）：只有这样的网格体盖 2.1、那一套带 fit；读回来 fit 还在、场景指纹相等、再存逐字节不变", () => {
+    const s = sceneUvDensityFit(), bytes = writeCatsup(documentFromScene(s, "t")), md = meshItem(decodeGlb(bytes) as unknown as Glb);
+    eq(md.version, 2); eq(md.minor, 1, "2.1"); eq((md.uvSets as AnyJson[])[0].fit, "density");
+    const back = sceneFromDocument(readCatsup(bytes)), def = [...back.defs.values()].find((d) => d.body.kind === "mesh")!;
+    eq(def.body.kind === "mesh" ? [...def.body.uvSets.values()][0].fit : null, "density", "读回来还是按密度");
+    eq(sceneFingerprint(back), sceneFingerprint(s)); eq(issuesOf(back).join("；"), "", "自检");
+    assert(same(writeCatsup(documentFromScene(back, "t")), bytes), "再存逐字节不变");
+    eq(meshItem(glbOf(sceneUvPainted())).minor, undefined, "没有 fit 的照旧盖 2.0（minor 不写）");
+  });
+  it("① fit 读到不认识的值（以后的版本可能加别的）= 当按总大小（size），不拒开、模型照开", () => {
+    const g = glbOf(sceneUvDensityFit()); (meshItem(g).uvSets as AnyJson[])[0].fit = "auto";
+    const back = sceneFromDocument(readCatsup(encodeGlb(g.json, g.bin))), def = [...back.defs.values()].find((d) => d.body.kind === "mesh")!;
+    eq(def.body.kind === "mesh" ? [...def.body.uvSets.values()][0].fit : "?", undefined);
+  });
+  it("① fit 进条目的内容（跨文件粘贴比内容）：同一份几何、一个按密度一个按大小 = 判不一样", () => {
+    const a = sceneUvDensityFit(), ad = [...a.defs.values()].find((d) => d.body.kind === "mesh")!;
+    const ca = JSON.stringify(canonDefinition(documentFromScene(a, "t").definitions.find((x) => x.guid === ad.guid)!, () => undefined), (_k, v) => (ArrayBuffer.isView(v) ? Array.from(v as unknown as ArrayLike<number>) : v));
+    if (ad.body.kind === "mesh") for (const [g, r] of ad.body.uvSets) { const { fit: _f, ...rest } = r; void _f; ad.body.uvSets.set(g, Object.freeze(rest)); }
+    const cb = JSON.stringify(canonDefinition(documentFromScene(a, "t").definitions.find((x) => x.guid === ad.guid)!, () => undefined), (_k, v) => (ArrayBuffer.isView(v) ? Array.from(v as unknown as ArrayLike<number>) : v));
+    assert(ca !== cb, "fit 不一样 = 内容不一样");
   });
   it("② 带贴图坐标的网格体盖 3.x = 拒开（FormatTooNewError，报 CATSUP_mesh）；2.9 = 能开、提示一次", () => {
     const g = glbOf(sceneUvPainted()); meshItem(g).version = 3;

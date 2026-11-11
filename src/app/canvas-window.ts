@@ -203,7 +203,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     const ora = saved ? saved.ora : row?.content.kind === "layered" ? row.content.ora?.byteLength ?? 0 : 0, png = saved ? saved.png : row?.composite?.png.byteLength ?? 0;
     const pct = (n: number): string => `${Math.round((1000 * n) / (W * H)) / 10}%`;
     statsLine.textContent = [
-      `${W} × ${H}`, `一格约 ${cellSay(scaleOf(def) / p.uvSet.pxPerM)}`, `${outline.patches} 片 · ${outline.faces.length} 张面`,
+      `${W} × ${H}（${p.uvSet.fit === "density" ? "按一格多大开的：加面放不下时画布变大" : "按总大小开的：画布不自己变大"}）`, `一格约 ${cellSay(scaleOf(def) / p.uvSet.pxPerM)}`, `${outline.patches} 片 · ${outline.faces.length} 张面`,
       `面占画布 ${pct(outline.covered)}${outline.shared ? `（其中 ${pct(outline.shared)} 是两张以上的面共用）` : ""}`,
       hot ? `${hot.layerCount()} 层` : "层数：还没打开",
       ora || png ? `存进文件占（最近一次编的）分层 ${bytesSay(ora)} · 合成图 ${png ? bytesSay(png) : "没有"}` : "还没编进过文件",   // 存盘、自动保存、崩溃快照都会编；热的画以存盘那边的缓存为准

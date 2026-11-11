@@ -53,13 +53,14 @@ export function applyStartPaint(s: Scene, op: StartPaint): PaintOutcome {
   const taken = [uvTaken ? `贴图坐标 ${op.uvSet}` : "", s.textures.has(op.textureGuid) ? `贴图 ${op.textureGuid}` : "", s.materials.some((m) => m.guid === op.materialGuid) ? `材质 ${op.materialGuid}` : ""].filter(Boolean);
   if (taken.length) return { rejected: `开始画：这些身份已经有了（${taken.join("、")}），换新的再来` };
   // 没给密度 = 画布 canvas 见方里找最大密度（缺 = 1024）；留的格数跟着画布走（1024 = 4，和以前一样）；铺法缺 = 一张面一块（施工单十五：缺的时候和以前逐位相同）
-  const base = op.canvas ?? 1024, gap = gapForCanvas(base), style = op.arrange === "patches" ? "patches" as const : "faces" as const;
-  const r = layoutFaces(k, faces, op.density !== undefined ? { density: op.density, gap, style } : { base, gap, style });
+  // 按一格多大开（fit = density，施工单十六第四节）：画布取接近正方形、够用的最小宽高（留的格数跟着挑出来的宽）；别的照旧
+  const base = op.canvas ?? 1024, gap = gapForCanvas(base), style = op.arrange === "patches" ? "patches" as const : "faces" as const, byDensity = op.fit === "density" && op.density !== undefined;
+  const r = layoutFaces(k, faces, byDensity ? { density: op.density, style, squarish: true } : op.density !== undefined ? { density: op.density, gap, style } : { base, gap, style });
   if (!r.ok) return { rejected: `开始画：铺不下——${r.reason}` };
   // 查完了，动手
   k.addColumn({ guid: op.uvSet, arity: 2 });
   for (const [f, v] of r.values) k.setFaceValues(f, op.uvSet, v);
-  b.uvSets.set(op.uvSet, Object.freeze({ guid: op.uvSet, name: op.names.uvSet, width: r.width, height: r.height, pxPerM: r.density }));
+  b.uvSets.set(op.uvSet, Object.freeze({ guid: op.uvSet, name: op.names.uvSet, width: r.width, height: r.height, pxPerM: r.density, ...(byDensity ? { fit: "density" as const } : {}) }));
   s.addTexture({ guid: op.textureGuid, name: op.names.paint, value: COLOR_VALUE, content: { kind: "layered", ora: null }, layout: { definition: d.guid, uvSet: op.uvSet } });
   const mi = s.addMaterial({ guid: op.materialGuid, name: op.names.material, color: [op.color[0], op.color[1], op.color[2]], channels: { [COLOR_CHANNEL]: [op.textureGuid] } });
   const why = paintMeshFaces(s, op.def, faces, mi);
@@ -69,7 +70,8 @@ export function applyStartPaint(s: Scene, op: StartPaint): PaintOutcome {
 
 /**
  * 给走画但还没有位置的面补一块（1-3a 的「给新面补一块」，partial）：这个网格体上每一套被画用着的贴图坐标，找出走这张画、角上还没有值的面
- * （faces = 只看这些，收尾时 = 改动日志给的这一步动过的面；不给 = 全部），铺上；已经铺好的角一个数都不变。画布不够就往下加高（256 的倍数），那一行换成新的高。
+ * （faces = 只看这些，收尾时 = 改动日志给的这一步动过的面；不给 = 全部），铺上；已经铺好的角一个数都不变。画布不够：按一格多大开的（fit = density）往下加高（256 的倍数），那一行换成新的高；
+ * 按总大小开的（缺 fit，施工单十六第四节）不长大，放不下的面先没有位置（照底色）。
  * 加到上限（4096）还放不下：不拒绝、不抛，放得下的照铺，放不下的面留着没有值（收尾那一步数出来、明着说）。同样的网格体 = 同样的结果（面按编号的先后铺）。
  */
 export function applyMeshLayoutPaint(s: Scene, op: MeshLayoutPaint): PaintOutcome {
@@ -77,7 +79,7 @@ export function applyMeshLayoutPaint(s: Scene, op: MeshLayoutPaint): PaintOutcom
   if (!d || d.body.kind !== "mesh") return { target: `definition ${op.def} (not a mesh)` };
   const b = d.body, k = b.kernel, pending = unplacedPaintFaces(s, op.def, op.faces ?? null);
   for (const g of [...pending.keys()].sort()) {
-    const row = b.uvSets.get(g)!, r = layoutAppend(k, g, [], pending.get(g)!, { width: row.width, height: row.height }, row.pxPerM, { partial: true, gap: gapForCanvas(row.width) });   // 补面也按那张画布的宽留格（施工单十五第四节）
+    const row = b.uvSets.get(g)!, r = layoutAppend(k, g, [], pending.get(g)!, { width: row.width, height: row.height }, row.pxPerM, { partial: true, gap: gapForCanvas(row.width), grow: row.fit === "density" });   // 补面也按那张画布的宽留格（施工单十五第四节）；按总大小开的画布不长大（施工单十六第四节）
     if (!r.ok) continue;   // partial 不会走到这里（放不下的进 unplaced）
     for (const [f, v] of r.values) k.setFaceValues(f, g, v);
     if (r.height !== row.height) b.uvSets.set(g, Object.freeze({ ...row, height: r.height }));

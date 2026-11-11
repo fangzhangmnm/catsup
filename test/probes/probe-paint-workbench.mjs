@@ -78,18 +78,21 @@ check(await S(() => { const b = document.getElementById("walkBtn"), r = b.getBou
 await page.screenshot({ path: "/tmp/catsup-paint-wb-start.png" });
 const pos0 = await S(() => globalThis.__catsup.editor.history.position());
 // 开始画时选画布大小（2026-11-11）：先出五行的面板，一行一行填「一格多大」；取消 = 什么都没开始
+const sizeOnly = (rows) => rows.filter((r) => /\d+ × \d+$/.test(r.label));   // 「按总大小」那五行（施工单十六第四节起面板上还有「按一格多大」那一组）
 const sheetRows = () => S(() => [...document.querySelectorAll("#sheetChoices .sheet-row")].map((b) => ({ label: b.querySelector(".sheet-row-label")?.firstChild?.textContent ?? "", mark: b.querySelector(".sheet-row-mark")?.textContent ?? "", note: b.querySelector(".sheet-row-note")?.textContent ?? "", disabled: b.disabled })));
 await startBtn.click();
-await page.waitForFunction(() => !document.getElementById("sheet").hidden && document.querySelectorAll("#sheetChoices .sheet-row").length === 5);
+await page.waitForFunction(() => !document.getElementById("sheet").hidden && [...document.querySelectorAll("#sheetChoices .sheet-row-label")].filter((l) => /\d+ × \d+$/.test(l.firstChild?.textContent ?? "")).length === 5);
 await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-note")].every((n) => !/在算/.test(n.textContent)), null, { timeout: 20000 });
-const rows1 = await sheetRows();
+const all1 = await sheetRows(), rows1 = sizeOnly(all1);
+check(all1.filter((r) => /^一格 /.test(r.label)).length === 4 && /自己填/.test(all1[all1.length - 1].label) && !all1.some((r) => /和上一张画一样/.test(r.label)) && all1.filter((r) => /^一格 /.test(r.label)).every((r) => /^画布 \d+ × \d+　打开占 /.test(r.note)),
+  `「按一格多大」那一组：四个常用档（${all1.filter((r) => /^一格 /.test(r.label)).map((r) => `${r.label}：${r.note}`).join(" | ")}）+ 自己填；文件里还没有画 = 没有「和上一张画一样」`, JSON.stringify(all1.map((r) => r.label)));
 check(rows1.map((r) => r.label).join(",") === "128 × 128,256 × 256,512 × 512,1024 × 1024,2048 × 2048" && rows1.every((r) => /一格约 .+打开占 /.test(r.note) && !r.disabled) && rows1.every((r) => !r.mark),
   `面板五行，每行写了一格多大和打开占多少显存（${rows1.map((r) => r.note).join(" | ")}）；文件里还没有画 = 没有记号`, JSON.stringify(rows1));
 check(/打开占 (\d|\.)+ (KB|MB)（画的时候再多/.test(rows1[0].note) && /打开占 29 MB（画的时候再多 8 MB）/.test(rows1[3].note), `打开这张画占多少显存（1024：${rows1[3].note}）`);
 await page.click("#sheetCancel"); await frames(2);
 check(await S(() => globalThis.__catsup.editor.history.position()) === pos0 && await S(() => ![...globalThis.__catsup.editor.sceneRef.textures.values()].some((t) => t.content.kind === "layered")), "取消 = 什么都没开始（没有画、没长步）");
 await startBtn.click();
-await page.waitForFunction(() => !document.getElementById("sheet").hidden && document.querySelectorAll("#sheetChoices .sheet-row").length === 5);
+await page.waitForFunction(() => !document.getElementById("sheet").hidden && [...document.querySelectorAll("#sheetChoices .sheet-row-label")].filter((l) => /\d+ × \d+$/.test(l.firstChild?.textContent ?? "")).length === 5);
 await page.locator('#sheetChoices .sheet-row:has-text("1024 × 1024")').click(); await frames(3);
 const tex = await S(() => [...globalThis.__catsup.editor.sceneRef.textures.values()].find((t) => t.content.kind === "layered")?.guid ?? null);
 check(!!tex && await S(() => globalThis.__catsup.editor.history.position()) === pos0 + 1, "开始画了：一张画、一步");
@@ -318,7 +321,7 @@ const mkBox = (name, x0) => S(([name, x0]) => {
 }, [name, x0]);
 const d11 = await mkBox("甲", 0); await frames(2);
 await page.locator('button:has-text("开始画")').first().click();
-await page.waitForFunction(() => document.querySelectorAll("#sheetChoices .sheet-row").length === 5 && !document.getElementById("sheet").hidden);
+await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-label")].filter((l) => /\d+ × \d+$/.test(l.firstChild?.textContent ?? "")).length === 5 && !document.getElementById("sheet").hidden);
 await page.locator('#sheetChoices .sheet-row:has-text("256 × 256")').click(); await frames(2);
 const uv11 = await S((d) => { const u = [...globalThis.__catsup.editor.sceneRef.mesh(d).uvSets.values()][0]; return u ? `${u.width}x${u.height}` : null; }, d11);
 check(uv11 === "256x256", `选 256 = 画布 256 见方（${uv11}）`);
@@ -334,27 +337,66 @@ check(lk.mode !== "paint" && (!lk.bar || lk.label !== "开始画…"), `锁着�
 await S(async () => { await globalThis.__catsup.session.setLocked(false); globalThis.__catsup.pickWorkbench("paint"); }); await frames(1);
 check(await S(() => !document.getElementById("walkBar").hidden && document.getElementById("walkBtn").textContent === "开始画…"), "解锁、回画画工作台：「开始画…」回来了");
 await page.locator('button:has-text("开始画")').first().click();
-await page.waitForFunction(() => document.querySelectorAll("#sheetChoices .sheet-row").length === 5 && !document.getElementById("sheet").hidden);
-const rows11 = await sheetRows();
+await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-label")].filter((l) => /\d+ × \d+$/.test(l.firstChild?.textContent ?? "")).length === 5 && !document.getElementById("sheet").hidden);
+const all11 = await sheetRows(), rows11 = sizeOnly(all11);
+check(/和上一张画一样（一格约 .+）/.test(all11.find((r) => /和上一张画一样/.test(r.label))?.label ?? ""), `文件里有画了：多一行「${all11.find((r) => /和上一张画一样/.test(r.label))?.label ?? "（没有）"}」`);
 check(rows11.filter((r) => r.mark).map((r) => r.label).join(",") === "256 × 256" && rows11[1].mark === "上次用的", "第二个物件开始画：256 那一行带「上次用的」（从文件里那张画读出来的），别的行没有", JSON.stringify(rows11.map((r) => r.mark)));
 await page.click("#sheetCancel"); await frames(1);
 // 选了几张面开始画 → 再选别的面 = 「把这几张面加进来」：不出面板，加进那张画
 const d12 = await mkBox("丙", 6); await frames(2);
 const top12 = await S((d) => { const e = globalThis.__catsup.editor, k = e.sceneRef.mesh(d).kernel, top = k.faces().find((f) => k.facePts(f).every((p) => Math.abs(p.z - 1) < 1e-6)); e.toolCtx.setSelection({ faces: [top] }); return top; }, d12); await frames(1);
 await page.locator('button:has-text("开始画")').first().click();
-await page.waitForFunction(() => document.querySelectorAll("#sheetChoices .sheet-row").length === 5 && !document.getElementById("sheet").hidden);
+await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-label")].filter((l) => /\d+ × \d+$/.test(l.firstChild?.textContent ?? "")).length === 5 && !document.getElementById("sheet").hidden);
 await page.locator('#sheetChoices .sheet-row:has-text("256 × 256")').click(); await frames(2);
 const side12 = await S((d) => { const e = globalThis.__catsup.editor, k = e.sceneRef.mesh(d).kernel, side = k.faces().filter((f) => !k.facePts(f).every((p) => Math.abs(p.z - 1) < 1e-6)).slice(0, 2); e.toolCtx.setSelection({ faces: side }); return side; }, d12); await frames(1);
 check(await S(() => document.getElementById("walkBtn").textContent) === "开始画…", "物件有画、选了没进画的面 = 「开始画…」照样露");
 const paints12 = await S(() => [...globalThis.__catsup.editor.sceneRef.textures.values()].filter((t) => t.content.kind === "layered").length);
 await page.click("#walkBtn");
-await page.waitForFunction(() => document.querySelectorAll("#sheetChoices .sheet-row").length === 6 && !document.getElementById("sheet").hidden);
+await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-label")].filter((l) => /\d+ × \d+$/.test(l.firstChild?.textContent ?? "")).length === 5 && /^加进已有的画/.test(document.querySelector("#sheetChoices .sheet-row-label")?.firstChild?.textContent ?? "") && !document.getElementById("sheet").hidden);
 const rows12 = await sheetRows();
-check(/^加进已有的画：/.test(rows12[0].label) && rows12.slice(1).every((r) => /^新开一张画：\d+ × \d+$/.test(r.label)), `面板：第一行「${rows12[0].label}」（${rows12[0].note}），下面五行新开一张`, JSON.stringify(rows12.map((r) => r.label)));
+check(/^加进已有的画：/.test(rows12[0].label) && rows12[0].disabled && /这张画定的是 256 × 256，放不下了/.test(rows12[0].note) && sizeOnly(rows12).length === 5 && sizeOnly(rows12).every((r) => /^新开一张画：\d+ × \d+$/.test(r.label)) && rows12.some((r) => /^新开一张画：一格 /.test(r.label)),
+  `按总大小开的画（256 × 256，一张面已经占满）：「${rows12[0].label}」灰掉、写「${rows12[0].note}」；下面新开一张（按总大小五行 + 按一格多大）`, JSON.stringify(rows12.map((r) => [r.label, r.disabled])));
+await page.click("#sheetCancel"); await frames(1);
+// 按一格多大开的画（fit = density）：加面放不下时画布变大 → 「加进已有的画」点得了，那两张面进了同一张画
+const d15 = await mkBox("己", 15); await frames(2);
+await S((d) => { const e = globalThis.__catsup.editor, k = e.sceneRef.mesh(d).kernel, top = k.faces().find((f) => k.facePts(f).every((p) => Math.abs(p.z - 1) < 1e-6)); e.toolCtx.setSelection({ faces: [top] }); }, d15); await frames(1);
+await page.locator('button:has-text("开始画")').first().click();
+await page.waitForFunction(() => !document.getElementById("sheet").hidden && [...document.querySelectorAll("#sheetChoices .sheet-row-label")].some((l) => /一格 1 ?(\.0 )?cm/.test(l.firstChild?.textContent ?? "")));
+await page.locator("#sheetChoices .sheet-row", { hasText: /一格 1 ?(\.0 )?cm/ }).first().click(); await frames(2);
+const side15 = await S((d) => { const e = globalThis.__catsup.editor, k = e.sceneRef.mesh(d).kernel, side = k.faces().filter((f) => !k.facePts(f).every((p) => Math.abs(p.z - 1) < 1e-6)).slice(0, 2); e.toolCtx.setSelection({ faces: side }); return side; }, d15); await frames(1);
+const paints15 = await S(() => [...globalThis.__catsup.editor.sceneRef.textures.values()].filter((t) => t.content.kind === "layered").length);
+await page.click("#walkBtn");
+await page.waitForFunction(() => !document.getElementById("sheet").hidden && /^加进已有的画/.test(document.querySelector("#sheetChoices .sheet-row-label")?.firstChild?.textContent ?? ""));
+await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-note")].every((n) => !/在算/.test(n.textContent)), null, { timeout: 20000 });
+const rows15 = await sheetRows();
+check(!rows15[0].disabled && /放不下时画布会变大/.test(rows15[0].note), `按一格多大开的画：「${rows15[0].label}」点得了（${rows15[0].note}）`);
 await page.locator("#sheetChoices .sheet-row").first().click(); await frames(2);
-const add12 = await S(([d, side]) => { const C = globalThis.__catsup, S0 = C.editor.sceneRef, k = S0.mesh(d).kernel, uv = [...S0.mesh(d).uvSets.keys()][0]; return { sheet: !document.getElementById("sheet").hidden, painted: side.every((f) => S0.facePaint(d, k.faceMat[f]) !== null && !!k.cornerValues(f, uv)), paints: [...S0.textures.values()].filter((t) => t.content.kind === "layered").length }; }, [d12, side12]);
-check(!add12.sheet && add12.painted && add12.paints === paints12, "点了：不出面板，那两张面进了这个物件那张画（有坐标），没多出一张画", JSON.stringify(add12));
+const add12 = await S(([d, side]) => { const C = globalThis.__catsup, S0 = C.editor.sceneRef, k = S0.mesh(d).kernel, uv = [...S0.mesh(d).uvSets.keys()][0]; return { sheet: !document.getElementById("sheet").hidden, painted: side.every((f) => S0.facePaint(d, k.faceMat[f]) !== null && !!k.cornerValues(f, uv)), paints: [...S0.textures.values()].filter((t) => t.content.kind === "layered").length }; }, [d15, side15]);
+check(!add12.sheet && add12.painted && add12.paints === paints15, "点了：不出面板，那两张面进了这个物件那张画（有坐标），没多出一张画", JSON.stringify(add12));
 void top12;
+
+console.log("\n⑫ 按一格多大开始画（施工单十六第四节）：常用档 / 自己填；画布接近正方形、够用的最小；那一套记 fit = density");
+const d13 = await mkBox("丁", 9); await frames(2);
+await page.locator('button:has-text("开始画")').first().click();
+await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-label")].some((l) => /^一格 1 ?(\.0 )?cm/.test(l.firstChild?.textContent ?? "")) && !document.getElementById("sheet").hidden);
+await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-note")].every((n) => !/在算/.test(n.textContent)), null, { timeout: 20000 });
+const cm = (await sheetRows()).find((r) => /^一格 1 ?(\.0 )?cm/.test(r.label));
+await page.locator("#sheetChoices .sheet-row", { hasText: cm.label }).first().click(); await frames(2);
+const got13 = await S((d) => { const u = [...globalThis.__catsup.editor.sceneRef.mesh(d).uvSets.values()][0]; return u ? { w: u.width, h: u.height, d: u.pxPerM, fit: u.fit ?? null } : null; }, d13);
+check(!!got13 && got13.fit === "density" && Math.abs(got13.d - 100) < 1e-9 && got13.h <= got13.w && cm.note.startsWith(`画布 ${got13.w} × ${got13.h}`), `一格 1 cm：每米 ${got13?.d} 格、画布 ${got13?.w} × ${got13?.h}（面板上那行写的「${cm.note}」）、记了 fit = density`, JSON.stringify(got13));
+const d14 = await mkBox("戊", 12); await frames(2);
+await page.locator('button:has-text("开始画")').first().click();
+await page.waitForFunction(() => !document.getElementById("sheet").hidden && [...document.querySelectorAll("#sheetChoices .sheet-row-label")].some((l) => /自己填/.test(l.textContent)));
+await page.locator('#sheetChoices .sheet-row:has-text("自己填")').click();
+await page.waitForFunction(() => !document.getElementById("sheetInput").hidden && !document.getElementById("sheet").hidden);
+await page.fill("#sheetInput", "abc"); await page.click("#sheetConfirm");
+const e1 = await S(() => ({ err: document.getElementById("sheetError").hidden ? "" : document.getElementById("sheetError").textContent, open: !document.getElementById("sheet").hidden }));
+await page.fill("#sheetInput", "0.01 mm"); await page.click("#sheetConfirm");
+const e2 = await S(() => ({ err: document.getElementById("sheetError").hidden ? "" : document.getElementById("sheetError").textContent, open: !document.getElementById("sheet").hidden }));
+check(e1.open && !!e1.err && e2.open && /太大了/.test(e2.err), `填错 / 太细：不关、说原因（「${e1.err}」「${e2.err}」）`);
+await page.fill("#sheetInput", "3 mm"); await page.click("#sheetConfirm"); await frames(2);
+const got14 = await S((d) => { const u = [...globalThis.__catsup.editor.sceneRef.mesh(d).uvSets.values()][0]; return u ? { w: u.width, h: u.height, d: u.pxPerM, fit: u.fit ?? null } : null; }, d14);
+check(!!got14 && got14.fit === "density" && Math.abs(got14.d - 1000 / 3) < 1e-6 && got14.h <= got14.w, `自己填 3 mm：每米 ${got14?.d?.toFixed(2)} 格、画布 ${got14?.w} × ${got14?.h}`, JSON.stringify(got14));
 
 await browser.close();
 if (errs.length) { console.log("页面错误：", errs.slice(0, 5)); process.exitCode = 1; }

@@ -95,7 +95,7 @@ describe("额度和画板活多久（1-8a）", () => {
 
 describe("画布加高那一步（1-8a）", () => {
   it("挤出让画布加高：撤销之后画板和贴图坐标都缩回去，再重做回来；加高之后在新的行上画过、撤到加高之前也缩得回去", () => {
-    const r = rig(1), rnd = rng(2), [tex] = r.defs.map((d) => r.startPaint(d, 200)), def = r.defs[0];   // 密度大：画布满得快，挤出几次就要加高
+    const r = rig(1), rnd = rng(2), [tex] = r.defs.map((d) => r.startPaint(d, 200, "density")), def = r.defs[0];   // 密度大：画布满得快，挤出几次就要加高（按一格多大开的才长大，施工单十六第四节）
     r.boards.ensure(r.cur(), tex);
     let tries = 0, before = "";
     const uvH = (): number => [...r.cur().mesh(def).uvSets.values()][0].height;

@@ -22,12 +22,14 @@ export function facesToStart(s: Scene, u: Pick<MeshUnit, "def" | "sel">): number
   return picked.filter((f) => k.hasF(f) && !painted(f));
 }
 
+/** 参数里的密度（每米几格，按这个物件自己的长度；施工单十六第四节「按一格多大」开始画）：正的有限数才算，别的 = 没给（按画布边长）。 */
+const densityOf = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null);
 /** 参数里的画布边长：五档之一，别的 = 1024。 */
 const canvasOf = (v: unknown): number => ((CANVAS_SIZES as readonly number[]).includes(Number(v)) ? Number(v) : 1024);
 
 export const startPaint: Command<MeshUnit> = {
   id: "mesh.startPaint", unit: "mesh", title: "开始画",
-  defaults: () => ({ canvas: 1024, arrange: "patches" }),   // 界面发出去的永远带这两个（施工单十五）；没给的老入口 = 1024 见方、连成片
+  defaults: () => ({ canvas: 1024, arrange: "patches" }),   // 界面发出去的永远带这两个（施工单十五）；没给的老入口 = 1024 见方、连成片；给了 density（施工单十六第四节）= 按一格多大开，canvas 不看
   params: () => [],   // 画布边长由「开始画」那张面板选（没有马后炮）
   quickCount: (env, u) => facesToStart(env.scene, u).length,
   plan(env, u, v) {
@@ -37,21 +39,21 @@ export const startPaint: Command<MeshUnit> = {
     const only = mats.size === 1 ? [...mats][0] : null;
     const color: [number, number, number] = only ? [only.color[0], only.color[1], only.color[2]] : FACE_GREY;
     const taken = new Set([...s.textures.values()].map((t) => t.name)), name = ((): string => { if (!taken.has("画")) return "画"; let i = 2; while (taken.has(`画 ${i}`)) i++; return `画 ${i}`; })();
-    return { ops: [{ op: "startPaint", def: u.def, faces, uvSet: mintGuid(), textureGuid: mintGuid(), materialGuid: mintGuid(), names: { uvSet: name, paint: name, material: name }, color, canvas: canvasOf(v.canvas), arrange: v.arrange === "faces" ? "faces" : "patches" }], count: faces.length };
+    return { ops: [{ op: "startPaint", def: u.def, faces, uvSet: mintGuid(), textureGuid: mintGuid(), materialGuid: mintGuid(), names: { uvSet: name, paint: name, material: name }, color, ...densityOf(v.density) !== null ? { density: densityOf(v.density)!, fit: "density" as const } : { canvas: canvasOf(v.canvas) }, arrange: v.arrange === "faces" ? "faces" : "patches" }], count: faces.length };
   },
   done: (n) => `开始画了：${n} 张面铺上了一张画，现在用笔在上面画`,
   none: "开始画：这个物件已经有画了，直接用笔画（要给别的面另开一张：先选中那几张面）",
 };
 
 /** 这个物件上的画（贴图表里的先后）：每张 = 贴图身份、名字、它的材质在文档材质表里的下标、它那一套坐标（宽高、密度、GUID）。 */
-export function paintsOf(s: Scene, def: number): { tex: string; name: string; material: number; uvSet: { guid: string; width: number; height: number; pxPerM: number } }[] {
+export function paintsOf(s: Scene, def: number): { tex: string; name: string; material: number; uvSet: { guid: string; width: number; height: number; pxPerM: number; fit?: "density" } }[] {
   const out: ReturnType<typeof paintsOf> = [];
   for (const t of s.textures.values()) {
     if (t.content.kind !== "layered") continue;
     const p = paintPlaceOf(s, t.guid);
     if (!p || p.def !== def) continue;
     const i = s.materials.indexOf(p.material);
-    if (i >= 0) out.push({ tex: t.guid, name: t.name, material: i, uvSet: { guid: p.uvSet.guid, width: p.uvSet.width, height: p.uvSet.height, pxPerM: p.uvSet.pxPerM } });
+    if (i >= 0) out.push({ tex: t.guid, name: t.name, material: i, uvSet: { guid: p.uvSet.guid, width: p.uvSet.width, height: p.uvSet.height, pxPerM: p.uvSet.pxPerM, ...(p.uvSet.fit ? { fit: p.uvSet.fit } : {}) } });
   }
   return out;
 }

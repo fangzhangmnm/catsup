@@ -73,15 +73,20 @@ export function upkeepAfter(env: ForceEnv, op: Op, snaps: UpkeepSnaps, commit: (
     if (n) notes.push(n);
   }
   let unplaced = 0;
+  const fixed = new Set<string>();   // 放不下、而且画布定了大小（按总大小开的，不自己变大）的那几张画：提示行说是哪张、多大（施工单十六第四节）
   for (const [def, sn] of snaps.paint) {
     if (!live(def)) continue;
     const k = env.scene.mesh(def).kernel;
     if (k.rev === sn.rev) continue;
     if (!handled.has(def)) layoutIn(def, pendingOf(def));
-    unplaced += pendingOf(def).length;   // 补完还没有位置的 = 画布上放不下的
+    for (const [g, fs] of unplacedPaintFaces(env.scene, def, touched(def))) {   // 补完还没有位置的 = 画布上放不下的
+      unplaced += fs.length;
+      const row = env.scene.mesh(def).uvSets.get(g);
+      if (fs.length && row && row.fit !== "density") fixed.add(`${row.width} × ${row.height}`);
+    }
     k.takeDroppedFaces();   // 收尾自己的指令（补位置 / 对称化）不会丢画；有也已经数过了，清零免得留到下一步
   }
-  if (unplaced) notes.push(`有 ${unplaced} 张面在画布上放不下，先照底色显示`);
+  if (unplaced) notes.push(`有 ${unplaced} 张面在画布上放不下，先照底色显示${fixed.size ? `（这张画定的是 ${[...fixed].join("、")}，不自己变大）` : ""}`);
   if (dropped) notes.push(`有 ${dropped} 张面的画没带过来（并面时两边的位置对不上）`);
   return notes.join("；");
 }

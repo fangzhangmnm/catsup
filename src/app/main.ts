@@ -846,6 +846,7 @@ const primary = mountPrimaryButton(walkBar, walkBtn, [
     void pickPaintStart(editor).then((c) => {   // 物件有画、选了没进画的面：面板上「加进已有的画」和「新开一张」两种都给（施工单十五第三节）
       if (!c) return;
       if (c.kind === "add") editor.runAction("mesh.paintAddFaces", { tex: c.tex });
+      else if (c.kind === "density") editor.runAction("mesh.startPaint", { density: c.density, arrange: "patches" });   // 按一格多大（施工单十六第四节）：画布接近正方形、以后能长大
       else editor.runAction("mesh.startPaint", { canvas: c.canvas, arrange: "patches" });   // 界面发出去的永远带画布和铺法
       syncUi(); editor.draw();
     });

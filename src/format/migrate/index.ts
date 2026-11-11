@@ -108,6 +108,10 @@ import { definitionsV6toV7, type MigrationCtx } from "./definitions.ts";
 //                      它在里面切一刀，角上那一列还是旧的，存回去画和模型就对不上了，而且是悄悄坏的）。
 //                      **「写入器只写当前拍」的例外**：只有带贴图坐标的网格体才盖 2.0；不带的照旧盖 1.2（MESH_STAMP_NO_UV），写出来和以前逐字节一样——
 //                      没画过的文件旧版本照常打开。1.x → 2.0 是一条空迁移（1.2 的形状是 2.0 的子集）。
+//   CATSUP_mesh        2.1（2026-11-11，Claude Opus 5.5；施工单十六第四节，user「如果是指定贴图大小的话，后面自动涨也不好」）：一套贴图坐标上可选键 fit = "density"
+//                      （按一格多大开的：加面放不下时画布照规矩长大）；缺 = 按总大小开的（画布不自己变大）。同一个例外：只有带 fit 的网格体盖 2.1，别的照旧盖 2.0 / 1.2
+//                      （MESH_STAMP_UV_NO_FIT），写出来和以前逐字节一样。老读者（2.0）碰到 2.1 = minor 新：能开能存、提示一次；它不认识 fit、存回去会丢掉
+//                      （贴图坐标那一行只认识的键才读进来）= 那张画变回「按总大小」：画布从此不自己长大，不坏数据。
 
 export interface Stamp { readonly major: number; readonly minor: number; readonly patch: number }
 /** 本版写出的拍子（SSoT）。 */
@@ -120,7 +124,7 @@ export const FORMAT = {
   CATSUP_desk: { major: 1, minor: 5, patch: 0 },   // 1.5（2026-11-11）：可选键 paint（画画工作台的笔）；1.4（2026-11-04）：可选键 exportModel；1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
   CATSUP_references: { major: 1, minor: 0, patch: 0 },
   /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
-  CATSUP_mesh: { major: 2, minor: 0, patch: 0 },   // 2.0（2026-11-11，1-2½）：uvSets 贴图坐标（只有带它的网格体盖 2.0，见 MESH_STAMP_NO_UV）；1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）
+  CATSUP_mesh: { major: 2, minor: 1, patch: 0 },   // 2.1（2026-11-11，施工单十六）：贴图坐标的一套上可选键 fit（只有带它的网格体盖 2.1，见 MESH_STAMP_UV_NO_FIT）；2.0（2026-11-11，1-2½）：uvSets 贴图坐标（只有带它的网格体盖 2.0，见 MESH_STAMP_NO_UV）；1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）
   CATSUP_shelf: { major: 1, minor: 0, patch: 0 },   // 1.0（2026-11-04）：素材架（可选扩展）
   CATSUP_textures: { major: 1, minor: 1, patch: 0 },   // 1.0（2026-11-10）：贴图表（可选扩展）；1.1（2026-11-11，贴图主线 1-8b）：行上可选键 composite = 画的合成图（PNG + 照哪份分层字节做的 + 底色），旧读者当不认识的键原样带回
 } as const satisfies Record<string, Stamp>;
@@ -128,6 +132,8 @@ export type CatsupExtension = keyof typeof FORMAT;
 export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references", "CATSUP_mesh", "CATSUP_shelf", "CATSUP_textures"];
 /** 不带贴图坐标的网格体照旧盖的拍子（「只写当前拍」的例外，见头注释 1-2½ 那一节）：和 2.0 之前写出来的逐字节一样。 */
 export const MESH_STAMP_NO_UV: Stamp = { major: 1, minor: 2, patch: 0 };
+/** 带贴图坐标、但没有一套是按密度开的（fit）网格体照旧盖的拍子（施工单十六）：和 2.1 之前写出来的逐字节一样。 */
+export const MESH_STAMP_UV_NO_FIT: Stamp = { major: 2, minor: 0, patch: 0 };
 /** 各子结构的 major（老名字，读写两端的 too-new 判定与 STEPS 索引都用它）。 */
 export const EXTENSION_VERSIONS: Readonly<Record<CatsupExtension, number>> = Object.fromEntries(CATSUP_EXTENSION_ORDER.map((k) => [k, FORMAT[k].major])) as Record<CatsupExtension, number>;
 /** 写入器盖拍子：`version` 必写；`minor` / `patch` 是可选键（缺 = 0），为 0 时不写——省字节（§3.2「抠」），字节照样确定。 */

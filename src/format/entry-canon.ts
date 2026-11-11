@@ -41,7 +41,7 @@ function canonMesh(m: MeshDoc, slotGuid: (slot: number) => Guid | null): unknown
     return { ring: turn(ring, 1), mat: faceMat[i] >= 0 ? slotGuid(faceMat[i]) : null, flags: faceFlags[i], ...(sets.length ? { uv } : {}) };
   });
   const edges = Array.from(edgeFlags, (flags, i) => { const a = edgePairs[2 * i], b = edgePairs[2 * i + 1]; return { a: Math.min(a, b), b: Math.max(a, b), flags }; });
-  const meta = byKey(sets.map((u) => ({ guid: u.guid, name: u.name, width: u.width, height: u.height, pxPerM: u.pxPerM })), (u) => u.guid);   // 列表顺序没有语义
+  const meta = byKey(sets.map((u) => ({ guid: u.guid, name: u.name, width: u.width, height: u.height, pxPerM: u.pxPerM, ...(u.fit === "density" ? { fit: u.fit } : {}) })), (u) => u.guid);   // 列表顺序没有语义；fit 缺 = size（施工单十六）
   return { ...rest, ...(sets.length ? { uvSets: meta } : {}), faces: byKey(faces, (f) => f.ring.join(",")), edges: byKey(edges, (e) => `${e.a},${e.b}`) };
 }
 
