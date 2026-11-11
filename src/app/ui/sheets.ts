@@ -220,6 +220,44 @@ export function openChoiceSheet<T>(title: string, message: string, choices: Choi
   });
 }
 
+/** 一行（openRowsSheet）：label = 这一行本身；note = 下面一行小字（可以后填）；blocked = 灰掉、点不了，原因写在 note 那一行；marked = 行尾一个淡淡的记号（比如「上次用的」）。 */
+export interface SheetRow<T> { label: string; value: T; note?: string; blocked?: string | null; marked?: string }
+/** 面板出来之后补一行的说明 / 灰掉（大模型上一行一行算出来再填）。alive() = 面板还开着（关了就别再算）。 */
+export interface RowsFill { set(i: number, patch: { note?: string; blocked?: string | null }): void; alive(): boolean }
+/**
+ * 几行选一行：点一下就是选了（没有确认钮）；能取消（取消钮 / Esc / 点背板 = null）。fill = 面板出来之后再一行一行补说明（不挡面板）。
+ * created 2026-11-11 by Claude Opus 5.5（开始画时选画布大小：五档，每档一格多大、每层最多多大，大模型上要现铺一遍才知道）。
+ */
+export function openRowsSheet<T>(title: string, message: string, rows: readonly SheetRow<T>[], fill?: (f: RowsFill) => void): Promise<T | null> {
+  _assertNotBusy("rows");
+  return new Promise((resolve) => {
+    _reset();
+    const gen = _faceGen;
+    g.title().textContent = title;
+    if (message) { g.message().textContent = message; g.message().hidden = false; }
+    const box = g.choices(); box.hidden = false;
+    g.confirm().hidden = true;
+    const onCancel = () => { g.cancel().removeEventListener("click", onCancel); _hide(); resolve(null); };
+    const notes: HTMLElement[] = [], btns: HTMLButtonElement[] = [];
+    rows.forEach((r) => {
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "sheet-choice sheet-row";
+      const head = document.createElement("span"); head.className = "sheet-row-label"; head.textContent = r.label;
+      if (r.marked) { const m = document.createElement("span"); m.className = "sheet-row-mark"; m.textContent = r.marked; head.appendChild(m); }
+      const note = document.createElement("span"); note.className = "sheet-row-note"; note.textContent = r.blocked ?? r.note ?? "";
+      btn.append(head, note); btn.disabled = !!r.blocked;
+      btn.addEventListener("click", () => { if (btn.disabled) return; g.cancel().removeEventListener("click", onCancel); _hide(); resolve(r.value); });
+      box.appendChild(btn); notes.push(note); btns.push(btn);
+    });
+    g.cancel().addEventListener("click", onCancel);
+    _open = onCancel; _show();
+    fill?.({
+      alive: () => gen === _faceGen && !g.sheet().hidden,
+      set: (i, p) => { if (gen !== _faceGen || !btns[i]) return; if (p.blocked !== undefined) btns[i].disabled = !!p.blocked; notes[i].textContent = p.blocked ? p.blocked : p.note ?? notes[i].textContent; },
+    });
+  });
+}
+
 /** 表单 sheet 的一个选项。blocked = 走不通的原因：有就灰掉、点不了，原因写在这一行分段钮下面（看得见为什么不行，不藏）。 */
 export interface FormOption { value: string; label: string; blocked?: string | null }
 /** 表单 sheet 的一行：几个选项选一个（分段钮）；hidden(当前值) = true 时这一行不露（如 OBJ 没有贴图 / 边线可选）。 */

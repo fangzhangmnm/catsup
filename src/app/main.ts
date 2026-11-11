@@ -75,6 +75,7 @@ import { initPaintTileJobs } from "../paint/tile-jobs.ts";
 import { PaintSaver } from "../paint/save.ts";
 import { PaintWorkbench } from "./paint-workbench.ts";   // 画画工作台的控制器（1-7）
 import { createPaintColor, mountPaintColorSheet, hexOf, parseHexColor, PAINT_COLOR_DEFAULT } from "./paint-color.ts";
+import { pickCanvasSize } from "./canvas-size-picker.ts";
 import type { PaintDeskDoc } from "../format/document.ts";
 import { mountPaintSliders } from "./paint-sliders.ts";
 import type { SpacePaintDeps } from "../paint/space-paint.ts";
@@ -890,7 +891,10 @@ function toolActions(tool: string): { id: string; label: string; title?: string;
     // 画画工作台（1-7）：当前物件还没有画（或者选中了没画的面）= 一颗明着的「开始画」；没选东西也露（选区那一段只在有选区时才有）
     if (isPaintTool(tool)) {   // 画画的三把工具只在画画工作台里有
       const m = editor.commandMenu().find((x) => x.id === "mesh.startPaint");
-      return m ? [{ id: "startPaint", label: m.label, title: "给这些面铺上一张画：选中了面 = 这些面，没选 = 整个物件；之后用笔直接画", onClick: () => { editor.runAction("mesh.startPaint"); syncUi(); editor.draw(); } }] : [];
+      return m ? [{ id: "startPaint", label: m.label, title: "给这些面铺上一张画：选中了面 = 这些面，没选 = 整个物件；先选画布多大，之后用笔直接画", onClick: () => {
+        if (session.locked()) { editor.runAction("mesh.startPaint"); return; }   // 锁着：照现有规矩（指令自己说为什么不行），不出面板
+        void pickCanvasSize(editor).then((n) => { if (n === null) return; editor.runAction("mesh.startPaint", { canvas: n }); syncUi(); editor.draw(); });   // 开始画时选画布大小（2026-11-11）
+      } }] : [];
     }
     if (tool === "axes") return [{ id: "axesReset", label: "重置坐标架", title: "最外层 = 回到世界；组里 = 回到外面那层的；组件里 = 回到组件原点", onClick: () => { menuPick("axesReset"); } }, ...(editor.hasActableSelection() ? [{ id: "axesToSel", label: "移到选择中心", title: "坐标架原点移到选区的中心（之后右下角可换算法）", onClick: () => { editor.axesToSelectionCenter(); syncUi(); } }] : []), ...(editor.inComponentRoot() ? [{ id: "axesToOrigin", label: "设为组件原点", title: "把组件原点对到现在的坐标架（组件里：几何反挪、每份实例补，世界里不动；最外层：整个模型挪过去，视角跟着平移、屏幕上不动；一步撤销）", onClick: () => { editor.setComponentOriginToFrame(); syncUi(); } }] : [])];   // DT86 user「比起被记住的开关我建议是一个可以随手按一下的按钮」   // user 2026-10-25「轴的context菜单里面没有移动到选择。这个blender里面我天天用」
     if (tool === "tape" || tool === "protractor" || tool === "compass") return [{ id: "guidesClear", label: "删除所有参考几何", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];

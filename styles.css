@@ -368,6 +368,11 @@ body.doc-locked #selBar, body.doc-locked .left-dial { pointer-events: none; opac
 .sheet-choice { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--paper); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .sheet-choice.primary { background: var(--accent); color: #fff; border-color: transparent; }
 .sheet-choice.danger { color: var(--danger); }
+.sheet-row { display: flex; flex-direction: column; gap: 2px; }
+.sheet-row-label { font-weight: 600; }
+.sheet-row-mark { font-weight: 400; font-size: 12px; opacity: 0.55; margin-left: 8px; }
+.sheet-row-note { font-size: 12px; opacity: 0.7; }
+.sheet-row:disabled { opacity: 0.45; cursor: default; }
 /* 表单 sheet（openFormSheet；导出模型…）：一行 = 标签 + 分段单选钮（2026-10-28 Opus） */
 .sheet-form { gap: 10px; }
 .sheet-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

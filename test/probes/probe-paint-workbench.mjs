@@ -10,6 +10,7 @@
 // ⑦ 截图：iPad 竖屏（820 × 1180）和桌面（1280 × 800）
 // ⑧ 颜色：色块 / 填颜色代码（填错说一句、不改）走同一个入口；⑨ 量：2 万多张面的物件存了重开，进画画工作台要准备多久、画得上；6144 张面开始画之后画得上
 // ⑩ 在画画工作台里撤销一步建模、紧接着落笔：要么画在对的格子上、要么明着挡住（1-4c 的准备过期了不许拿旧的表画）
+// ⑪ 开始画时选画布大小（2026-11-11）：五行、每行一格多大和每层最多多少、取消什么都不做、选 256 就是 256 见方、同一份文件里再开始画时上次那一档带记号（① 里也走这张面板）
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-paint-workbench.mjs [url] [截图目录]
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -75,7 +76,20 @@ const startBtn = page.locator('button:has-text("开始画")').first();
 check(await startBtn.isVisible(), "「开始画」看得见");
 await page.screenshot({ path: "/tmp/catsup-paint-wb-start.png" });
 const pos0 = await S(() => globalThis.__catsup.editor.history.position());
-await startBtn.click(); await frames(3);
+// 开始画时选画布大小（2026-11-11）：先出五行的面板，一行一行填「一格多大」；取消 = 什么都没开始
+const sheetRows = () => S(() => [...document.querySelectorAll("#sheetChoices .sheet-row")].map((b) => ({ label: b.querySelector(".sheet-row-label")?.firstChild?.textContent ?? "", mark: b.querySelector(".sheet-row-mark")?.textContent ?? "", note: b.querySelector(".sheet-row-note")?.textContent ?? "", disabled: b.disabled })));
+await startBtn.click();
+await page.waitForFunction(() => !document.getElementById("sheet").hidden && document.querySelectorAll("#sheetChoices .sheet-row").length === 5);
+await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-note")].every((n) => !/在算/.test(n.textContent)), null, { timeout: 20000 });
+const rows1 = await sheetRows();
+check(rows1.map((r) => r.label).join(",") === "128 × 128,256 × 256,512 × 512,1024 × 1024,2048 × 2048" && rows1.every((r) => /一格约 .+每层最多 \d/.test(r.note) && !r.disabled) && rows1.every((r) => !r.mark),
+  `面板五行，每行写了一格多大和每层最多多少（${rows1.map((r) => r.note).join(" | ")}）；文件里还没有画 = 没有记号`, JSON.stringify(rows1));
+check(/最多 64 KB/.test(rows1[0].note) && /最多 4 MB/.test(rows1[3].note) && /最多 16 MB/.test(rows1[4].note), "每层最多：128 = 64 KB、1024 = 4 MB、2048 = 16 MB（宽 × 高 × 4）");
+await page.click("#sheetCancel"); await frames(2);
+check(await S(() => globalThis.__catsup.editor.history.position()) === pos0 && await S(() => ![...globalThis.__catsup.editor.sceneRef.textures.values()].some((t) => t.content.kind === "layered")), "取消 = 什么都没开始（没有画、没长步）");
+await startBtn.click();
+await page.waitForFunction(() => !document.getElementById("sheet").hidden && document.querySelectorAll("#sheetChoices .sheet-row").length === 5);
+await page.locator('#sheetChoices .sheet-row:has-text("1024 × 1024")').click(); await frames(3);
 const tex = await S(() => [...globalThis.__catsup.editor.sceneRef.textures.values()].find((t) => t.content.kind === "layered")?.guid ?? null);
 check(!!tex && await S(() => globalThis.__catsup.editor.history.position()) === pos0 + 1, "开始画了：一张画、一步");
 check(!(await page.locator('button:has-text("开始画")').first().isVisible().catch(() => false)), "开始画之后这颗钮收起来了");
@@ -286,6 +300,33 @@ console.log(`    撤销前准备 = ${m11.before}；撤销后网格体修改号 $
 check(m11.moved.verts > 10 && m11.moved.changed && m11.before === null && m11.undid && m11.undos === 1 && m11.said[0] === "撤销：移动", `建模那一步挪了 ${m11.moved.verts} 个点；撤一下 =「${m11.said[0]}」，网格体修改号变了`, JSON.stringify(m11));
 check((m11.firstSteps === 1 && m11.first.inked >= m11.first.asked - 1 && m11.first.asked >= 8) || (m11.firstSteps === 0 && /画布的表还在准备/.test(m11.hintA)), "紧接着那一笔：要么画在按现在的几何算的那几格上，要么明着挡住（说「画布的表还在准备」）", JSON.stringify(m11));
 check(m11.after === null && m11.secondSteps === 1 && m11.second.inked >= m11.second.asked - 1 && m11.second.asked >= 8, `下一帧准备好了，再画一笔落在对的格子上（${m11.second.inked}/${m11.second.asked}）`, JSON.stringify(m11.second));
+
+console.log("\n⑪ 开始画时选 256：画布就是 256 见方；同一份文件里再开始画一张，面板上 256 那行带「上次用的」");
+await S(() => globalThis.__catsup.galleryHost.open());
+await page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
+await page.click("#galleryNew");
+await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden);
+const mkBox = (name, x0) => S(([name, x0]) => {
+  const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }); e.exitTo(0); e.setGrid({ ...e.grid, on: false });
+  const B = [[x0, 0], [x0 + 1, 0], [x0 + 1, 1], [x0, 1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], 1), P(d[0], d[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); }
+  const S0 = e.sceneRef, before = new Set(S0.def(S0.root).instances.keys());
+  e.commitOp({ op: "addEdges", at: e.activePool(), segs }); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent(name); e.runAction("object.toMesh"); e.exitTo(0);
+  const inst = [...e.sceneRef.def(e.sceneRef.root).instances.values()].find((i) => !before.has(i.id));
+  e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); e.cam.setView("top"); e.zoomExtents(); e.draw();
+  globalThis.__catsup.pickWorkbench("paint"); return inst.def;
+}, [name, x0]);
+const d11 = await mkBox("甲", 0); await frames(2);
+await page.locator('button:has-text("开始画")').first().click();
+await page.waitForFunction(() => document.querySelectorAll("#sheetChoices .sheet-row").length === 5 && !document.getElementById("sheet").hidden);
+await page.locator('#sheetChoices .sheet-row:has-text("256 × 256")').click(); await frames(2);
+const uv11 = await S((d) => { const u = [...globalThis.__catsup.editor.sceneRef.mesh(d).uvSets.values()][0]; return u ? `${u.width}x${u.height}` : null; }, d11);
+check(uv11 === "256x256", `选 256 = 画布 256 见方（${uv11}）`);
+await mkBox("乙", 3); await frames(2);
+await page.locator('button:has-text("开始画")').first().click();
+await page.waitForFunction(() => document.querySelectorAll("#sheetChoices .sheet-row").length === 5 && !document.getElementById("sheet").hidden);
+const rows11 = await sheetRows();
+check(rows11.filter((r) => r.mark).map((r) => r.label).join(",") === "256 × 256" && rows11[1].mark === "上次用的", "第二个物件开始画：256 那一行带「上次用的」（从文件里那张画读出来的），别的行没有", JSON.stringify(rows11.map((r) => r.mark)));
+await page.click("#sheetCancel"); await frames(1);
 
 await browser.close();
 if (errs.length) { console.log("页面错误：", errs.slice(0, 5)); process.exitCode = 1; }
