@@ -146,6 +146,12 @@ export declare class MeshKernel {
     private adjBuilds;
     /** 从头重建邻接（以前的做法，原样）：每个点连着的边、每条边挨着的面，都按编号从小到大。只给 check() 的 M8 比对用。 */
     private adjacencyFromScratch;
+    /**
+     * 一张面切成哪几个三角形（下标 = 环上的位置，按面自己的绕向；FM130）。**网格体的面切三角形全仓只从这里来**（贴图主线 1-3a 第一节，2026-11-10）：
+     * 内核的 triangles()、导出、屏幕上画的（MeshView.faceTriangles → pool-mesh.ts buildFaceRec）、选中高亮 / OBJ（editor/face-triangles.ts）。
+     * 以前屏幕上那条路用视图的平面自己另切，四点共圆的面（正方形、长方形）两条对角线一样好，两条路可能选得不一样。O(这张面的点数)。
+     */
+    faceTriangles(f: number): [number, number, number][];
     triangles(): {
         tris: Int32Array;
         faceOfTri: Int32Array;
