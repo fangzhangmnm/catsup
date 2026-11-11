@@ -1,10 +1,10 @@
 // ui/menu-window.ts —— 一扇装着菜单的常驻浮窗（视图 / 物件）。created 2026-10-30 by Claude Opus 5.5
 // user 10-29「我建议是视图 物体 都做成可以常驻的浮窗吧，只有主菜单是菜单型的」「浮窗的时候你可以学一下weebpaint……尽量深模块窄接口地去做」。
-// 拼法：浮窗的一生 = ui/floating-window.ts（WeebPaint 同款深模块）；里面的菜单 = popup-menu.ts mountMenuPanel（和弹出菜单同一份画法）；
+// 拼法：浮窗的一生 = 界面零件库的 float-window（经 ui/float-host.ts；2026-11-11 前是这里的 floating-window.ts，WeebPaint 同款深模块）；里面的菜单 = popup-menu.ts mountMenuPanel（和弹出菜单同一份画法）；
 // 本文件只多三样：标题栏 + 关闭钮、第一次开的默认位置（挨着钮）、位置记在哪（调用方给 store）。
 // 刷新：调用方每次界面刷新都可以叫 refresh()——只在菜单内容真的变了时才重画；下拉层开着时不重画（不把正在用的下拉抽掉）；页签变了（某页出现 / 消失）就整个重挂。
 import { mountMenuPanel, openPopupMenu, type MenuPanelHandle, type PopupMenuItem, type PopupMenuOpts } from "./popup-menu.ts";
-import { registerFloatingWindow, type FloatingWindowHandle, type PanelPos } from "./floating-window.ts";
+import { registerFloatingWindow, type FloatingWindowHandle, type PanelPos } from "./float-host.ts";
 import { choiceLayerOpen } from "./choice-layer.ts";
 
 /** 第一次开的默认位置：start / end = 在钮下面、左 / 右对齐；beside = 在它（一整列挂件）的左边、after = 在它的右边，都顶对齐——不盖住它。 */

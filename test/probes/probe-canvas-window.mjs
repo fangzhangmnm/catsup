@@ -163,7 +163,7 @@ const grey = (c) => c[0] === c[1] && c[1] === c[2] && (c[0] === 200 || c[0] === 
 check(own.debug && !grey(own.face) && grey(own.corner), `面上的格子上了色 ${own.face.join(",")}、没人要的角是棋盘格的灰 ${own.corner.join(",")}`);
 
 console.log("\n⑦½ 壳（照参考窗）：左上圆钮点 = 收起 / 恢复、拖 = 挪窗；收起后拖小图标挪位置；右下角改大小；浏览器窗口缩小后还在屏幕里");
-const knob = async () => { const b = await page.locator('.float-win[data-win="canvas"] .bare-knob').boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+const knob = async () => { const b = await page.locator('.float-win[data-win="canvas"] .wbe-float-knob').boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
 const r0 = await rect();
 let k = await knob(); await page.mouse.click(k.x, k.y); await frames(2);
 const r1 = await rect(), col1 = (await W()).collapsed;
@@ -179,7 +179,7 @@ k = await knob(); await page.mouse.move(k.x, k.y); await page.mouse.down(); awai
 const r4 = await rect();
 check((await W()).collapsed && Math.abs(r4.x - (r3.x - 50)) < 2 && Math.abs(r4.y - (r3.y + 30)) < 2, "收起后拖那颗小图标：挪了位置、还是收着");
 k = await knob(); await page.mouse.click(k.x, k.y); await frames(1);
-const r5 = await rect(), g = await page.locator('.float-win[data-win="canvas"] .float-grip').boundingBox();
+const r5 = await rect(), g = await page.locator('.float-win[data-win="canvas"] .wbe-float-grip').boundingBox();
 await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2); await page.mouse.down(); await page.mouse.move(g.x + g.width / 2 + 70, g.y + g.height / 2 + 50, { steps: 6 }); await page.mouse.up(); await frames(2);
 const r6 = await rect();
 check(Math.abs(r6.w - (r5.w + 70)) < 3 && Math.abs(r6.h - (r5.h + 50)) < 3, `拖右下角：${Math.round(r5.w)} × ${Math.round(r5.h)} → ${Math.round(r6.w)} × ${Math.round(r6.h)}`);

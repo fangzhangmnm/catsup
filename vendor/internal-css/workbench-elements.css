@@ -89,3 +89,46 @@
 .toast.notice-warning { background: #b7791f; color: #fff; }
 .toast.notice-error button, .toast.notice-warning button { color: #fff; border-color: rgba(255, 255, 255, 0.4); }
 .toast button.primary { background: rgba(255, 255, 255, 0.18); font-weight: 600; }
+
+/* ── float-window · 壳零件（.wbe-float-*；只在 registerFloatingWindow 的 spec.shell 给了时出现；0.2.0，Claude Opus 5.5）──
+   数照 @internal/reference-window 0.4.3 起的 reference-window.ts（.move .knob / .bubble / .grip / .idle .away）：
+   左上圆钮 28 px、可点区 36 px、触屏 44 px、一圈淡边；右下斜纹角 19 px；闲置 0.35、离窗全隐；收起 = 44 px 圆钮。
+   窗本身的底色 / 边框 / 圆角 / 显隐归宿主；token：--bg --ink --line（圆钮底色可另给 --wbe-float-dot-bg）。
+   宿主自己的小钮（关、菜单……）加类名 wbe-float-part 就跟着淡；收起时窗里除了圆钮全藏。 */
+.wbe-float-knob {
+  position: absolute; left: 0; top: 0; z-index: 3;
+  width: 36px; height: 36px; padding: 0; border: 0; background: none;
+  color: var(--ink); opacity: .85; transition: opacity .35s; touch-action: none; cursor: grab;
+}
+.wbe-float-knob:active { cursor: grabbing; }
+.wbe-float-knob:hover { opacity: 1; }
+.wbe-float-dot {
+  position: absolute; left: 4px; top: 4px; width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 16px; line-height: 1;
+  background: var(--wbe-float-dot-bg, color-mix(in srgb, var(--bg, #fff) 82%, transparent));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink, #333) 28%, transparent);
+}
+.wbe-float-dot svg { width: 16px; height: 16px; pointer-events: none; }
+@media (pointer: coarse) {
+  .wbe-float-knob { width: 44px; height: 44px; }
+  .wbe-float-knob .wbe-float-dot { left: 8px; top: 8px; }
+}
+.wbe-float-grip {
+  position: absolute; right: 0; bottom: 0; z-index: 3; width: 19px; height: 19px;
+  cursor: nwse-resize; touch-action: none; opacity: .85; transition: opacity .35s;
+  background: linear-gradient(135deg, transparent 0 55%, var(--line, #bbb) 55% 62%, transparent 62% 72%, var(--line, #bbb) 72% 79%, transparent 79%);
+}
+.wbe-float-idle :is(.wbe-float-knob, .wbe-float-grip, .wbe-float-part) { opacity: .35; }
+.wbe-float-away :is(.wbe-float-knob, .wbe-float-grip, .wbe-float-part) { opacity: 0; }
+/* 收起 = 一颗 44 px 圆钮（同一个图标、同一个位置；原来的宽高留在行内样式里，类名一摘就回来）；它是唯一的回来路：不淡。
+   用 !important：这是盖过宿主窗样式（行内宽高、底色、边框）的状态 */
+.wbe-float-shell.wbe-float-collapsed {
+  width: 44px !important; height: 44px !important; min-width: 0 !important; min-height: 0 !important;
+  border-radius: 50% !important; overflow: visible !important; background: transparent !important; border: 0 !important; box-shadow: none !important;
+}
+.wbe-float-shell.wbe-float-collapsed > :not(.wbe-float-knob) { display: none !important; }
+.wbe-float-shell.wbe-float-collapsed .wbe-float-knob { width: 44px; height: 44px; opacity: .9 !important; }
+.wbe-float-shell.wbe-float-collapsed .wbe-float-dot {
+  left: 0; top: 0; width: 44px; height: 44px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink, #333) 28%, transparent), 0 4px 14px rgba(0, 0, 0, .18);
+}

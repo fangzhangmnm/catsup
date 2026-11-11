@@ -31,4 +31,31 @@
 
 ## 施工记录
 
-（小弟填）
+2026-11-11 晚，Catsup小弟（Claude Opus 5.5）。
+
+- **库**：`@internal/workbench-elements` 0.2.0（库 main 8e95aaf，tag v0.2.0，已推 GitHub）。第五件 `float-window` = 三维的 `floating-window.ts` + `panel-gizmo.ts` 原样搬进来，两家的差别做成参数：
+  - `configureFloatingWindows({ hudBottom, hiddenClass, zBase })`；
+  - 临时藏窗（`spec.transient` + `suppressFloatingForTransient / restoreFloatingAfterTransient`）；
+  - `resize.axis / getSize / apply`；
+  - 新加 `bottomFloor` 和「太大先缩再挪」。
+
+  四样壳零件 = 一个可选的 `shell`：
+  - `knob {icon, label, hint?}`；
+  - `collapsible {collapsed?, onCollapse?, restoreLabel?, restoreHint?}`；
+  - `corner`；
+  - `fade`。
+
+  组合不对就抛：`corner` 没给 `resize`；`corner` 和 `resize.grip` 都给了；`collapsible` 没给 `knob`。样子在 CSS 的 `.wbe-float-*`；宿主自己的小钮加 `wbe-float-part` 就跟着淡。门牌上每个成员一句说明（统筹审了两轮：第一轮五处 = 名字统一、圆钮收图标名、两个把手分开、收起要有圆钮、补说明）。拖 / 改大小的指针细节（panel-gizmo）不出门牌。库测试 23 条。
+- **没做成的**：GitHub 的发布页（`gh release create`）被这台机器的权限规则拦了，没换路子。三维收货走的是 `pull-package.sh` 的离线那条（库仓根的 tgz + tag 在）。要补发布页得 user 放行。
+- **三维**：
+  - 收 0.2.0；
+  - 删 `ui/floating-window.ts`、`ui/panel-gizmo.ts`；
+  - 新 `ui/float-host.ts`：三维唯一的布局知识（顶地板 = `.hud-topleft` 下缘）。要浮窗的模块都从它拿 `registerFloatingWindow`，拿到时配置已生效；
+  - `ui/bare-float-win.ts` 只剩三维自己的：右上「…」×、底地板（抽屉 / 键盘）、第一次挨着钮摆；
+  - `feel.ts` 的 `FLOAT_KNOB_DRAG_PX / FLOAT_IDLE_MS` 删了（数在库里）；
+  - 圆钮底色 `--wbe-float-dot-bg` 设在 `.float-win` 上，在窗上算，夜间也对。
+- **验证**：
+  - 换库前后逐像素比（脚本在任务临时目录，没进仓）。桌面 1000×760 和 iPad 744×1133 两种视口：「渲染」窗、「层级」窗的位置、z 序、元素截图、拖到边上被钳的落点，12/12 一样。画布小窗开着和收起的截图、位置、圆钮大小 10/10 一样。
+  - 探针 `probe-canvas-window` 29 ✓、`probe-hierarchy`、`probe-hide-windows`、`probe-menu-tabs` 过。全套 2202 过。
+  - 新登记一条探针表：动这几个文件跑这四个探针。
+
