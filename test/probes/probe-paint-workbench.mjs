@@ -134,16 +134,23 @@ const c5 = await scr(0.5, 0.5);
 await pe("pointerdown", 51, "pen", c5.x, c5.y); await pe("pointerup", 51, "pen", c5.x, c5.y); await frames(2);
 check(await S(() => globalThis.__catsup.editor.hasActableSelection?.() ?? false), "自由建模里笔点面 = 选中了");
 
-console.log("\n⑥ 存盘 → 刷新 → 接着画");
+console.log("\n⑥ 存盘 → 刷新 → 接着画；笔的设置和颜色跟文件走（desk 1.5，user 11-11「笔的设置记在哪 学weebpaint」）");
 await S(() => { globalThis.__catsup.pickWorkbench("paint"); });
+const pen6 = await S(() => { const C = globalThis.__catsup, c = C.editor.config; c.set("paintPen", "opacity", 0.6); c.set("paintEraser", "hardness", 0.55); C.paint.color.set([0.2, 0.6, 0.3]); return { pen: ["size", "opacity", "hardness"].map((k) => c.get("paintPen", k)), eraser: ["size", "opacity", "hardness"].map((k) => c.get("paintEraser", k)) }; });
 const p6 = await px();
 check(await S(async () => globalThis.__catsup.session.save()) === true, "存上了");
+await S(() => globalThis.__catsup.editor.config.set("paintPen", "hardness", 0.35));
+check(await S(() => globalThis.__catsup.session.dirty()) === false, "改笔的设置不标脏（和风格、导出表单一样）");
+pen6.pen[2] = 0.35;
+check(await S(async () => globalThis.__catsup.session.save()) === true, "再存一次（顺手把笔带走）");
 await reloaded(() => page.reload());
 await S(() => { for (const n of [...document.querySelectorAll("#noticeStack > *")]) n.remove(); });
 await enterBox();
 await S(() => { globalThis.__catsup.pickWorkbench("paint"); }); await frames(4);
 await page.waitForFunction((g) => globalThis.__catsup.paint.state(g) === "hot", tex, { timeout: 10000 });
 check(await px() === p6, "进画画工作台：画自己热起来了，内容 = 存之前");
+const pen6b = await S(() => { const C = globalThis.__catsup, c = C.editor.config; return { pen: ["size", "opacity", "hardness"].map((k) => c.get("paintPen", k)), eraser: ["size", "opacity", "hardness"].map((k) => c.get("paintEraser", k)), color: C.paint.color.get().map((v) => Math.round(v * 255)).join(",") }; });
+check(JSON.stringify(pen6b.pen) === JSON.stringify(pen6.pen) && JSON.stringify(pen6b.eraser) === JSON.stringify(pen6.eraser) && pen6b.color === "51,153,77", `重开：笔 ${pen6b.pen.join(" / ")}、橡皮 ${pen6b.eraser.join(" / ")}、颜色 ${pen6b.color} = 存之前`, JSON.stringify({ want: pen6, got: pen6b }));
 await drag(await line(0.2, 0.8, 0.7));
 check(await px() !== p6, "接着画能画");
 
@@ -176,6 +183,8 @@ await S(() => globalThis.__catsup.galleryHost.open());
 await page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
 await page.click("#galleryNew");
 await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden);
+const pen9 = await S(() => { const C = globalThis.__catsup, c = C.editor.config; return { pen: ["size", "opacity", "hardness"].map((k) => c.get("paintPen", k)).join(" / "), color: C.paint.color.get().map((v) => Math.round(v * 255)).join(","), desk: C.session.paintDesk ?? null }; });
+check(pen9.pen === "12 / 1 / 0.8" && pen9.color === "26,26,26" && pen9.desk === null, `新文件：笔回默认（${pen9.pen}、颜色 ${pen9.color}），桌面态里没有 paint`, JSON.stringify(pen9));
 await S(async () => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z });
   const B = [[0, 0], [1, 0], [1, 1], [0, 1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], 1), P(d[0], d[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); }
