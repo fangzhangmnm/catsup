@@ -194,7 +194,7 @@ describe("加密作品出门（规则书 §1 第 5 条；user 11-03；工单 C4�
   it("容器字节：图库家搬 at-rest 的容器（不是解开再封），解开的本地件同一口令封，都不走 encode 明文直出", () => {
     const c = bodyOf("private async containerNow()");
     assert(/docFile\(path\)\.getEncryptedBlob\(\)/.test(c), "搬容器");
-    assert(/shadowFrame\(this\.encode\(\), this\.seal, this\.sealPorts\(\)\)/.test(c), "同一口令封");
+    assert(/shadowFrame\(await this\.encodeNow\(\), this\.seal, this\.sealPorts\(\)\)/.test(c), "同一口令封");   // 1-8b 起编码是异步的（钉点 + 编码）
   });
   it("加密文件家写回只写容器；口令忘掉就不写", () => {
     const s = src.slice(src.indexOf('if (home.kind === "file") {'), src.indexOf("// 图库家。implicit（自动保存"));

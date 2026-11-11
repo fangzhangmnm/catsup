@@ -331,13 +331,13 @@ describe("存盘（1-3b 测试 G；1-2½ 起贴图坐标真的写）", () => {
     const doc = documentFromScene(r.s, "画"), md = doc.definitions.find((d) => d.kind === "mesh")!.mesh!;
     eq(md.uvSets?.length ?? 0, 1, "文件形状带着一套贴图坐标");
     let msg = ""; try { writeCatsup(doc); } catch (e) { msg = String((e as Error).message); }
-    assert(/no bytes yet/.test(msg) && /1-8/.test(msg), `原因：${msg}`);
+    assert(/no bytes/.test(msg) && /should have encoded a blank one/.test(msg), `原因：${msg}`);   // 1-8b 起存盘的钉点先编一份空白的；直接调写盘碰到 null 照旧抛
   });
   it("没有字节的分层贴图：写盘抛、原因写明白（画的字节进文件是 1-8）", () => {
     const s = new Scene();
     s.addTexture({ guid: mintGuid(), name: "空画", value: COLOR_VALUE, content: { kind: "layered", ora: null }, layout: { definition: "x", uvSet: "y" } });
     let msg = ""; try { writeCatsup(documentFromScene(s, "空")); } catch (e) { msg = String((e as Error).message); }
-    assert(/no bytes yet/.test(msg) && /1-8/.test(msg), `原因：${msg}`);
+    assert(/no bytes/.test(msg) && /should have encoded a blank one/.test(msg), `原因：${msg}`);   // 1-8b 起存盘的钉点先编一份空白的；直接调写盘碰到 null 照旧抛
   });
   it("不带这两样的文件照常写（逐字节和改之前一样由冻结样本那一套测试钉着）", () => {
     const s = meshScene(boxMesh).s;

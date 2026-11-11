@@ -1,4 +1,4 @@
-import type { LiveImage, StreamFrame, StreamProvider, StreamQuery, Vec3 } from "../minccino/index.ts";
+import type { LiveImage, StreamFrame, StreamProvider, StreamQuery, TextureRef, Vec3 } from "../minccino/index.ts";
 import { type WorldView } from "../scene/world-view.ts";
 import type { MarkLayout } from "./highlight.ts";
 /**
@@ -9,7 +9,7 @@ export interface PaintImages {
     board(texture: string): {
         readonly width: number;
         readonly height: number;
-        readonly image: LiveImage;
+        readonly image: LiveImage | TextureRef;
     } | null;
     sig(): string;
 }

@@ -6,6 +6,8 @@ export interface CrashRecordMeta {
     name: string;
     at: number;
     homeKind: "file" | "transient";
+    /** 这份快照里的画比模型旧（拍的时候有画板比最近一次编好的字节新；贴图主线 1-8b）。缺 = 没有画或者画是新的。 */
+    paintStale?: boolean;
 }
 export interface CrashRecord extends CrashRecordMeta {
     bytes: Blob;

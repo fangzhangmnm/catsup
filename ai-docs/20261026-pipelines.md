@@ -723,3 +723,34 @@ SpaceStroke（paint/space-stroke.ts；目标名单 + 相机两个函数 + 内核
   ```
   碰多少：空闲压一次 = 给的毫秒数 + 最多一块图块（实测 node 每块 3–6 ms）；全压 = 随没压缩的块数；提交时的 usageBytes 随栈里的记录条数（以前驱逐每一圈都全扫一遍，现在只扫一次）。实测和曲线在施工单十二末尾「0-3a」那一节。
   画板寿命改判：只在换文件时扔（「歇着且记录数为零就扔」会丢画）。显卡那份在 `probe-paint-gpu-release` 里数（建的 = 删的）。
+
+## 追记 2026-11-11（贴图主线 1-8b，Claude Opus 5.5，等 Fable 看过才合）：⑨ 文件加上画——存盘的钉点、读回来的冷的画
+
+```
+存盘（写家 / 安家 / 导出 / 崩溃快照 都走这一条；session.ts freeze → finish）
+  记 revAtStart ─┐ 同步一口气（钉点；中间不 await）
+  documentFromScene（新拷的）+ 桌面态 / 参考窗 / 缩略图
+  PaintSaver.freeze（src/paint/save.ts）：每张分层的画定来源
+    有画板 + 缓存同版本 → 缓存（分层字节 + 合成图）
+    有画板 + 版本变了   → 内核 exportData（冻结拷贝）+ 当场合成读回（composeBytes，显示用的同一张，垫材质底色）+ 裁高
+    没画板 + 行里有字节（冷的）→ 原样
+    没画板 + 没字节（没画过）→ 空白分层（按宽高编一次），不存合成图
+  ─┘
+  finish（异步）：内核编码分层（encodeDocToOra）、PNG 编合成图 → 进缓存 → 冻结那份文档的贴图行换成新行 → writeCatsup
+  库的写最后一次写完；savedRevision = revAtStart（编码期间的改动让它仍算改过）；编码出错 = 这一轮整个没成、提示行说是哪张画
+  崩溃快照：mode = snapshot，不现编（缓存 / 行里的 / 空白），画板比缓存新 = paintStale（恢复时说「画可能少了最后几笔」）
+  后台先编：不单开定时器——自动保存的节奏（file / transient 家拍快照之前 refresh）+ 切后台（flushForHide）
+
+读回来（冷的画）
+  读：贴图行带着分层字节 + 合成图（CATSUP_textures 1.1 composite），不建画板
+  每帧准备 sync → syncCold：合成图的记号（长度 + 校验和）和底色对得上、PNG 头的宽高合法 → board() 给一张 TextureRef（sampling "paint"）
+    渲染器当普通的图解码（createImageBitmap，不翻、夹边、放大最近邻、缩小三线性、不跟画风）→ 和热的显示逐像素相同
+    合成图没有 / 作废 → 照底色；只是底色变了 → warm() 自己热一次重新合成
+  落笔：stateOf = cold / warming → 这一笔不开始、提示行「这张画还在打开」、warm()；view-only → 说为什么
+  warm()：内核解开分层字节（主线程一整块）→ 查宽高 → 建画板（大小 = 分层的）灌进去 → 热（留到关文件）；不对 / 解不开 = 只能看不能画
+  ensure() 碰到冷的画 = 抛 ColdPaintError（绝不建空白画板：存盘时空白的会盖掉它）
+```
+
+- 碰多少：钉点 = 每张改过的画一次 exportData（随这张画的图块数）+ 一次合成读回（随画布大小，真显卡上会等显卡做完）；没改过的画零成本（缓存）；冷的画零成本（原字节）。finish = 每张改过的画一次编码（桌面 node：1024 × 1280 两层 135–339 ms，随画的内容）+ 合成图 PNG 编码。读回来 = 冷的画零解码（PNG 交给浏览器异步解）；变热 = 一次解开（19–113 ms）。
+- 实测（无头 swiftshader，探针 probe-paint-save ⑦）：存盘时主线程最长一次没空 18–118 ms（画了一笔再存、要重编那张画时在上沿）。冷的十张画：画板 0、图块池 0、渲染器每张一份显示用的图。
+- 还随整个模型涨的：存盘时 documentFromScene / writeCatsup（以前就有）；画只随改过的那几张涨。

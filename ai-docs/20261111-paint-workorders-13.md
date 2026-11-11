@@ -108,4 +108,43 @@
 
 ## 施工记录
 
-（小弟写）
+### 交审（2026-11-11 夜，Catsup小弟；分支 `paint-save`，worktree `.claude/worktrees/paint-save`）
+
+**做了什么**
+- **格式**（`format/document.ts` / `texture-table.ts`）：贴图行可选键 `composite = { png, of: { bytes, sum }, base }`，`CATSUP_textures` 1.0 → **1.1**；`paintBytesSum`（FNV-1a 32 位）、`compositeFits`（分层字节在、长度和校验和对得上、底色一样）。形状不认识的 composite 当不认识的键原样带回。写盘碰到 `ora: null` 照旧抛。冻样本：带合成图的两层画、画板比坐标高（1024 × 512 对 1024 × 256、下面多出来的行有内容）——字节用真的内核生成。
+- **存盘**（`src/paint/save.ts` PaintSaver + `session.ts`）：见流程图追记。缓存住场景外；空白分层按宽高编一次；编码器是可换的字段（探针注入毛病）；`refresh(scene)` 跟自动保存节奏、切后台；`session.freeze / encodeNow / snapDue / refreshThenSnapshot / saveFailedSay`；写家里钉点紧跟 `revAtStart`；崩溃库记录多 `paintStale`、恢复时说一句。
+- **冷热**（`src/paint/boards.ts`）：`syncCold`、`board()` 对冷的画给 TextureRef、签名带上冷的；`warm()`、`stateOf()`、`viewOnlyWhy()`；`ensure()` 碰冷的画抛 `ColdPaintError`；底色变了的冷画自己热一次。小栗鼠契约 `TextureRef.sampling?: "paint"`（只加这一样），渲染器认它（不翻、夹边、放大最近邻、不跟画风）。`main.ts paintStrokeGate`（调试钩子的笔落笔前问；1-7 的真笔也走它）、钩子 `warm` / `state` / `saver`。
+- **丢过东西的文件**（`format-notes.ts LOSSY_NOTES` + `lossySay`，`session.lossyHold`）：会丢 = uvDropped、foreignPaintSlots、danglingTextureRefs、danglingShelfRefs；自动保存 / 切后台落本机不写；人按保存先问「存（丢掉这几处）/ 另存一份新的（这份不动 = 下载一份 .catsup）/ 先不存」。
+- **zip**：守卫 `test/paint-zip-guard.test.ts`（index.html 顺序、内核那份 = vendor 那份、存盘第一步先查）。
+- 白名单加 ora / png 编解码（`encodeDocToOra` / `paintingDataToEncodeDoc` / `decodeOraToPainting` / `encodePngFromBytes`，标「画存进文件 / 读回来」）；顺手修了白名单守卫不认 `export async function`。
+
+**八条规矩各自的结果**
+| 规矩 | 结果 | 在哪 |
+|---|---|---|
+| 来回一格不差 | 两张画、三层（透明、半透明、藏着的、橡皮擦过的洞）+ 画一笔擦一笔：存 → 解开逐层逐字节；存 → 读回来 → 变热逐层逐字节；探针里存了刷新、热起来能接着画 | `paint-save.test.ts` / `paint-cold.test.ts` / `probe-paint-save` ① ③ |
+| 没动过再存逐字节相同 | 热的没动过、读回来冷的再存，都逐字节相同 | `paint-save.test.ts` |
+| 钉在同一刻 | 钉完、编码之前画一笔挪一个点：分层字节 / 合成图 / 模型都是钉的那一刻，再存一次才带上；会话层：编码慢一点、跑的时候画一笔 → 存上了但仍算改过、再存才干净 | `paint-save.test.ts` / 探针 ④ |
+| 存盘失败不留半截 | 编码注入毛病：这一轮失败、说是哪张画（「存盘没成：画「顶0」编码出错…」）、夹里的文件逐字节不动、内存里的画不动、之后照常存 | `paint-save.test.ts` / 探针 ⑤ |
+| 冷的画不占画板 | 十张画（五张有内容）读回来全部显示：画板 0、五张照合成图、五张没画过的照底色；node：图块池一块不占 | 探针 ⑥ / `paint-cold.test.ts` |
+| 冷热之间显示不变 | 同一块屏幕像素：冷的（合成图）和热起来（内核现合成）哈希相同 | 探针 ② |
+| 撤销不受存盘影响 | 存两次前后栈的深度、游标、画的记录不变，撤一步重做回来逐字节 | `paint-save.test.ts` |
+| 不带画的文件逐字节一样 / 旧读者 | 全部 golden 不带画的场景经过存画那一层写出来逐字节一样；old-reader-check：v0.18.50、v0.19.18 结论不变（带贴图坐标的全拒开、不带的逐字节或只差拍子）；**加了 v0.19.22（现在的开发版）当读者**：219 份全能开、再存逐字节 113 份、只差拍子（textures 1.1 → 1.0）106 份 | `paint-save.test.ts` / `scripts/old-reader-check.mjs` |
+| 冻样本 | 带合成图的两层画（textures 1.1）、画板比坐标高的那份 | `test/fixtures/format/…-1.1.0/` |
+
+**量的数**
+- 存盘时主线程最长一次没空（无头 swiftshader，探针 ⑦）：没改过的画走缓存 18–80 ms，画了一笔再存（重编那张画）59–118 ms。这就是「编码正在跑时落笔要等多久」的上沿。
+- 编码 / 解开（node 桌面，1024 × 1280 两层）：编码 135–339 ms、325 KB – 6.1 MB；解开 19–113 ms。iPad 没量（触发条件已记：单张解开超过半秒或 user 说卡 → 挪 worker）。
+- 冷的常驻：画板 0、图块池 0；内存里只有文件里本来就有的字节（分层 + 合成图）；显卡上每张一份显示用的图（1024 见方约 5.3 MB，含缩小图）。探针那份小画：分层合计 18.8 KB、合成图合计 0.8 KB。
+
+**和细则不一样的地方**
+- 「另存为一份新的」= 下载一份 .catsup（`exportProject`，这份文件不动、仍拦着）；没有另做「在图库里另起一份」。
+- 冷画显示前 PNG 还在浏览器里异步解的那一小会儿，渲染器用的是导入贴图那条路原有的灰色占位（不是底色）；量级是一帧到几帧。
+- 写家时钉点在「参考卡字节编好（refs.settled）」之后、紧跟 `revAtStart`——参考卡还在编的那一小段里画的也算进这一次（版本号和钉点同一刻，不会丢）。
+
+**不放心的地方**
+- 冷的画在 iPad 真机上那一小会儿灰色占位、以及 1024 见方的显示图占显卡——没量。
+- 切后台（`flushForHide`）在 blur 时也会走「缓存旧了先编」——一次 135–339 ms（桌面）；只在画板比缓存新时才编。
+- `session.noteFormat` 是会丢那道门唯一的入口；新的打开路要是绕过它，门就不在（现在打开 / 领养两条路都经过它）。
+
+**全套**：交审前一次（这张工单的第一次）：2100 过、5 红、4 待办，红线守卫过，内核 601 过，墙上 18.8 秒。5 红都是钉着旧东西的测试，不是行为坏了：格式签名（textures 1.1）、`paint-start` 两条钉着旧的「1-8 才有字节」那句话、加密出门守卫钉着旧的 `this.encode()`、definitions 6.x 迁移那条没跳过新加的两个画的样本（单品的画 6.x 没有，原来的两个画的样本也跳过）。改了之后点名跑这四份 84 过。第二次全套留到合之前。
+探针（无头）：`probe-paint-save` 23 ✓；`probe-paint-undo`、`probe-paint-display`、`probe-paint-gpu-release`、`probe-export`、`probe-folder-home`（41）、`probe-save-collision`、`probe-password`、`probe-present-lock`、`probe-c2` 都过（后三个探针原来调私有的 `session.encode()`，改成 `encodeNow()`）。

@@ -61,7 +61,25 @@ export interface TextureDoc {
     readonly layout?: unknown;
     /** 行里不认识的键（原样带回）。 */
     readonly extra?: CarriedJson;
+    /**
+     * 分层的画存盘时另存的合成图（CATSUP_textures 1.1，贴图主线 1-8b，统筹 11-11）：合成在材质的底色上、不透明、PNG；冷的画（没开画板）就显示它，不解开分层字节。
+     * of = 照哪份分层字节做的（字节长度 + paintBytesSum）；base = 合成时的底色。和旁边的分层字节对不上、或者底色和材质现在的不一样 = 当它没有（compositeFits）。
+     */
+    readonly composite?: PaintComposite;
 }
+/** 画的合成图（见 TextureDoc.composite）。 */
+export interface PaintComposite {
+    readonly png: Uint8Array;
+    readonly of: {
+        readonly bytes: number;
+        readonly sum: string;
+    };
+    readonly base: readonly [number, number, number];
+}
+/** 分层字节的便宜校验和（FNV-1a 32 位，十六进制 8 位）：合成图的记号用，不防篡改，只防「对不上」。 */
+export declare function paintBytesSum(b: Uint8Array): string;
+/** 这张合成图还算数吗：分层字节在、记号对得上、底色和 base 一样。 */
+export declare function compositeFits(t: TextureDoc, base: readonly number[]): boolean;
 export declare const COLOR_VALUE: {
     readonly kind: "color";
 };

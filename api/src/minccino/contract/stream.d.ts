@@ -6,6 +6,11 @@ export interface TextureRef {
     readonly mimeType: string;
     readonly bytes: Uint8Array;
     readonly sizeM: readonly number[];
+    /**
+     * 取样方式（贴图主线 1-8b，统筹 11-11）：缺 = 普通贴图（平铺、跟画风换过滤、按导入的习惯上下翻）；"paint" = 画的合成图：和活的图同一种取样
+     * （夹边、放大最近邻、缩小三线性、有缩小图、不跟画风换过滤；第 0 行 = 画布第 0 行，不翻），冷的画显示的就是它、和热起来之后显示的逐像素相同。
+     */
+    readonly sampling?: "paint";
 }
 /**
  * 一张活的图（贴图主线 1-3c）：别人（画画内核）已经放在同一个显卡画面里的图。渲染器每帧开画之前问一遍 `current()`（要重新合成的在这时候合成），

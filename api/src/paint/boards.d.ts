@@ -1,5 +1,5 @@
 import type { Gl2Port } from "./kernel/src/common/gl2-port.ts";
-import type { LiveImage } from "../minccino/contract/stream.ts";
+import type { LiveImage, TextureRef } from "../minccino/contract/stream.ts";
 import { PaintBoard } from "./board.ts";
 import { HostedSteps } from "./kernel/src/backend/workpiece/hosted-steps.ts";
 import type { UndoComponent } from "../editor/history.ts";
@@ -18,6 +18,8 @@ export interface PaintBoardsOpts {
     readonly undoReset?: (texture: Guid, why: string, tell: boolean) => void;
     /** 有没有画板变了（第一块建出来 = true；换文件全扔了 = false）：图块池的空闲压缩只在有画板时跑（tile-jobs.ts TileJobsDriver.setActive，0-3a）。 */
     readonly active?: (on: boolean) => void;
+    /** 给用户的一句话（1-8b：这张画只能看不能画、为什么）。 */
+    readonly say?: (text: string) => void;
 }
 /** 「画」这种撤销记录：哪张贴图 + 内核封的那一步（内核的对象，三维不看里面）。 */
 export interface PaintRec {
@@ -37,6 +39,8 @@ export declare class PaintBoards {
     guids(): Guid[];
     /** 给这张画建一块空白的画板（已经有了 = 原样返回）。不是画（贴图表里没有、不是分层的、材质不指它、定义里没那一套坐标）= 抛。 */
     ensure(scene: Scene, texture: Guid): PaintBoard;
+    /** 建一块画板（宽高由调用的人给：新画 = 那一套坐标的大小；变热 = 分层字节里的大小）。 */
+    private create;
     /** 这一帧的准备活（这一笔的薄层：画、交给档口），prepare 里在合成之前跑。返回撤掉。 */
     onPrepare(job: () => void): () => void;
     private readonly jobs;
@@ -79,8 +83,24 @@ export declare class PaintBoards {
     board(texture: Guid): {
         readonly width: number;
         readonly height: number;
-        readonly image: LiveImage;
+        readonly image: LiveImage | TextureRef;
     } | null;
+    /** 冷的画：贴图行（对象身份）+ 底色 → 显示用的那张合成图（PNG 当普通的图走导入贴图那条路，「画」的取样方式）；合成图没有 / 作废 = shown 是 null（照底色）。 */
+    private readonly cold;
+    /** 只能看不能画的画 → 为什么（变热时分层字节尺寸不对 / 解不开）。照合成图继续显示，不改任何数据。 */
+    private readonly viewOnly;
+    private readonly warming;
+    /** 每帧的「准备」里：场景里走画、没有画板、行里有字节的 → 冷的；看合成图还算不算数。底色变了（合成图本身对得上）= 热一次重新合成。返回签名要不要变。 */
+    private syncCold;
+    /** 这张画现在是什么状态（落笔之前问）：hot = 有画板；cold = 有字节、没画板（要先 warm）；warming = 正在解开；view-only = 只能看不能画；new = 没字节没画板（ensure 建空白的）。 */
+    stateOf(scene: Scene, texture: Guid): "hot" | "cold" | "warming" | "view-only" | "new";
+    viewOnlyWhy(texture: Guid): string | null;
+    /**
+     * 变热：解开分层字节（内核，主线程上的一整块活）→ 查尺寸（宽 = 坐标的宽、高 ≥ 坐标的高）→ 建画板灌进去（以前的步全作废：是装载，不告诉）。
+     * 尺寸不对 / 解不开 = 只能看不能画（明说为什么，照合成图继续显示，不改任何数据）。已经热了 / 正在解 = 同一个结果。换了文件 = 作废。
+     */
+    warm(scene: Scene, texture: Guid): Promise<"hot" | "view-only">;
+    private markViewOnly;
     /** 有哪些画板、多大（PaintImages.sig；拉流的内容键和材质槽签名里都有它）。 */
     sig(): string;
     disposeAll(): void;
@@ -88,4 +108,16 @@ export declare class PaintBoards {
     private resig;
 }
 /** 浏览器里：内核的显卡接口建在渲染器的画面上（整个程序一个）。 */
-export declare function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void, touched?: () => void, undoReset?: (texture: Guid, why: string, tell: boolean) => void, active?: (on: boolean) => void): PaintBoards;
+export declare function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void, touched?: () => void, undoReset?: (texture: Guid, why: string, tell: boolean) => void, active?: (on: boolean) => void, say?: (text: string) => void): PaintBoards;
+/** 落笔撞上冷的画（1-8b）：画板登记处不给它建空白画板。why = 只能看不能画的原因（有的话）。 */
+export declare class ColdPaintError extends Error {
+    /** 哪张贴图（字段不叫 texture：守卫 textures-table 不许「点 texture」）。 */
+    readonly tex: Guid;
+    readonly viewOnly: string | null;
+    constructor(tex: Guid, viewOnly: string | null);
+}
+/** PNG 的宽高（只读文件头的 IHDR；不是 PNG = null）。 */
+export declare function pngSize(b: Uint8Array): {
+    width: number;
+    height: number;
+} | null;

@@ -1,4 +1,6 @@
 import type { Editor } from "../editor/editor.ts";
+import { Scene } from "../scene/scene.ts";
+import { type CatsupDocument } from "../format/index.ts";
 import { type BrepSideCounts } from "../scene/kinds.ts";
 import { type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import type { Xform } from "../scene/xform.ts";
@@ -46,6 +48,15 @@ export interface SessionDeps {
         mimeType: string;
         bytes: Uint8Array;
     } | null;
+    /** 画存进文件（贴图主线 1-8b，paint/save.ts PaintSaver）：钉点同步、编码异步。缺 = 没有画（测试）。 */
+    paintSave?: {
+        freeze(doc: CatsupDocument, scene: Scene, mode: "save" | "snapshot"): {
+            readonly stale: boolean;
+            finish(): Promise<CatsupDocument>;
+        };
+        cacheKey(): string;
+        refresh(scene: Scene): Promise<void>;
+    };
     /** 风格 / 屏幕跟文件走（desk 1.3，T86）：载入 / 新建后套上（null = 用默认）。app 认不出的 id 当没有。 */
     applyView?: (style: string | null, screen: string | null) => void;
     onHomeChanged: () => void;
@@ -76,6 +87,8 @@ export interface SessionDeps {
 export { bareName, docSuffixOf, fullName, isDocName } from "./doc-names.ts";
 /** smart save 钮的状态集（WeebPaint save-status 同形）：none = 没东西可存 · dirty = 内存脏 · local-only = 已存本机/文件、云不可达 ·
  *  saving = 在飞 · cloud-off = 未配置云 · unpushed = 已落本机但云腿没成（终态，非在飞）· synced = 上次保存已同步。 */
+/** 存盘没成时提示行说的话（1-8b：编码 / 写盘出错 = 这一轮整个没成）。 */
+export declare function saveFailedSay(e: unknown): string;
 export type SaveState = "none" | "dirty" | "local-only" | "saving" | "cloud-off" | "unpushed" | "synced";
 /** refreshOpenDoc 的回执（闸门据此决定要不要走「有没传的改动」那条路）。 */
 export type RefreshStatus = "skipped" | "dirty" | "in-sync" | "fast-forwarded" | "escaped" | "other";
@@ -128,6 +141,8 @@ export declare class Session {
     /** T-crash 行李牌（file / transient 家才有；gallery 家 = null）+ 上次快照的 revision。 */
     private luggage;
     private snapRevision;
+    /** 上一次拍快照时画的缓存版本（缓存一新 = 快照该重拍；1-8b）。 */
+    private snapPaintKey;
     private snapRefRev;
     /** 图库当前夹（新建自动安家用；gallery-host 同步）。 */
     currentDir: string;
@@ -147,6 +162,13 @@ export declare class Session {
     setExportChoice(v: Readonly<Record<string, string>>): void;
     /** 读取侧三级拍子提示（家族纪律：minor 更新提示一次、patch 静默；desk 太新 = 原字节带回 + 默认显示）。每次载入说一次。 */
     private noteFormat;
+    /**
+     * 读进来时丢过东西（会丢的那几种读入记号，format-notes.ts LOSSY_NOTES）：第一次存盘之前要用户明着点一次头；在那之前自动保存 / 切后台落本机都不写这份文件
+     * （崩溃快照照拍：它不动原文件）。贴图主线 1-8b，统筹 11-11。null = 没拦着。
+     */
+    private lossyHold;
+    /** 正拦着（探针 / 状态用）。 */
+    get heldForLoss(): boolean;
     constructor(d: SessionDeps);
     dirty(): boolean;
     private refRev;
@@ -191,6 +213,9 @@ export declare class Session {
     /** pagehide（非 bfcache）：页面真要走了，推不一定完成 → **只落本地**（守卫核：这条路上不许有推）；没推的留给下次。fire-and-forget：卸载期没有时间预算。 */
     flushForPageHide(): void;
     private snapshotIfChanged;
+    /** 画的缓存旧了先编一次（只编有画板、比缓存新的那几张；同一时间只一轮），再看快照该不该重拍（1-8b：跟自动保存同一个节奏、切后台时再编）。 */
+    private refreshThenSnapshot;
+    private refreshing;
     /** 点「有新版本」/ 强制更新前（pwa-shell onBeforeReload；工单 C3 B）：脏的先落本地（不设时限：这步丢了就是丢改动）→ 没推的推一次，最多等 RELOAD_PUSH_WAIT_MS，推不完就走、脏留给库。
      *  **干净的模型什么都不做**：以前这里无条件 save，干净的也重新编码写本地、标脏，刷新后就弹「没同步好」——这是「一更新就有」的直接触发点。 */
     flushBeforeReload(): Promise<void>;
@@ -203,7 +228,17 @@ export declare class Session {
     locked(): boolean;
     /** 锁上 / 解锁。有家（图库 / 本地文件）就顺手存一次，让锁跟着文件走；无地 = 住内存、导出时带走。 */
     setLocked(on: boolean): Promise<void>;
-    private encode;
+    /** 画的缓存版本（没有画 = 空）。 */
+    private paintKey;
+    /** 快照该不该重拍：模型 / 参考窗 / 画的缓存，哪个变了都算。 */
+    private snapDue;
+    /** 一口气编完（钉点 + 编码；导出 / 另存这些不清脏的路用）。 */
+    private encodeNow;
+    /**
+     * 钉点（同步，中间不 await）：模型、桌面态、参考窗、缩略图和每张画都钉在这一刻（贴图主线 1-8b；照画画仓：编码的同步那一段就是钉点）。
+     * finish() 异步：画编码（只碰钉下来的拷贝），然后写成字节。编码期间用户接着画、接着切，写出去的仍然是这一刻的。出错 = 抛（说是哪张画）。
+     */
+    private freeze;
     /** desk 存盘形状：参考窗的窗以接缝为准（开过窗才有；这个文件里没开过 = 文件里原来那份）。 */
     private deskForSave;
     /** 2026-10-26：编辑器横幅 / 保存钮上的「处理…」= 对正在编辑的这份主动叫库的面（store `file.resolve()` 三选一；app 不传答案）。
