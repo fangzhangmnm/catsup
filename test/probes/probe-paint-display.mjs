@@ -4,7 +4,8 @@
 // ② 专用显示图：内核那张拷进来（解成线性 → 写进 sRGB 的图 → 显卡再编码）之后，256 个值逐字节回来（读回整张显示图比）。
 // ③ 点到哪格就是哪格：每格涂一个编码色（R = x 低 8 位、G = y 低 8 位、B = 高位），白模不打光、不画线；屏幕上随机取点，读颜色解出格子，
 //    和 1-3a 的落点（__catsup.paint.cellAt = pickSurface）求的同一点的格子比：两者相同。正面和斜着各一遍；每张面（含拉歪的两侧 = 镜像的两半）都要查到。
-//    解码要求逐字节，所以这一条也就是「白模不打光时屏幕上读到的颜色就是那一格的字节」。离格子边界太近（贴图坐标的小数离整数 < 0.05）的点跳过、数出来。
+//    解码要求逐字节，所以这一条也就是「白模不打光时屏幕上读到的颜色就是那一格的字节」。跳过、数出来的三种：离格子边界太近（贴图坐标的小数离整数 < 0.05）；
+//    缩小的地方（一个像素走 ≥ 0.7 格，取的是缩小图）；挨着面的边（上下左右 2 像素内落到别的面或模型外：那里画着轮廓线 / 面和面之间的边）。对不上 = 0、读到的不是画的颜色 = 0。
 // ④ 显卡画面丢了又恢复：画还在（再取一批点照样对上）、没有页面错误。
 // ⑤ 量：1024 见方附近的画板合成一次、拷贝 + 生成缩小图一次各花多少（软件显卡，只作参考）。
 // ⑥ 每种画风：旁边放一张导入的单色图（硬表面面），画板灌同一个颜色，两边读出来比（导入的图在哪种画风里能显示，画也要能）。
@@ -60,12 +61,14 @@ const res = await page.evaluate(async ({ SOLID }) => {
   const check = async (label, n) => {
     e.draw(); await sleep(30); e.draw();
     const w = canvas.width, h = canvas.height, px = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
-    let ok = 0, badN = 0, edge = 0, miss = 0, minified = 0, covered = 0; const faces = new Map(), bads = [];
+    let ok = 0, badN = 0, edge = 0, miss = 0, minified = 0, covered = 0, nearFaceEdge = 0; const faces = new Map(), bads = [];
     for (let i = 0; i < n * 6 && ok + badN < n; i++) {
       const X = Math.floor(rnd() * w), Y = Math.floor(rnd() * h), hit = C.paint.cellAt(info.guid, (X + 0.5) / dpr, (Y + 0.5) / dpr);
       if (!hit || !hit.cell) { miss++; continue; }
       const fx = hit.uv[0] - Math.floor(hit.uv[0]), fy = hit.uv[1] - Math.floor(hit.uv[1]);
       if (Math.min(fx, 1 - fx, fy, 1 - fy) < 0.05) { edge++; continue; }
+      // 面的边上画着线（剪影的轮廓线、两张面之间的边——画风「不画线」也照样画）：上下左右 2 个像素内落到别的面 / 没打中模型 = 挨着面的边，跳过、另数（查清的那两点就是这种：线和面的颜色混在一起）
+      if ([[2, 0], [-2, 0], [0, 2], [0, -2]].some(([dx, dy]) => C.paint.cellAt(info.guid, (X + 0.5 + dx) / dpr, (Y + 0.5 + dy) / dpr)?.face !== hit.face)) { nearFaceEdge++; continue; }
       const hx = C.paint.cellAt(info.guid, (X + 1.5) / dpr, (Y + 0.5) / dpr), hy = C.paint.cellAt(info.guid, (X + 0.5) / dpr, (Y + 1.5) / dpr);   // 一个像素走了多少格：≥ 0.7 格 = 缩小的地方（取的是缩小图，「点到哪格」不管）
       if (!hx?.uv || !hy?.uv || hx.face !== hit.face || hy.face !== hit.face || Math.max(Math.abs(hx.uv[0] - hit.uv[0]), Math.abs(hx.uv[1] - hit.uv[1]), Math.abs(hy.uv[0] - hit.uv[0]), Math.abs(hy.uv[1] - hit.uv[1])) >= 0.7) { minified++; continue; }
       const o = ((h - 1 - Y) * w + X) * 4, cx = px[o] | ((px[o + 2] & 15) << 8), cy = px[o + 1] | ((px[o + 2] >> 4) << 8);
@@ -73,7 +76,7 @@ const res = await page.evaluate(async ({ SOLID }) => {
       faces.set(hit.face, (faces.get(hit.face) ?? 0) + 1);
       if (cx === hit.cell[0] && cy === hit.cell[1]) ok++; else { badN++; if (bads.length < 5) bads.push({ X, Y, face: hit.face, screen: [cx, cy], landing: hit.cell, uv: hit.uv.map((v) => +v.toFixed(3)), du: [+(hx.uv[0] - hit.uv[0]).toFixed(2), +(hy.uv[0] - hit.uv[0]).toFixed(2)] }); }
     }
-    return { label, ok, bad: badN, skippedNearCellEdge: edge, skippedMinified: minified, notPaintColor: covered, offModel: miss, faces: Object.fromEntries(faces), bads };
+    return { label, ok, bad: badN, skippedNearCellEdge: edge, skippedMinified: minified, skippedNearFaceEdge: nearFaceEdge, notPaintColor: covered, offModel: miss, faces: Object.fromEntries(faces), bads };
   };
   e.cam.setView("iso"); e.zoomExtents(); e.cam.halfH *= 0.55; out.oblique = await check("斜着（iso，放大）", 300);
   e.cam.setView("front"); e.zoomExtents(); e.cam.halfH *= 0.6; out.front = await check("正面", 200);
@@ -104,7 +107,7 @@ const res = await page.evaluate(async ({ SOLID }) => {
   return out;
 }, { SOLID });
 await browser.close();
-const pr = (o) => `${o.label}：对上 ${o.ok}、对不上 ${o.bad}、离格子边太近跳过 ${o.skippedNearCellEdge}、缩小的地方跳过 ${o.skippedMinified}、读到的不是画的颜色 ${o.notPaintColor}、没打中模型 ${o.offModel}；查到的面 ${JSON.stringify(o.faces)}${o.bads.length ? "；例 " + JSON.stringify(o.bads) : ""}`;
+const pr = (o) => `${o.label}：对上 ${o.ok}、对不上 ${o.bad}、离格子边太近跳过 ${o.skippedNearCellEdge}、缩小的地方跳过 ${o.skippedMinified}、挨着面的边跳过 ${o.skippedNearFaceEdge}、读到的不是画的颜色 ${o.notPaintColor}、没打中模型 ${o.offModel}；查到的面 ${JSON.stringify(o.faces)}${o.bads.length ? "；例 " + JSON.stringify(o.bads) : ""}`;
 console.log("① 没画板：", JSON.stringify(res.noBoard));
 console.log("画板：", JSON.stringify(res.board), "灌一次", res.fillMs, "ms");
 console.log("② 显示图读回：", JSON.stringify(res.roundTrip));
@@ -113,7 +116,7 @@ console.log("⑤ 量：", JSON.stringify(res.timing));
 for (const s of res.styles) console.log(`⑥ ${s.id}：导入的图 ${s.imported.join(",")} / 画 ${s.paint.join(",")}`);
 const all = ["oblique", "front", "right", "left", "restored"].map((k) => res[k]);
 const ok = res.noBoard.live && res.noBoard.images === 0 && res.roundTrip.bad === 0 && res.roundTrip.valuesCovered === 256
-  && all.every((c) => c.bad === 0 && c.ok >= 100 && c.notPaintColor <= 3) && Object.keys(res.right.faces).length >= 1 && Object.keys(res.left.faces).length >= 1 && errs.length === 0;
+  && all.every((c) => c.bad === 0 && c.ok >= 100 && c.notPaintColor === 0) && Object.keys(res.right.faces).length >= 1 && Object.keys(res.left.faces).length >= 1 && errs.length === 0;
 if (errs.length) console.log("页面错误：", errs);
 console.log(ok ? "probe-paint-display OK" : "probe-paint-display FAIL");
 process.exit(ok ? 0 : 1);
