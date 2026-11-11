@@ -175,6 +175,8 @@ export interface Preset {
         readonly tron: TronShade | null;
         readonly pbr: PbrShade | null;
         /** 涂装车间的表面层（写实那条路按顺序叠；空 = 没有）。 */ readonly surface: readonly SurfaceLayer[];
+        /** 在哪个空间混（ai-docs/20261111-color-space-convention.md 第二节第 3、4、6 条）：srgb = 复古（贴图的数原样用，缩小图在 sRGB 的数上取平均）；linear = 写实（取样后解成线性算光，缩小图在线性里取平均）。 */
+        readonly mixSpace: "srgb" | "linear";
         /** 标记闪（两色的屏没有颜色可用时，选中靠闪）：periodMs 一个来回多久，亮的半拍 = 标记色、暗的半拍 = off 色（sRGB）。边的标记材质和辅助几何的选中 / 将删 / 检查色一起闪；面不闪（user 10-29「面可以先不闪」）。 */
         readonly blink?: {
             readonly periodMs: number;
@@ -228,6 +230,7 @@ export declare const PRESETS: {
         };
         readonly material: {
             readonly shade: "camera";
+            readonly mixSpace: "srgb";
             readonly texFilter: "asset";
             readonly edges: "all";
             readonly colorize: "model";
@@ -263,6 +266,7 @@ export declare const PRESETS: {
         };
         readonly material: {
             readonly shade: "none";
+            readonly mixSpace: "srgb";
             readonly texFilter: "nearest";
             readonly edges: "all";
             readonly colorize: "model";
@@ -308,6 +312,7 @@ export declare const PRESETS: {
         };
         readonly material: {
             readonly shade: "flat";
+            readonly mixSpace: "srgb";
             readonly texFilter: "nearest";
             readonly edges: "all";
             readonly colorize: "none";
@@ -367,6 +372,7 @@ export declare const PRESETS: {
         };
         readonly material: {
             readonly shade: "flat";
+            readonly mixSpace: "srgb";
             readonly texFilter: "asset";
             readonly edges: "none";
             readonly colorize: "part";
@@ -420,6 +426,7 @@ export declare const PRESETS: {
         };
         readonly material: {
             readonly shade: "tron";
+            readonly mixSpace: "srgb";
             readonly texFilter: "asset";
             readonly edges: "all";
             readonly colorize: "none";
@@ -479,6 +486,7 @@ export declare const PRESETS: {
         };
         readonly material: {
             readonly shade: "pbr";
+            readonly mixSpace: "linear";
             readonly texFilter: "asset";
             readonly edges: "none";
             readonly colorize: "model";
@@ -536,6 +544,7 @@ export declare const PRESETS: {
         readonly source: "实验室 表面 material.js ·「铸铜」（base #b3804e、metal 1、rough 0.38、pattern 9 砂铸 × 0.5、patina 0.75 #3b4632、coat 0.25 / 0.22、spec 1、envSource 程序海天 × 1.1、sunAz 35 / sunEl 45、exposure 0.95、aoMode 世界空间 × 1、ground #9a9a96；BASE 的 aoSoft 1；遮蔽半径照 material.js 模型 0.5 / 地面 0.25；太阳色 1.7 / 1.6 / 1.45、天光 / 地光照 LIGHT 段）";
         readonly material: {
             readonly shade: "pbr";
+            readonly mixSpace: "linear";
             readonly texFilter: "asset";
             readonly edges: "none";
             readonly colorize: "none";

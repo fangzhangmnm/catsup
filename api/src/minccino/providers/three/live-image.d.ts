@@ -10,6 +10,11 @@ export declare class LiveTextures {
     private ds;
     private dsSrc;
     private dsSize;
+    private dsLinear;
+    /** 缩小图在哪个空间取平均（画风的 mixSpace；复古 = srgb，写实 = linear）。 */
+    mipSpace: "srgb" | "linear";
+    /** 换画风：空间变了 = 活的图下一帧整张重拷、冷的合成图缩小图整套重做（一张图里不混两种平均法）。动了显卡：调用的人 resetState() 一次。 */
+    setMipSpace(sp: "srgb" | "linear"): boolean;
     /**
      * 缩小图怎么跟（1-4d 第 6 条要量两种做法）："region" = 每次只重做变了的那一块牵涉到的格子（默认）；
      * "defer" = 画的时候只拷第 0 级、缩小图等不再变了（有一帧没有新版本）再整套做一次——只给探针量，缩小着看会看不到正在画的那一笔；
@@ -35,7 +40,7 @@ export declare class LiveTextures {
     bytes(): number;
     /**
      * 画的合成图（冷的画）的显示图：位图传进第 0 级（字节原样，不翻、不预乘——ImageBitmap 不看那几个 UNPACK 开关，和 three 传它时一样），缩小图走 mips()。
-     * 同一张显示图的设置和活的图一样（SRGB8_ALPHA8、放大最近邻 / 缩小三线性、夹边）。动了显卡：调用的人 resetState() 一次。
+     * 同一张显示图的设置和活的图一样（RGBA8、放大最近邻 / 缩小三线性、夹边）。动了显卡：调用的人 resetState() 一次。
      */
     fromBitmap(bmp: ImageBitmap): unknown;
     private upload;
