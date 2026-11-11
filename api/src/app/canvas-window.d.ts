@@ -1,10 +1,8 @@
 import type { Editor } from "../editor/editor.ts";
 import type { PaintBoards } from "../paint/boards.ts";
-import { type MenuWindowSpec } from "./ui/menu-window.ts";
 export interface CanvasWindowDeps {
     readonly editor: Editor;
     readonly boards: PaintBoards;
-    readonly store: MenuWindowSpec<string>["store"];
     hint(text: string): void;
     onOpenChange?(open: boolean): void;
     /** 这张画最近一次存下去的字节多大（热的画存过之后贴图行里没有字节，得问存盘那边；paint/save.ts PaintSaver.lastSizes）。 */
@@ -48,6 +46,8 @@ export interface CanvasWindowProbe {
     decodes: number;
     hoverLine: string;
     statsLine: string;
+    showNums: boolean;
+    collapsed: boolean;
     /** 图上一点（格）在页面上的位置（探针点它用）。 */
     screenOf(x: number, y: number): {
         x: number;

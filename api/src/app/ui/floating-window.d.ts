@@ -33,6 +33,8 @@ export interface FloatingWindowSpec {
         w: number;
         h: number;
     };
+    /** 屏底被占掉的高度（px：底部抽屉、软键盘）：拖 / 恢复 / 改大小 / 视口钳制都让出这么多，右下角的改大小角不被盖住（照参考窗的 bottomFloor）。不给 = 0（别的浮窗照旧）。 */
+    bottomFloor?: () => number;
 }
 export interface FloatingWindowHandle {
     readonly el: HTMLElement;
