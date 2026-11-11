@@ -17,7 +17,10 @@ export declare function meshBodyIssues(s: Scene, def: DefId): string[];
  * 「要么有位置，要么明着报出来放不下」：收尾补完之后还剩在这里的，就是放不下的。
  */
 export declare function unplacedPaintFaces(s: Scene, def: DefId, candidates: Iterable<number> | null): Map<Guid, number[]>;
-/** 搬的是什么：一个定义上的一摞面（不给 faces = 全部面）；或者一份粘贴的载荷（材质表 + 贴图 + 散面用到的材质编号）。 */
+/**
+ * 搬的是什么：一个定义上的一摞面（给 faces）；整个定义（不给 faces：并物件 / 炸开 / 转硬表面 / 变成独立的 / 粘贴「更新」换掉它的身体）；
+ * 或者一份粘贴的载荷（材质表 + 贴图 + 散面用到的材质编号 + 这一贴要新建 / 更新的定义各自的槽表 + 要被换掉身体的现有定义）。
+ */
 export type PaintMove = {
     readonly def: DefId;
     readonly faces?: Iterable<number>;
@@ -26,12 +29,16 @@ export type PaintMove = {
         readonly materials?: readonly Material[];
         readonly textures?: readonly TextureDoc[];
         readonly faceMats?: Iterable<number>;
+        readonly defSlots?: Iterable<readonly (Guid | null)[]>;
+        readonly replaces?: Iterable<DefId>;
     };
 };
 /**
- * 「带着画的面现在还搬不了」唯一的判断（1-3b 第六节）：并物件、把面分成新物件、变成独立的、炸开网格体组件、网格体转硬表面、复制 / 粘贴（含跨文件）都调它。
- * 一个定义上的面：有一张走画 = 拒绝。粘贴的载荷：散面里有画的材质 = 拒绝；载荷带着一张画、它所属的定义在这份文件里没有（= 跨文件、要造一份新的）= 拒绝。
- * 同一份文件里复制整个物件的另一份摆放（实例）不受影响：它们本来就共用同一张画（载荷里那张画的定义在这份文件里就有）。
+ * 「带着画的面现在还搬不了」唯一的判断（1-3b 第六节 + 审后补）：并物件、把面分成新物件、变成独立的、炸开网格体组件、网格体转硬表面、复制 / 粘贴（含跨文件）都调它。
+ * · 一摞面：有一张走画 = 拒。
+ * · 整个定义：带着贴图坐标（uvSets 不空，不管现在有没有面走画——从画换走的面角上的数还留着）= 拒：文件形状（definitionToDoc）还不带贴图坐标，搬过去就悄悄丢了。
+ * · 粘贴的载荷：散面里有画的材质 = 拒；这一贴要新建（跨文件 / 「断开」铸新身份）或更新的定义，槽表里有画的材质 = 拒（画会落到别的定义里、或者跟着换掉的身体丢了）；
+ *   要被「更新」换掉身体的现有定义带着贴图坐标 = 拒。同一份文件里贴整个物件的另一份摆放（留这里的那条）不受影响：它们本来就共用同一张画。
  * 返回原因 / null（放行）。
  */
 export declare function paintMoveBlocked(s: Scene, what: PaintMove): string | null;

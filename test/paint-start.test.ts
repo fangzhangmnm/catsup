@@ -280,6 +280,28 @@ describe("拒绝的那几处（1-3b 测试 F）", () => {
     eq(rejected(() => new History(m2.s).commit(m2.s, { ...frag, at: { def: m2.def, group: null } } as Op)), PAINT_CANT_MOVE, "散面带着画 = 拒");
     eq(sceneCanon(s), c0, "源场景一个字节不变");
   });
+  it("审后补：同一份文件里贴整个物件、内容不一样又选了「断开」/「更新」= 拒（画会落到别的定义里 / 跟着换掉的身体丢了）；「留这里的」照贴", () => {
+    const { s, A, ia } = two();
+    const whole = extractForCopy(s, { chain: [], group: null }, { faces: [], edges: [] }, [{ kind: "instance", instance: ia }]) as Record<string, unknown>;
+    const k = s.mesh(A).kernel, v0 = k.verts()[0], p0 = k.pt(v0);
+    k.setPos(v0, { x: p0.x + 0.25, y: p0.y, z: p0.z });   // 拷完之后这边改了：两边内容不一样（粘贴会问）
+    const c0 = sceneCanon(s);
+    for (const entries of ["detach", "update"] as const) {
+      eq(rejected(() => new History(s).commit(s, { op: "paste", at: ROOT(s), ...whole, merge: { entries } } as Op)), PAINT_CANT_MOVE, entries);
+      eq(sceneCanon(s), c0, `${entries}：场景一个字节不变`);
+    }
+    const kept = applyOp(s.clone(), { op: "paste", at: ROOT(s), ...whole, merge: { entries: "keep" } } as Op).scene;
+    eq(kept.def(kept.root).instances.size, s.def(s.root).instances.size + 1, "留这里的：照贴（共用同一张画）");
+  });
+  it("审后补：整个定义带着贴图坐标、但现在没有面走画（全换走了）：变成独立的 / 炸开照样拒（文件形状还不带贴图坐标，搬了就悄悄丢）", () => {
+    const { s, A, ia } = two();
+    const s2 = applyOp(s, { op: "meshPaintFaces", def: A, faces: s.mesh(A).kernel.faces(), material: null }).scene;
+    eq(s2.mesh(A).kernel.faces().filter((f) => paintUvOf(s2, A, f) !== null).length, 0, "没有面走画了");
+    const c0 = sceneCanon(s2);
+    eq(rejected(() => new History(s2).commit(s2, { op: "makeUnique", def: s2.root, instance: ia })), PAINT_CANT_MOVE, "变成独立的");
+    eq(rejected(() => new History(s2).commit(s2, { op: "explode", at: ROOT(s2), instance: ia })), PAINT_CANT_MOVE, "炸开");
+    eq(sceneCanon(s2), c0, "场景一个字节不变");
+  });
   it("别的定义的画换不上来；硬表面的面换不成画", () => {
     const { s, A, B } = two(), paint = s.materials.length - 1, c0 = sceneCanon(s);
     eq(rejected(() => new History(s).commit(s, { op: "meshPaintFaces", def: B, faces: [s.mesh(B).kernel.faces()[0]], material: paint })), OTHER_DEF_PAINT, "别的定义的画");

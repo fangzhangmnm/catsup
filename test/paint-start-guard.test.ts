@@ -38,6 +38,23 @@ describe("开始画：守卫（1-3b）", () => {
     assert(fn > 0 && /uvSets\.size\) throw new Error\(/.test(sd.slice(fn, fn + 900)), "documentFromScene 开头对 uvSets 抛");
     assert(/kind === "layered" && c\.ora === null\) throw new Error\(/.test(code(join("src", "format", "texture-table.ts"))), "writeTextureRow 对没有字节的画抛");
   });
+  it("⑥ definitionToDoc 的调用点是一张白名单（它不带贴图坐标：新加调用点的人先想清楚带着贴图坐标的定义走这条路会不会悄悄丢——1-3b 审后补）", () => {
+    // 整份写盘（documentFromScene 开头对 uvSets 抛）· 条目仓库按引用取一条定义（拷贝的闭包 / 粘贴对账；搬过去要建 / 更新的那一贴在 paste 里过 paintMoveBlocked）· 变成独立的（makeUnique 先过 paintMoveBlocked）
+    const ALLOW = [`${join("src", "format", "scene-doc.ts")}:documentFromScene`, `${join("src", "format", "scene-store.ts")}:docOf`, `${join("src", "format", "scene-store.ts")}:uniqueCopy`].sort();
+    const got: string[] = [];
+    for (const f of files) {
+      const lines = code(f).split("\n");
+      lines.forEach((l, i) => {
+        if (!/definitionToDoc\(/.test(l) || /export function definitionToDoc\(/.test(l)) return;
+        let j = i, who = "?";
+        for (; j >= 0; j--) { const m = /(?:export function |function |^\s{4})(\w+)\(/.exec(lines[j]) ?? /^export function (\w+)/.exec(lines[j]); if (m && m[1] !== "definitionToDoc") { who = m[1]; break; } }
+        got.push(`${f}:${who}`);
+      });
+    }
+    eq(got.sort().join(", "), ALLOW.join(", "), "definitionToDoc 的调用点");
+    const ops = code(join("src", "editor", "ops.ts"));
+    assert(/refusePaintMove\(s, \{ def: inst\.def \}\);\s*\n\s*inst\.def = uniqueCopy\(/.test(ops), "makeUnique 先过拒绝函数再 uniqueCopy");
+  });
   it("⑤ 编辑器的收尾只走 paint-upkeep（强行对称在它里面），不再直接调 forceSnapshot / forceAfter", () => {
     const ed = code(join("src", "editor", "editor.ts"));
     for (const w of ["upkeepRewrite(", "upkeepSnapshot(", "upkeepAfter("]) assert(ed.includes(w), `editor.ts 用 ${w}`);

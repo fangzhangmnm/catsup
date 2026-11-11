@@ -12,7 +12,7 @@ import { uniqueCopy } from "../format/scene-store.ts";
 import { COLOR_VALUE, assertSizedImage, paintIn, type ShelfItem, type TextureDoc } from "../format/document.ts";
 import { type PaintOutcome, applyMeshLayoutPaint, applyMeshPaintFaces, applyStartPaint } from "./paint-ops.ts";
 import { type PaintMove, paintMoveBlocked } from "../scene/paint.ts";
-import { TEXTURE } from "../format/entry-kinds.ts";
+import { DEFINITION, TEXTURE, type DefinitionEntry } from "../format/entry-kinds.ts";
 import type { CurveSpec } from "../kernel/kernel.ts";
 import { markEdges } from "../mesh/edge-smooth.ts";
 import { bevelEdges, bevelVerts } from "../mesh/ops/bevel.ts";
@@ -35,7 +35,7 @@ import { liveDefs, materialUse } from "../scene/resources.ts";
 import { BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { type PoolRef, type MeshBody, type BrepBody, type Body as SceneBody, type Definition, type Instance, type Material, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
 import type { MeshFragment, TransferClosure, TransferGroup, TransferInstance } from "./transfer.ts";
-import { KEEP, landPayload, pasteBlocked, planPaste, type Decision, type LandedPayload } from "./paste-plan.ts";
+import { KEEP, landPayload, pasteBlocked, planPaste, type Decision, type LandedPayload, type PastePlan } from "./paste-plan.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideCircle, addGuideLine, addGuidePoint, addGuideSphere, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
 import { type ImportedScene, buildImport } from "../scene/import-build.ts";
@@ -821,8 +821,8 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "paste": {
       const ref = op.at, kind = s.kindOf(ref.def);   // 两种身体都接：别走 poolOf（它只认硬表面池）
       if (!s.hasPool(ref)) throw new OpTargetError(`paste: pool ${ref.def}/${ref.group ?? "root"}`);
-      refusePaintMove(s, { payload: { materials: op.materials, textures: op.textures, faceMats: op.mesh?.faces.map((f) => f.mat) } });   // 粘贴带着画（散面走画 / 跨文件）= 拒（1-3b）
       const pp = planPaste(s, op, op.merge ?? KEEP), blocked = pasteBlocked(s, pp, ref.def);
+      refusePaintMove(s, { payload: { materials: op.materials, textures: op.textures, faceMats: op.mesh?.faces.map((f) => f.mat), ...pastePaintScope(s, pp) } });   // 粘贴带着画（散面走画 / 新建或更新的定义带着画 / 换掉带贴图坐标的身体）= 拒（1-3b + 审后补）
       if (blocked) throw new OpRejected(blocked);
       if (s.texturesFrozen && [...pp.plan.create, ...pp.plan.update].some((r) => r.kind === TEXTURE)) throw new OpRejected(TEXTURES_FROZEN);
       const merged = landPayload(s, pp, op.materials);
@@ -1063,6 +1063,12 @@ function mintPasted(s: Scene, def: number, parent: number | null, i: TransferIns
 }
 /** 画的指令的结果 → 抛（拒绝 = OpRejected 进提示行；目标没了 = OpTargetError）。 */
 const paintOutcome = (s: Scene, o: PaintOutcome): ApplyResult => { if (o && "rejected" in o) throw new OpRejected(o.rejected); if (o && "target" in o) throw new OpTargetError(o.target); return { scene: s, events: [] }; };
+/** 粘贴计划里要新建（含「断开」铸新）/ 更新的定义：载荷里它们的槽表 + 要被换掉身体的现有定义（1-3b 审后补：同一份文件贴「断开」/「更新」也不许把画搬走、丢掉）。 */
+const pastePaintScope = (s: Scene, pp: PastePlan): { defSlots: (readonly (Guid | null)[])[]; replaces: number[] } => {
+  const isDef = (r: { kind: string }): boolean => r.kind === DEFINITION, want = new Set([...pp.plan.create, ...pp.plan.update].filter(isDef).map((r) => r.guid)), upd = new Set(pp.plan.update.filter(isDef).map((r) => r.guid));
+  const defSlots = pp.bundle.docs.filter((d) => d.kind === DEFINITION && want.has((d.doc as DefinitionEntry).def.guid)).map((d) => (d.doc as DefinitionEntry).def.materialSlots);
+  return { defSlots, replaces: [...s.defs.values()].filter((d) => upd.has(d.guid)).map((d) => d.id) };
+};
 /** 第六节那几种动作的唯一拒绝口（判断在 scene/paint.ts paintMoveBlocked）。 */
 const refusePaintMove = (s: Scene, what: PaintMove): void => { const why = paintMoveBlocked(s, what); if (why) throw new OpRejected(why); };
 const PAINT_ONLY_MESH = "画只能给网格体自己的面（硬表面的面不能换成画）";
