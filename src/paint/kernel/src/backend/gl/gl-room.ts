@@ -20,7 +20,7 @@ import { LayerPixels } from "../tiles/tile-layer.ts";
 import { GLStampRasterizer } from "./gl-stamp.ts";
 import type { Stamp, StrokeShape } from "./gl-stamp.ts";
 import type { Plan, PlanNode, PlanStep, SegBuild } from "./render-plan.ts";
-import type { PooledFBO, FBOPrec, Gl2Port, Gl2Texture, Gl2TexSource, Gl2TileArena } from "../../common/gl2-port.ts";
+import type { ExternalTexture, PooledFBO, FBOPrec, Gl2Port, Gl2Texture, Gl2TexSource, Gl2TileArena } from "../../common/gl2-port.ts";
 import type { BlendMode } from "./blend-glsl.ts";
 
 // ---- board 输入（原 render-tree-gl 同名接口原样迁入） ----
@@ -69,8 +69,8 @@ export interface FillOverlayInput {
 //   后面按浓度、混合方式、橡皮、锁透明、选区盖到图层上，和二维笔尖是同一段（_addOverlay 的后半段只有一份）。
 export interface HostOverlayInput {
   kind: "host";
-  /** 宿主画好的这一笔。和画布一样大，预乘，第 0 行 = 画布第 0 行。宿主借的、宿主还；内核只读，不归还，不改它的采样设置。 */
-  tex: PooledFBO;
+  /** 宿主画好的这一笔。和画布一样大，预乘，第 0 行 = 画布第 0 行。宿主借的（池子里的离屏图）或者外面包进来的（wrapExternal）；内核只读，不归还，不删，不改它的采样设置。 */
+  tex: PooledFBO | ExternalTexture;
   bx: number; by: number; bw: number; bh: number;   // 这一笔碰到的范围（画布像素）；落层时只读回这一块
   layerId: number; opacity: number; erase: boolean; blendMode: string; lockAlpha: boolean;
   selMask: { data: Uint8Array; ox: number; oy: number; ow: number; oh: number } | null;
@@ -420,10 +420,11 @@ export class GlRoom {
    * 二维笔尖和宿主薄层共用的后半段（只有这一份，守卫钉）：一张和画布一样大的预乘薄层 → 转直值 → 带上选区 → 登记。
    * owned = 这张预乘图是内核自己借的（二维笔尖：转完就还）；宿主的图 owned = false（只读、不归还）。
    */
-  private _addPremulOverlay(fboP: PooledFBO, owned: boolean, ov: StampOverlayInput | HostOverlayInput, docW: number, docH: number): void {
+  private _addPremulOverlay(fboP: PooledFBO | ExternalTexture, owned: boolean, ov: StampOverlayInput | HostOverlayInput, docW: number, docH: number): void {
+    if ("external" in fboP && (fboP.w !== docW || fboP.h !== docH)) throw new Error(`HOST_OVERLAY_SIZE:${fboP.w}x${fboP.h} ≠ canvas ${docW}x${docH}`);
     const fboS = this.glctx.borrowFBO(docW, docH, "u8");
     this.comp.presentTo(fboP, fboS, docW, docH, true);   // 预乘 → straight
-    if (owned) this.glctx.returnFBO(fboP);
+    if (owned) this.glctx.returnFBO(fboP as PooledFBO);
     this._overlayOwnedFBOs.push(fboS);
     const selMask = ov.selMask ? this._uploadSelMask(ov.selMask) : null;
     this._overlays.set(ov.layerId, { tex: fboS, layerId: ov.layerId, opacity: ov.opacity, erase: ov.erase, blendMode: ov.blendMode, ox: 0, oy: 0, ow: docW, oh: docH, lockAlpha: ov.lockAlpha, selMask, replace: false });

@@ -14,7 +14,7 @@
 //   实例序 = 数组序——与契约承诺一致）、GPU 光栅化 tie-break（quad 边缘像素中心恰在界上）。
 // 【决定论】同一动词序列 → 同一字节输出（无时钟无随机无硬件方差）——ADR-0009 回放/对拍前提。
 
-import type {
+import type { ExternalImage, ExternalTexture,
   Gl2Port, Gl2Caps, FBOPrec, PooledFBO, Gl2Texture, Gl2TileArena,
   Gl2DrawSpec, Gl2TexSource, TexUploadFormat,
 } from "../common/gl2-port.ts";
@@ -28,6 +28,7 @@ interface SoftFBO extends PooledFBO {
 }
 
 interface SoftTexture extends Gl2Texture {
+  external?: true;   // wrapExternal 包进来的（宿主的像素，按引用读；不许删）
   format: TexUploadFormat | null;
   w: number;
   h: number;
@@ -323,7 +324,19 @@ export class SoftGl2Port implements Gl2Port {
   }
   deleteTexture(tex: Gl2Texture): void {
     const t = tex as SoftTexture;
+    if (t.external) throw new Error("DELETE_EXTERNAL_TEXTURE (a wrapped host image belongs to the host)");
     t.data = null; t.format = null; t.w = 0; t.h = 0;
+  }
+
+  // 外面的图进内核的门：软件显卡只收一块像素数据（预乘 RGBA 8 位，按引用读、不拷贝）。
+  wrapExternal(src: ExternalImage): ExternalTexture {
+    if (!("pixels" in src)) throw new Error("WRAP_EXTERNAL_FORM (the software port takes { pixels }, not a GPU texture)");
+    if (src.prec !== "u8") throw new Error(`WRAP_EXTERNAL_PREC:${String(src.prec)} (only u8)`);
+    if (!(src.w > 0 && src.h > 0)) throw new Error(`WRAP_EXTERNAL_SIZE:${src.w}x${src.h}`);
+    if (src.pixels.length !== src.w * src.h * 4) throw new Error(`WRAP_EXTERNAL_LENGTH:${src.pixels.length} for ${src.w}x${src.h}`);
+    const data = src.pixels instanceof Uint8Array ? src.pixels : new Uint8Array(src.pixels.buffer, src.pixels.byteOffset, src.pixels.length);
+    const t: SoftTexture & ExternalTexture = { kind: "tex2d", external: true, format: "rgba8", w: src.w, h: src.h, data };
+    return t;
   }
 
   // ---- tile arena ----

@@ -42,6 +42,14 @@ export interface PooledFBO {
 
 // 2D 纹理句柄（createTexture 造、uploadTexture 定义内容、deleteTexture 释放）。不透明。
 export interface Gl2Texture { readonly kind: "tex2d"; }
+// 外面的图进内核的唯一一道门（2026-11-11 CatsUp 贴图主线 1-4b，统筹定的形状）：宿主画好的一张图包成内核的纹理对象（wrapExternal），
+//   内核只读、不归还、不删、不改采样设置。要求：和画布一样大、预乘 RGBA、第 0 行 = 画布第 0 行、每通道 8 位（和内核二维笔尖交进
+//   _addPremulOverlay 的那张同一种精度：rasterize / colorize 都借 u8 的离屏图）、最近邻夹边、没有缩小图。
+//   两个接口各收一种形态：真显卡 = { gl: WebGLTexture }（不拷贝；画面丢了宿主自己重建再包）；软件显卡 = { pixels }（不拷贝，按引用读）。给错形态 = 抛。
+export type ExternalImage =
+  | { readonly gl: WebGLTexture; readonly w: number; readonly h: number; readonly prec: "u8" }
+  | { readonly pixels: Uint8Array | Uint8ClampedArray; readonly w: number; readonly h: number; readonly prec: "u8" };
+export interface ExternalTexture extends Gl2Texture { readonly external: true; readonly w: number; readonly h: number }
 
 // 上传格式（= 全仓实际用到的四种；数据一律 typed array verbatim 上卡——canvas 源上传在 Safari
 //   的 premult 转换不可靠，v0.6.38 起结构性禁入）：
@@ -140,7 +148,9 @@ export interface Gl2Port {
   // ---- 2D 纹理 ----
   createTexture(): Gl2Texture;                        // NEAREST + CLAMP_TO_EDGE（本引擎唯一参数组合）
   uploadTexture(tex: Gl2Texture, format: TexUploadFormat, w: number, h: number, data: ArrayBufferView): void;
-  deleteTexture(tex: Gl2Texture): void;
+  deleteTexture(tex: Gl2Texture): void;                // 包进来的外来的图（wrapExternal）= 抛：它归宿主
+  // 外面的图进内核的门（见 ExternalImage 头注）：宽高 ≤ 0、精度不是 u8、形态不对（这个接口不收这种）、像素数据长度不对 = 抛。
+  wrapExternal(src: ExternalImage): ExternalTexture;
 
   // ---- tile arena ----
   createTileArena(tileSize: number, initialSlices: number): Gl2TileArena;

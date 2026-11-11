@@ -25,7 +25,7 @@
 // 验证边界：本模块全是 gl.* 调用，node DOM-shim 下是 no-op → **node 测不了**，GL smoke
 //   （Playwright + SwiftShader）+ 真机批验证。故刻意只放标准、可读、无分支魔法的 GL 样板。
 
-import type {
+import type { ExternalImage, ExternalTexture,
   Gl2Port, Gl2Caps, FBOPrec, PooledFBO, Gl2Texture, Gl2TileArena,
   Gl2DrawSpec, Gl2TexSource, TexUploadFormat,
 } from "../common/gl2-port.ts";
@@ -43,6 +43,7 @@ interface BrowserFBO extends PooledFBO {
 
 interface BrowserTexture extends Gl2Texture {
   tex: WebGLTexture;
+  external?: true;   // wrapExternal 包进来的（宿主的贴图：不进任何重建 / 回收名单，不许删）
 }
 
 // program 反射元数据（link 时一次；draw 按名分派）。
@@ -699,7 +700,16 @@ export class BrowserGl2Port implements Gl2Port {
   }
 
   deleteTexture(tex: Gl2Texture): void {
+    if ((tex as BrowserTexture).external) throw new Error("DELETE_EXTERNAL_TEXTURE (a wrapped host image belongs to the host)");
     this.gl.deleteTexture((tex as BrowserTexture).tex);
+  }
+  // 外面的图进内核的门：真显卡只收一张 WebGLTexture（包一层、不拷贝；不进重建名单——画面丢了宿主自己重建再包）。
+  wrapExternal(src: ExternalImage): ExternalTexture {
+    if (!("gl" in src)) throw new Error("WRAP_EXTERNAL_FORM (the browser port takes { gl: WebGLTexture }, not pixel data)");
+    if (src.prec !== "u8") throw new Error(`WRAP_EXTERNAL_PREC:${String(src.prec)} (only u8)`);
+    if (!(src.w > 0 && src.h > 0)) throw new Error(`WRAP_EXTERNAL_SIZE:${src.w}x${src.h}`);
+    const t: BrowserTexture & ExternalTexture = { kind: "tex2d", tex: src.gl, external: true, w: src.w, h: src.h };
+    return t;
   }
 
   // ---- tile arena ----

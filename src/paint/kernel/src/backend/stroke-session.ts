@@ -256,6 +256,8 @@ export class StrokeSession {
       if (!layer) throw new Error(`StrokeSession.setHostLayers: layer ${h.layerId} is not a target of this stroke`);
       if (seen.has(h.layerId)) throw new Error(`StrokeSession.setHostLayers: more than one overlay for layer ${h.layerId}`);
       seen.add(h.layerId);
+      const tx = h.tex as { external?: true; w?: number; h?: number };   // 外面包进来的图：交进来的时候就查大小（不等到合成时出怪图）
+      if (tx.external && (tx.w !== layer.pixels.docW || tx.h !== layer.pixels.docH)) throw new Error(`StrokeSession.setHostLayers: wrapped image ${tx.w}x${tx.h} ≠ canvas ${layer.pixels.docW}x${layer.pixels.docH}`);
       return { ...h, kind: "host" as const, lockAlpha: layer.lockAlpha, selMask };
     });
     this.deps.setHostOverlays!(this._hostLayers);
