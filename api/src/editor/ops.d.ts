@@ -466,6 +466,35 @@ export type Op =
     def: number;
     faces: number[];
 }
+/** 开始画（贴图主线 1-3b；editor/paint-ops.ts）：给这些面铺一套贴图坐标、建一张没有字节的分层贴图和一个接着它的材质、把面换成它。三个 GUID 写在指令里（重放得到同一个身份）。 */
+ | {
+    op: "startPaint";
+    def: number;
+    faces: number[];
+    uvSet: Guid;
+    textureGuid: Guid;
+    materialGuid: Guid;
+    names: {
+        uvSet: string;
+        paint: string;
+        material: string;
+    };
+    color: [number, number, number];
+    density?: number;
+}
+/** 给网格体的面换材质（1-3b）：material = 文档材质的下标、null = 默认；可以换成这个定义自己的画，别的定义的画拒绝；从画换走角上的数留着。 */
+ | {
+    op: "meshPaintFaces";
+    def: number;
+    faces: number[];
+    material: number | null;
+}
+/** 给走画但还没有位置的面补一块（1-3b；每一步做完的收尾补进同一步）：faces = 只看这些（不给 = 全部）。放不下的不拒绝，留着没有值。 */
+ | {
+    op: "meshLayoutPaint";
+    def: number;
+    faces?: number[];
+}
 /** 分开（Blender P → 选中）：网格体 def 里这些面搬进一个新的网格体组件，摆在 at 池里、和正在编辑的那一份（instance）同一个变换（世界里不动）。 */
  | {
     op: "separateObject";

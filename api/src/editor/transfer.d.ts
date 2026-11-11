@@ -69,6 +69,16 @@ export declare const transferEmpty: (p: TransferPayload) => boolean;
 /** 人话：「3 张面、1 个组、2 个物件」。 */
 export declare function transferSay(p: TransferPayload): string;
 /** 从活动池抠一份（世界坐标）：选中的面 / 边 + 选中的组（子树）+ 选中的实例。什么都没选中 = null。 */
+/**
+ * 拷贝 / 剪切用的那一口（1-3b 第六节）：选中的网格体面里有走画的 = 拒（{ blocked: 原因 }，判断 = scene/paint.ts paintMoveBlocked）；剪切走拷贝，所以也不会先删掉再贴不上。
+ * 整个物件（实例）照拷：同一份文件里贴出来的另一份摆放共用同一张画；跨文件贴的时候粘贴那一步再拦。
+ */
+export declare function extractForCopy(s: Scene, ctx: EditContext, sel: {
+    faces: Iterable<number>;
+    edges: Iterable<number>;
+}, pools: Parameters<typeof extract>[3]): TransferPayload | {
+    readonly blocked: string;
+} | null;
 export declare function extract(s: Scene, ctx: EditContext, sel: {
     faces: Iterable<number>;
     edges: Iterable<number>;

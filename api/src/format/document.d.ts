@@ -39,9 +39,11 @@ export type TextureContent = {
     readonly kind: "image";
     readonly mimeType: string;
     readonly bytes: Uint8Array;
-} | {
+}
+/** ora = null：新建的画、还没有编过码（编码靠画画内核、是异步的；第一次存盘时才有字节 = 1-8）。读文件读进来的永远有字节；写盘碰到 null = 抛（贴图主线 1-3b）。 */
+ | {
     readonly kind: "layered";
-    readonly ora: Uint8Array;
+    readonly ora: Uint8Array | null;
 } | {
     readonly kind: "other";
     readonly raw: CarriedJson;
@@ -55,7 +57,7 @@ export interface TextureDoc {
     readonly content: TextureContent;
     /** 自由的图：物理尺寸 米（两个数都 > 0）。和 layout 正好有一个。 */
     readonly sizeM?: readonly [number, number];
-    /** 单品的画：{ definition, uvSet }（这一版没有入口造它，原样带）。 */
+    /** 单品的画：{ definition, uvSet }（两个 GUID 字符串；形状不认识的原样带，当它不是画）。读它只经 paintIn。 */
     readonly layout?: unknown;
     /** 行里不认识的键（原样带回）。 */
     readonly extra?: CarriedJson;
@@ -82,6 +84,20 @@ export declare const COLOR_CHANNEL = "color";
 export declare function colorMapIn(table: ReadonlyMap<Guid, TextureDoc>, m: {
     readonly channels?: Channels;
 }): ColorMap | null;
+/** 画：颜色那一槽指着的那张分层的贴图，和它铺在哪个定义的哪一套贴图坐标上（两个 GUID）。 */
+export interface PaintRef {
+    readonly textureDoc: TextureDoc;
+    readonly definition: Guid;
+    readonly uvSet: Guid;
+}
+/**
+ * 「这个材质是不是画」全仓唯一的问法（贴图主线 1-3b；紧挨着 colorMapIn，两个加在一起是问「颜色那一槽是什么」的全部入口）：颜色那一槽的第一张，内容是分层的，
+ * 而且 layout 是 { definition, uvSet } 两个 GUID 字符串 → 那张图和两个 GUID；别的情况 = null。layout 形状不认识的照旧原样带，当它不是画。
+ * src/ 里读贴图的 layout 只有这里（守卫 test/paint-start-guard.test.ts；读写文件的 texture-table.ts 只是原样搬运）。
+ */
+export declare function paintIn(table: ReadonlyMap<Guid, TextureDoc>, m: {
+    readonly channels?: Channels;
+}): PaintRef | null;
 /** 材质（= glTF core material）：颜色 sRGB 0..1 + channels（通道名 → 一摞贴图 GUID；这一版只用 color、一摞只放一张；不认识的名字原样带）。 */
 export interface MaterialDoc {
     guid: Guid;
