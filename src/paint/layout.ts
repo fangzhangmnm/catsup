@@ -121,7 +121,8 @@ export function patchesOf(m: LayoutMesh, faces: readonly number[], maxDeg = PATC
     done.add(seed);
     const fr = frameOf(m, seed);
     if (!fr) { out.push({ seed, faces: [seed], frame: null }); continue; }
-    const nS = m.faceNormal(seed), members = [seed];
+    // 片真正压平到的那个面 = e、t 张成的（法向 ∝ e × t）。不平的种子上最长的边不一定垂直于它的平均朝向，所以拿这个比，不拿 faceNormal：拉伸的上界才是严格的
+    const nRaw = cross(fr.e, fr.t), nl = len(nRaw), nS = { x: nRaw.x / nl, y: nRaw.y / nl, z: nRaw.z / nl }, members = [seed];
     const tris = new PatchTris(fr.e, fr.t, fr.bl);
     tris.add(m.facePts(seed), ft(seed));
     const queue = [seed];
