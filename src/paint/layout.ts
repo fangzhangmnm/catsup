@@ -33,7 +33,9 @@ const cross = (a: Pt3, b: Pt3): Pt3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x
 const len = (a: Pt3): number => Math.hypot(a.x, a.y, a.z);
 const EPS = 1e-9;
 const ceilCells = (x: number): number => Math.max(1, Math.ceil(x - 1e-7));   // 浮点误差别多占一格（10.0000001 → 10）
-const up256 = (x: number): number => Math.max(256, Math.ceil(x / 256) * 256);
+/** 往上取到 step 的倍数、至少 step。step = 256；画布比 256 小时跟着画布走（开始画时选 128 见方，2026-11-11）。 */
+const upStep = (x: number, step: number): number => Math.max(step, Math.ceil(x / step) * step);
+const stepOf = (w: number): number => Math.max(1, Math.min(256, w));
 
 /** 一张面摆平之后（还没放到画布上）：角在块里的坐标（左上角 = 0,0）+ 块的宽高。退化的面（面积是零 / 摆不出方向）占一格、角都在格子中心。 */
 function flatten(m: LayoutMesh, f: number, density: number): { w: number; h: number; uv: Float64Array } {
@@ -98,10 +100,10 @@ export function layoutFaces(m: LayoutMesh, faces: readonly number[], opts: Layou
   if (opts.density !== undefined) {
     const d = opts.density, flat = fs.map((f) => ({ face: f, ...flatten(m, f, d) }));
     const widest = flat.reduce((a, b) => (b.w > a.w ? b : a));
-    const W = widest.w + 2 * gap > base ? up256(widest.w + 2 * gap) : base;
+    const W = widest.w + 2 * gap > base ? upStep(widest.w + 2 * gap, stepOf(base)) : base;
     if (W > maxSize) return { ok: false, reason: `面 ${widest.face} 在每米 ${d} 格下要 ${widest.w + 2 * gap} 格宽，超过上限 ${maxSize}`, face: widest.face, need: widest.w + 2 * gap };
     const r = tryDensity(m, fs, d, W, gap, Infinity)!;
-    const H = up256(r.height);
+    const H = upStep(r.height, stepOf(W));
     if (H > maxSize) return { ok: false, reason: `每米 ${d} 格铺这 ${fs.length} 张面要 ${H} 格高，超过上限 ${maxSize}`, need: H };
     return { ok: true, width: W, height: H, density: d, blocks: r.blocks, values: r.values };
   }
@@ -120,7 +122,7 @@ export function layoutFaces(m: LayoutMesh, faces: readonly number[], opts: Layou
 
 /**
  * 给新面补一块（以后加面用）：已经铺好的面（在 guid 这一列上有值的）一个数都不变；新面各铺一块，放在画布上空着的地方（左上优先），放不下就把画布往下加高
- * （256 的倍数）。坐标的单位是格、不是零到一的比例，所以加高不会动到已有的东西。
+ * （256 的倍数；画布比 256 窄时按画布宽度的倍数）。坐标的单位是格、不是零到一的比例，所以加高不会动到已有的东西。
  * 怎么找空（1-3b 改，Claude Opus 5.5，2026-11-10：原来每补一张面都把「每块的右边 / 下边」当候选全排一遍、逐块比，四万面的网格体补十张面要 0.2 秒、随面数涨）：
  *   画布按 C × C 格划成粗格子（C = 宽 / 256 向上取整，至少 1）；已有的块各向外扩 gap 格，碰到的粗格子都算占了（保守）。新块只放在粗格子的角上，
  *   从上到下、从左到右找第一个放得下的地方。每行记着「从这格往右连着几格空」，找的时候只看这个数。代价随画布大小涨、不随面数涨（只有收集已有块那一步随面数涨）。
@@ -169,10 +171,10 @@ export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly numbe
   for (const s of sizes) {
     if (s.w + 2 * gap > W) { if (opts.partial) { unplaced.push(s.face); continue; } return { ok: false, reason: `面 ${s.face} 要 ${s.w + 2 * gap} 格宽，画布只有 ${W}`, face: s.face, need: s.w + 2 * gap }; }
     let at = find(s.w, s.h, H);
-    if (!at) {   // 现在的画布里放不下：往下找，画布加高（256 的倍数）
+    if (!at) {   // 现在的画布里放不下：往下找，画布加高（256 的倍数；画布比 256 窄时按画布宽度的倍数）
       at = find(s.w, s.h, maxSize);
       if (!at) { if (opts.partial) { unplaced.push(s.face); continue; } return { ok: false, reason: `补面 ${s.face} 要把画布加高到超过上限 ${maxSize}`, face: s.face, need: maxSize + 1 }; }
-      H = Math.max(H, up256(at.y + s.h + gap));
+      H = Math.max(H, upStep(at.y + s.h + gap, stepOf(W)));
     }
     const v = new Float64Array(s.uv.length);
     for (let j = 0; j < v.length; j += 2) { v[j] = s.uv[j] + at.x; v[j + 1] = s.uv[j + 1] + at.y; }

@@ -88,6 +88,14 @@ describe("开始画（1-3b 测试 A）", () => {
     r.step(startOp(r.def, r.k().faces(), { density: 100 }));
     eq(r.s.mesh(r.def).uvSets.get(uvOf(r.s, r.def))!.pxPerM, 100);
   });
+  it("画布边长（2026-11-11 开始画时选）：canvas = 256 → 256 见方里放得下的最大密度；不给 = 1024（老指令流重放不变）", () => {
+    const a = rig(boxMesh); a.step(startOp(a.def, a.k().faces(), { canvas: 256 }));
+    const ua = a.s.mesh(a.def).uvSets.get(uvOf(a.s, a.def))!;
+    const b = rig(boxMesh); b.step(startOp(b.def, b.k().faces()));
+    const ub = b.s.mesh(b.def).uvSets.get(uvOf(b.s, b.def))!;
+    eq(`${ua.width}x${ua.height}`, "256x256"); eq(`${ub.width}x${ub.height}`, "1024x1024", "不给 = 1024 见方");
+    assert(ua.pxPerM < ub.pxPerM, `256 见方的密度 ${ua.pxPerM} 比 1024 的 ${ub.pxPerM} 小`);
+  });
   it("拒绝（什么都不改、说清原因）：不是网格体；一张活着的面都没有；GUID 已经有了；铺不下", () => {
     const r = rig(boxMesh), faces = r.k().faces(), s0 = sceneCanon(r.s);
     rejected(() => r.step(startOp(r.s.root, [0])), /只能用在网格体上/);

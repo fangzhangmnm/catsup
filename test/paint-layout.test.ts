@@ -113,4 +113,26 @@ describe("铺法（1-3a 第二节）", () => {
     assert(tight.height % 256 === 0 && tight.height > H0 && nb.y + nb.h + 4 <= tight.height, `加高了（${H0} → ${tight.height}）`);
     eq(blocksOk([...r0.blocks, ...tight.blocks], tight.width, tight.height, 4), "");
   });
+  it("画布比 256 小（开始画时选 128，2026-11-11）：不给密度 = 128 见方；给了密度 = 宽 128、高按 128 的倍数；补面加高也按 128 的倍数", () => {
+    const { k } = planarMesh(3), faces = k.faces();
+    const a = layoutFaces(k, faces, { base: 128 });
+    assert(a.ok, a.ok ? "" : a.reason); if (!a.ok) return;
+    eq(`${a.width}x${a.height}`, "128x128", "128 见方");
+    assert(blocksOk(a.blocks, a.width, a.height, 4) === "", blocksOk(a.blocks, a.width, a.height, 4));
+    const b = layoutFaces(k, faces, { density: a.density * 2, base: 128 });
+    assert(b.ok, b.ok ? "" : b.reason); if (!b.ok) return;
+    eq(b.width, 128); eq(b.height % 128, 0, `高 ${b.height} 是 128 的倍数`); assert(b.height >= 128 && b.height < 1024, `高 ${b.height}`);
+    // 补面：先铺一半，再补另一半，加高按 128 的倍数
+    const half = faces.slice(0, Math.floor(faces.length / 2)), rest = faces.slice(half.length);
+    k.addColumn({ guid: "uvs", arity: 2 });
+    const c = layoutFaces(k, half, { base: 128 }); if (!c.ok) throw new Error(c.reason);
+    for (const [f, v] of c.values) k.setFaceValues(f, "uvs", [...v]);
+    const d = layoutAppend(k, "uvs", half, rest, { width: 128, height: 128 }, c.density * 3);
+    assert(d.ok, d.ok ? "" : d.reason); if (!d.ok) return;
+    eq(d.height % 128, 0, `补面后高 ${d.height} 是 128 的倍数`); assert(d.height > 128, "放不下就加高");
+  });
+  it("画布 ≥ 256 时和以前一样（步长 256）：base 1024 / 512 / 2048 不给密度 = 正方形", () => {
+    const { k } = planarMesh(4);
+    for (const base of [256, 512, 1024, 2048]) { const r = layoutFaces(k, k.faces(), { base }); assert(r.ok, `base ${base}`); if (r.ok) eq(`${r.width}x${r.height}`, `${base}x${base}`); }
+  });
 });

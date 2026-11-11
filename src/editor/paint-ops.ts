@@ -52,7 +52,7 @@ export function applyStartPaint(s: Scene, op: StartPaint): PaintOutcome {
   const uvTaken = [...s.defs.values()].some((x) => x.body.kind === "mesh" && x.body.uvSets.has(op.uvSet)) || k.columnDefs().some((c) => c.guid === op.uvSet);
   const taken = [uvTaken ? `贴图坐标 ${op.uvSet}` : "", s.textures.has(op.textureGuid) ? `贴图 ${op.textureGuid}` : "", s.materials.some((m) => m.guid === op.materialGuid) ? `材质 ${op.materialGuid}` : ""].filter(Boolean);
   if (taken.length) return { rejected: `开始画：这些身份已经有了（${taken.join("、")}），换新的再来` };
-  const r = layoutFaces(k, faces, op.density !== undefined ? { density: op.density } : {});
+  const r = layoutFaces(k, faces, op.density !== undefined ? { density: op.density } : { base: op.canvas ?? 1024 });   // 没给密度 = 画布 canvas 见方里找最大密度（缺 = 1024）
   if (!r.ok) return { rejected: `开始画：铺不下——${r.reason}` };
   // 查完了，动手
   k.addColumn({ guid: op.uvSet, arity: 2 });
