@@ -8,6 +8,8 @@
 // ⑤ 换手归位：三维的显卡接口画一笔之后，显卡状态回到 WebGL 的初始值（混合、裁剪、深度、剔除、模板、帧缓冲、程序、VAO、贴图单元和绑定、顶点缓冲、上传开关）
 //    且 three 的状态缓存作废过；内核合成一次之后，核心状态归位（同上，除了贴图 / 顶点缓冲的绑定：three 的 resetState 不解绑这两样、只作废它自己的缓存）且 three 的缓存作废过；
 //    之后 three 再画一帧，屏幕逐字节和之前一样（薄层是另一张图、合成的内容没变）。
+// ⑤′ 进门的人自己把状态全设好（统筹 11-11 的换手规矩）：把显卡状态弄脏（各贴图槽绑上别的图和采样器、当前槽不是 0、开着混合 / 裁剪 / 深度 / 剔除 / 模板 / 丢弃光栅、
+//    颜色写关一半、绑着别的帧缓冲 / 程序 / VAO / 顶点缓冲 / 上传和读回缓冲、上传和读回开关改过），每一步之前（建表、画、读回）都弄一次，画出来 = 干净时画的（逐字节）。
 // ⑥ 选中 / 淡出各截一张图（存盘，只看一眼，不判）。
 // ⑦ 斜面上线宽不变：同一支笔，正对着顶面画一条、斜 60 度看着顶面画一条；回到正对着量模型上的线宽（世界里扫、按格数），两条只差一格；也报理论值（直径）。
 // ⑧ 镜像：强行对称的网格体上开始画（两半共用画布多边形）；笔尖压在中缝上时真显卡薄层 = 8 位标准答案（≤ 1/255，取最大 / 叠加）；
@@ -134,6 +136,49 @@ const out = {};
     const s2 = snap(), resets2 = resets - resets1;
     e.draw(); const sC = T.readScreen(), dC = T.readDisp();
     const ne = (a, b) => { let n = 0; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++; return n; };
+    // ⑤′ 弄脏之后再画（统筹 11-11 补 A）：干净状态下画一遍读回；把显卡状态弄脏（每一步之前都弄一次：建表、画、读回）再画一遍读回；逐字节相同
+    {
+      const junkTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, junkTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(16).fill(200));
+      const junkSampler = gl.createSampler(); gl.samplerParameteri(junkSampler, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.samplerParameteri(junkSampler, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.samplerParameteri(junkSampler, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      const junkFb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, junkFb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, junkTex, 0); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      const junkBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, junkBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(64), gl.STATIC_DRAW);
+      const junkPbo = gl.createBuffer(); gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, junkPbo); gl.bufferData(gl.PIXEL_UNPACK_BUFFER, 4096, gl.STATIC_DRAW); gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+      const junkPack = gl.createBuffer(); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, junkPack); gl.bufferData(gl.PIXEL_PACK_BUFFER, 4096, gl.STREAM_READ); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      const junkVao = gl.createVertexArray(); gl.bindVertexArray(junkVao); gl.bindBuffer(gl.ARRAY_BUFFER, junkBuf); for (let k = 0; k < 4; k++) { gl.enableVertexAttribArray(k); gl.vertexAttribPointer(k, 4, gl.FLOAT, false, 0, 0); } gl.bindVertexArray(null);
+      const sh = (t, src) => { const x = gl.createShader(t); gl.shaderSource(x, src); gl.compileShader(x); return x; };
+      const junkProg = gl.createProgram(); gl.attachShader(junkProg, sh(gl.VERTEX_SHADER, "#version 300 es\nvoid main(){gl_Position=vec4(0);}")); gl.attachShader(junkProg, sh(gl.FRAGMENT_SHADER, "#version 300 es\nprecision mediump float;out vec4 o;void main(){o=vec4(1);}")); gl.linkProgram(junkProg);
+      const dirty = () => {
+        for (let u = 0; u < 8; u++) { gl.activeTexture(gl.TEXTURE0 + u); gl.bindTexture(gl.TEXTURE_2D, junkTex); gl.bindSampler(u, junkSampler); }
+        gl.activeTexture(gl.TEXTURE5);
+        gl.enable(gl.BLEND); gl.blendEquation(gl.FUNC_REVERSE_SUBTRACT); gl.blendFunc(gl.ZERO, gl.ONE_MINUS_DST_COLOR);
+        gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, 3, 3);
+        gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.NEVER); gl.depthMask(false);
+        gl.enable(gl.CULL_FACE); gl.cullFace(gl.FRONT_AND_BACK);
+        gl.enable(gl.STENCIL_TEST); gl.stencilFunc(gl.NEVER, 0, 0xff);
+        gl.enable(gl.RASTERIZER_DISCARD); gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(5, 5); gl.enable(gl.SAMPLE_COVERAGE); gl.sampleCoverage(0.25, true);
+        gl.colorMask(false, true, false, true); gl.viewport(0, 0, 5, 5);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, junkFb); gl.useProgram(junkProg); gl.bindVertexArray(junkVao); gl.bindBuffer(gl.ARRAY_BUFFER, junkBuf);
+        gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, junkPbo); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, junkPack);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 3); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 1); gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 1);
+        gl.pixelStorei(gl.PACK_ALIGNMENT, 1); gl.pixelStorei(gl.PACK_ROW_LENGTH, 2); gl.pixelStorei(gl.PACK_SKIP_ROWS, 1); gl.pixelStorei(gl.PACK_SKIP_PIXELS, 1);
+      };
+      const mk = (x, y, z, r) => { const tip = { x, y, z, r, alpha: 0.7 }; let best = -1, bd = Infinity; for (let k = 0; k < geo.grid.face.length; k++) { const d = L.sphereTriDist(x, y, z, geo.wpos, 9 * k); if (d < bd) { bd = d; best = k; } } return { tip, reach: L.tipReach([geo], tip, [{ ti: 0, tri: best }]) }; };
+      const dt = [mk(0.4, 0.4, 1, 0.06), mk(0.7, 0.5, 1, 0.05), mk(1, 0.5, 0.9, 0.05), mk(1, 0.3, 0.7, 0.07), mk(0.5, 0, 0.6, 0.05)];
+      const run = (soil) => { const go = soil ? dirty : () => {}; go(); const Ly = new L.SpaceLayer(og, geo, 0, { hardness: 0.4, color: [0.9, 0.3, 0.1], accum: "over", origin: dt[0].tip }); go(); Ly.update(dt.slice(0, 3), 2); go(); Ly.update(dt.slice(2), 3); go(); const px = og.read(Ly.frame); go(); Ly.dispose(); return px; };
+      T.r3.resetPaintState();
+      const clean = run(false), soiled = run(true);
+      let inked = 0; for (let i = 3; i < clean.length; i += 4) if (clean[i]) inked++;
+      o.dirty = { inked, diffBytes: ne(clean, soiled) };
+      for (let u = 0; u < 8; u++) gl.bindSampler(u, null);
+      for (const cap of [gl.BLEND, gl.SCISSOR_TEST, gl.DEPTH_TEST, gl.CULL_FACE, gl.STENCIL_TEST, gl.RASTERIZER_DISCARD, gl.POLYGON_OFFSET_FILL, gl.SAMPLE_COVERAGE]) gl.disable(cap);
+      gl.depthMask(true); gl.depthFunc(gl.LESS); gl.stencilFunc(gl.ALWAYS, 0, 0xff); gl.cullFace(gl.BACK); gl.colorMask(true, true, true, true); gl.polygonOffset(0, 0); gl.sampleCoverage(1, false);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.useProgram(null); gl.bindVertexArray(null); gl.bindBuffer(gl.ARRAY_BUFFER, null); gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4); gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0); gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+      gl.pixelStorei(gl.PACK_ALIGNMENT, 4); gl.pixelStorei(gl.PACK_ROW_LENGTH, 0); gl.pixelStorei(gl.PACK_SKIP_ROWS, 0); gl.pixelStorei(gl.PACK_SKIP_PIXELS, 0);
+      gl.activeTexture(gl.TEXTURE0); for (let u = 0; u < 8; u++) { gl.activeTexture(gl.TEXTURE0 + u); gl.bindTexture(gl.TEXTURE_2D, null); } gl.activeTexture(gl.TEXTURE0);
+      gl.deleteTexture(junkTex); gl.deleteSampler(junkSampler); gl.deleteFramebuffer(junkFb); gl.deleteBuffer(junkBuf); gl.deleteBuffer(junkPbo); gl.deleteBuffer(junkPack); gl.deleteVertexArray(junkVao); gl.deleteProgram(junkProg);
+      T.r3.resetPaintState(); e.draw();
+    }
     R.resetState = rs;
     o.handoff = { afterSpaceGpu: isDefault(s1) && resets1 > 0, afterKernel: isCore(s2) && resets2 > 0, kernelLeftBound: { tex0: s2.tex0 !== null, arrayBuffer: s2.abuf !== null }, resetsBySpaceGpu: resets1, resetsByKernel: resets2, screenAfterSpaceGpu: ne(sA, sB), screenAfterKernel: ne(sA, sC), dispAfterKernel: ne(dA, dC) };
     return o;
@@ -267,6 +312,7 @@ const checks = {
   "③ 橡皮": s.eraser.checked > 0 && s.eraser.notBack === 0 && s.eraser.kept > 0 && s.eraser.lost === 0,
   "④ 取消": s.cancel.diffBytes === 0 && s.cancel.undoBefore === s.cancel.undoAfter,
   "⑤ 换手归位": s.handoff.afterSpaceGpu && s.handoff.afterKernel && s.handoff.screenAfterSpaceGpu === 0 && s.handoff.screenAfterKernel === 0 && s.handoff.dispAfterKernel === 0,
+  "⑤′ 弄脏之后再画 = 干净时画的": s.dirty.diffBytes === 0 && s.dirty.inked > 100,
   "⑦ 斜面线宽": s.slope.diffCells <= 1,
   "⑧ 镜像": s.mirror.sharedPolys > 0 && Object.values(s.mirror.seamTruth).every((q) => q.maxd <= 1 && q.inked > 50 && q.tipsWithBothHalves > 0) && s.mirror.ink.rightDark === s.mirror.ink.right && s.mirror.ink.leftDark === s.mirror.ink.left && s.mirror.ink.left > 50 && s.mirror.landing.left.bad === 0 && s.mirror.landing.right.bad === 0 && s.mirror.landing.left.ok > 100 && s.mirror.landing.right.ok > 100,
   "⑨ 换铺法": s.layouts.maxdTruth.every((d) => d <= 1) && s.layouts.over === 0 && s.layouts.points > 400,

@@ -26,7 +26,8 @@ export declare class GlOffscreenGpu implements OffscreenGpu {
     /** 显卡画面丢了：原始 GL 对象全死了，忘掉（程序要重新登记、图要重建；调用的人负责）。 */
     lost(): void;
     private params;
-    private unpackDefaults;
+    /** 进门：这里要用到的显卡状态全设好，不假设别人留下了什么（见文件头的换手规矩）。帧缓冲、视口、程序、VAO、贴图由各动作自己绑。 */
+    private enter;
     private ensureGeometry;
     /** 归位到 WebGL 的初始值（见文件头），再告诉 three。 */
     private restore;
