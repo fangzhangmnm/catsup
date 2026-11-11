@@ -158,6 +158,7 @@ import "./preview.test.ts";
 import "./lab-presets.test.ts";
 import "./move-spec.test.ts";
 import "./history.test.ts";
+import "./history-transaction.test.ts";   // 撤销栈的整步事务 + 摘记录（2026-11-11 贴图主线 1-8a）
 import "./scene-ops.test.ts";
 import "./offset.test.ts";   // offset 几何（0.8，2026-10-21）
 import "./followme.test.ts";   // follow-me 扫掠 + 像表 XOR（0.8，2026-10-21）

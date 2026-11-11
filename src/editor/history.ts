@@ -18,6 +18,14 @@
 //   而是**注册进来的部件**（UndoComponent：kind + 自反 swap + bytes）——四种内置（kernel 差量 / pool 整表 / mesh 整表 / scene 对象交换）在构造时注册，
 //   以后的节点图 / 图片层 / 元数据各自注册一种，History 一行不改。部件的 swap 不许读别的部件此刻的状态（两两可交换；WeebPaint ADR-0008 修订 10-13 的契约）。
 // · 步的「之后」会话改在步结束时封（sealStep），不再在撤销那一刻补记：记录是提交时就定的纯数据；步带标签（提示行「撤销：建组」）。
+// · 2026-11-11 整步事务（贴图主线 1-8a，Claude Opus 5.5；统筹 11-11 裁定，施工单 ai-docs/20261111-paint-workorders-12.md）：撤销 / 重做一步分两段——
+//   ① 先问：这一步里每种成分把它的记录（按要翻的先后）问一遍「现在能不能翻」（check；画 = 内核认不认这个方向、有没有开着的一笔）；有一条说不能 → 什么都不碰、游标不动、抛 StepFlipError("refused")。
+//   ② 再翻：按先后 swap；中间抛了 → 翻过的倒着再 swap 一遍（每种成分都是自反的）、游标不动、抛 StepFlipError("rolled-back")。翻回去又抛 = 那条记录背后的状态不可信：
+//      翻回去那一圈走完之后，调那种成分的 untrusted（画 = 这张画的步全部作废、记录摘掉），把它说的话带在错里；别的成分照常翻回去。不许停在半路。
+//   先后：撤销 = 这一步的指令倒着、每条指令的记录倒着；重做 = 正着。一条指令的记录里「模型的」在前、「画的」在后（画布跟着模型加高，是改完模型之后在收尾里记的），
+//   所以撤销先翻画（画布缩回去）再翻模型，重做先翻模型再翻画。
+// · commitRecords：一步只有成分记录（画一笔：内核的步交给三维的栈）= 一条空的 batch 记号指令 + 记录，不拷场景；这种步之后的指令不许 join 进来。
+//   dropRecords：摘掉某种成分的一批记录（只给「这张画以前的步全作废」用），摘空了的「只有记录」的步整步删掉，游标和驱逐线跟着重算；被摘的记录调成分的 forget（不调 dispose：背后的东西已经自己作废了）。
 import { Scene, type PoolRef, type DefId } from "../scene/scene.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { applyOp, type ApplyResult, type Op, poolOf } from "./ops.ts";
@@ -57,6 +65,22 @@ export interface UndoComponent<R = unknown> {
   /** 字节估计（配额用；量纲：字节；量级即可）。 */
   bytes(record: R): number;
   dispose?(record: R): void;
+  /** 翻之前先问（整步事务第一段）：这一步里这种成分的全部记录（按要翻的先后）现在能不能按 dir 翻；不能 = 原因，能 = null。不给 = 永远能。不许改任何状态。 */
+  check?(records: readonly R[], dir: "undo" | "redo", host: UndoHost): string | null;
+  /** 翻回去也抛了 = 这条记录背后的状态不可信：成分自己走「不可恢复」那条路（可以调 History.dropRecords），返回给用户的一句话。 */
+  untrusted?(record: R, cause: unknown): string;
+  /** 记录被 dropRecords 摘掉（背后的东西已经自己作废，不 dispose）。 */
+  forget?(record: R): void;
+}
+/** 撤销 / 重做没做成，三维的状态和撤销栈的游标都没动（refused = 问的时候就说不能；rolled-back = 翻了一半抛了、已经翻回去）。untrusted = 翻回去也失败、已作废的那几样的说法。 */
+export class StepFlipError extends Error {
+  readonly reason: "refused" | "rolled-back";
+  readonly label: StepLabel | undefined;
+  readonly untrusted: readonly string[];
+  constructor(reason: "refused" | "rolled-back", why: string, label: StepLabel | undefined, untrusted: readonly string[] = []) {
+    super(why);
+    this.name = "StepFlipError"; this.reason = reason; this.label = label; this.untrusted = untrusted;
+  }
 }
 interface Entry { kind: string; data: unknown; bytes: number }
 
@@ -125,6 +149,7 @@ export class History<M = unknown> {
   private evicted = 0;                           // ops[0..evicted) 的撤销记录已被配额驱逐（指令流留着）
   private current: Scene;                        // 现在的场景对象（撤销 / 重做原地改；scene 型记录 = 换对象）
   private labels: (StepLabel | undefined)[] = [];   // labels[i] = 以 ops[i] 开头的那一步的标签（join 进来的条目不看）
+  private recordOnly: boolean[] = [];            // recordOnly[i] = ops[i] 是 commitRecords 的记号（一步只有成分记录；摘空了整步删）
   private readonly quota: number;
   private readonly components = new Map<string, UndoComponent>();
   private readonly host: UndoHost;
@@ -193,8 +218,8 @@ export class History<M = unknown> {
       rec("scene", { snapshot: snap, skeleton: t.tier === "skeleton" } satisfies SceneRec);
     }
     this.current = r.scene;
-    const joined = join && this.cursor > 0;
-    this.ops.push(op); this.mints.push(minted); this.joins.push(joined);
+    const joined = join && this.cursor > 0 && !this.recordOnly[this.cursor - 1];   // 「只有记录」的步不许被 join 进来（摘记录时要能整步删）
+    this.ops.push(op); this.mints.push(minted); this.joins.push(joined); this.recordOnly.push(false);
     this.sessions.push(joined ? null : before !== undefined ? { before } : null);
     this.labels.push(joined ? undefined : label);
     this.entries.push(entries);
@@ -240,8 +265,33 @@ export class History<M = unknown> {
   /** 只改会话（选区 / 进出组件）的一步：0 条 op，只有会话记录——「撤销也撤选区」（user 10-27「这个我们要」）。 */
   commitSession(before: M, after?: M, label?: StepLabel): void {
     if (this.cursor < this.ops.length) this.dropRedo();
-    this.ops.push({ op: "batch", label: "选区", ops: [] }); this.mints.push([]); this.joins.push(false); this.sessions.push(after === undefined ? { before } : { before, after }); this.labels.push(label ?? { title: "选择" }); this.entries.push([]);
+    this.ops.push({ op: "batch", label: "选区", ops: [] }); this.mints.push([]); this.joins.push(false); this.sessions.push(after === undefined ? { before } : { before, after }); this.labels.push(label ?? { title: "选择" }); this.entries.push([]); this.recordOnly.push(false);
     this.cursor++;
+  }
+  /** 一步只有成分记录（画一笔，1-8a）：一条空的 batch 记号指令（进指令流、重放是空操作，不拷场景）+ 这些记录。没有记录 = 不做。 */
+  commitRecords(before: M, label: StepLabel, records: readonly { readonly kind: string; readonly data: unknown }[]): void {
+    if (!records.length) return;
+    const entries = records.map((r) => { const c = this.components.get(r.kind); if (!c) throw new Error(`undo component "${r.kind}" not registered`); return { kind: r.kind, data: r.data, bytes: c.bytes(r.data) }; });
+    if (this.cursor < this.ops.length) this.dropRedo();
+    this.ops.push({ op: "batch", label: label.title, ops: [] }); this.mints.push([]); this.joins.push(false); this.sessions.push({ before, after: before }); this.labels.push(label); this.entries.push(entries); this.recordOnly.push(true);
+    this.cursor++;
+    this.evictToQuota();
+  }
+  /**
+   * 摘记录（只给「这张画以前的步全作废」用）：所有步里这种成分、pred 为真的记录摘掉（调 forget，不调 dispose）；摘空了的「只有记录」的步整步删掉，游标和驱逐线跟着重算。返回摘了几条。
+   */
+  dropRecords(kind: string, pred: (data: unknown) => boolean): number {
+    const c = this.components.get(kind);
+    if (!c) throw new Error(`undo component "${kind}" not registered`);
+    let n = 0;
+    for (const list of this.entries) for (let j = list.length - 1; j >= 0; j--) if (list[j].kind === kind && pred(list[j].data)) { c.forget?.(list[j].data); list.splice(j, 1); n++; }
+    const keep = this.ops.map((_, i) => !(this.recordOnly[i] && this.entries[i].length === 0));
+    if (keep.every(Boolean)) return n;
+    const kept = (upTo: number): number => { let k = 0; for (let i = 0; i < upTo; i++) if (keep[i]) k++; return k; };
+    this.cursor = kept(this.cursor); this.evicted = kept(this.evicted);
+    const f = <T>(a: T[]): T[] => a.filter((_, i) => keep[i]);
+    this.ops = f(this.ops); this.mints = f(this.mints); this.joins = f(this.joins); this.sessions = f(this.sessions); this.entries = f(this.entries); this.labels = f(this.labels); this.recordOnly = f(this.recordOnly);
+    return n;
   }
 
   /** 撤销一步（这一步的全部 op）：自反交换倒着走。返回场景 + 这一步之前的会话 + 标签；没得撤 → null。「之后」的会话由 sealStep 在步结束时封，这里不再补记。 */
@@ -250,22 +300,25 @@ export class History<M = unknown> {
     const end = this.cursor;
     let start = end;
     do start--; while (start > this.evicted && this.joins[start]);
-    for (let i = end - 1; i >= start; i--) this.swap(i, true);
+    this.flipStep(start, end, "undo", this.labels[start]);   // 整步事务：没做成 = 抛 StepFlipError，什么都没动
     this.cursor = start;
     return { scene: this.current, before: this.sessions[start]?.before, label: this.labels[start] };
   }
   /** 只撤一条 op（编辑器内部按新值重做那一步 / 一步中途失败回滚用；用户的撤销走 undo）。撤到一步的开头时带回那一步之前的会话。 */
   undoOp(): { scene: Scene; before: M | undefined } | null {
     if (this.cursor <= this.evicted) return null;
+    this.flipStep(this.cursor - 1, this.cursor, "undo", undefined);
     this.cursor--;
-    this.swap(this.cursor, true);
     return { scene: this.current, before: this.sessions[this.cursor]?.before };
   }
   /** 重做一步：自反交换正着走；带回这一步之后的会话。events 为空（重做不重跑动词）。 */
   redo(_s: Scene): (ApplyResult & { after: M | undefined; label: StepLabel | undefined }) | null {
     if (this.cursor >= this.ops.length) return null;
     const c0 = this.cursor;
-    do { this.swap(this.cursor, false); this.cursor++; } while (this.cursor < this.ops.length && this.joins[this.cursor]);
+    let end = c0;
+    do end++; while (end < this.ops.length && this.joins[end]);
+    this.flipStep(c0, end, "redo", this.labels[c0]);   // 整步事务：没做成 = 抛 StepFlipError，什么都没动
+    this.cursor = end;
     return { scene: this.current, events: [], after: this.sessions[c0]?.after, label: this.labels[c0] };
   }
   /** 已做的步数（游标之前；不是 op 数；重做尾巴不算）。fuzz 的「一个动作最多长一步」用。 */
@@ -275,7 +328,7 @@ export class History<M = unknown> {
   /** 丢掉重做队列（游标之后的 op、会话记录、撤销记录）。一步做到一半失败、回滚之后用：那半截不许被重做出来。 */
   dropRedo(): void {
     for (let i = this.cursor; i < this.entries.length; i++) for (const e of this.entries[i]) this.components.get(e.kind)?.dispose?.(e.data);
-    this.ops.length = this.cursor; this.mints.length = this.cursor; this.joins.length = this.cursor; this.sessions.length = this.cursor; this.entries.length = this.cursor; this.labels.length = this.cursor;
+    this.ops.length = this.cursor; this.mints.length = this.cursor; this.joins.length = this.cursor; this.sessions.length = this.cursor; this.entries.length = this.cursor; this.labels.length = this.cursor; this.recordOnly.length = this.cursor;
   }
   /** 当前状态的独立重建（装载态 + 指令流全量重放，GUID 和当初一样；测试 / 校验用，不在热路径）。 */
   replay(): Scene { return this.stateAt(this.cursor); }
@@ -286,14 +339,25 @@ export class History<M = unknown> {
     return sc;
   }
 
-  /** 自反交换 ops[i] 的记录（撤 = 倒序、重做 = 正序）；记录被换成反向包。 */
-  private swap(i: number, reverse: boolean): void {
-    const list = this.entries[i];
-    const order = reverse ? [...list].reverse() : list;
-    for (const e of order) {
-      const c = this.components.get(e.kind);
-      if (!c) throw new Error(`undo component "${e.kind}" not registered`);   // 内部不变量（登记过的才记得进来）
-      e.data = c.swap(e.data, this.host);
+  /**
+   * 整步事务（头注释那一节）：ops[start..end) 的记录按方向排好先后（撤 = 指令倒着、每条指令的记录倒着；重做 = 正着）→ ① 每种成分问一遍 → ② 翻；
+   * 中间抛了 = 翻过的倒着再翻一遍、抛 StepFlipError；翻回去又抛的那几条，走完之后调成分的 untrusted。游标归调用的人改（只在这里没抛时）。
+   */
+  private flipStep(start: number, end: number, dir: "undo" | "redo", label: StepLabel | undefined): void {
+    const seq: Entry[] = [];
+    if (dir === "undo") for (let i = end - 1; i >= start; i--) seq.push(...[...this.entries[i]].reverse());
+    else for (let i = start; i < end; i++) seq.push(...this.entries[i]);
+    const comp = (kind: string): UndoComponent => { const c = this.components.get(kind); if (!c) throw new Error(`undo component "${kind}" not registered`); return c; };   // 内部不变量（登记过的才记得进来）
+    const byKind = new Map<string, unknown[]>();
+    for (const e of seq) { const l = byKind.get(e.kind); if (l) l.push(e.data); else byKind.set(e.kind, [e.data]); }
+    for (const [kind, recs] of byKind) { const why = comp(kind).check?.(recs, dir, this.host) ?? null; if (why) throw new StepFlipError("refused", why, label); }
+    const done: Entry[] = [];
+    try { for (const e of seq) { e.data = comp(e.kind).swap(e.data, this.host); done.push(e); } }
+    catch (cause) {
+      const bad: { e: Entry; again: unknown }[] = [];
+      for (const e of done.reverse()) { try { e.data = comp(e.kind).swap(e.data, this.host); } catch (again) { bad.push({ e, again }); } }
+      const said = bad.map(({ e, again }) => comp(e.kind).untrusted?.(e.data, again) ?? `${e.kind}：${again instanceof Error ? again.message : String(again)}`);
+      throw new StepFlipError("rolled-back", cause instanceof Error ? cause.message : String(cause), label, said);
     }
   }
   /** 从最老端整步驱逐到配额之内；最新一步永不驱逐。驱逐 = 丢撤销记录、游标之前不能再撤；指令流留着。 */
