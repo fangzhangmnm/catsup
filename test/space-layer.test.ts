@@ -3,7 +3,7 @@
 // 定型分两次画 = 一次画完；范围之外全是零。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { SoftSpaceGpu } from "../src/paint/space-gpu-soft.ts";
-import { SpaceLayer, SPACE_TIP } from "../src/paint/space-layer.ts";
+import { SpaceLayer } from "../src/paint/space-layer.ts";
 import { buildTargetGeo } from "../src/paint/space-target.ts";
 import { tipReach } from "../src/paint/tip-reach.ts";
 import { strokeTruth, strokeTruth8, type InkTip } from "../src/paint/tip-truth.ts";
@@ -26,7 +26,7 @@ function rig(o: { alpha?: number; r?: number; xform?: Xform; jitter?: boolean } 
   return { g, tips, W: g.table.width, H: g.table.height };
 }
 function run(r: ReturnType<typeof rig>, accum: "max" | "over", hardness: number, color: [number, number, number], frozenSteps: number[] = [r.tips.length]) {
-  const gpu = new SoftSpaceGpu(); gpu.register(SPACE_TIP);
+  const gpu = new SoftSpaceGpu();
   const L = new SpaceLayer(gpu, r.g, 0, { hardness, color, accum, origin: r.tips[0].tip });
   let drawn = 0;   // 每帧只给还没定型画过的笔尖（前 k − drawn 颗这一帧定型）
   for (const k of frozenSteps) { const end = frozenSteps[frozenSteps.length - 1] === k ? Math.max(k, r.tips.length) : Math.min(r.tips.length, k + 3); L.update(r.tips.slice(drawn, end), k - drawn); drawn = k; }   // 中间的帧带 3 颗尾巴
@@ -74,7 +74,7 @@ describe("薄层 = 标准答案（三维显卡接口的软件版，1-4b）", () 
       assert(maxd <= 1, `${accum}：和 8 位标准答案最大差 ${maxd} / 255`);
     }
     // 方块确实变小了：每颗笔尖的方块面积远小于整块多边形
-    const r = rig(), gpu = new SoftSpaceGpu(); gpu.register(SPACE_TIP);
+    const r = rig(), gpu = new SoftSpaceGpu();
     const L = new SpaceLayer(gpu, r.g, 0, { hardness: 0.5, color: [1, 1, 1], accum: "over", origin: r.tips[0].tip });
     let area = 0; const draw = gpu.draw.bind(gpu); gpu.draw = (d) => { for (let k = 0; k < d.count; k++) area += d.instances[4 * k + 2] * d.instances[4 * k + 3]; draw(d); };
     L.update(r.tips, r.tips.length);
@@ -82,7 +82,7 @@ describe("薄层 = 标准答案（三维显卡接口的软件版，1-4b）", () 
     assert(area < 0.5 * r.tips.length * R.w * R.h, `实例方块面积合计 ${area}，整笔范围 ${R.w}×${R.h}`);
   });
   it("每帧画的实例只随这一帧新给的笔尖涨（不随整笔长度涨）", () => {
-    const r = rig(), gpu = new SoftSpaceGpu(); gpu.register(SPACE_TIP);
+    const r = rig(), gpu = new SoftSpaceGpu();
     const counts: number[] = [], draw = gpu.draw.bind(gpu);
     gpu.draw = (d) => { counts.push(d.count); draw(d); };
     const L = new SpaceLayer(gpu, r.g, 0, { hardness: 0.5, color: [1, 1, 1], accum: "over", origin: r.tips[0].tip });

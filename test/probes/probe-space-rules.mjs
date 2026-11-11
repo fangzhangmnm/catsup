@@ -10,7 +10,8 @@
 //    之后 three 再画一帧，屏幕逐字节和之前一样（薄层是另一张图、合成的内容没变）。
 // ⑥ 选中 / 淡出各截一张图（存盘，只看一眼，不判）。
 // ⑦ 斜面上线宽不变：同一支笔，正对着顶面画一条、斜 60 度看着顶面画一条；回到正对着量模型上的线宽（世界里扫、按格数），两条只差一格；也报理论值（直径）。
-// ⑧ 镜像：强行对称的网格体上开始画（两半共用画布多边形）；画在右半边、左半边同一处也有；再灌编码色，两半各随机取点查「点到哪格」（1-3c 那一套）。
+// ⑧ 镜像：强行对称的网格体上开始画（两半共用画布多边形）；笔尖压在中缝上时真显卡薄层 = 8 位标准答案（≤ 1/255，取最大 / 叠加）；
+//    画在右半边、左半边同一处也有；再灌编码色，两半各随机取点查「点到哪格」（1-3c 那一套）。
 // ⑨ 铺法换掉结果不变（1-4a 测试 11 的显卡版，一例）：两种密度铺出来的两张画（100 / 260），同一串世界里的笔尖（互不重叠）各用真显卡画；
 //    每张都 = 8 位标准答案（≤ 1/255）；随机取顶面上的世界点，两张画上那一格的浓度之差 ≤ 曲线最陡的斜率 1.5 ÷ 过渡带宽 × 两格到这一点的距离之和 + 2/255。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-space-rules.mjs [地址]（或 PROBE_URL）；截图存到 PROBE_SHOTS（不给 = 系统临时目录下 catsup-probe-space）。
@@ -181,6 +182,20 @@ const out = {};
     o.board = await T.setup({ density: 120, mirror: true, view: "top" });
     const geo = C.paint.lab.buildTargetGeo(C.paint.lab.targets(T.guid)[0]);
     o.sharedPolys = geo.table.polyFaces.filter((fs) => fs.length >= 2).length;
+    // 笔尖压在中缝上（世界 x = 0.5，两半的面挂在同一块画布多边形下）：真显卡薄层 vs 8 位标准答案（取最大 / 叠加各一遍）
+    { const L = C.paint.lab, gl = L.gpu(), seamTips = [0.2, 0.32, 0.44, 0.56, 0.68, 0.8].map((y, i) => { const tip = { x: 0.5 + (i % 2 ? 0.01 : -0.008), y, z: 1, r: 0.05 + 0.01 * (i % 3), alpha: 0.7 };
+        let best = -1, bd = Infinity; for (let k = 0; k < geo.grid.face.length; k++) { const d = L.sphereTriDist(tip.x, tip.y, tip.z, geo.wpos, 9 * k); if (d < bd) { bd = d; best = k; } }
+        return { tip, reach: L.tipReach([geo], tip, [{ ti: 0, tri: best }]) }; });
+      o.seamTruth = {};
+      for (const accum of ["max", "over"]) {
+        const lay = new L.SpaceLayer(gl, geo, 0, { hardness: 0.4, color: [0.2, 0.6, 0.9], accum, origin: seamTips[0].tip });
+        lay.update(seamTips, seamTips.length);
+        const px = gl.read(lay.frame), truth = L.strokeTruth8([geo], seamTips, 0.4, accum, [0.2, 0.6, 0.9]).get(0) ?? new Map();
+        let maxd = 0; for (let c = 0; c < T.W * T.H; c++) { const w8 = truth.get(c); for (let k = 0; k < 4; k++) maxd = Math.max(maxd, Math.abs(px[c * 4 + k] - (w8 ? w8[k] : 0))); }
+        const twoFaces = seamTips.filter((t) => [...(t.reach.get(0)?.values() ?? [])].some((tris) => new Set(tris.map((k) => geo.grid.face[k])).size >= 2)).length;
+        o.seamTruth[accum] = { maxd, inked: truth.size, tipsWithBothHalves: twoFaces };
+        lay.dispose();
+      } }
     // 局部 x = 0 是镜像面（组件的原点在盒子中心，世界 x = 0.5）：画在右半边（世界 x > 0.5）
     const wl = [P(0.62, 0.25, 1), P(0.78, 0.45, 1), P(0.66, 0.6, 1), P(0.85, 0.78, 1)];
     T.stroke(T.path(wl, 2));
@@ -223,7 +238,6 @@ for (const density of [100, 260]) {
     const { e, C, P } = T, o = {};
     o.board = await T.setup({ density, view: "top" });
     const L = C.paint.lab, geo = L.buildTargetGeo(L.targets(T.guid)[0]), gl = L.gpu(), hardness = 0.3;
-    gl.register(L.SPACE_TIP);   // 这一页没画过笔（程序是第一笔时登记的）
     const tips = TIPS.map((tip) => { let best = -1, bd = Infinity; for (let k = 0; k < geo.grid.face.length; k++) { const d = L.sphereTriDist(tip.x, tip.y, tip.z, geo.wpos, 9 * k); if (d < bd) { bd = d; best = k; } } return { tip, reach: L.tipReach([geo], tip, [{ ti: 0, tri: best }]) }; });
     const lay = new L.SpaceLayer(gl, geo, 0, { hardness, color: [1, 1, 1], accum: "max", origin: tips[0].tip });
     lay.update(tips, tips.length);
@@ -254,7 +268,7 @@ const checks = {
   "④ 取消": s.cancel.diffBytes === 0 && s.cancel.undoBefore === s.cancel.undoAfter,
   "⑤ 换手归位": s.handoff.afterSpaceGpu && s.handoff.afterKernel && s.handoff.screenAfterSpaceGpu === 0 && s.handoff.screenAfterKernel === 0 && s.handoff.dispAfterKernel === 0,
   "⑦ 斜面线宽": s.slope.diffCells <= 1,
-  "⑧ 镜像": s.mirror.sharedPolys > 0 && s.mirror.ink.rightDark === s.mirror.ink.right && s.mirror.ink.leftDark === s.mirror.ink.left && s.mirror.ink.left > 50 && s.mirror.landing.left.bad === 0 && s.mirror.landing.right.bad === 0 && s.mirror.landing.left.ok > 100 && s.mirror.landing.right.ok > 100,
+  "⑧ 镜像": s.mirror.sharedPolys > 0 && Object.values(s.mirror.seamTruth).every((q) => q.maxd <= 1 && q.inked > 50 && q.tipsWithBothHalves > 0) && s.mirror.ink.rightDark === s.mirror.ink.right && s.mirror.ink.leftDark === s.mirror.ink.left && s.mirror.ink.left > 50 && s.mirror.landing.left.bad === 0 && s.mirror.landing.right.bad === 0 && s.mirror.landing.left.ok > 100 && s.mirror.landing.right.ok > 100,
   "⑨ 换铺法": s.layouts.maxdTruth.every((d) => d <= 1) && s.layouts.over === 0 && s.layouts.points > 400,
 };
 for (const [k, v] of Object.entries(checks)) console.log(`${v ? "✓" : "✗"} ${k}`);

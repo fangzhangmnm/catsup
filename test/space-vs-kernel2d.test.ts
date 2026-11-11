@@ -6,7 +6,7 @@ import { describe, it, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { FRESH } from "../src/mesh/corner-columns.ts";
 import { SoftSpaceGpu } from "../src/paint/space-gpu-soft.ts";
-import { SpaceLayer, SPACE_TIP } from "../src/paint/space-layer.ts";
+import { SpaceLayer } from "../src/paint/space-layer.ts";
 import { buildTargetGeo } from "../src/paint/space-target.ts";
 import { tipReach, sphereTriDist } from "../src/paint/tip-reach.ts";
 import { inPoly } from "../src/paint/texel-table.ts";
@@ -37,7 +37,7 @@ describe("三维的薄层 = 画画内核二维的笔尖（平的面、铺得规�
         tips.push({ tip, reach: tipReach([r.g], tip, [{ ti: 0, tri: best }]) });
         const [u, v] = r.toUv(x, y); stamps.push({ x: u, y: v, size: 2 * rad * DENSITY, alpha });
       }
-      const gpu = new SoftSpaceGpu(); gpu.register(SPACE_TIP);
+      const gpu = new SoftSpaceGpu();
       const L = new SpaceLayer(gpu, r.g, 0, { hardness, color: COLOR, accum: buildup ? "over" : "max", origin: tips[0].tip });
       L.update(tips, tips.length);
       const three = gpu.read(L.frame);

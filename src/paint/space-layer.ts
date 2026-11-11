@@ -111,6 +111,9 @@ function triInv(o: Pt3, du: Pt3, dv: Pt3): TriInv {
 interface Job { readonly g: TargetGeo; items: Item[]; readonly hardness: number; readonly color: readonly [number, number, number] }
 const jobs = new Map<number, Job>();
 let nextJob = 1;
+/** 哪些显卡接口上登记过薄层程序（契约：同一个程序名登记两次 = 抛；所以只在这里登记，SpaceLayer 建的时候确保一次）。 */
+const registeredOn = new WeakSet<SpaceGpu>();
+function ensureProgram(gpu: SpaceGpu): void { if (!registeredOn.has(gpu)) { gpu.register(SPACE_TIP); registeredOn.add(gpu); } }
 
 /** 薄层那个程序（一对）。JavaScript 版 = 1-4a 的标准答案。 */
 export const SPACE_TIP: SpaceProgram = {
@@ -165,6 +168,7 @@ export class SpaceLayer {
 
   constructor(gpu: SpaceGpu, g: TargetGeo, ti: number, o: SpaceLayerOpts) {
     this.gpu = gpu; this.g = g; this.ti = ti; this.o = o;
+    ensureProgram(gpu);   // 薄层程序在这个显卡接口上只登记一次（唯一的登记处）
     const t = g.table, W = t.width, H = t.height, X = g.target.xform;
     this.frozen = gpu.image(W, H); this.frame = gpu.image(W, H);
     this.jobId = nextJob++;

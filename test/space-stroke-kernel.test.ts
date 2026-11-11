@@ -6,7 +6,7 @@ import { SoftGl2Port } from "../src/paint/kernel/src/backend/soft-gl2-port.ts";
 import { UndoStack } from "../src/paint/kernel/src/backend/workpiece/undo-stack.ts";
 import { PaintBoard } from "../src/paint/board.ts";
 import { SoftSpaceGpu } from "../src/paint/space-gpu-soft.ts";
-import { SpaceLayer, SPACE_TIP } from "../src/paint/space-layer.ts";
+import { SpaceLayer } from "../src/paint/space-layer.ts";
 import { buildTargetGeo } from "../src/paint/space-target.ts";
 import { tipReach, sphereTriDist } from "../src/paint/tip-reach.ts";
 import type { InkTip } from "../src/paint/tip-truth.ts";
@@ -25,7 +25,7 @@ function rig(accum: "max" | "over") {
     const tip: InkTip = { x, y, z, r: 0.15, alpha: 0.7 };
     tips.push({ tip, reach: tipReach([g], tip, [{ ti: 0, tri: best }]) });
   }
-  const gpu = new SoftSpaceGpu(); gpu.register(SPACE_TIP);
+  const gpu = new SoftSpaceGpu();
   const layer = new SpaceLayer(gpu, g, 0, { hardness: 0.4, color: [0.1, 0.2, 0.9], accum, origin: tips[0].tip });
   const shot = (): Uint8Array => { const r = board.compose()!; return port.readPixels(r.fbo, 0, 0, W, H); };
   return { W, H, port, undo, board, tips, gpu, layer, shot };

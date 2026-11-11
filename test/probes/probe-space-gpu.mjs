@@ -30,7 +30,6 @@ const res = await page.evaluate(async () => {
     tips.push({ tip, reach: L.tipReach([geo], tip, [{ ti: 0, tri: best }]) });
   }
   const gl = L.gpu(), soft = new L.SoftSpaceGpu();
-  gl.register(L.SPACE_TIP); soft.register(L.SPACE_TIP);
   const out = { W: geo.table.width, H: geo.table.height, runs: [] };
   for (const [accum, hardness, alpha] of [["max", 0.3, 0.6], ["max", 1, 0.9], ["over", 0.3, 0.6], ["over", 0.8, 0.25]]) {
     const tt = tips.map((x) => ({ tip: { ...x.tip, alpha }, reach: x.reach }));

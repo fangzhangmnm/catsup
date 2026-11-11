@@ -4,7 +4,7 @@
 // 定型：笔尖所在那一段两头的路点都定型了（seg + 1 < 路的定型点数）。抬笔：收笔的渐细这时才知道总长，所以抬笔时定型层清掉、整笔重画一次（只这一次），再落层。
 // 橡皮 = 同一支笔，交给档口时 erase = true。取消 = 档口取消（零痕迹）。
 import { SpaceStroke, type SpaceCamera } from "./space-stroke.ts";
-import { SpaceLayer, SPACE_TIP } from "./space-layer.ts";
+import { SpaceLayer } from "./space-layer.ts";
 import type { SpaceGpu, SpaceImage } from "./space-gpu.ts";
 import type { PaintBoards } from "./boards.ts";
 import type { PaintBoard } from "./board.ts";
@@ -34,7 +34,6 @@ export interface SpacePaintOpts {
   readonly erase?: boolean;
 }
 
-const registered = new WeakSet<SpaceGpu>();
 
 /** 调试钩子 / 探针用的一支笔：屏幕上 size 像素、间距 0.1、浓度 1、不随压感变、没有起笔渐细（收笔渐细按 taperOut）。笔刷设置的界面是后面的施工单。 */
 export function hookBrush(o: { readonly size?: number; readonly hardness?: number; readonly taperOut?: number }): ResolvedBrush {
@@ -62,7 +61,6 @@ export class SpacePaintStroke {
     const gpu = d.gpu();
     if (!gpu) throw new Error("SpacePaintStroke: no GPU for the space layer");
     this.gpu = gpu;
-    if (!registered.has(gpu)) { gpu.register(SPACE_TIP); registered.add(gpu); }
     this.board = d.boards.ensure(d.scene(), texture);   // 第一笔时建画板
     const targets = d.targets(texture);
     if (targets.length !== 1) throw new Error(`SpacePaintStroke: ${targets.length} placements of this paint (1-4b handles exactly one)`);
