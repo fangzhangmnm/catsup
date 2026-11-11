@@ -27,13 +27,22 @@ function canonBrep(snap: BrepSnapshot, slotGuid: (slot: number) => Guid | null):
   return { ...rest, vertices: c.vertices.map(um), edges: c.edges, faces: byKey(faces, (f) => f.outer.join()), edgeLayers: c.edgeLayers ?? {}, curves };
 }
 
-/** 网格体：点的下标原样（可能有重合的点，按坐标认会把「焊了」和「没焊」判成一样）；面从最小下标起转、面和边标记排序（存盘重开只会换这两样的序）。 */
+/** 网格体：点的下标原样（可能有重合的点，按坐标认会把「焊了」和「没焊」判成一样）；面从最小下标起转、面和边标记排序（存盘重开只会换这两样的序）；贴图坐标跟着面转（1-2½）。 */
 function canonMesh(m: MeshDoc, slotGuid: (slot: number) => Guid | null): unknown {
-  const { faceStart, faceLen, loopVert, faceMat, faceFlags, edgePairs, edgeFlags, ...rest } = m;
-  const rotated = (ring: number[]): number[] => { let at = 0; for (let i = 1; i < ring.length; i++) if (ring[i] < ring[at]) at = i; return [...ring.slice(at), ...ring.slice(0, at)]; };
-  const faces = Array.from(faceStart, (start, i) => ({ ring: rotated(Array.from(loopVert.subarray(start, start + faceLen[i]))), mat: faceMat[i] >= 0 ? slotGuid(faceMat[i]) : null, flags: faceFlags[i] }));
+  const { faceStart, faceLen, loopVert, faceMat, faceFlags, edgePairs, edgeFlags, uvSets, ...rest } = m;
+  const sets = uvSets ?? [];
+  // 每张面从最小下标起转；贴图坐标（1-2½）跟着同一张面、同样转（存盘重开只会换面的序和环的起点，角上的数跟着角走）。这一套上没有位置 = null。
+  const faces = Array.from(faceStart, (start, i) => {
+    const n = faceLen[i], ring = Array.from(loopVert.subarray(start, start + n));
+    let at = 0; for (let k = 1; k < n; k++) if (ring[k] < ring[at]) at = k;
+    const turn = <T>(xs: readonly T[], w: number): T[] => [...xs.slice(at * w), ...xs.slice(0, at * w)];
+    const uv: Record<string, number[] | null> = {};
+    for (const u of sets) { const v = Array.from(u.loopUv.subarray(2 * start, 2 * (start + n))); uv[u.guid] = Number.isNaN(v[0]) ? null : turn(v, 2); }
+    return { ring: turn(ring, 1), mat: faceMat[i] >= 0 ? slotGuid(faceMat[i]) : null, flags: faceFlags[i], ...(sets.length ? { uv } : {}) };
+  });
   const edges = Array.from(edgeFlags, (flags, i) => { const a = edgePairs[2 * i], b = edgePairs[2 * i + 1]; return { a: Math.min(a, b), b: Math.max(a, b), flags }; });
-  return { ...rest, faces: byKey(faces, (f) => f.ring.join(",")), edges: byKey(edges, (e) => `${e.a},${e.b}`) };
+  const meta = byKey(sets.map((u) => ({ guid: u.guid, name: u.name, width: u.width, height: u.height, pxPerM: u.pxPerM })), (u) => u.guid);   // 列表顺序没有语义
+  return { ...rest, ...(sets.length ? { uvSets: meta } : {}), faces: byKey(faces, (f) => f.ring.join(",")), edges: byKey(edges, (e) => `${e.a},${e.b}`) };
 }
 
 export function canonDefinition(d: DefinitionDoc, layerGuid: (code: number) => Guid | undefined): unknown {

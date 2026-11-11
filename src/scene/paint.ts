@@ -2,7 +2,7 @@
 // 哪些面走画（Scene.facePaint 是那一个问法，这里是它的批量用法）、规矩自检、哪些走画的面还没有位置、「带着画的面现在还搬不了」那个唯一的拒绝判断。
 // 不认识编辑器、不改场景：改场景的只有三条指令（editor/paint-ops.ts）。
 import type { DefId, Material, Scene, UvSetRow } from "./scene.ts";
-import { paintIn, type TextureDoc } from "../format/document.ts";
+import { paintIn, UV_CANVAS_EPS, type TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
 
 /** 第六节那几种动作碰到走画的面时的原因（拒绝之后场景一个字节不变）。 */
@@ -42,7 +42,7 @@ export function paintIssues(s: Scene, def: DefId): string[] {
     const ar = cols.get(row.guid);
     if (ar === undefined) { bad.push(`uvSet ${row.guid}: the kernel has no column with this GUID`); continue; }
     if (ar !== 2) { bad.push(`uvSet ${row.guid}: column has ${ar} numbers per corner, not 2`); continue; }
-    const box = k.columnBoxes(row.guid), eps = 1e-6;
+    const box = k.columnBoxes(row.guid), eps = UV_CANVAS_EPS;   // 读文件的收口用同一个数
     for (let i = 0; i < box.length; i += 4) if (box[i] < -eps || box[i + 1] < -eps || box[i + 2] > row.width + eps || box[i + 3] > row.height + eps) { bad.push(`uvSet ${row.guid}: a face has corners outside the ${row.width} × ${row.height} canvas`); break; }
   }
   return bad;

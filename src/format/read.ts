@@ -13,6 +13,7 @@ import { DEFAULT_SETTINGS, DEFAULT_LAYER, defaultDesk, emptyReferences, menuTabs
 import { migrateExtension, emptyReadNotes, readStamp, FormatTooNewError, type FormatReadNotes } from "./migrate/index.ts";
 import { BUILTIN_BACK_GUID, BUILTIN_FRONT_GUID, DEFAULT_LAYER_GUID, isGuid, ownGuid, type Guid } from "./guid.ts";
 import { decodeMeshItem } from "./mesh-payload.ts";
+import { paintReadChecks } from "./paint-read.ts";
 import { assertReadableGltfVersion } from "./migrate/gltf/index.ts";
 import { collectBufferViewRefs } from "./carry.ts";
 import { isFinalRecord } from "./final.ts";
@@ -222,7 +223,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     let payload: Partial<DefinitionDoc> = {};
     if (kind === "mesh") {
       if (!isObj(d.mesh)) fail(`definition ${di} mesh payload missing`);
-      payload = { mesh: decodeMeshItem(d.mesh as Record<string, unknown>, sliceOf, notes, `definition ${di}`, fail) };   // CATSUP_mesh：多边形载荷；没 faceStart = 0.14 三角汤（migrate/mesh.ts）
+      payload = { mesh: decodeMeshItem(d.mesh as Record<string, unknown>, sliceOf, notes, `definition ${di}`, fail, { guid: defGuids[di], name: typeof d.name === "string" ? d.name : `definition ${di}` }) };   // CATSUP_mesh：多边形载荷；没 faceStart = 0.14 三角汤（migrate/mesh.ts）
     }
     return { guid: defGuids[di], name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind, ...payload, brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.drawFrame) ? { drawFrame: frameOf(d.drawFrame, `definition ${di} drawFrame`) } : {}), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
   });
@@ -307,6 +308,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const views = new Map<number, Uint8Array>();
   for (const i of collectBufferViewRefs([topLevel, extensions, documentExtra, definitionsExtra, brepKeep ?? {}, referencesExtraRaw, texturesExtraRaw])) views.set(i, new Uint8Array(view(i)));
   references.extra = referencesExtraRaw;   // 直通的未知键（里面的 bufferView 仍是文件里的旧索引；写入器经 carry.views 重映射）
+  paintReadChecks(definitions, materials, textures, notes);   // 画这一层的收口（1-2½）：别的定义借用单品的画 → 那一格当没有材质；layout 指不到 → 孤儿；走画的面没有位置 → 记一笔
   const settingsIn = isObj(docExt.settings) ? (docExt.settings as Record<string, unknown>) : {};
   const bake = isObj(docExt.bake) ? (docExt.bake as Record<string, unknown>) : {};
   return {
@@ -326,6 +328,6 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     ...(shelf && !shelfIsEmpty(shelf) ? { shelf } : {}),
     ...(thumbnail ? { thumbnail } : {}),
     carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), ...(Object.keys(texturesExtraRaw).length ? { texturesExtra: texturesExtraRaw } : {}), views },
-    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew || notes.referencesTooNew || notes.shelfTooNew || notes.danglingShelfRefs || notes.builtinFrontSlots || notes.remintedGuids || notes.texturesTooNew || notes.danglingTextureRefs || notes.unknownTextureKinds ? { readNotes: notes } : {}),
+    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew || notes.referencesTooNew || notes.shelfTooNew || notes.danglingShelfRefs || notes.builtinFrontSlots || notes.remintedGuids || notes.texturesTooNew || notes.danglingTextureRefs || notes.unknownTextureKinds || notes.uvDropped || notes.paintUnplaced || notes.foreignPaintSlots || notes.orphanPaintTextures ? { readNotes: notes } : {}),
   };
 }

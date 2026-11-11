@@ -217,7 +217,34 @@ export function sceneSharedTextures(): Scene {
   s = applyOp(s, { op: "placeInstance", at: { def: s.root, group: null }, definition: defId, xform: translation({ x: 2, y: 0, z: 0 }) }).scene;
   return s;
 }
-export const SCENE_DOCS: Record<string, () => Scene> = { sharedTextures: sceneSharedTextures, sided: sceneSided, grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
+/** 一张真的两层 ORA（1024 × 256；「底」64 × 32 浅色、「线」32 × 4 半透明深色）：画画内核 encodeDocToOra 编一次、存成常量（冻样本要逐字稳定，现编会带 zip 时间戳）。贴图主线 1-2½。 */
+export const ORA_TWO_LAYERS_1024x256 = Uint8Array.from(atob("UEsDBBQACAgAAAAAIQAAAAAAAAAAAAAAAAAIAC0AbWltZXR5cGVVVAUAAQCmzhIKACAAAAAAAAEAGAAAgNXhn+eoAQCA1eGf56gBAIDV4Z/nqAFpbWFnZS9vcGVucmFzdGVyx5rwjBAAAAAQAAAAUEsDBBQACAgAAAAAIQAAAAAAAAAAAAAAAAAJAC0Ac3RhY2sueG1sVVQFAAEAps4SCgAgAAAAAAABABgAAIDV4Z/nqAEAgNXhn+eoAQCA1eGf56gBPD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPGltYWdlIHZlcnNpb249IjAuMC4zIiB3PSIxMDI0IiBoPSIyNTYiIHhyZXM9IjcyIiB5cmVzPSI3MiIgeG1sbnM6d2VlYnBhaW50PSJodHRwczovL2dpdGh1Yi5jb20vZmFuZ3poYW5nbW5tL3dlZWJwYWludC9ucyIgd2VlYnBhaW50OmZvcm1hdD0iMyIgd2VlYnBhaW50OmZvcm1hdC1taW5vcj0iMCIgd2VlYnBhaW50OmZvcm1hdC1wYXRjaD0iMCIgd2VlYnBhaW50Ondyb3RlLXdpdGg9ImNhdHN1cC1mb3JtYXQtZml4dHVyZSI+CiAgPHN0YWNrIG5hbWU9InJvb3QiPgogICAgPGxheWVyIG5hbWU9Iue6vyIgc3JjPSJkYXRhL2xheWVyMi5wbmciIHg9IjE2IiB5PSI4IiBvcGFjaXR5PSIxLjAwMDAiIHZpc2liaWxpdHk9InZpc2libGUiIGNvbXBvc2l0ZS1vcD0ic3ZnOnNyYy1vdmVyIiB3ZWVicGFpbnQ6aWQ9IjIiIC8+CiAgICA8bGF5ZXIgbmFtZT0i5bqVIiBzcmM9ImRhdGEvbGF5ZXIxLnBuZyIgeD0iMCIgeT0iMCIgb3BhY2l0eT0iMS4wMDAwIiB2aXNpYmlsaXR5PSJ2aXNpYmxlIiBjb21wb3NpdGUtb3A9InN2ZzpzcmMtb3ZlciIgd2VlYnBhaW50OmlkPSIxIiAvPgogIDwvc3RhY2s+CjwvaW1hZ2U+CsW4rMNiAgAAYgIAAFBLAwQUAAgIAAAAACEAAAAAAAAAAAAAAAAADwAtAG1lcmdlZGltYWdlLnBuZ1VUBQABAKbOEgoAIAAAAAAAAQAYAACA1eGf56gBAIDV4Z/nqAEAgNXhn+eoAYlQTkcNChoKAAAADUlIRFIAAAQAAAABAAEDAAAAF+uWZwAAAANQTFRFAAAAp3o92gAAAAF0Uk5TAEDm2GYAAAA1SURBVHic7cABAQAAAIKg/q9uiDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIO+BAAABb6OFEAAAAABJRU5ErkJgggZVLAGKAAAAigAAAFBLAwQUAAgIAAAAACEAAAAAAAAAAAAAAAAADwAtAGRhdGEvbGF5ZXIxLnBuZ1VUBQABAKbOEgoAIAAAAAAAAQAYAACA1eGf56gBAIDV4Z/nqAEAgNXhn+eoAYlQTkcNChoKAAAADUlIRFIAAABAAAAAIAEDAAAAmFPsxwAAAANQTFRF5sig3+BvZgAAAAxJREFUeJxjGAV4AQABIAABPfJ/EgAAAABJRU5ErkJggnsnSJVUAAAAVAAAAFBLAwQUAAgIAAAAACEAAAAAAAAAAAAAAAAADwAtAGRhdGEvbGF5ZXIyLnBuZ1VUBQABAKbOEgoAIAAAAAAAAQAYAACA1eGf56gBAIDV4Z/nqAEAgNXhn+eoAYlQTkcNChoKAAAADUlIRFIAAAAgAAAABAEDAAAA1YmvlwAAAANQTFRFFBQUiCE1XgAAAAF0Uk5ToJYwe44AAAAKSURBVHicY8ACAAAUAAFaZwnWAAAAAElFTkSuQmCCnxD7zF8AAABfAAAAUEsDBBQACAgAAAAAIQAAAAAAAAAAAAAAAAAYAC0AVGh1bWJuYWlscy90aHVtYm5haWwucG5nVVQFAAEAps4SCgAgAAAAAAABABgAAIDV4Z/nqAEAgNXhn+eoAQCA1eGf56gBiVBORw0KGgoAAAANSUhEUgAAAQAAAABAAQMAAADPkzv9AAAAA1BMVEUAAACnej3aAAAAAXRSTlMAQObYZgAAABhJREFUeJxjGAWjYBSMglEwCkbBKCARAAAIQAAB5HfsYQAAAABJRU5ErkJgglMhh3VtAAAAbQAAAFBLAQIUABQACAgAAAAAIQDHmvCMEAAAABAAAAAIAC0AAAAAAAAAAAAAAAAAAABtaW1ldHlwZVVUBQABAKbOEgoAIAAAAAAAAQAYAACA1eGf56gBAIDV4Z/nqAEAgNXhn+eoAVBLAQIUABQACAgAAAAAIQDFuKzDYgIAAGICAAAJAC0AAAAAAAAAAAAAAG8AAABzdGFjay54bWxVVAUAAQCmzhIKACAAAAAAAAEAGAAAgNXhn+eoAQCA1eGf56gBAIDV4Z/nqAFQSwECFAAUAAgIAAAAACEABlUsAYoAAACKAAAADwAtAAAAAAAAAAAAAAAxAwAAbWVyZ2VkaW1hZ2UucG5nVVQFAAEAps4SCgAgAAAAAAABABgAAIDV4Z/nqAEAgNXhn+eoAQCA1eGf56gBUEsBAhQAFAAICAAAAAAhAHsnSJVUAAAAVAAAAA8ALQAAAAAAAAAAAAAAIQQAAGRhdGEvbGF5ZXIxLnBuZ1VUBQABAKbOEgoAIAAAAAAAAQAYAACA1eGf56gBAIDV4Z/nqAEAgNXhn+eoAVBLAQIUABQACAgAAAAAIQCfEPvMXwAAAF8AAAAPAC0AAAAAAAAAAAAAANsEAABkYXRhL2xheWVyMi5wbmdVVAUAAQCmzhIKACAAAAAAAAEAGAAAgNXhn+eoAQCA1eGf56gBAIDV4Z/nqAFQSwECFAAUAAgIAAAAACEAUyGHdW0AAABtAAAAGAAtAAAAAAAAAAAAAACgBQAAVGh1bWJuYWlscy90aHVtYm5haWwucG5nVVQFAAEAps4SCgAgAAAAAAABABgAAIDV4Z/nqAEAgNXhn+eoAQCA1eGf56gBUEsFBgAAAAAGAAYAeAIAAHwGAAAAAA=="), (c) => c.charCodeAt(0));
+/** 盒子转网格体（世界 3..4），对 6 张面开始画；画的字节换成上面那张两层的 ORA（这一版格式层不解释它，画布正好 = 那一套的宽高）。 */
+function paintedMesh(s0: Scene, faces: (all: number[]) => number[]): { s: Scene; def: number; uv: string; tex: string; mat: string } {
+  let s = s0;
+  const d = s.mintDef("画盒", sceneBox(1, 1)); d.body = brepToMesh(s.brep(d.id));
+  s.mintInstance(s.root, null, d.id, translation({ x: 3, y: 0, z: 0 }));
+  const uv = mintGuid(), tex = mintGuid(), mat = mintGuid(), k = s.mesh(d.id).kernel;
+  s = applyOp(s, { op: "startPaint", def: d.id, faces: faces(k.faces()), uvSet: uv, textureGuid: tex, materialGuid: mat, names: { uvSet: "UV", paint: "画", material: "画" }, color: [0.9, 0.85, 0.7], density: 16 }).scene;
+  s.addTexture({ ...s.textures.get(tex)!, content: { kind: "layered", ora: ORA_TWO_LAYERS_1024x256 } });
+  return { s, def: d.id, uv, tex, mat };
+}
+/** 带贴图坐标的网格体（CATSUP_mesh 2.0；贴图主线 1-2½，契约第六节）：一套贴图坐标 + 一张两层的颜色贴图。 */
+export function sceneUvPainted(): Scene { return paintedMesh(new Scene(sceneBox(2, 1.5)), (all) => all).s; }
+/** 两套贴图坐标、其中一套没有贴图引用（契约第六节：孤儿读得进、写得回）：前三张面开始画（A），其余的面再开始画（B）；其余的面换成一个普通材质，B 的材质和贴图清掉
+ *  ——B 那一套留着、面上的数还在（契约「面从画的材质换成别的材质：它在画布上的那一块留着不清」）。 */
+export function sceneUvTwoSets(): Scene {
+  const a = paintedMesh(new Scene(sceneBox(2, 1.5)), (all) => all.slice(0, 3));
+  let s = a.s;
+  const k = s.mesh(a.def).kernel, rest = k.faces().slice(3), uvB = mintGuid(), texB = mintGuid(), matB = mintGuid();
+  s = applyOp(s, { op: "startPaint", def: a.def, faces: rest, uvSet: uvB, textureGuid: texB, materialGuid: matB, names: { uvSet: "UV 2", paint: "画 2", material: "画 2" }, color: [0.5, 0.6, 0.9], density: 16 }).scene;
+  s = applyOp(s, { op: "addMaterial", name: "灰", color: [0.6, 0.6, 0.6] }).scene;
+  s = applyOp(s, { op: "meshPaintFaces", def: a.def, faces: rest, material: s.materials.length - 1 }).scene;
+  s = applyOp(s, { op: "purgeMaterials", materials: [s.materials.findIndex((m) => m.guid === matB)] }).scene;
+  s = applyOp(s, { op: "purgeTextures", textures: [texB] }).scene;
+  return s;
+}
+export const SCENE_DOCS: Record<string, () => Scene> = { uvPainted: sceneUvPainted, uvTwoSets: sceneUvTwoSets, sharedTextures: sceneSharedTextures, sided: sceneSided, grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
 /** 参考窗牌组（CATSUP_references 1.0 + desk 1.1 refPanel；2026-10-25 Opus）：清单字节 = @internal/reference-window 0.5.0 encodeDeck 的真实输出
  *  （一张图、一张文字、一张只放内存的视频——后者只在清单里记大小、没有字节），窗开着。format 层不懂清单：这里只钉「目录原样进出」。 */
 export const REF_MANIFEST = '{"version":1,"minor":1,"patch":0,"index":1,"items":[{"kind":"image","src":".catsup/references/r0.png","vp":null,"name":"格子.png"},{"kind":"text","src":".catsup/references/r1.txt","vp":null,"name":"尺寸"},{"kind":"video","vp":null,"name":"walk.webm","mime":"video/webm","ram":{"bytes":10}}]}';

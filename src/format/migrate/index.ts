@@ -94,6 +94,13 @@ import { definitionsV6toV7, type MigrationCtx } from "./definitions.ts";
 //                      规矩（Fable 11-10 审 1-0½）：**channels 一摞里的每一项永远是一个 GUID 字符串**——这一版的读者会丢掉不是 GUID 的项和不是数组的值。
 //                      以后要给槽加用法参数，用材质扩展里新的键，不许改一摞里项的形状；改了就是大版本。
 //                      从 1.3 的读者起，材质扩展里不认识的键（连同它们引用的字节）原样带回（MaterialDoc.extra）；更老的读者是读时重建扩展，存一次会丢。
+//
+// 贴图坐标进文件（2026-11-11，Claude Opus 5.5；贴图主线 1-2½，契约 ai-docs/20261110-painting-data-contract.md 第五、六节，统筹 11-11 定的几条）：
+//   CATSUP_mesh        2.0（major，user 同意「大版本号可以」）：网格体多一个键 uvSets[]（每套 { guid, name, width, height, pxPerM, loopUv: { bufferView, count } }；
+//                      loopUv = 每个角一对 32 位浮点，单位 = 格，和 loopVert 同序，这一套不管的面的角写 NaN）。旧版本读到 2.0 = FormatTooNewError 拒开、明说要更新（不许悄悄打开：
+//                      它在里面切一刀，角上那一列还是旧的，存回去画和模型就对不上了，而且是悄悄坏的）。
+//                      **「写入器只写当前拍」的例外**：只有带贴图坐标的网格体才盖 2.0；不带的照旧盖 1.2（MESH_STAMP_NO_UV），写出来和以前逐字节一样——
+//                      没画过的文件旧版本照常打开。1.x → 2.0 是一条空迁移（1.2 的形状是 2.0 的子集）。
 
 export interface Stamp { readonly major: number; readonly minor: number; readonly patch: number }
 /** 本版写出的拍子（SSoT）。 */
@@ -106,12 +113,14 @@ export const FORMAT = {
   CATSUP_desk: { major: 1, minor: 4, patch: 0 },   // 1.4（2026-11-04）：可选键 exportModel；1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
   CATSUP_references: { major: 1, minor: 0, patch: 0 },
   /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
-  CATSUP_mesh: { major: 1, minor: 2, patch: 0 },   // 1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）
+  CATSUP_mesh: { major: 2, minor: 0, patch: 0 },   // 2.0（2026-11-11，1-2½）：uvSets 贴图坐标（只有带它的网格体盖 2.0，见 MESH_STAMP_NO_UV）；1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）
   CATSUP_shelf: { major: 1, minor: 0, patch: 0 },   // 1.0（2026-11-04）：素材架（可选扩展）
   CATSUP_textures: { major: 1, minor: 0, patch: 0 },   // 1.0（2026-11-10）：贴图表（可选扩展）
 } as const satisfies Record<string, Stamp>;
 export type CatsupExtension = keyof typeof FORMAT;
 export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references", "CATSUP_mesh", "CATSUP_shelf", "CATSUP_textures"];
+/** 不带贴图坐标的网格体照旧盖的拍子（「只写当前拍」的例外，见头注释 1-2½ 那一节）：和 2.0 之前写出来的逐字节一样。 */
+export const MESH_STAMP_NO_UV: Stamp = { major: 1, minor: 2, patch: 0 };
 /** 各子结构的 major（老名字，读写两端的 too-new 判定与 STEPS 索引都用它）。 */
 export const EXTENSION_VERSIONS: Readonly<Record<CatsupExtension, number>> = Object.fromEntries(CATSUP_EXTENSION_ORDER.map((k) => [k, FORMAT[k].major])) as Record<CatsupExtension, number>;
 /** 写入器盖拍子：`version` 必写；`minor` / `patch` 是可选键（缺 = 0），为 0 时不写——省字节（§3.2「抠」），字节照样确定。 */
@@ -138,7 +147,18 @@ export function compareStamp(file: Stamp, mine: Stamp): StampVerdict {
 }
 /** 读取时攒的判决（不持久化）：newerMinor = 哪些子结构比本版新一个 minor（宿主提示一次）；deskTooNew = 桌面态 major 比本版新（原字节带回、用默认）；
  *  referencesTooNew = 参考窗牌组 major 比本版新（原字节带回、参考窗先不显示）；shelfTooNew 同理；danglingShelfRefs = 架子上有几格指向的东西已经不在文件里（读时丢掉，不猜、不造）。 */
-export interface FormatReadNotes { /** 文件里写了身份、但重复或不合法，这次打开换了新身份（ID-4c；手改过的文件才有）。 */ remintedGuids?: number; newerMinor: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; newerPatch: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; deskTooNew?: Stamp; /** 槽表里写了内置默认正面 GUID 的格数（默认正面的唯一表示是槽缺，读成没有；手改过的文件才有）。 */ builtinFrontSlots?: number; referencesTooNew?: Stamp; shelfTooNew?: Stamp; danglingShelfRefs?: number; /** 贴图表是更新版写的（major 比本版新）：原样带回、材质先按底色显示。 */ texturesTooNew?: Stamp; /** 材质的 channels 指着贴图表里没有的 GUID：那一格当空的（不猜、不造）。 */ danglingTextureRefs?: number; /** 贴图表里有本版不认识的 content 种类（整行原样带回、显示成灰色占位）。 */ unknownTextureKinds?: number }
+export interface FormatReadNotes { /** 文件里写了身份、但重复或不合法，这次打开换了新身份（ID-4c；手改过的文件才有）。 */ remintedGuids?: number; newerMinor: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; newerPatch: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; deskTooNew?: Stamp; /** 槽表里写了内置默认正面 GUID 的格数（默认正面的唯一表示是槽缺，读成没有；手改过的文件才有）。 */ builtinFrontSlots?: number; referencesTooNew?: Stamp; shelfTooNew?: Stamp; danglingShelfRefs?: number; /** 贴图表是更新版写的（major 比本版新）：原样带回、材质先按底色显示。 */ texturesTooNew?: Stamp; /** 材质的 channels 指着贴图表里没有的 GUID：那一格当空的（不猜、不造）。 */ danglingTextureRefs?: number; /** 贴图表里有本版不认识的 content 种类（整行原样带回、显示成灰色占位）。 */ unknownTextureKinds?: number;
+  /** 贴图坐标坏了、这次打开按「没有」处理的地方（1-2½，契约第五节：贴图坐标是模型的附属数据，坏了模型照开）：哪个定义、哪一套（整套不认、连身份号都坏了 = null）、几张面、为什么。再存盘会把它们去掉。 */
+  uvDropped?: UvDropNote[];
+  /** 走画的面在那一套上没有位置（照材质的底色显示）：哪个定义、哪一套、几张面。 */
+  paintUnplaced?: { def: { guid: string; name: string }; uvSet: { guid: string; name: string }; faces: number }[];
+  /** 接了单品的画的材质被别的定义的槽表引用：那一格这次当没有材质（几格）。再存盘会去掉这些引用。 */
+  foreignPaintSlots?: number;
+  /** 贴图的 layout 指向不存在的定义或那一套：这张贴图当孤儿留着（几张）。 */
+  orphanPaintTextures?: number }
+/** 贴图坐标坏了的一处（为什么：整个 uvSets 不是列表 / 这一套的身份号、宽高、密度、角上的数那一段不对 / 几套同一个身份号 / 面的角一半有数一半没有、不是有限数、落在画布外面）。 */
+export type UvDropWhy = "not-a-list" | "not-an-object" | "bad-guid" | "bad-size" | "bad-density" | "no-loopUv" | "bad-length" | "duplicate-guid" | "partial-corners" | "non-finite-corners" | "off-canvas-corners";
+export interface UvDropNote { readonly def: { readonly guid: string; readonly name: string }; readonly uvSet: { readonly guid: string; readonly name: string } | null; readonly faces: number; readonly why: UvDropWhy }
 export const emptyReadNotes = (): FormatReadNotes => ({ newerMinor: [], newerPatch: [] });
 
 export type MigrationStep = (json: Record<string, unknown>, ctx?: MigrationCtx) => Record<string, unknown>;
@@ -184,6 +204,9 @@ const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
       list: Array.isArray(j.list) ? (j.list as Record<string, unknown>[]).map((d) => { if (d.kind !== "card") return d; const { card: _c, kind: _k, ...rest } = d; void _c; void _k; return rest; }) : j.list,   // CardBody sunset：card → 空 brep 定义
     }),
     6: definitionsV6toV7,   // 引用从序号换成 GUID（2026-11-04；先去重再铸，见 definitions.ts）
+  },
+  CATSUP_mesh: {
+    1: (j) => ({ ...j, version: 2 }),   // 1.x 的形状是 2.0 的子集（没有 uvSets = 没有贴图坐标）：空迁移（1-2½）
   },
 };
 const isPlainObject = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);

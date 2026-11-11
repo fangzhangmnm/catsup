@@ -80,7 +80,7 @@ export function materializeDefinitions(scene: Scene, entries: readonly Definitio
     const d = e.def, def = scene.def(idOf.get(d.guid)!);
     // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
     if (d.kind === "mesh" && d.mesh) {
-      def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: slotsOf(d), uvSets: new Map() };   // 文件里还没有贴图坐标（1-2½）
+      def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: slotsOf(d), uvSets: new Map((d.mesh.uvSets ?? []).map((u) => [u.guid, Object.freeze({ guid: u.guid, name: u.name, width: u.width, height: u.height, pxPerM: u.pxPerM })])) };   // 贴图坐标（1-2½）：表的行 + 内核里同 GUID 的列
       if (d.mesh.mirror) scene.meshMirrors.set(def.id, { mode: d.mesh.mirror.mode, axis: d.mesh.mirror.axis });
       placeInstances(def.id, e, () => null);   // 网格体没有组
       continue;
@@ -130,7 +130,7 @@ export function definitionToDoc(scene: Scene, id: DefId, name?: string): Definit
   const slotGuids = (slots: readonly number[]): (Guid | null)[] => slots.map((m) => (m === BUILTIN_BACK_SLOT ? BUILTIN_BACK_GUID : (scene.materials[m]?.guid ?? null)));
   const groupGuid = (g: GroupId | null): Guid | null => (g !== null && d.body.kind === "brep" ? (d.body.groups.get(g)?.guid ?? null) : null);
   const instances = [...d.instances.values()].filter((i) => scene.defs.has(i.def)).map((i) => ({ guid: i.guid, definition: scene.def(i.def).guid, parent: groupGuid(i.parent), xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) }));
-  if (d.body.kind === "mesh") { const mr = scene.meshMirrors.get(d.id); return { guid: d.guid, name: d.name, kind: "mesh", mesh: { ...meshDocFromKernel(d.body.kernel), ...(mr ? { mirror: { mode: mr.mode, axis: mr.axis } } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: slotGuids(d.body.materialSlots), guides: emptyGuidesDoc() }; }
+  if (d.body.kind === "mesh") { const mr = scene.meshMirrors.get(d.id); return { guid: d.guid, name: d.name, kind: "mesh", mesh: { ...meshDocFromKernel(d.body.kernel, [...d.body.uvSets.values()]), ...(mr ? { mirror: { mode: mr.mode, axis: mr.axis } } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: slotGuids(d.body.materialSlots), guides: emptyGuidesDoc() }; }
   const b = d.body;
   return {
     guid: d.guid,
@@ -147,9 +147,9 @@ export function definitionToDoc(scene: Scene, id: DefId, name?: string): Definit
 
 /** 场景 → 文档（base = 打开时的文档，保留未知携带内容 / 设置 / 视图）。 */
 export function documentFromScene(scene: Scene, name: string, base?: CatsupDocument | null): CatsupDocument {
-  // 贴图坐标进文件是 1-2½（贴图主线）：在那之前，带着贴图坐标的网格体写盘 = 抛、写明原因，不许悄悄丢（1-3b；守卫 test/paint-start-guard.test.ts）。
-  //   抛在整份写盘这里、不在 definitionToDoc：后者也是条目仓库的读面（粘贴对账、复制成唯一），那些路上不该炸。
-  for (const d of scene.defs.values()) if (d.body.kind === "mesh" && d.body.uvSets.size) throw new Error(`definition "${d.name}" (${d.guid}): this mesh carries ${d.body.uvSets.size} set(s) of texture coordinates for painting, which cannot be written to a file yet (lands with work order 1-2½); refusing to write a file that would silently drop them`);
+  // 贴图坐标进文件了（1-2½）：definitionToDoc 带着贴图表的每一行和内核里同 GUID 的列。内核里有一列、贴图坐标表里却没有那一行 = 内部出了错，整份写盘抛（统筹 11-11：要响），
+  //   不悄悄丢掉那一列。抛在整份写盘这里、不在 definitionToDoc：后者也是条目仓库的读面（粘贴对账、复制成唯一），那些路上不该炸。
+  for (const d of scene.defs.values()) if (d.body.kind === "mesh") for (const c of d.body.kernel.columnDefs()) if (!d.body.uvSets.has(c.guid)) throw new Error(`definition "${d.name}" (${d.guid}): the mesh kernel has a corner column ${c.guid} that is not in its texture-coordinate table; refusing to write a file that would silently drop it`);
   const ids = [...scene.defs.keys()];
   const rootIndex = ids.indexOf(scene.root);
   const definitions: DefinitionDoc[] = ids.map((id) => definitionToDoc(scene, id, id === scene.root ? name : undefined));
