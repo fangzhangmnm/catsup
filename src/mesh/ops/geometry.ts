@@ -28,5 +28,5 @@ export function setFaceMaterial(k: MeshKernel, fs: readonly number[], slot: numb
 }
 /** 翻面：环倒过来（单面网格：朝向 = 环的绕向）。 */
 export function flipFaces(k: MeshKernel, fs: readonly number[]): void {
-  for (const f of fs) if (k.hasF(f)) k.setFaceRing(f, [...k.faceVerts(f)].reverse());
+  for (const f of fs) if (k.hasF(f)) { const r = k.faceVerts(f), n = r.length; k.setFaceRing(f, [...r].reverse(), { kind: "copy", of: k.shapeOf(f), corners: r.map((_, i) => n - 1 - i) }); }   // 翻面 = 是它的一份（对应表倒过来）
 }

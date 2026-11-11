@@ -1,6 +1,7 @@
 // mesh 内核 M1（提案 ai-docs/20261027-mesh-kernel-proposal.md；2026-10-27 Claude Fable 5.1）：不变量 (M1)–(M6) 逐算子查 + 几个形状上的事实。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { MeshKernel, F_SOFT, F_WIRE } from "../src/mesh/mesh-kernel.ts";
+import { FRESH } from "../src/mesh/corner-columns.ts";
+import { MeshKernel, F_SOFT, F_WIRE, type FaceOrigin } from "../src/mesh/mesh-kernel.ts";
 import { addBox, addPolygon, deleteFaces, dissolveVertex, extrudeFaces, joinFaces, knife, mergeVerts, splitEdge, splitFace, translateVerts, flipFaces, loopCut, limitedDissolve, removeDoubles } from "../src/mesh/ops/index.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
@@ -8,9 +9,29 @@ const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
 const clean = (k: MeshKernel, where: string): void => { const bad = k.check(); eq(bad.length, 0, `${where}：${bad.slice(0, 3).join("；")}`); };
 const sameShape = (a: MeshKernel, b: MeshKernel): boolean => JSON.stringify(a.toSnapshot()) === JSON.stringify(b.toSnapshot());
 
-describe("mesh 内核：不变量与算子", () => {
+/**
+ * 带两列的内核（贴图主线 1-2 测试 E，2026-11-10 Claude Opus 5.5）：一列盖住全部面（"all"，每角 2 个数）、一列只盖住一半（"half"，每角 3 个数，隔一张给一张）。
+ * 只在「凭空来的、没给值」的面上按位置填值（各条测试搭底子用的就是这种）；算子新建的面照它们自己的来历。整套原样再跑一遍：每步之后的自检带上 (M7)。
+ */
+class ColMesh extends MeshKernel {
+  private nFresh = 0;
+  constructor() { super(); this.addColumn({ guid: "all", arity: 2 }); this.addColumn({ guid: "half", arity: 3 }); }
+  override addFace(ring: readonly number[], mat: number, origin: FaceOrigin): number {
+    if (origin.kind === "fresh" && !origin.values) {
+      const all = new Float32Array(ring.length * 2), half = new Float32Array(ring.length * 3);
+      ring.forEach((v, i) => { const p = this.pt(v); all[2 * i] = p.x + 2 * p.y; all[2 * i + 1] = p.z - p.x; half[3 * i] = p.x; half[3 * i + 1] = p.y; half[3 * i + 2] = p.z; });
+      const values = new Map<string, Float32Array>([["all", all]]);
+      if (this.nFresh++ % 2 === 0) values.set("half", half);
+      origin = { kind: "fresh", values };
+    }
+    return super.addFace(ring, mat, origin);
+  }
+}
+
+function kernelSuite(title: string, mk: () => MeshKernel): void {
+describe(title, () => {
   it("盒子：8 点 12 边 6 面、封闭流形 V − E + F = 2、三角化 12 个三角、自检干净、快照往返", () => {
-    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));
+    const k = mk(); addBox(k, P(0, 0, 0), P(1, 1, 1));
     eq(k.vertexCount(), 8); eq(k.edgeCount(), 12); eq(k.faceCount(), 6);
     eq(k.eulerOfClosedManifoldComponents().join(","), "2");
     eq(k.triangles().tris.length / 3, 12);
@@ -20,7 +41,7 @@ describe("mesh 内核：不变量与算子", () => {
     clean(k2, "往返后");
   });
   it("挤出顶面再抬高：仍是封闭流形（χ = 2），面 10、边 20、点 12；侧面朝外（法向 z 分量为零、x/y 朝外）", () => {
-    const k = new MeshKernel(); const { faces } = addBox(k, P(0, 0, 0), P(1, 1, 1));
+    const k = mk(); const { faces } = addBox(k, P(0, 0, 0), P(1, 1, 1));
     const top = faces[1];
     const r = extrudeFaces(k, [top]);
     translateVerts(k, [...r.newVerts.values()], P(0, 0, 0.5));
@@ -30,7 +51,7 @@ describe("mesh 内核：不变量与算子", () => {
     clean(k, "挤出");
   });
   it("劈边 → 劈面 → 并面：回到原来的面数；劈边的新点在中点；标记两半都带；不平的 n 边形照样是一张面", () => {
-    const k = new MeshKernel(); const { face, verts } = addPolygon(k, [P(0, 0), P(2, 0), P(2, 2), P(0, 2)]);
+    const k = mk(); const { face, verts } = addPolygon(k, [P(0, 0), P(2, 0), P(2, 2), P(0, 2)]);
     const e = k.edgeOf(verts[0], verts[1]); k.setFlags(e, F_SOFT, true);
     const m = splitEdge(k, e, 0.5); clean(k, "劈边");
     eq(k.faceVerts(face).length, 5); const pm = k.pt(m); eq(`${pm.x},${pm.y}`, "1,0");
@@ -46,7 +67,7 @@ describe("mesh 内核：不变量与算子", () => {
     eq(k.triangles().tris.length / 3, 3, "五边形三角化 3 个三角");
   });
   it("刀：从一条边切到对面的边 → 两张面；再切一刀经过已有顶点", () => {
-    const k = new MeshKernel(); const { face, verts } = addPolygon(k, [P(0, 0), P(4, 0), P(4, 4), P(0, 4)]);
+    const k = mk(); const { face, verts } = addPolygon(k, [P(0, 0), P(4, 0), P(4, 4), P(0, 4)]);
     const cut = knife(k, face, [{ e: k.edgeOf(verts[0], verts[1]), t: 0.5 }, { e: k.edgeOf(verts[2], verts[3]), t: 0.5 }]);
     clean(k, "刀 1"); eq(k.faceCount(), 2); eq(cut.length, 2);
     const f2 = k.faces().find((f) => k.faceVerts(f).includes(verts[1]))!;
@@ -54,41 +75,41 @@ describe("mesh 内核：不变量与算子", () => {
     clean(k, "刀 2"); eq(k.faceCount(), 3);
   });
   it("溶解二度点：劈出来的中点溶掉 → 边并回一条（标记保留）；三角形上溶解会少于 3 点 → 抛", () => {
-    const k = new MeshKernel(); const { face, verts } = addPolygon(k, [P(0, 0), P(2, 0), P(2, 2), P(0, 2)]);
+    const k = mk(); const { face, verts } = addPolygon(k, [P(0, 0), P(2, 0), P(2, 2), P(0, 2)]);
     const e = k.edgeOf(verts[0], verts[1]); k.setFlags(e, F_SOFT, true);
     const m = splitEdge(k, e); const ne = dissolveVertex(k, m); clean(k, "溶解");
     eq(k.faceVerts(face).length, 4); assert(k.hasFlag(ne, F_SOFT), "标记保留"); assert(!k.hasV(m));
-    const t = new MeshKernel(); const tri = addPolygon(t, [P(0, 0), P(1, 0), P(0, 1)]);
+    const t = mk(); const tri = addPolygon(t, [P(0, 0), P(1, 0), P(0, 1)]);
     let threw = false; try { dissolveVertex(t, tri.verts[0]); } catch { threw = true; } assert(threw, "三角形上拒绝");
     clean(t, "拒绝后不变");
   });
   it("合：四边形两个相邻点并成一个 → 三角形；盒子一条棱的两端并掉 → 退化的面清掉、仍自检干净", () => {
-    const k = new MeshKernel(); const { face, verts } = addPolygon(k, [P(0, 0), P(2, 0), P(2, 2), P(0, 2)]);
+    const k = mk(); const { face, verts } = addPolygon(k, [P(0, 0), P(2, 0), P(2, 2), P(0, 2)]);
     const s = mergeVerts(k, [verts[0], verts[1]], "center"); clean(k, "合");
     eq(k.faceVerts(face).length, 3); eq(k.pt(s).x, 1);
-    const b = new MeshKernel(); const box = addBox(b, P(0, 0, 0), P(1, 1, 1));
+    const b = mk(); const box = addBox(b, P(0, 0, 0), P(1, 1, 1));
     mergeVerts(b, [box.verts[0], box.verts[1]], "first"); clean(b, "盒子合棱");
     eq(b.vertexCount(), 7); assert(b.faceCount() === 6 || b.faceCount() === 5, `面 ${b.faceCount()}（两张四边形变三角，可能一张退化）`);
     for (const f of b.faces()) assert(new Set(b.faceVerts(f)).size >= 3);
   });
   it("删面：只删面 → 边变裸线留着；连边带点删 → 孤立的点消失；盒子删一面 → 开口体（不是封闭流形，欧拉表里没它）", () => {
-    const k = new MeshKernel(); const { faces } = addBox(k, P(0, 0, 0), P(1, 1, 1));
+    const k = mk(); const { faces } = addBox(k, P(0, 0, 0), P(1, 1, 1));
     deleteFaces(k, [faces[0]], true); clean(k, "只删面");
     eq(k.faceCount(), 5); eq(k.edgeCount(), 12, "边都还在"); assert(k.edges().every((e) => k.eFaces(e).length > 0 || k.hasFlag(e, F_WIRE)));
     eq(k.eulerOfClosedManifoldComponents().length, 0, "开口了");
-    const k2 = new MeshKernel(); const b2 = addBox(k2, P(0, 0, 0), P(1, 1, 1));
+    const k2 = mk(); const b2 = addBox(k2, P(0, 0, 0), P(1, 1, 1));
     deleteFaces(k2, b2.faces, false); clean(k2, "全删");
     eq(k2.vertexCount(), 0); eq(k2.edgeCount(), 0);
   });
   it("翻面：环倒过来、法向反向；id 复用确定性：删了再建拿最小空位", () => {
-    const k = new MeshKernel(); const { face } = addPolygon(k, [P(0, 0), P(1, 0), P(0, 1)]);
+    const k = mk(); const { face } = addPolygon(k, [P(0, 0), P(1, 0), P(0, 1)]);
     const n0 = k.faceNormal(face); flipFaces(k, [face]); const n1 = k.faceNormal(face);
     assert(n0.z * n1.z < 0, "法向反了"); clean(k, "翻面");
-    const a = new MeshKernel(); addBox(a, P(0, 0, 0), P(1, 1, 1)); deleteFaces(a, [1, 3], true); const nf = addPolygon(a, [P(5, 5), P(6, 5), P(5, 6)]).face;
+    const a = mk(); addBox(a, P(0, 0, 0), P(1, 1, 1)); deleteFaces(a, [1, 3], true); const nf = addPolygon(a, [P(5, 5), P(6, 5), P(5, 6)]).face;
     eq(nf, 1, "最小空位");
   });
   it("(M6) 确定性：同算子在克隆上跑 = 同结果；clone 之后原件不受影响", () => {
-    const k = new MeshKernel(); const { faces } = addBox(k, P(0, 0, 0), P(1, 1, 1));
+    const k = mk(); const { faces } = addBox(k, P(0, 0, 0), P(1, 1, 1));
     const c = k.clone();
     const ra = extrudeFaces(k, [faces[1]]), rb = extrudeFaces(c, [faces[1]]);
     eq([...ra.newVerts].join(), [...rb.newVerts].join()); eq(ra.sides.join(), rb.sides.join());
@@ -98,7 +119,7 @@ describe("mesh 内核：不变量与算子", () => {
   it("随机算子串（8 种子 × 40 步：劈边 / 劈面 / 并面 / 溶解 / 合 / 挤出 / 删面 / 挪点）：每步自检干净、拒绝的只许是人话 Error、克隆对拍同形", () => {
     for (let seed = 1; seed <= 8; seed++) {
       let s = seed * 7919; const rnd = (): number => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
-      const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(2, 2, 2));
+      const k = mk(); addBox(k, P(0, 0, 0), P(2, 2, 2));
       let done = 0;
       for (let step = 0; step < 40; step++) {
         const c = k.clone();
@@ -128,7 +149,7 @@ describe("mesh 内核：不变量与算子", () => {
     }
   });
   it("环切：盒子竖棱出发 → 绕一圈四条竖棱劈开、四张侧面各切一刀（闭环）；仍封闭流形 χ = 2；再在一条横棱上切 → 顶面 / 底面也被切", () => {
-    const k = new MeshKernel(); const { verts } = addBox(k, P(0, 0, 0), P(1, 1, 1));
+    const k = mk(); const { verts } = addBox(k, P(0, 0, 0), P(1, 1, 1));
     const e = k.edgeOf(verts[0], verts[4]);   // 竖棱
     const r = loopCut(k, e, 0.5);
     assert(r.closed, "闭环"); eq(r.newVerts.length, 4); eq(r.edges.length, 4);
@@ -138,15 +159,15 @@ describe("mesh 内核：不变量与算子", () => {
     assert(r2.closed); clean(k, "环切 2"); eq(k.eulerOfClosedManifoldComponents().join(","), "2");
   });
   it("环切开口带：两张四边形排成一条、从中间的边出发 → 两头停在边界", () => {
-    const k = new MeshKernel();
+    const k = mk();
     const a = addPolygon(k, [P(0, 0), P(1, 0), P(1, 1), P(0, 1)]).verts;
-    const f2 = k.addFace([a[1], k.addVertex(P(2, 0)), k.addVertex(P(2, 1)), a[2]]);
+    const f2 = k.addFace([a[1], k.addVertex(P(2, 0)), k.addVertex(P(2, 1)), a[2]], -1, FRESH);
     const r = loopCut(k, k.edgeOf(a[1], a[2]));
     assert(!r.closed); eq(r.newVerts.length, 3); eq(r.edges.length, 2); eq(k.faceCount(), 4); clean(k, "开口环切");
     assert(k.hasF(f2));
   });
   it("有限溶解：盒子顶面环切后（共面的两半）→ 并回一张、二度点溶掉；三角网的平面 → 一张 n 边形", () => {
-    const k = new MeshKernel(); const { verts } = addBox(k, P(0, 0, 0), P(1, 1, 1));
+    const k = mk(); const { verts } = addBox(k, P(0, 0, 0), P(1, 1, 1));
     loopCut(k, k.edgeOf(verts[0], verts[1]));
     eq(k.faceCount(), 10);
     const r = limitedDissolve(k, 1);
@@ -154,7 +175,7 @@ describe("mesh 内核：不变量与算子", () => {
     eq(k.eulerOfClosedManifoldComponents().join(","), "2"); clean(k, "有限溶解");
   });
   it("去重点：两张共面四边形各自带顶点、边上重合 → 合并成共享边的两张面", () => {
-    const k = new MeshKernel();
+    const k = mk();
     addPolygon(k, [P(0, 0), P(1, 0), P(1, 1), P(0, 1)]); addPolygon(k, [P(1, 0), P(2, 0), P(2, 1), P(1, 1)]);
     eq(k.vertexCount(), 8);
     eq(removeDoubles(k, 1e-6), 2); clean(k, "去重点");
@@ -162,3 +183,6 @@ describe("mesh 内核：不变量与算子", () => {
     const shared = k.edges().filter((e) => k.eFaces(e).length === 2); eq(shared.length, 1, "一条共享边");
   });
 });
+}
+kernelSuite("mesh 内核：不变量与算子", () => new MeshKernel());
+kernelSuite("mesh 内核：带两列再跑一遍（一列盖全部、一列盖一半；贴图主线 1-2 测试 E）", () => new ColMesh());

@@ -333,7 +333,7 @@ export function symmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol = 
   const flagCopies: [number, number, number][] = [];
   for (const f of src) {
     const r = m.faceVerts(f), mr = r.map(tw).reverse();
-    const nf = m.addFace(mr, m.faceMat[f]); added++;
+    const nf = m.addFace(mr, m.faceMat[f], { kind: "copy", of: m.shapeOf(f), corners: r.map((_, i) => r.length - 1 - i) }); added++;   // 镜过去的面 = 照抄（对应表倒过来）：两半在画布上是同一块
     if (m.faceFlags[f] & FF_HIDDEN) m.setFaceFlags(nf, FF_HIDDEN, true);
     for (let i = 0; i < r.length; i++) { const e = m.edgeOf(r[i], r[(i + 1) % r.length]); if (e >= 0 && m.edgeFlags[e]) flagCopies.push([tw(r[i]), tw(r[(i + 1) % r.length]), m.edgeFlags[e]]); }
   }

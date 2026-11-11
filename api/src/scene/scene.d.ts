@@ -5,7 +5,7 @@ import type { BodyKind } from "./body-kind.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { MirrorSetting } from "../mesh/mirror.ts";
 import type { KernelView } from "./kernel-view.ts";
-import { type Channels, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc } from "../format/document.ts";
+import { type CarriedJson, type Channels, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc } from "../format/document.ts";
 import { type Guid } from "../format/guid.ts";
 import type { Stamp } from "../format/migrate/index.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
@@ -20,6 +20,8 @@ export interface Material {
     readonly color: readonly [number, number, number];
     /** 通道名 → 一摞贴图 GUID（这一版只用 color、一摞一张）。问「用哪张图」只经 Scene.colorMapOf。 */
     readonly channels?: Channels;
+    /** 文件里材质扩展本版不认识的键（原样带回；format/document.ts MaterialDoc.extra）。 */
+    readonly extra?: CarriedJson;
 }
 export interface Group {
     readonly id: GroupId;

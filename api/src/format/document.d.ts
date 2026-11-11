@@ -87,7 +87,8 @@ export interface MaterialDoc {
     guid: Guid;
     name: string;
     color: [number, number, number];
-    channels?: Channels;
+    channels?: Channels; /** CATSUP_material 里本版不认识的键（更新版写的），连同它们引用的字节原样带回（2026-11-10 起，Fable 审 1-0½）。 */
+    extra?: CarriedJson;
 }
 /** 层（Unity render layer 的管理用法；契约 §4）：文档级表，id 0 = 默认层永远存在；只管可见性，纯管理。 */
 export interface LayerDoc {

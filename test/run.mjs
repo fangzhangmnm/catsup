@@ -49,6 +49,7 @@ import "./loaded-differential.test.ts";   // 从装载态起步的差分（K4，
 import "./soft-flat-merge.test.ts";   // 软边两侧变 180° 自动并（FM80，2026-10-27 Fable）
 import "./no-self-snap.test.ts";   // 拖着的东西不吸自己：对齐引擎层性质（A5 / F-89，2026-10-27 Fable）
 import "./mesh-kernel.test.ts";
+import "./corner-columns.test.ts";
 import "./mesh-view.test.ts";
 import "./mesh-format.test.ts";   // CATSUP_mesh 1.0.0 多边形载荷（2026-10-27 Fable M3）
 import "./object-commands.test.ts";

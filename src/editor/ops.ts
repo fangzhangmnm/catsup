@@ -22,6 +22,7 @@ import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, delet
 import { Kernel } from "../kernel/kernel.ts";
 import { bornFaces, settleNewFaceSides } from "../kernel/face-sides.ts";
 import { MeshKernel } from "../mesh/mesh-kernel.ts";
+import { FRESH } from "../mesh/corner-columns.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
 import { edgesAlongSegs } from "../kernel/curves.ts";
@@ -824,7 +825,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
         if (op.mesh) {
           const tb = s.mesh(ref.def), tk = tb.kernel, slot = (code: number): number => { const id = docMat(code); if (id < 0) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
           const vs = op.mesh.verts.map((q) => tk.addVertex(q));
-          for (const f of op.mesh.faces) tk.addFace(f.ring.map((i) => vs[i]), slot(f.mat));
+          for (const f of op.mesh.faces) tk.addFace(f.ring.map((i) => vs[i]), slot(f.mat), FRESH);   // 经过剪贴板：这一张先当凭空来的（贴图坐标进文件那一张一起做）
           for (const e of op.mesh.edges) { const id = tk.ensureEdge(vs[e.a], vs[e.b]); tk.setEdgeFlags(id, e.flags); }
         }
         for (const i of op.instances ?? []) mintPasted(s, ref.def, null, i, merged);
@@ -847,7 +848,8 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       const src = meshOf(s, op.def), k = src.kernel, xf = op.instance !== undefined ? s.instance(op.at.def, op.instance).xform : ([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0] as Xform), faces = op.faces.filter((f) => k.hasF(f));
       if (!faces.length) throw new OpTargetError("separate: no faces");
       const nk = new MeshKernel(), map = new Map<number, number>(), nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = nk.addVertex(k.pt(v)); map.set(v, x); } return x; };
-      for (const f of faces) nk.addFace(k.faceVerts(f).map(nv), k.faceMat[f]);
+      nk.ensureColumns(k.columnDefs());   // 整张面原样搬到新内核：列按 GUID 对上、角上的数跟着搬
+      for (const f of faces) nk.addFace(k.faceVerts(f).map(nv), k.faceMat[f], { kind: "fresh", values: k.faceValues(f) });
       for (const f of faces) for (const e of k.fEdges(f)) { const e2 = nk.edgeOf(map.get(k.edgeA[e])!, map.get(k.edgeB[e])!); if (e2 >= 0) nk.edgeFlags[e2] = k.edgeFlags[e]; }   // 手标（棱 / 平滑）跟着走
       nk.setSmoothDefault(k.smoothDefault);
       deleteSelection(k, { faces }, false);
@@ -1004,7 +1006,8 @@ function appendMesh(tb: MeshBody, sb: MeshBody, X: Xform): void {
   const sk = sb.kernel, tk = tb.kernel, map = new Map<number, number>();
   const nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = tk.addVertex(applyPt(X, sk.pt(v))); map.set(v, x); } return x; };
   const slot = (m: number): number => { if (m < 0) return -1; const id = sb.materialSlots[m]; if (id === undefined) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
-  for (const f of sk.faces()) tk.addFace(sk.faceVerts(f).map(nv), slot(sk.faceMat[f]));
+  tk.ensureColumns(sk.columnDefs());   // 整张面原样搬到另一个内核：对方有、这边没有的列补上（原有的面全没值），角上的数跟着搬
+  for (const f of sk.faces()) tk.addFace(sk.faceVerts(f).map(nv), slot(sk.faceMat[f]), { kind: "fresh", values: sk.faceValues(f) });
   for (const e of sk.edges()) {
     if (sk.eFaces(e).length === 0) { tk.ensureEdge(nv(sk.edgeA[e]), nv(sk.edgeB[e])); continue; }
     const e2 = tk.edgeOf(map.get(sk.edgeA[e])!, map.get(sk.edgeB[e])!); if (e2 >= 0) tk.edgeFlags[e2] = sk.edgeFlags[e];

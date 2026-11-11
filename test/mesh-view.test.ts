@@ -2,6 +2,7 @@
 // 契约 scene/kernel-view.ts 由 mesh/mesh-view.ts 真做（记录 = 内核事实、平面 = 环的绕向、自己的改动日志）；WorldView 给 mesh 池开槽；渲染缓存 pool-mesh 对它全量 + 增量；
 // brep → mesh 出多边形面（封闭壳朝外、带洞的面三角化且内部边软 + 平滑）；三角汤往返；clone / castDefinition op。
 import { describe, it, eq, assert } from "./runner.mjs";
+import { FRESH } from "../src/mesh/corner-columns.ts";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 import { MeshKernel, F_SOFT, F_SMOOTH, FF_HIDDEN } from "../src/mesh/mesh-kernel.ts";
@@ -117,7 +118,7 @@ describe("brep → mesh", () => {
     eq(recalcNormals(m).flipped, 0);
     // 开口片：种子面的朝向不动，邻面跟它一致
     const open = new MeshKernel(); const a = open.addVertex({ x: 0, y: 0, z: 0 }), b = open.addVertex({ x: 1, y: 0, z: 0 }), c = open.addVertex({ x: 1, y: 1, z: 0 }), d2 = open.addVertex({ x: 0, y: 1, z: 0 }), e2 = open.addVertex({ x: 2, y: 0, z: 0 }), f2 = open.addVertex({ x: 2, y: 1, z: 0 });
-    open.addFace([a, b, c, d2]); open.addFace([c, f2, e2, b]);   // 第二张顺时针：和第一张同向走 b→c = 不一致
+    open.addFace([a, b, c, d2], -1, FRESH); open.addFace([c, f2, e2, b], -1, FRESH);   // 第二张顺时针：和第一张同向走 b→c = 不一致
     eq(recalcNormals(open).flipped, 1);
     assert(open.faceNormal(open.faces()[0]).z > 0 && open.faceNormal(open.faces()[1]).z > 0);
   });

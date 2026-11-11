@@ -10,6 +10,7 @@
 //   · 宽度太宽会穿过别的边：按每个滑点 / 交点最多走到所在边的 49% 夹住，夹了就报（clamped）。
 // 手标：不倒的边被换成新边时带上原来的标记；段数 > 1 时倒角带中间那几条纵向边标平滑（圆角看起来是圆的）。
 import { MeshKernel, F_SHARP, F_SMOOTH, F_SOFT, F_WIRE } from "../mesh-kernel.ts";
+import { GROWN } from "../corner-columns.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 
@@ -221,7 +222,8 @@ export function bevelEdges(k: MeshKernel, edges: readonly number[], width: numbe
     const f1 = r[(i + 1) % r.length] === b ? fa : fb;
     strips.push({ e, a, b, f1, f2: f1 === fa ? fb : fa });
   }
-  for (const [f, ring] of newRings) k.setFaceRing(f, ring);
+  const shapes = new Map([...newRings.keys()].map((f) => [f, k.shapeOf(f)] as const));   // 旧样子：改环之前记
+  for (const [f, ring] of newRings) k.setFaceRing(f, ring, { kind: "piece", of: shapes.get(f)! });   // 倒角缩小的原面 = 原来那张的一块（新点在面里 / 沿原来的边滑过去）
 
   // ---- 倒角带 ----
   const out: number[] = [], stripOf = new Map<number, number[]>();
@@ -232,7 +234,7 @@ export function bevelEdges(k: MeshKernel, edges: readonly number[], width: numbe
     for (let j = 0; j < n; j++) {
       const A0 = pa[Math.min(j, pa.length - 1)], A1 = pa[Math.min(j + 1, pa.length - 1)], B0 = pb[Math.min(j, pb.length - 1)], B1 = pb[Math.min(j + 1, pb.length - 1)];
       const ring = dedupeRing([B0, A0, A1, B1]);
-      if (ring.length >= 3 && new Set(ring).size === ring.length) { const f = k.addFace(ring, k.faceMat[f1]); ids.push(f); out.push(f); }
+      if (ring.length >= 3 && new Set(ring).size === ring.length) { const f = k.addFace(ring, k.faceMat[f1], GROWN); ids.push(f); out.push(f); }   // 倒角带 = 新长出来的
     }
     stripOf.set(e, ids);
     if (s > 1) for (let j = 1; j < s && j < pa.length - 1 && j < pb.length - 1; j++) { const le = k.edgeOf(pa[j], pb[j]); if (le >= 0) k.setEdgeFlags(le, (k.edgeFlags[le] & ~MARKS) | F_SOFT | F_SMOOTH); }
@@ -255,7 +257,7 @@ export function bevelEdges(k: MeshKernel, edges: readonly number[], width: numbe
       const strip = stripOf.get(bEdges[0])?.[0];
       if (strip !== undefined && k.hasF(strip) && mergeInto(k, strip, ring)) continue;
     }
-    const f = k.addFace(ring, k.faceMat[fan[0].f]); out.push(f);
+    const f = k.addFace(ring, k.faceMat[fan[0].f], GROWN); out.push(f);   // 角上的补片 = 新长出来的
   }
 
   // ---- 不倒的边的标记搬到换出来的新边；没边的老点删掉 ----
@@ -292,11 +294,12 @@ export function bevelVerts(k: MeshKernel, verts: readonly number[], width: numbe
   const corner = (v: number, f: number): number[] => { const c = fans.get(v)!.find((x) => x.f === f)!; return [cut.get(`${v}|${c.ea}`)!, cut.get(`${v}|${c.eb}`)!]; };
   const rings = new Map<number, number[]>();
   for (const f of [...touched].sort((a, b) => a - b)) rings.set(f, dedupeRing(k.faceVerts(f).flatMap((u) => (fans.has(u) ? corner(u, f) : [u]))));
-  for (const [f, r] of rings) k.setFaceRing(f, r);
+  const shapes = new Map([...rings.keys()].map((f) => [f, k.shapeOf(f)] as const));
+  for (const [f, r] of rings) k.setFaceRing(f, r, { kind: "piece", of: shapes.get(f)! });   // 倒点缩小的原面 = 原来那张的一块
   const out: number[] = [];
   for (const v of vs) {
     const fan = fans.get(v)!, cyc = dedupeRing(fan.flatMap((c) => corner(v, c.f)));
-    if (cyc.length >= 3) out.push(k.addFace(orientPatch(k, cyc), k.faceMat[fan[0].f]));
+    if (cyc.length >= 3) out.push(k.addFace(orientPatch(k, cyc), k.faceMat[fan[0].f], GROWN));   // 倒点的补片 = 新长出来的
   }
   // 标记：原来那条边 (a, b) 现在是 (a 那头的切点或 a, b 那头的切点或 b)
   for (const [e, { a, b, fl }] of carry) {
@@ -317,7 +320,7 @@ function mergeInto(k: MeshKernel, strip: number, ring: readonly number[]): boole
     const fromP = [...cr.slice((j + 1) % n), ...cr.slice(0, (j + 1) % n)];   // p … q（倒角带）
     const merged = [...fromP, ...rot.slice(2)];
     if (new Set(merged).size !== merged.length) return false;
-    k.setFaceRing(strip, merged);
+    k.setFaceRing(strip, merged, GROWN);   // 补片并进倒角带：两样都是新长出来的
     return true;
   }
   return false;

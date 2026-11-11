@@ -7,7 +7,7 @@
 //   折痕 = 手标的棱（F_SHARP）+ 网格边缘（只挨一张面）+ 非流形（三张以上）。「默认平滑」不算折痕（它管的是明暗，硬边多的网格照样细分得圆）。
 //   每张 n 边形 → n 个四边形（绕向不变）；原来一条边对半分开的两段带原来的标记，新长出来的边不带。
 // 裸线 / 孤立的点：不做（细分只认面），调用方说出来。
-import { MeshKernel, F_SHARP, F_WIRE } from "../mesh-kernel.ts";
+import { MeshKernel, F_SHARP, F_WIRE, type FaceOrigin, type FaceShape } from "../mesh-kernel.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 
 const add = (a: Pt3, b: Pt3): Pt3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
@@ -47,14 +47,26 @@ export function catmullClark(m: MeshKernel): number {
     vp.set(v, mul(add(add(Q, mul(R, 2)), mul(P, n - 3)), 1 / n));
   }
   // ---- 读：新的面（老 id 记着，写的时候换成新 id）和要搬的边标记 ----
-  const quads: { ring: ["v" | "e" | "f", number][]; mat: number }[] = [];
+  const quads: { ring: ["v" | "e" | "f", number][]; mat: number; f: number; i: number }[] = [];
   for (const f of faces) {
     const r = m.faceVerts(f), n = r.length;
     for (let i = 0; i < n; i++) {
       const prev = r[(i - 1 + n) % n], cur = r[i], next = r[(i + 1) % n];
-      quads.push({ ring: [["v", cur], ["e", m.edgeOf(cur, next)], ["f", f], ["e", m.edgeOf(prev, cur)]], mat: m.faceMat[f] });
+      quads.push({ ring: [["v", cur], ["e", m.edgeOf(cur, next)], ["f", f], ["e", m.edgeOf(prev, cur)]], mat: m.faceMat[f], f, i });
     }
   }
+  // 角上的数（贴图主线 1-2，Fable 裁定 ①）：每个四边形 = 原面 f 的一块；取样处 = [原来第 i 个角照抄, 这条边两端**原位置**的中点, 原面各角原位置的平均, 另一条边的中点]
+  // ——画跟着拓扑走，不跟着平滑挪（平滑后的点可能离原面很远）。旧样子在 removeFace 之前记；没有列 = 只记材质、不造取样处表。
+  const shapes = new Map<number, FaceShape>(), hasCols = m.columns.length > 0;
+  for (const f of faces) shapes.set(f, m.shapeOf(f));
+  const plain = new Map<number, FaceOrigin>([...shapes].map(([f, of]) => [f, { kind: "piece", of }]));
+  const originOf = (q: { f: number; i: number }): FaceOrigin => {
+    if (!hasCols) return plain.get(q.f)!;
+    const of = shapes.get(q.f)!, P = of.pts!, n = P.length / 3, at = (j: number): Pt3 => ({ x: P[3 * j], y: P[3 * j + 1], z: P[3 * j + 2] });
+    const mid = (a: number, b: number): Pt3 => mul(add(at(a), at(b)), 0.5);
+    const centroid = avg(Array.from({ length: n }, (_, j) => at(j)));
+    return { kind: "piece", of, from: [q.i, mid(q.i, (q.i + 1) % n), centroid, mid((q.i - 1 + n) % n, q.i)] };
+  };
   const halves: { a: number; b: number; e: number; fl: number }[] = [];
   for (const e of edges) if (m.edgeFlags[e]) halves.push({ a: m.edgeA[e], b: m.edgeB[e], e, fl: m.edgeFlags[e] });
   // ---- 写：清空、按 点 → 边点 → 面点 的顺序加回来（确定性）----
@@ -65,7 +77,7 @@ export function catmullClark(m: MeshKernel): number {
   for (const e of edges) ne.set(e, m.addVertex(ep.get(e)!));
   for (const f of faces) nf.set(f, m.addVertex(fp.get(f)!));
   const id = ([k, x]: ["v" | "e" | "f", number]): number => (k === "v" ? nv : k === "e" ? ne : nf).get(x)!;
-  for (const q of quads) m.addFace(q.ring.map(id), q.mat);
+  for (const q of quads) m.addFace(q.ring.map(id), q.mat, originOf(q));
   for (const h of halves) for (const [x, y] of [[nv.get(h.a)!, ne.get(h.e)!], [ne.get(h.e)!, nv.get(h.b)!]]) { const k = m.edgeOf(x, y); if (k >= 0) m.setEdgeFlags(k, h.fl & ~F_WIRE); }
   return quads.length;
 }
