@@ -10,6 +10,7 @@
   "probe-autosave-clock.mjs": {"state":"green","role":"guard","redline":true},
   "probe-settings-dirty.mjs": {"state":"green","role":"guard"},
   "probe-doc-revision.mjs": {"state":"green","role":"guard"},
+  "probe-mirror-ask.mjs": {"state":"green","role":"guard"},
   "probe-axes-point.mjs": {"state":"green"},
   "probe-axes-to-sel.mjs": {"state":"green"},
   "probe-axis-cross.mjs": {"state":"green"},

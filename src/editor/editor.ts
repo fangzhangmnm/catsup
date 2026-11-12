@@ -570,7 +570,7 @@ export class Editor {
   get renderer3(): RenderProvider { return this.r3; }
   get revision(): number { return this._revision; }
   /** 文档的改动号（「有没有改动」/ 自动保存只看它，session）：跟 revision 一起加，但一步之内的先记着、成功收尾才算一次，失败的步不算（失败的一步什么都没改）。 */ get docRevision(): number { return this._docRevision + this._settingsRev; }   // + 住在文件设置里、不进撤销的那几样（网格 / 单位制 / 尺度参考）改了几次：失败的步退不回它们，也不该退（统筹 11-12，存盘忠实度清点第五节）
-  /** 两个明着的入口（统筹 11-12，rev() 拆开）：文档变了 = 场景改动号 + 文档改动号（一步之内的先记着）；只是换看法（进出组件、撤销 / 重做纯选区）= 只让画面缓存作废。规矩：文档改动号变 ⟺ 写出去的文件会变（不算桌面态、缩略图、版本串）。拿不准用 docChanged（多算安全、少算丢东西）。 */ private docChanged(): void { this._revision++; if (this.stepDepth > 0) this.stepBumped = true; else this._docRevision++; } private viewChanged(): void { this._revision++; }
+  /** 两个明着的入口（统筹 11-12，rev() 拆开）：文档变了 = 场景改动号 + 文档改动号（一步之内的先记着）；只是换看法（进出组件、撤销 / 重做纯选区）= 只让画面缓存作废。规矩（不算桌面态、缩略图、版本串）：「写出去的文件会变 ⟹ 文档改动号一定变」是硬的（少算 = 改动不存 = 丢东西）；反过来只是尽量（多算只是多存一次），已知多算的名单在 ai-docs/20261112-save-faithfulness-audit.md 第九节。拿不准用 docChanged。 */ private docChanged(): void { this._revision++; if (this.stepDepth > 0) this.stepBumped = true; else this._docRevision++; } private viewChanged(): void { this._revision++; }
   canUndo(): boolean { return this.history.canUndo(); }
   canRedo(): boolean { return this.history.canRedo(); }
   /** 有任何选中（含参考几何）= 删除 / 取消选择 / 反选 / Esc 问这个；有工具能动的选中（点 / 边 / 面 / 组 / 组件）= 移动 / 旋转 / 缩放 / 建组 / 拷贝 / 镜像问这个。 */
@@ -1754,7 +1754,7 @@ export class Editor {
    * 之后右下角马后炮可换原点（user 2026-10-25「建立组件的时候能不能马后炮选择一下轴的居中模式」）：包围盒角 / 包围盒中心 / 底面中心 / 顶点平均——
    * = 撤销建组件、重做建组件 + 给新组件换轴（v0.14.5 组件换轴：世界不动）。
    */
-  makeComponent(name: string): boolean { return this.step((pass) => this.makeComponentStep(pass, name)); }
+  makeComponent(name: string): boolean { if (this.activeKind() === "mesh" && this.hasActableSelection() && this.mirrorGateEntry("建组件", () => this.makeComponent(name))) return false; return this.step((pass) => this.makeComponentStep(pass, name)); }   // 选面建组件 = 分出去 = 改拓扑：镜像编辑开着先问，和删除 / 粘贴同一道门（统筹 11-12）
   // ---------- 物件层动词（设计稿 ai-docs/20261028-object-layer-and-clipboard-design.md §4；user 10-28 夜）----------
   // 分开 = 原地建组件（「分开」撤了：user「分开的大部分场景就是你想单独修改某个东西，所以逻辑上还是属于这个物体」「先这么试着」）；
   // 合并 = 宏：剪切其余 → 进目标 → 原位粘贴 → 炸开，一步撤销，目标 = 右键点的那个 / 光标下那个（user「你右键点在谁身上，谁留下 可以」）；
