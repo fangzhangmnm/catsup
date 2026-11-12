@@ -206,7 +206,7 @@ export function sceneSharedTextures(): Scene {
   const shared = mintGuid(), orphan = mintGuid();
   s = applyOp(s, { op: "addTexture", guid: shared, name: "共用", mimeType: "image/png", bytes: TINY_PNG, sizeM: [0.5, 0.25] }).scene;
   s = applyOp(s, { op: "addTexture", guid: orphan, name: "孤儿", mimeType: "image/png", bytes: TINY_PNG.slice(), sizeM: [2, 2] }).scene;
-  s.addTexture({ guid: mintGuid(), name: "分层", value: { kind: "color" }, content: { kind: "layered", ora: new Uint8Array([80, 75, 3, 4, 20, 0]) }, sizeM: [1, 1] });
+  s.addTexture({ guid: mintGuid(), name: "分层", value: { kind: "color" }, content: { kind: "layered", ora: new Uint8Array([80, 75, 3, 4, 20, 0]) }, sizeM: [1, 1] });   // 当时手造的孤儿行（字节是截断的假 ora、没有材质指它）：到 CATSUP_textures 1.2 语义上算平铺的画，照旧原样带（统筹 11-12）
   s = applyOp(s, { op: "addMaterial", name: "甲", color: [1, 1, 1], channels: { color: [shared] } }).scene;
   s = applyOp(s, { op: "addMaterial", name: "乙", color: [0.8, 0.7, 0.6], channels: { color: [shared] } }).scene;
   const k = rootK(s), [f0, f1] = k.faces();

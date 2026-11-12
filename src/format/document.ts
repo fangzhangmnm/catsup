@@ -93,7 +93,7 @@ export const COLOR_CHANNEL = "color";
 export function colorMapIn(table: ReadonlyMap<Guid, TextureDoc>, m: { readonly channels?: Channels }): ColorMap | null {
   const g = m.channels?.[COLOR_CHANNEL]?.[0];
   const t = g === undefined ? undefined : table.get(g);
-  return t && t.content.kind === "image" && t.sizeM ? (t as ColorMap) : null;
+  return t && t.content.kind === "image" && t.sizeM && t.layout === undefined ? (t as ColorMap) : null;   // 正好有 sizeM 一个键（和 paintIn、tiledPaintIn 对称：两个键都有 = 没有意思）
 }
 /** 画：颜色那一槽指着的那张分层的贴图，和它铺在哪个定义的哪一套贴图坐标上（两个 GUID）。 */
 export interface PaintRef { /** 那张分层的贴图（贴图表里那一行；字段不叫 texture：守卫 textures-table 不许「点 texture」这种读法，免得和旧的「材质里装着图」混）。 */ readonly textureDoc: TextureDoc; readonly definition: Guid; readonly uvSet: Guid }
@@ -105,7 +105,7 @@ export interface PaintRef { /** 那张分层的贴图（贴图表里那一行；
 export function paintIn(table: ReadonlyMap<Guid, TextureDoc>, m: { readonly channels?: Channels }): PaintRef | null {
   const g = m.channels?.[COLOR_CHANNEL]?.[0];
   const t = g === undefined ? undefined : table.get(g);
-  if (!t || t.content.kind !== "layered") return null;
+  if (!t || t.content.kind !== "layered" || t.sizeM !== undefined) return null;   // 正好有 layout 一个键（对称：两个键都有 = 没有意思）
   const l = t.layout as { definition?: unknown; uvSet?: unknown } | null | undefined;
   if (!l || typeof l !== "object" || typeof l.definition !== "string" || typeof l.uvSet !== "string") return null;
   return { textureDoc: t, definition: l.definition, uvSet: l.uvSet };
@@ -121,8 +121,18 @@ export interface TiledPaintRef { readonly textureDoc: TextureDoc; readonly sizeM
 export function tiledPaintIn(table: ReadonlyMap<Guid, TextureDoc>, m: { readonly channels?: Channels }): TiledPaintRef | null {
   const g = m.channels?.[COLOR_CHANNEL]?.[0];
   const t = g === undefined ? undefined : table.get(g);
-  return t && t.content.kind === "layered" && t.sizeM && t.layout === undefined ? { textureDoc: t, sizeM: t.sizeM } : null;
+  return t && isTiledRow(t) ? { textureDoc: t, sizeM: t.sizeM! } : null;
 }
+/**
+ * 一行上 sizeM 和 layout 是不是正好一个（数据契约 sizeM 那一条；统筹审第 3 刀格式时定 B′）：不是 = 说是哪种（「两个都有」/「两个都没有」），是 = null。
+ * 读文件的人拒这种行（整份文件打不开：这一版和 v0.19.60 及以前都一样），所以写的人一律不许写——场景入口（Scene.addTexture）和写文件（writeTextureRow）各拦一道。
+ */
+export function textureKeysProblem(t: { readonly sizeM?: unknown; readonly layout?: unknown }): "both sizeM and layout" | "neither sizeM nor layout" | null {
+  const s = t.sizeM !== undefined, l = t.layout !== undefined;
+  return s === l ? (s ? "both sizeM and layout" : "neither sizeM nor layout") : null;
+}
+/** 这一行是不是平铺的画（分层 + sizeM、没有 layout）：tiledPaintIn 和写盘按内容盖拍子（TEXTURES_STAMP_NO_TILED）共用这一个判断。 */
+export const isTiledRow = (t: TextureDoc): boolean => t.content.kind === "layered" && !!t.sizeM && t.layout === undefined;
 /** 材质（= glTF core material）：颜色 sRGB 0..1 + channels（通道名 → 一摞贴图 GUID；这一版只用 color、一摞只放一张；不认识的名字原样带）。 */
 export interface MaterialDoc { /** 身份（CATSUP_material 1.2）；名字只是显示、可重名。 */ guid: Guid; name: string; color: [number, number, number]; channels?: Channels; /** CATSUP_material 里本版不认识的键（更新版写的），连同它们引用的字节原样带回（2026-11-10 起，Fable 审 1-0½）。 */ extra?: CarriedJson; }
 /** 层（Unity render layer 的管理用法；契约 §4）：文档级表，id 0 = 默认层永远存在；只管可见性，纯管理。 */

@@ -129,7 +129,7 @@ export const FORMAT = {
   /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
   CATSUP_mesh: { major: 2, minor: 1, patch: 0 },   // 2.1（2026-11-11，施工单十六）：贴图坐标的一套上可选键 fit（只有带它的网格体盖 2.1，见 MESH_STAMP_UV_NO_FIT）；2.0（2026-11-11，1-2½）：uvSets 贴图坐标（只有带它的网格体盖 2.0，见 MESH_STAMP_NO_UV）；1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）
   CATSUP_shelf: { major: 1, minor: 0, patch: 0 },   // 1.0（2026-11-04）：素材架（可选扩展）
-  CATSUP_textures: { major: 1, minor: 2, patch: 0 },   // 1.0（2026-11-10）：贴图表（可选扩展）；1.1（2026-11-11，贴图主线 1-8b）：行上可选键 composite = 画的合成图（PNG + 照哪份分层字节做的 + 底色），旧读者当不认识的键原样带回；1.2（2026-11-12，施工单二十一第 3 刀）：「分层内容 + sizeM（没有 layout）」有了意思 = 平铺的画（document.ts tiledPaintIn），形状没变，1.1 的读者读到它 = 不是画也不是原图、按底色显示、原样带回
+  CATSUP_textures: { major: 1, minor: 2, patch: 0 },   // 1.0（2026-11-10）：贴图表（可选扩展）；1.1（2026-11-11，贴图主线 1-8b）：行上可选键 composite = 画的合成图（PNG + 照哪份分层字节做的 + 底色），旧读者当不认识的键原样带回；1.2（2026-11-12，施工单二十一第 3 刀）：「分层内容 + sizeM（没有 layout）」有了意思 = 平铺的画（document.ts tiledPaintIn），形状没变，1.1 的读者读到它 = 不是画也不是原图、按底色显示、原样带回；**按内容盖**：表里有平铺的画才盖 1.2，没有的照旧盖 1.1（TEXTURES_STAMP_NO_TILED），写出来和以前逐字节一样
 } as const satisfies Record<string, Stamp>;
 export type CatsupExtension = keyof typeof FORMAT;
 export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references", "CATSUP_mesh", "CATSUP_shelf", "CATSUP_textures"];
@@ -137,13 +137,15 @@ export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_docum
 export const MESH_STAMP_NO_UV: Stamp = { major: 1, minor: 2, patch: 0 };
 /** 带贴图坐标、但没有一套是按密度开的（fit）网格体照旧盖的拍子（施工单十六）：和 2.1 之前写出来的逐字节一样。 */
 export const MESH_STAMP_UV_NO_FIT: Stamp = { major: 2, minor: 0, patch: 0 };
+/** 贴图表里没有平铺的画（document.ts isTiledRow）照旧盖的拍子（施工单二十一第 3 刀，统筹审格式时定 A）：和 1.2 之前写出来的逐字节一样——
+ *  文件里没有旧版本不认识的东西，旧版本就不该提示「这是更新版写的」（不然提示成了狼来了）。 */
+export const TEXTURES_STAMP_NO_TILED: Stamp = { major: 1, minor: 1, patch: 0 };
 /** 各子结构的 major（老名字，读写两端的 too-new 判定与 STEPS 索引都用它）。 */
 export const EXTENSION_VERSIONS: Readonly<Record<CatsupExtension, number>> = Object.fromEntries(CATSUP_EXTENSION_ORDER.map((k) => [k, FORMAT[k].major])) as Record<CatsupExtension, number>;
 /** 写入器盖拍子：`version` 必写；`minor` / `patch` 是可选键（缺 = 0），为 0 时不写——省字节（§3.2「抠」），字节照样确定。 */
-export const stampOf = (ext: CatsupExtension): { version: number; minor?: number; patch?: number } => {
-  const f = FORMAT[ext];
-  return { version: f.major, ...(f.minor ? { minor: f.minor } : {}), ...(f.patch ? { patch: f.patch } : {}) };
-};
+export const stampOf = (ext: CatsupExtension): { version: number; minor?: number; patch?: number } => stampFields(FORMAT[ext]);
+/** 一个拍子写进文件的样子（stampOf 的通用版：按内容盖例外拍子的地方用）。 */
+export const stampFields = (f: Stamp): { version: number; minor?: number; patch?: number } => ({ version: f.major, ...(f.minor ? { minor: f.minor } : {}), ...(f.patch ? { patch: f.patch } : {}) });
 export const fmtStamp = (s: Stamp): string => `${s.major}.${s.minor}.${s.patch}`;
 /** 全部拍子的签名（冻结样本目录名 `v<签名>`；任何一个拍子动了 = 新目录 = 新语料，机械执法）。 */
 export const formatTag = (f: Readonly<Record<CatsupExtension, Stamp>> = FORMAT): string => CATSUP_EXTENSION_ORDER.map((k) => fmtStamp(f[k])).join("-");

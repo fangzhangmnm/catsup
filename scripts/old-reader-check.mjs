@@ -64,6 +64,13 @@ function randomScene(withUv) {
       s = applyOp(s, { op: "purgeTextures", textures: [made[1].tex] }).scene;
     }
   }
+  if (rnd() < 0.3) {   // 导入的原图（1.0 起）：硬表面根上一张面涂它（贴图表三种合法的行都在随机场景里：原图 / 铺在坐标上的画 / 平铺的画）
+    const tex = mintGuid();
+    s = applyOp(s, { op: "addTexture", guid: tex, name: "图", mimeType: "image/png", bytes: S.TINY_PNG, sizeM: [0.2 + rnd(), 0.2 + rnd()] }).scene;
+    s = applyOp(s, { op: "addMaterial", name: "图", color: [1, 1, 1], channels: { color: [tex] } }).scene;
+    const k = s.kernelOf({ def: s.root, group: null });
+    s = applyOp(s, { op: "paintFaces", at: { def: s.root, group: null }, faces: [faceKey(k, k.faces()[k.faces().length - 1].id)], material: s.materials.length - 1 }).scene;
+  }
   if (rnd() < 0.3) {   // 平铺的画（1.2）：硬表面根上一两张面涂它
     const tex = mintGuid(), faces = s.kernelOf({ def: s.root, group: null }).faces().slice(0, 1 + Math.floor(rnd() * 2)), base = [rnd(), rnd(), rnd()].map((v) => Math.round(v * 100) / 100);
     s.addTexture({ guid: tex, name: "瓦", value: { kind: "color" }, content: { kind: "layered", ora: S.ORA_TWO_LAYERS_1024x256 }, sizeM: [0.25 + rnd(), 0.25 + rnd()] });
@@ -130,6 +137,8 @@ for (const c of commits) {
     }
     if (same(again, f.bytes)) { r.plainIdentical++; continue; }
     const sp = stampOnly(f.bytes, again);
+    // 贴图表的拍子按内容盖（1.2，统筹审格式定 A）：没有平铺的画的文件盖的是旧读者也认识的拍子，存回去必须逐字节一样；只差 CATSUP_textures 的拍子只许出现在表里有平铺的画那种行的文件里（按行判，和写盘一样；孤儿行也算）
+    if (sp && sp.some((x) => x.startsWith(".extensions.CATSUP_textures.")) && !F.readCatsup(f.bytes).textures.some(D.isTiledRow) && "CATSUP_textures" in O.FORMAT) { r.plainBad.push(`${f.name}：表里没有平铺的画那种行，却只差 CATSUP_textures 的拍子（拍子没按内容盖）`); continue; }
     if (sp) { r.plainStampOnly++; for (const x of sp) r.stampPaths.add(x); continue; }   // 旧读者按自己的拍子写回某个扩展（比如它比材质 1.3 老）：内容一字不差
     const tooOldForTextures = !("CATSUP_textures" in O.FORMAT);
     if (tooOldForTextures && hasTextures(f.bytes)) {   // 已知代价：它重写材质扩展；这一版再读它存的那份要能开、几何一样

@@ -19,7 +19,7 @@ import type { MirrorSetting } from "../mesh/mirror.ts";
 import type { KernelView } from "./kernel-view.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
 import type { CurveParams } from "../kernel/curves.ts";
-import { type CarriedJson, type Channels, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc, type TiledPaintRef, colorMapIn, paintIn, tiledPaintIn, defaultLayers, emptyShelf } from "../format/document.ts";
+import { type CarriedJson, type Channels, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc, type TiledPaintRef, colorMapIn, paintIn, textureKeysProblem, tiledPaintIn, defaultLayers, emptyShelf } from "../format/document.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
 import type { Stamp } from "../format/migrate/index.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "./builtin-materials.ts";
@@ -169,7 +169,12 @@ export class Scene {
   }
   addMaterial(m: Omit<Material, "guid"> & { readonly guid?: Guid }): number { this.materials.push({ ...m, guid: m.guid ?? mintGuid() }); return this.materials.length - 1; }
   /** 贴图表加一行（同一个 GUID = 换掉那一行：粘贴「更新」走这里）。 */
-  addTexture(t: TextureDoc): void { this.textures.set(t.guid, t); }
+  addTexture(t: TextureDoc): void {
+    // 一行上 sizeM 和 layout 必须正好一个（B′，红线：写坏文件）：读文件的人整份拒开这种行，所以它进不了场景——指令那一步就抛，场景不变。
+    const why = textureKeysProblem(t);
+    if (why) throw new Error(`Scene.addTexture: texture "${t.name}" (${t.guid}) has ${why}; a row must have exactly one of them (a file written with it could not be opened by any version)`);
+    this.textures.set(t.guid, t);
+  }
   /**
    * 这张面走不走画（贴图主线 1-3b；全仓问这个）：面的材质过 paintIn 不是空、画的 definition 就是这张面所在的定义、这个定义的 uvSets 里有那一套 → 那张画和那一套；
    * 差一样都按普通材质（底色）算 = null。网格体才有画（硬表面 = null）。

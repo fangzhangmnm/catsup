@@ -5,7 +5,7 @@
 // · sizeM 和 layout 正好有一个；两个都有或都没有 = 读取失败、说是哪一行。
 import { collectBufferViewRefs, remapBufferViewRefs } from "./carry.ts";
 import type { ViewSink } from "./brep-codec.ts";
-import type { CarriedJson, PaintComposite, TextureContent, TextureDoc } from "./document.ts";
+import { textureKeysProblem, type CarriedJson, type PaintComposite, type TextureContent, type TextureDoc } from "./document.ts";
 import type { FormatReadNotes } from "./migrate/index.ts";
 import { ownGuid, type Guid } from "./guid.ts";
 
@@ -72,6 +72,9 @@ function readComposite(x: unknown, view: (bv: number) => Uint8Array): PaintCompo
 export function writeTextureRow(t: TextureDoc, sink: ViewSink, imageView: (t: TextureDoc) => number): Record<string, unknown> {
   const c = t.content;
   // 新建的画还没有字节：存盘的钉点（1-8b，paint/save.ts）会先给它编一份空白的再交给这里；走到这里还是 null = 那一步漏了 → 抛、写明原因，不许悄悄丢（守卫 test/paint-start-guard.test.ts）。
+  // sizeM 和 layout 正好一个（B′）：读的人整份拒开这种行，写出去就是一份任何版本都打不开的文件 → 抛、写明是哪一行（场景入口 Scene.addTexture 已经拦过一道，这里是第二道）。
+  const keys = textureKeysProblem(t);
+  if (keys) throw new Error(`texture "${t.name}" (${t.guid}) has ${keys}; refusing to write it: a file with this row could not be opened by any version (a row must have exactly one of them)`);
   if (c.kind === "layered" && c.ora === null) throw new Error(`texture "${t.name}" (${t.guid}): this painting has no bytes (the save freeze should have encoded a blank one); refusing to write a file that would silently drop it`);
   const content = c.kind === "image" ? { kind: "image", mimeType: c.mimeType, bytes: { bufferView: imageView(t) } }
     : c.kind === "layered" ? { kind: "layered", ora: { bufferView: sink.add(c.ora!) } }

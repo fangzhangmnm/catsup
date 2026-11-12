@@ -263,6 +263,13 @@ describe("贴图表：守卫", () => {
     assert(!ifaceHas(readFileSync(join("src", "scene", "scene.ts"), "utf8"), "Material"), "Material");
     assert(!readFileSync(join("src", "format", "document.ts"), "utf8").includes("ImageAsset"), "ImageAsset 退役");
   });
+  it("往贴图表里放行只经 Scene.addTexture（B′：那里拦「sizeM 和 layout 正好一个」）：src 里别处没有 textures.set(", () => {
+    const hits: string[] = [];
+    for (const f of files) if (f !== join("src", "scene", "scene.ts")) for (const line of readFileSync(f, "utf8").split("\n")) if (/textures\.set\(/.test(line)) hits.push(`${f}: ${line.trim().slice(0, 70)}`);
+    eq(hits.length, 0, hits.join(" | "));
+    const sceneSrc = readFileSync(join("src", "scene", "scene.ts"), "utf8");
+    eq((sceneSrc.match(/textures\.set\(/g) ?? []).length, 1, "scene.ts 里只有 addTexture 那一处");
+  });
   it("删贴图只有 purgeTextures 那一行", () => {
     const hits: string[] = [];
     for (const f of files) for (const line of readFileSync(f, "utf8").split("\n")) if (/textures\.(delete|clear)\(/.test(line)) hits.push(`${f}: ${line.trim().slice(0, 70)}`);
@@ -298,6 +305,73 @@ describe("平铺的画（CATSUP_textures 1.2，施工单二十一第 3 刀）", 
     }
     eq(JSON.stringify(tiledPaintIn(table, { channels: { color: [rows[2][1].guid] } })!.sizeM), "[0.5,0.25]", "带出 sizeM");
     eq(tiledPaintIn(table, {}), null, "没有颜色那一槽");
+  });
+  it("组合表每一格（数据契约 sizeM 那一条下面的表）：内容 × 键；正好一个键而且认识才有意思，三个问法各答各的；能写的格写回去键原样在；两个都有 / 都没有 = 进场景就抛、写文件也抛（读那一头拒开另有一条）", () => {
+    const g = () => mintGuid(), ora = new Uint8Array([80, 75, 3, 4]);
+    const contents: Record<string, TextureDoc["content"]> = { image: { kind: "image", mimeType: "image/png", bytes: TINY_PNG }, layered: { kind: "layered", ora }, other: { kind: "other", raw: { json: { kind: "voxel" }, views: new Map() } } };
+    const layoutOk = (): unknown => ({ definition: g(), uvSet: g() });
+    const keys: Record<string, () => Partial<TextureDoc>> = { sizeM: () => ({ sizeM: [0.5, 0.25] }), layoutOk: () => ({ layout: layoutOk() }), layoutOdd: () => ({ layout: 7 }), both: () => ({ sizeM: [1, 1], layout: layoutOk() }), neither: () => ({}) };
+    // 每格的意思：color = 自由的图、paint = 铺在坐标上的画、tiled = 平铺的画、"" = 没有意思（三个都答不是 = 按底色）、fail = 读取失败
+    const want: Record<string, Record<string, string>> = {
+      image: { sizeM: "color", layoutOk: "", layoutOdd: "", both: "", neither: "" },
+      layered: { sizeM: "tiled", layoutOk: "paint", layoutOdd: "", both: "", neither: "" },
+      other: { sizeM: "", layoutOk: "", layoutOdd: "", both: "", neither: "" },
+    };
+    let cells = 0;
+    for (const [cName, content] of Object.entries(contents)) for (const [kName, mk] of Object.entries(keys)) {
+      const row = { guid: g(), name: `${cName}+${kName}`, value: COLOR_VALUE, content, ...mk() } as TextureDoc;
+      const table = new Map([[row.guid, row]]), m = { channels: { color: [row.guid] } };
+      const got = [colorMapIn(table, m) ? "color" : "", paintIn(table, m) ? "paint" : "", tiledPaintIn(table, m) ? "tiled" : ""].filter(Boolean);
+      assert(got.length <= 1, `${row.name}：三个问法里有 ${got.length} 个答是`);
+      eq(got[0] ?? "", want[cName][kName], `${row.name}：三个问法的答案`);
+      const sc = new Scene(sceneBox(1, 1));
+      if (kName === "both" || kName === "neither") {
+        // 坏的两格：第一道 = 场景入口抛、场景里没有它；第二道 = 绕过场景直接塞进文档去写，写文件也抛、说是哪一行
+        let e1: unknown = null; try { sc.addTexture(row); } catch (e) { e1 = e; }
+        assert(e1 instanceof Error && e1.message.includes(row.guid) && /could not be opened/.test(e1.message), `${row.name}：进场景就抛（${String(e1)}）`);
+        eq(sc.textures.has(row.guid), false, `${row.name}：场景里没有它`);
+        const doc = documentFromScene(sc, "cell");
+        doc.textures.push(row);
+        let e2: unknown = null; try { writeCatsup(doc); } catch (e) { e2 = e; }
+        assert(e2 instanceof Error && e2.message.includes(row.name) && /could not be opened/.test(e2.message), `${row.name}：写文件也抛、说是哪一行（${String(e2)}）`);
+        cells++; continue;
+      }
+      // 能写的格：写进文件、读回来，两个键原样
+      sc.addTexture(row);
+      let err: unknown = null, back: TextureDoc | undefined;
+      try { back = readCatsup(writeCatsup(documentFromScene(sc, "cell"))).textures.find((t) => t.guid === row.guid); } catch (e) { err = e; }
+      assert(!err && back, `${row.name}：读得回来（${String(err)}）`);
+      eq(JSON.stringify(back!.sizeM ?? null), JSON.stringify(row.sizeM ?? null), `${row.name}：sizeM 原样`);
+      eq(JSON.stringify(back!.layout ?? null), JSON.stringify(row.layout ?? null), `${row.name}：layout 原样`);
+      cells++;
+    }
+    eq(cells, 15, "三种内容 × 五种键 = 15 格都走到");
+  });
+  it("性质：随机从合法的口造行（导入原图、开始画、平铺的画），中间夹着随机的坏行（两个键都有 / 都没有：必须在入口抛、场景不变）；凡是写得出来的贴图表这一版都读得回、两个键原样（v0.19.60 的读者那一半 = scripts/old-reader-check.mjs 的随机场景）", () => {
+    let st = 7;
+    const R = (): number => (st = (Math.imul(st, 1664525) + 1013904223) >>> 0) / 4294967296;
+    let refused = 0, written = 0;
+    for (let i = 0; i < 60; i++) {
+      let s = new Scene(sceneBox(1, 1));
+      for (let k = 0, n = 1 + Math.floor(R() * 5); k < n; k++) {
+        const r = R(), guid = mintGuid();
+        if (r < 0.3) s = applyOp(s, { op: "addTexture", guid, name: `图${k}`, mimeType: "image/png", bytes: TINY_PNG, sizeM: [0.1 + R(), 0.1 + R()] }).scene;
+        else if (r < 0.6) s.addTexture({ guid, name: `瓦${k}`, value: COLOR_VALUE, content: { kind: "layered", ora: new Uint8Array([80, 75, 3, 4, k]) }, sizeM: [0.1 + R(), 0.1 + R()] });
+        else if (r < 0.8) s.addTexture({ guid, name: `画${k}`, value: COLOR_VALUE, content: { kind: "layered", ora: new Uint8Array([80, 75, 3, 4, k]) }, layout: { definition: mintGuid(), uvSet: mintGuid() } });
+        else {
+          const before = s.textures.size, both = R() < 0.5;
+          let threw = false;
+          try { s.addTexture({ guid, name: `坏${k}`, value: COLOR_VALUE, content: { kind: R() < 0.5 ? "layered" : "image", ora: new Uint8Array([1]), mimeType: "image/png", bytes: TINY_PNG } as TextureDoc["content"], ...(both ? { sizeM: [1, 1], layout: { definition: mintGuid(), uvSet: mintGuid() } } : {}) }); } catch { threw = true; }
+          assert(threw, `第 ${i} 份第 ${k} 行：坏行（${both ? "两个都有" : "两个都没有"}）在入口被拒`);
+          eq(s.textures.size, before, "场景不变"); refused++;
+        }
+      }
+      const doc = readCatsup(writeCatsup(documentFromScene(s, `p${i}`)));
+      eq(doc.textures.length, s.textures.size, `第 ${i} 份：行数一样`);
+      for (const t of doc.textures) { const o = s.textures.get(t.guid)!; eq(JSON.stringify([t.sizeM ?? null, t.layout ?? null]), JSON.stringify([o.sizeM ?? null, o.layout ?? null]), `第 ${i} 份「${t.name}」两个键原样`); }
+      written++;
+    }
+    assert(refused >= 5 && written === 60, `拒了 ${refused} 次、写了 ${written} 份`);
   });
   it("冻的样本 tiledPaint.glb（每个有它的目录）：读出来材质「瓦」是平铺的画、sizeM 对、合成图对得上材质颜色、分层字节在；读 → 写 → 读两次写出的字节一样", () => {
     const dirs = listCorpusDirs().filter((d: string) => existsSync(join(fixtureDir(d), "tiledPaint.glb")));

@@ -3,7 +3,7 @@
 // v2（2026-10-21，group / component）：每个 definition 一个 mesh（根池 + 全部 group 合并烘焙）；实例 = glTF 节点树（matrix，Y-up）
 //   + CATSUP_instance；authoring 全在 CATSUP_definitions（groups / instances 各自带 3×4 变换，Z-up 本地坐标）。
 
-import { COLOR_CHANNEL, colorMapIn, paintDeskToJson, shelfIsEmpty, type ColorMap, type MaterialDoc, type TextureDoc } from "./document.ts";
+import { COLOR_CHANNEL, colorMapIn, isTiledRow, paintDeskToJson, shelfIsEmpty, type ColorMap, type MaterialDoc, type TextureDoc } from "./document.ts";
 import { landCarried, writeTextureRow } from "./texture-table.ts";
 import { BUILTIN_BACK_GUID, type Guid } from "./guid.ts";
 import { APP_VERSION } from "../version.ts";
@@ -14,7 +14,7 @@ import { canonicalize, encodeBrep, type CatsupBrepJson, type ViewSink } from "./
 import { bakeDefinition, bakeMesh, mergeBrep, type BakeMaterials } from "./bake.ts";
 import { encodeMeshItem } from "./mesh-payload.ts";
 import type { CatsupDocument, DefinitionDoc } from "./document.ts";
-import { stampOf } from "./migrate/index.ts";
+import { stampFields, stampOf, TEXTURES_STAMP_NO_TILED } from "./migrate/index.ts";
 import { MIN_GLTF_VERSION, WRITE_GLTF_VERSION } from "./migrate/gltf/index.ts";
 import { remapBufferViewRefs } from "./carry.ts";
 import type { Xform } from "../scene/xform.ts";
@@ -101,7 +101,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   const remap = (old: number): number => { const n = viewMap.get(old); if (n === undefined) throw new Error(`writeCatsup: carried JSON references bufferView ${old} that was not carried`); return n; };
   const carry = remapBufferViewRefs({ topLevel: doc.carry.topLevel, extensions: doc.carry.extensions, documentExtra: doc.carry.documentExtra, definitionsExtra: doc.carry.definitionsExtra, brepKeep: doc.carry.brepKeep ?? {}, referencesExtra: doc.references.extra, texturesExtra: doc.carry.texturesExtra ?? {} }, remap);
   // 贴图表（CATSUP_textures 1.0）：空 = 不写；太新 = 上面 carry.extensions 原样写回；否则一行一条（原图的字节上面落过就共用那条）
-  const texExt: Record<string, unknown> | null = !texFrozen && doc.textures.length ? { ...carry.texturesExtra, ...stampOf("CATSUP_textures"), list: doc.textures.map((t) => writeTextureRow(t, sink, imageView)) } : null;
+  const texExt: Record<string, unknown> | null = !texFrozen && doc.textures.length ? { ...carry.texturesExtra, ...(doc.textures.some(isTiledRow) ? stampOf("CATSUP_textures") : stampFields(TEXTURES_STAMP_NO_TILED)), list: doc.textures.map((t) => writeTextureRow(t, sink, imageView)) } : null;
   // 参考窗牌组（§5.8）：太新的原字节（读取器放进 carry.extensions）原样写回；否则每个文件一条 bufferView；空牌组不写
   const refsCarried = isObj(carry.extensions.CATSUP_references);
   const refsExt: Record<string, unknown> | null = refsCarried ? null : doc.references.files.length ? {
