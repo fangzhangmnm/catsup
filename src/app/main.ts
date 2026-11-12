@@ -142,6 +142,7 @@ import { exportAll, exportAllSay } from "./export-all.ts";
 import { deliverFile } from "./share-or-download.ts";
 import { zipPack } from "../crypto/zip.ts";
 import { PRIMITIVES, type PrimitiveKind } from "../mesh/ops/primitives.ts";
+import { mintGuid } from "../format/guid.ts";
 
 // 黑匣子最早起（实验台 sunset → 调试日志，user 2026-09-20）：开机 URL 行必须在 initAuth 之前抓——MSAL 处理完 redirect 会抹掉 hash。
 initDebugLog();
@@ -1252,8 +1253,36 @@ const canvasBtn = document.createElement("button"); canvasBtn.type = "button"; c
 refBtn.before(canvasBtn);
 // eslint-disable-next-line no-var
 var canvasWin: CanvasWindow | null = null;   // var：每帧的准备 / 渲染的 viewExtras 比它先写
-canvasBtn.addEventListener("click", () => { (canvasWin ??= mountCanvasWindow({ editor, boards: paintBoards, savedSizes: (t) => paintSaver.lastSizes(t), paint: canvasPaintPort, hint: (t) => { hintEl.textContent = t; }, onOpenChange: (o) => { canvasBtn.classList.toggle("is-open", o); canvasBtn.setAttribute("aria-pressed", o ? "true" : "false"); } })).toggle(canvasBtn); syncUi(); });
-const syncCanvasBtn = (): void => { const any = [...editor.sceneRef.textures.values()].some((t) => t.content.kind === "layered"); canvasBtn.hidden = !any && !canvasWin?.isOpen(); };
+canvasBtn.addEventListener("click", () => { mountCanvasWin().toggle(canvasBtn); syncUi(); });
+/** 画布小窗只建一个（按钮和「新建平铺的画」共用）。 */
+const mountCanvasWin = (): CanvasWindow => (canvasWin ??= mountCanvasWindow({ editor, boards: paintBoards, savedSizes: (t) => paintSaver.lastSizes(t), paint: canvasPaintPort, newTiled: () => { void newTiledPaint(); }, hint: (t) => { hintEl.textContent = t; }, onOpenChange: (o) => { canvasBtn.classList.toggle("is-open", o); canvasBtn.setAttribute("aria-pressed", o ? "true" : "false"); } }));
+const syncCanvasBtn = (): void => { const any = [...editor.sceneRef.textures.values()].some((t) => t.content.kind === "layered"); canvasBtn.hidden = !any && !canvasWin?.isOpen() && !editor.modeTools().includes("paintPen"); };   // 有画画的笔的工作台里一直在：一张画都没有时也能「新建平铺的画…」（问工作台带什么工具，不按工作台的名字分叉：T102 棘轮）
+/**
+ * 新建平铺的画（施工单二十一第 3 刀；小窗「…」里那一项）：问像素大小和在模型上一张多大 → 编空白分层字节（存盘编空白的同一个编码器；画布大小只写在它里面）
+ * → 指令 addTiledPaint（一步撤销：贴图行 + 指着它的材质）→ 小窗切过去（先变热，好直接画）。锁着 = 不建、说原因（编辑器的提交口本来也拒）。
+ */
+async function newTiledPaint(): Promise<void> {
+  { const why = paintEditLocked(); if (why) { hintEl.textContent = why; return; } }
+  const v = await openFormSheet("新建平铺的画", [
+    { key: "px", label: "像素大小", options: [16, 32, 64, 128, 256].map((n) => ({ value: String(n), label: `${n} × ${n}` })), value: "64" },
+    { key: "m", label: "在模型上一张多大", options: [0.25, 0.5, 1, 2, 4].map((m) => ({ value: String(m), label: `${m} 米` })), value: "1" },
+  ], { okLabel: "新建", note: (x) => `一张 ${x.m} 米见方、${x.px} × ${x.px} 像素；建好开在画布小窗里画（只在小窗里画）。用油漆桶把这个材质涂到面上，就按这个大小平铺。` });
+  if (!v) return;
+  await createTiledPaint(Number(v.px), Number(v.m));
+}
+/** 「建」那一半（表单之后；调试钩子 paint.newTiled 也走它）：编空白分层字节 → 指令 → 小窗切过去。返回新贴图的 GUID；没建成 = null（提示行说了原因）。 */
+async function createTiledPaint(px: number, m: number): Promise<string | null> {
+  { const why = paintEditLocked(); if (why) { hintEl.textContent = why; return null; } }
+  let ora: Uint8Array;
+  try { ora = await paintSaver.blankOra(px, px); }
+  catch (e) { hintEl.textContent = "这一次编不出画的字节（打包的组件没加载上），没建；刷新一下再试"; funnel(e, "warning"); return null; }
+  const S = editor.sceneRef, n = S.materials.filter((x) => S.tiledPaintOf(x)).length + 1, name = `平铺的画 ${n}`, tex = mintGuid();
+  try { editor.commitOp({ op: "addTiledPaint", textureGuid: tex, materialGuid: mintGuid(), name, ora, sizeM: [m, m], color: [1, 1, 1] }); }
+  catch (e) { hintEl.textContent = String((e as { say?: string }).say ?? (e instanceof Error ? e.message : e)); funnel(e, "warning"); return null; }
+  mountCanvasWin().showTiled(tex, canvasBtn); syncUi();
+  hintEl.textContent = `建好了「${name}」：在画布小窗里画；用油漆桶选「${name}」这个材质涂到面上`;
+  return tex;
+}
 // ---------- B43 尺度参考：数据懒加载 + 视图 ☰「参考」页 ----------
 let ladder: Ladder | null = null;
 let ladderTimer = 0;
@@ -2694,6 +2723,8 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
   paint: {
     /** 笔的种类表（paint/brush-kinds.ts）；paths = 表里的每一条路 → 走它的第一支笔（probe-live-region 按路跑，施工单二十 1b）。 */
     brushKinds: BRUSH_KIND_IDS, brushPaths: BRUSH_PATHS, brushPathOf: (k: BrushKind) => BRUSH_KINDS[k].path,
+    /** 新建平铺的画（施工单二十一第 3 刀；不经表单，和「…」里那一项建的那一半同一段）：返回贴图 GUID，没建成 = null。 */
+    newTiled: (px = 64, m = 1): Promise<string | null> => createTiledPaint(px, m),
     /** 每支笔的旋钮 / 现在拿的哪支（app/paint-brushes.ts；探针 probe-paint-brushes 用）。 */
     brushes: paintBrushes,
     /** 网格体的全部自检（内核不变量 + 画的规矩；scene/paint.ts meshBodyIssues）：空 = 过（规模探针 K 坏面那一段用）。 */

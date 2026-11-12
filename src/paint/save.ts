@@ -157,6 +157,11 @@ export class PaintSaver {
     return { ora, composite };
   }
 
+  /** 新建平铺的画用的空白分层字节（施工单二十一第 3 刀）：和存盘给没画过的新画编空白是同一个编码器、同一份缓存。没有全局的 zip = ZipMissingError。 */
+  blankOra(w: number, h: number): Promise<Uint8Array> {
+    if (!(globalThis as { zip?: unknown }).zip) return Promise.reject(new ZipMissingError());
+    return this.blank(w, h);
+  }
   /** 空白的分层字节（一层空的；按宽高只编一次）。 */
   private blank(w: number, h: number): Promise<Uint8Array> {
     const k = `${w}x${h}`;

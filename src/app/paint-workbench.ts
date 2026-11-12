@@ -42,6 +42,8 @@ export interface PaintWorkbenchDeps {
 }
 
 /** 笔尖下打到了什么。 */
+/** 模型上落笔撞到平铺的画（施工单二十一第 3 刀第二节第 6 条）：不画、说原因。 */
+export const tiledOnlyInWindow = (name: string): string => `这张面贴的是平铺的画「${name}」：平铺的画只在画布小窗里画（一格对着模型上很多个地方，在模型上画没有意义）`;
 type Aim = { readonly tex: string; readonly cell: readonly [number, number] | null } | { readonly face: number; readonly color: Rgb } | { readonly why: string; readonly start?: boolean } | null;
 const NOT_STARTED = "这个物件还没开始画：点上面的「开始画…」";
 
@@ -131,8 +133,9 @@ export class PaintWorkbench {
     if (!hit) return null;
     const fp = S.facePaint(def, k.faceMat[hit.face]);
     if (!fp) {
+      const m = S.materialOfSlot(def, k.faceMat[hit.face]), tp = m ? S.tiledPaintOf(m) : null;
+      if (tp) return { why: tiledOnlyInWindow(tp.textureDoc.name || m!.name) };   // 平铺的画（施工单二十一第 3 刀第二节第 6 条）：不画、说原因
       if (!body.uvSets.size) return { why: NOT_STARTED, start: true };
-      const m = S.materialOfSlot(def, k.faceMat[hit.face]);
       return { face: hit.face, color: m ? [m.color[0], m.color[1], m.color[2]] : [0.84, 0.84, 0.84] };
     }
     const h2 = fp.uvSet.guid === anyUv ? hit : pickSurface(k as never, this.grid(k), fp.uvSet.guid, o, dir);

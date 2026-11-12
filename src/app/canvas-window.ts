@@ -33,6 +33,8 @@ export interface CanvasWindowDeps {
   savedSizes?(texture: string): { readonly ora: number; readonly png: number } | null;
   /** 在画布上画（施工单二十一第 2 刀；main.ts 递进来）。缺 = 只看（单测 / 老入口）。 */
   readonly paint?: CanvasPaintPort;
+  /** 「…」里「新建平铺的画…」（施工单二十一第 3 刀；main.ts 递进来：问大小 → 编空白分层字节 → 指令 addTiledPaint → showTiled）。缺 = 菜单里没有这一项。 */
+  newTiled?(): void;
 }
 /** 画布上落笔的口（宿主的）：工具、开一笔、吸色、笔印多大。坐标 = 画布格（可以带小数）。 */
 export interface CanvasPaintPort {
@@ -59,10 +61,14 @@ export interface CanvasWindow {
   peekWorld(): ReadonlySet<number> | null;
   /** 探针用：现在的样子和计数。 */
   probe(): CanvasWindowProbe;
+  /** 显示这张平铺的画（新建完 / 探针用）：打开小窗、切过去、先变热（好直接画）。不是平铺的画 = 什么都不做。 */
+  showTiled(texture: string, anchor?: HTMLElement): void;
   readonly el: HTMLElement;
 }
 export interface CanvasWindowProbe {
   open: boolean; def: number | null; tex: string | null; width: number; height: number;
+  /** 正在显示的平铺的画（施工单二十一第 3 刀）；没有 = null（显示的是这个物件的画）。 */
+  tiled: string | null;
   faces: number[]; thin: number; thick: number; patches: number; covered: number; shared: number;
   selected: number[]; hover: number | null; debugView: boolean;
   /** 读回了几次 / 线重算了几次 / 冷图解了几次（开着画一笔：笔当中不涨）。 */
@@ -91,6 +97,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
   viewHost.append(empty, hoverLine, statsLine);
 
   // —— 状态 ——
+  let tiled: string | null = null;   // 正在显示的平铺的画（不属于哪个物件；有它时小窗就是一张图：没有轮廓、没有面）
   let def: number | null = null, tex: string | null = null, outline: AtlasOutline | null = null, key = "", stamp = "", selKey = "", hover: number | null = null, pinned: number | null = null, debugView = false, showNums = false;
   let readbacks = 0, outlines = 0, decodes = 0, owner: { key: string; canvas: HTMLCanvasElement } | null = null;
   let liveVer = -1, liveReads = 0, liveCells = 0, stroke: CanvasStroke | null = null;   // 一笔开着时跟着变：读到哪一版、读回了几次、一共读了多少格；这里正在画的那一笔
@@ -104,11 +111,12 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     click: (id) => { pinned = id; writeHover(); if (id !== null) selectIn3d(id); },   // 点到的那张面：它是谁那一行留着（触屏没有悬停），点空处收起
     stroke: {
       // 笔 / 鼠标左键 + 手上是能在画布上用的那把 + 这里有一张画 = 画；不然照旧（拖 = 挪、点 = 选面）
-      wants: (e) => !!d.paint && tex !== null && d.paint.tool() !== null && (e.pointerType === "pen" || (e.pointerType === "mouse" && e.button === 0)),
+      wants: (e) => !!d.paint && shown() !== null && d.paint.tool() !== null && (e.pointerType === "pen" || (e.pointerType === "mouse" && e.button === 0)),
       down: (x, y, e) => {
-        if (!d.paint || tex === null) return;
-        if (d.paint.tool() === "eyedrop") { d.paint.eyedrop(tex, x, y); return; }
-        stroke = d.paint.open(tex, ptr(x, y, e));
+        const t = shown();
+        if (!d.paint || t === null) return;
+        if (d.paint.tool() === "eyedrop") { d.paint.eyedrop(t, x, y); return; }
+        stroke = d.paint.open(t, ptr(x, y, e));
       },
       move: (x, y, e) => { stroke?.move(ptr(x, y, e)); },
       up: (x, y, e, cancelled) => { const s = stroke; stroke = null; if (!s) return; if (cancelled) s.cancel(); else { s.move(ptr(x, y, e)); s.up(); } },
@@ -117,22 +125,45 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
   });
   /** 「…」菜单：最上面一节 = 这个物件的每一张画（当前那张打勾，点了就换）；下面 = 每格归谁（开关）· 整张 · 显示数字（开关）。 */
   const menuItems = (): PopupMenuItem<string>[] => {
-    const all = def === null ? [] : paintsOf(editor.sceneRef, def);
+    const all = def === null ? [] : paintsOf(editor.sceneRef, def), tl = tiledList();
     return [
-      ...all.map((p, i) => ({ id: `tex:${p.tex}`, label: `${p.name}（${p.uvSet.width} × ${p.uvSet.height}）`, checked: p.tex === tex, ...(i === 0 ? { sectionBefore: "这个物件的画" } : {}) })),
-      { id: "own", label: "每格归谁", checked: debugView, hint: "调试视图", ...(all.length ? { separatorBefore: true } : {}) },
+      ...all.map((p, i) => ({ id: `tex:${p.tex}`, label: `${p.name}（${p.uvSet.width} × ${p.uvSet.height}）`, checked: tiled === null && p.tex === tex, ...(i === 0 ? { sectionBefore: "这个物件的画" } : {}) })),
+      // 平铺的画（施工单二十一第 3 刀）：整份文件的，不属于哪个物件；只在这里画
+      ...tl.map((t, i) => ({ id: `tiled:${t.tex}`, label: `${t.name}（${sizeSay(t.tex)}一张 ${mSay(t.sizeM[0])} × ${mSay(t.sizeM[1])}）`, checked: t.tex === tiled, ...(i === 0 ? { sectionBefore: "平铺的画" } : {}) })),
+      ...(d.newTiled ? [{ id: "newTiled", label: "新建平铺的画…", ...(tl.length ? {} : { sectionBefore: "平铺的画" }) }] : []),
+      { id: "own", label: "每格归谁", checked: debugView, hint: "调试视图", ...(all.length || tl.length || d.newTiled ? { separatorBefore: true } : {}) },
       { id: "fit", label: "整张" },
       { id: "nums", label: "显示数字", checked: showNums },
     ];
   };
   const pickMenu = (id: string): void | "keep" => {
-    if (id.startsWith("tex:")) { tex = id.slice(4); key = ""; stamp = ""; pinned = null; sync(); return; }
+    if (id.startsWith("tex:")) { tiled = null; tex = id.slice(4); key = ""; stamp = ""; pinned = null; sync(); return; }
+    if (id.startsWith("tiled:")) { showTiled(id.slice(6)); return; }
+    if (id === "newTiled") { d.newTiled?.(); return; }
     if (id === "own") { debugView = !debugView; stamp = ""; sync(); return "keep"; }
     if (id === "fit") { view.fit(); return; }
     if (id === "nums") { showNums = !showNums; statsLine.hidden = !showNums || !outline; return "keep"; }
   };
   inputGate.face({ kind: "refwin", label: "画布小窗", rank: 21, root: ".float-win[data-win=canvas]", up: () => win.isOpen() && win.el.contains(document.activeElement) });   // 有焦点（圆钮 / 菜单）时键盘归它；不挡三维
 
+  /** 整份文件里的平铺的画（按贴图去重；材质表的先后）。 */
+  const tiledList = (): { tex: string; name: string; sizeM: readonly [number, number] }[] => {
+    const S = editor.sceneRef, out: { tex: string; name: string; sizeM: readonly [number, number] }[] = [], seen = new Set<string>();
+    for (const m of S.materials) { const tp = S.tiledPaintOf(m); if (tp && !seen.has(tp.textureDoc.guid)) { seen.add(tp.textureDoc.guid); out.push({ tex: tp.textureDoc.guid, name: tp.textureDoc.name || m.name, sizeM: tp.sizeM }); } }
+    return out;
+  };
+  /** 小窗现在显示（也是落笔）的那张：平铺的画优先，否则这个物件的那张。 */
+  const shown = (): string | null => tiled ?? tex;
+  const mSay = (v: number): string => `${Math.round(v * 1000) / 1000} 米`;
+  /** 平铺的画多大（像素）：热的 = 画板；冷的 = 合成图；还不知道 = 空。 */
+  const sizeSay = (t: string): string => { const b = boards.get(t) ?? boards.board(t); return b ? `${b.width} × ${b.height} 像素，` : ""; };
+  function showTiled(t: string, anchor?: HTMLElement): void {
+    if (!tiledList().some((x) => x.tex === t)) return;
+    if (!win.isOpen()) win.open(anchor ?? win.el);   // 没开着：开（第一次挨着 anchor；之后照上一次的位置，越界的拉回来）
+    tiled = t; key = ""; stamp = ""; hover = null; pinned = null;
+    if (boards.stateOf(editor.sceneRef, t) === "cold") void boards.warm(editor.sceneRef, t).then(() => { stamp = ""; sync(); editor.draw(); }).catch(() => { /* 只能看不能画：登记处已经说了原因 */ });   // 先变热：好直接画
+    sync();
+  }
   /** 看哪个物件：正在编辑的网格体；不在网格体里 = 选中的那一个物件（是网格体的话）；都不是 = null。 */
   const currentDef = (): number | null => {
     const S = editor.sceneRef, here = S.defOfContext(editor.context);
@@ -156,7 +187,16 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     if (sk !== selKey) {
       selKey = sk;
       const body = def !== null ? S.def(def).body : null;
-      if (body?.kind === "mesh") for (const f of sel) { const t = S.facePaint(def!, body.kernel.faceMat[f])?.textureDoc.guid; if (t && all.some((p) => p.tex === t)) { if (t !== tex) { tex = t; key = ""; stamp = ""; } break; } }
+      if (body?.kind === "mesh") for (const f of sel) { const t = S.facePaint(def!, body.kernel.faceMat[f])?.textureDoc.guid; if (t && all.some((p) => p.tex === t)) { if (t !== tex || tiled !== null) { tex = t; tiled = null; key = ""; stamp = ""; } break; } }
+    }
+    if (tiled !== null && !tiledList().some((x) => x.tex === tiled)) { tiled = null; stamp = ""; }   // 那张平铺的画没了（撤销新建、清理）
+    if (tiled !== null) {   // 平铺的画：一张图，没有轮廓、没有面
+      outline = null; key = ""; view.setLines(new Float32Array(0), new Float32Array(0)); view.setMarks([], null); hoverLine.hidden = true; hoverLine.textContent = "";
+      empty.hidden = true;
+      const t = tiledList().find((x) => x.tex === tiled)!, b = boards.get(tiled);
+      statsLine.textContent = `平铺的画「${t.name}」 · ${sizeSay(tiled)}在模型上一张 ${mSay(t.sizeM[0])} × ${mSay(t.sizeM[1])} · 只在这里画${b ? ` · ${b.layerCount()} 层` : ""}`;
+      statsLine.hidden = !showNums;
+      frame(); return;
     }
     if (tex === null || !all.some((p) => p.tex === tex)) { tex = all[0]?.tex ?? null; key = ""; stamp = ""; }
     const p = place();
@@ -185,15 +225,21 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
   }
   /** 图：热的 = 读回落定的内容；冷的 = 存下的合成图；调试视图 = 每格归谁。键没变 = 不动。 */
   function frame(): void {
-    if (!win.isOpen() || tex === null || !outline) return;
+    if (!win.isOpen()) return;
+    if (tiled !== null) { showImage(tiled, null); return; }   // 平铺的画：热 / 冷 / 一笔开着，和下面同一套
+    if (tex === null || !outline) return;
     const p = place(); if (!p) return;
-    const hot = boards.get(tex), cold = hot ? null : boards.board(tex);
-    if (hot && hot.strokeOpen && !debugView) { live(hot); return; }   // 一笔开着（这里画的或模型上画的）：跟着变
+    showImage(tex, p);
+  }
+  /** 一张画显示什么：一笔开着 = 跟着变；热的 = 读回落定的内容；冷的 = 存下的合成图；调试视图（只有铺在坐标上的画有）= 每格归谁；都没有 = 底色。 */
+  function showImage(t: string, p: ReturnType<typeof place>): void {
+    const hot = boards.get(t), cold = hot ? null : boards.board(t), own = debugView && p !== null;
+    if (hot && hot.strokeOpen && !own) { live(hot); return; }   // 一笔开着（这里画的或模型上画的）：跟着变
     liveVer = -1;
-    const ns = debugView ? `own|${key}` : hot ? `hot|${hot.committedKey()}` : cold ? `cold|${idOf(cold.image as object)}` : `none|${p.uvSet.width}x${p.uvSet.height}`;
+    const ns = own ? `own|${key}` : hot ? `hot|${hot.committedKey()}` : cold ? `cold|${idOf(cold.image as object)}` : `none|${t}|${p ? `${p.uvSet.width}x${p.uvSet.height}` : ""}`;
     if (ns === stamp) return;
     stamp = ns;
-    if (debugView) { const c = ownerCanvas(p.uvSet.guid, p.uvSet.width, p.uvSet.height); view.setImage(c, c.width, c.height); return; }
+    if (own) { const c = ownerCanvas(p!.uvSet.guid, p!.uvSet.width, p!.uvSet.height); view.setImage(c, c.width, c.height); return; }
     if (hot) {
       const px = hot.composeBytes(); readbacks++;
       if (!px) { view.setImage(null, hot.width, hot.height); return; }
@@ -207,7 +253,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
       void createImageBitmap(new Blob([ref.bytes as BlobPart], { type: ref.mimeType ?? "image/png" })).then((bm) => { if (stamp === want) view.setImage(bm, cold.width, cold.height); else bm.close(); }).catch(() => { if (stamp === want) view.setImage(null, cold.width, cold.height); });
       return;
     }
-    view.setImage(null, p.uvSet.width, p.uvSet.height);   // 还没有内容（新开、还没打开过）= 底色
+    view.setImage(null, p?.uvSet.width ?? 1, p?.uvSet.height ?? 1);   // 还没有内容（新开、还没打开过）= 底色
   }
   /**
    * 一笔开着时：显示的那张（带着这一笔）每帧读回变了的那块（画板的变化史；第一次 / 说不清 = 整张），贴进小窗那张图。和三维那边看的是同一张合成图。
@@ -291,7 +337,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     toggle: (a) => win.toggle(a),
     open: (a) => win.open(a),
     isOpen: () => win.isOpen(),
-    sync, frame,
+    sync, frame, showTiled,
     peekWorld() {
       if (!win.isOpen() || hover === null || def === null) return null;
       const w = editor.worldGeom(), k2 = `${def}|${hover}|${w.slots.length}`;
@@ -302,7 +348,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
       return set;
     },
     probe: () => ({
-      open: win.isOpen(), def, tex, width: outline?.width ?? 0, height: outline?.height ?? 0, faces: [...(outline?.faces ?? [])],
+      open: win.isOpen(), def, tex, tiled, width: tiled !== null ? (boards.get(tiled)?.width ?? 0) : outline?.width ?? 0, height: tiled !== null ? (boards.get(tiled)?.height ?? 0) : outline?.height ?? 0, faces: [...(outline?.faces ?? [])],
       thin: (outline?.thin.length ?? 0) / 4, thick: (outline?.thick.length ?? 0) / 4, patches: outline?.patches ?? 0, covered: outline?.covered ?? 0, shared: outline?.shared ?? 0,
       selected: editingDef() ? editor.selectedMeshFaces().filter((f) => outline?.rings.has(f)) : [], hover, debugView, showNums, collapsed: win.collapsed(), readbacks, outlines, decodes, liveReads, liveCells, drawing: stroke !== null,
       hoverLine: hoverLine.textContent ?? "", statsLine: statsLine.textContent ?? "",
