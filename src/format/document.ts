@@ -188,7 +188,8 @@ export const defaultDesk = (): DeskDoc => ({ menuTabs: {}, extra: {} });
  * - 笔的 id、tool 的取值本层都不解释（不透明字符串）：本版没有的笔、每支笔里不认识的键、paint 里不认识的键都原样带回（各自的 extra）。
  *   active 指着本版没有的笔 = app 用这种 tool 默认的那支，这里原样带回。
  * - 1.5 的 tools（{ <工具名>: { size?, opacity?, hardness? } }）保留读、停止写：paintPen 读成普通笔（pen）的旋钮、paintEraser 读成橡皮（eraser）的（LEGACY_PAINT_TOOLS）。
- *   只有 1.5 及更早的版本会写 tools，所以它在 = 这份文件最后是那种版本存的，它比 brushes 里同一支笔的新，以它为准。
+ *   只有 1.5 及更早的版本会写 tools，所以它在 = 这份文件最后是那种版本存的，它比 brushes 里同一支笔的新，以它为准——只盖它带着的那几个数，
+ *   这支笔在 brushes 里原有的不认识的键留着（以后的版本给旋钮加了键 → 被 1.5 打开改了大小再存 → 回到新版本，那个键还在；统筹 11-12）。
  *   tools 里不认识的工具名原样带回（写回去的 tools 只剩它们）；tools 本身不是对象 = 原样带回。
  * - brushes / active 本身不是对象（数组、字符串……）：原样放进 extra 带回；这时候没有认识的条目，写回去的就是它。有认识的条目时以认识的为准。paint 本身不是对象 = 当没有。
  * - size 的含义和单位由笔自己定；这一版的几支笔 = 直径，屏幕上的 CSS 像素（user 11-10「笔的大小应该是屏幕大小，因为这个是你的语义」；不换国际单位）。
@@ -227,7 +228,12 @@ export function paintDeskOf(raw: unknown): PaintDeskDoc | undefined {
   }
   if (isRecord(legacy)) for (const [name, t] of Object.entries(legacy)) {
     const id = LEGACY_PAINT_TOOLS[name];
-    if (id !== undefined && isRecord(t)) out.brushes[id] = knobsOf(t);   // 1.5 的工具 → 那支笔的旋钮（比 brushes 新）
+    if (id !== undefined && isRecord(t)) {   // 1.5 的工具 → 那支笔的旋钮（比 brushes 新）：只盖 tools 里有的那几个认识的数，这支笔在 brushes 里原有的不认识的键留着
+      const k = knobsOf(t), b = out.brushes[id];
+      if (!b) { out.brushes[id] = k; continue; }
+      for (const n of ["size", "opacity", "hardness"] as const) if (k[n] !== undefined) b[n] = k[n];
+      Object.assign(b.extra, k.extra);
+    }
     else carry("tools", name, t);   // 不认识的工具名 / 值不是对象：原样带回
   }
   return out;

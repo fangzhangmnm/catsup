@@ -106,6 +106,15 @@ describe("CATSUP_desk 桌面态", () => {
     eq(back.desk.paint?.brushes.pen.size, 30, "普通笔 = tools 里那个");
     eq(back.desk.paint?.brushes.ink.size, 9, "别的笔照 brushes");
   });
+  it("tools 盖 brushes 里同一支笔时只盖它带着的数：这支笔在 brushes 里不认识的键、tools 没带的数都留着（以后的版本加的旋钮键被 1.5 存过一次不丢）", () => {
+    const { json, bin } = jsonOf(writeCatsup(fresh()));
+    // 新版本存的：普通笔带一个本版不认识的旋钮键 grain、还有浓度 0.4 → 1.5 打开、只改了大小再存（1.5 会把 brushes 原样带回、tools 里写它知道的三个数里改过的）
+    json.extensions.CATSUP_desk.paint = { brushes: { pen: { size: 5, opacity: 0.4, grain: 0.7 } }, tools: { paintPen: { size: 30, legacyOnly: true } } };
+    const back = readCatsup(encodeGlb(json, bin));
+    const pen = back.desk.paint!.brushes.pen;
+    eq(pen.size, 30, "大小 = tools 里那个"); eq(pen.opacity, 0.4, "tools 没带浓度 = 留 brushes 的");
+    eq(JSON.stringify(jsonOf(writeCatsup(back)).json.extensions.CATSUP_desk.paint), JSON.stringify({ brushes: { pen: { grain: 0.7, legacyOnly: true, size: 30, opacity: 0.4 } } }), "写回：grain 还在，tools 里那条不认识的键也带过来，tools 不再写");
+  });
   it("类型不对的已知键不当值、原样带回；brushes / active 不是对象 = 原样带回，有认识的条目时以认识的为准；paint 不是对象 = 没有", () => {
     const back = (paint: unknown) => { const { json, bin } = jsonOf(writeCatsup(fresh())); json.extensions.CATSUP_desk.paint = paint; return readCatsup(encodeGlb(json, bin)); };
     const b = back({ color: "red", brushes: { pen: { size: "big", opacity: 0.5 }, odd: 7 }, active: { brush: 3, eraser: "eraser" } });
