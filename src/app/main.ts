@@ -1246,10 +1246,10 @@ const viewMenuBtn = document.createElement("button");
 viewMenuBtn.type = "button"; viewMenuBtn.dataset.opensWindow = ""; viewMenuBtn.className = "gizmo-btn gizmo-menu"; viewMenuBtn.title = "渲染"; viewMenuBtn.innerHTML = iconHtml("sliders");   // 滑杆 = 调视图（user 10-30「视图按钮换一个icon」：以前和左上 ☰ 同一个图标）
 ($("viewGizmo").querySelector(".gizmo-top") as HTMLElement).appendChild(viewMenuBtn);
 // 参考窗钮（user 10-30「视图设置就是视图设置，然后参考窗按钮放在视图设置旁边」）：点一下开 / 关，开着 = 亮（跟着窗口的 open 走，窗口自己的 × 关了也灭）
-const refBtn = document.createElement("button"); refBtn.type = "button"; refBtn.dataset.opensWindow = ""; refBtn.className = "gizmo-btn gizmo-ref"; refBtn.title = "参考窗：参考图 · 文字 · 视频（开着时 Ctrl+V 直接贴进来）"; refBtn.innerHTML = iconHtml("image");
+const refBtn = document.createElement("button"); refBtn.type = "button"; refBtn.dataset.opensWindow = ""; refBtn.className = "gizmo-btn gizmo-ref"; refBtn.title = "参考窗：参考图 · 文字 · 视频（开着时 Ctrl+V 直接贴进来）"; refBtn.innerHTML = iconHtml("picture-in-picture");
 viewMenuBtn.before(refBtn);   // 视图钮左边（user 10-30「参考窗按钮放在视图按钮左边」）
 // 画布小窗钮（施工单十六第二节；版图文档 2026-11-11 追记）：参考窗钮左边；这个文件里有画才露（看数据不分工作台）；开着 = 亮
-const canvasBtn = document.createElement("button"); canvasBtn.type = "button"; canvasBtn.dataset.opensWindow = ""; canvasBtn.className = "gizmo-btn gizmo-canvas"; canvasBtn.title = "画布小窗：这个物件的画铺在画布上的样子（只看）"; canvasBtn.innerHTML = iconHtml("checkerboard-background");
+const canvasBtn = document.createElement("button"); canvasBtn.type = "button"; canvasBtn.dataset.opensWindow = ""; canvasBtn.className = "gizmo-btn gizmo-canvas"; canvasBtn.title = "画布小窗：这个物件的画铺在画布上的样子（只看）"; canvasBtn.innerHTML = iconHtml("image");
 refBtn.before(canvasBtn);
 // eslint-disable-next-line no-var
 var canvasWin: CanvasWindow | null = null;   // var：每帧的准备 / 渲染的 viewExtras 比它先写
@@ -1279,6 +1279,7 @@ async function createTiledPaint(px: number, m: number): Promise<string | null> {
   const S = editor.sceneRef, n = S.materials.filter((x) => S.tiledPaintOf(x)).length + 1, name = `平铺的画 ${n}`, tex = mintGuid();
   try { editor.commitOp({ op: "addTiledPaint", textureGuid: tex, materialGuid: mintGuid(), name, ora, sizeM: [m, m], color: [1, 1, 1] }); }
   catch (e) { hintEl.textContent = String((e as { say?: string }).say ?? (e instanceof Error ? e.message : e)); funnel(e, "warning"); return null; }
+  if (!editor.sceneRef.textures.has(tex)) return null;   // 被拒（锁着……）：原因已在状态栏（一步收尾写的），不开小窗、不说「建好了」（统筹 11-13，和 a12b 同一种假话）
   mountCanvasWin().showTiled(tex, canvasBtn); syncUi();
   hintEl.textContent = `建好了「${name}」：在画布小窗里画；用油漆桶选「${name}」这个材质涂到面上`;
   return tex;

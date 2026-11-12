@@ -169,19 +169,21 @@ check(own.debug && !grey(own.face) && grey(own.corner), `面上的格子上了�
 console.log("\n⑦½ 壳（照参考窗）：左上圆钮点 = 收起 / 恢复、拖 = 挪窗；收起后拖小图标挪位置；右下角改大小；浏览器窗口缩小后还在屏幕里");
 const knob = async () => { const b = await page.locator('.float-win[data-win="canvas"] .wbe-float-knob').boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
 const r0 = await rect();
+const railR = (await page.locator(".hud-rail-tools").boundingBox())?.x + (await page.locator(".hud-rail-tools").boundingBox())?.width;
+check(r0.x + r0.w / 2 < 640 && r0.x >= railR, `第一次开在左边、让开工具柱（窗 x ${Math.round(r0.x)}，工具柱右边 ${Math.round(railR)}；user 11-12「是context aware panel，不是viewport」）`);
 let k = await knob(); await page.mouse.click(k.x, k.y); await frames(2);
 const r1 = await rect(), col1 = (await W()).collapsed;
 k = await knob(); await page.mouse.click(k.x, k.y); await frames(2);
 const r2 = await rect(), col2 = (await W()).collapsed;
 check(col1 && Math.round(r1.w) === 44 && Math.round(r1.h) === 44 && Math.abs(r1.x - r0.x) < 1 && Math.abs(r1.y - r0.y) < 1 && !col2 && Math.abs(r2.w - r0.w) < 1 && Math.abs(r2.h - r0.h) < 1,
   `点左上圆钮：收成 ${Math.round(r1.w)} × ${Math.round(r1.h)}、位置不动；再点：恢复 ${Math.round(r2.w)} × ${Math.round(r2.h)}（原来 ${Math.round(r0.w)} × ${Math.round(r0.h)}）`);
-k = await knob(); await page.mouse.move(k.x, k.y); await page.mouse.down(); await page.mouse.move(k.x - 60, k.y + 40, { steps: 6 }); await page.mouse.up(); await frames(2);
+k = await knob(); await page.mouse.move(k.x, k.y); await page.mouse.down(); await page.mouse.move(k.x + 60, k.y + 40, { steps: 6 }); await page.mouse.up(); await frames(2);
 const r3 = await rect();
-check(!(await W()).collapsed && Math.abs(r3.x - (r0.x - 60)) < 2 && Math.abs(r3.y - (r0.y + 40)) < 2, `按住左上圆钮拖：窗挪了（${Math.round(r0.x)},${Math.round(r0.y)} → ${Math.round(r3.x)},${Math.round(r3.y)}）、没收起`);
+check(!(await W()).collapsed && Math.abs(r3.x - (r0.x + 60)) < 2 && Math.abs(r3.y - (r0.y + 40)) < 2, `按住左上圆钮拖：窗挪了（${Math.round(r0.x)},${Math.round(r0.y)} → ${Math.round(r3.x)},${Math.round(r3.y)}）、没收起`);
 k = await knob(); await page.mouse.click(k.x, k.y); await frames(1);
-k = await knob(); await page.mouse.move(k.x, k.y); await page.mouse.down(); await page.mouse.move(k.x - 50, k.y + 30, { steps: 6 }); await page.mouse.up(); await frames(2);
+k = await knob(); await page.mouse.move(k.x, k.y); await page.mouse.down(); await page.mouse.move(k.x + 50, k.y + 30, { steps: 6 }); await page.mouse.up(); await frames(2);
 const r4 = await rect();
-check((await W()).collapsed && Math.abs(r4.x - (r3.x - 50)) < 2 && Math.abs(r4.y - (r3.y + 30)) < 2, "收起后拖那颗小图标：挪了位置、还是收着");
+check((await W()).collapsed && Math.abs(r4.x - (r3.x + 50)) < 2 && Math.abs(r4.y - (r3.y + 30)) < 2, "收起后拖那颗小图标：挪了位置、还是收着");
 k = await knob(); await page.mouse.click(k.x, k.y); await frames(1);
 const r5 = await rect(), g = await page.locator('.float-win[data-win="canvas"] .wbe-float-grip').boundingBox();
 await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2); await page.mouse.down(); await page.mouse.move(g.x + g.width / 2 + 70, g.y + g.height / 2 + 50, { steps: 6 }); await page.mouse.up(); await frames(2);

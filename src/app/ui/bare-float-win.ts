@@ -19,6 +19,8 @@ export interface BareFloatWinSpec {
   more?: { items(): PopupMenuItem<string>[]; onPick(id: string): void | "keep" };
   /** 最小宽高。 */
   min: { w: number; h: number };
+  /** 第一次打开放哪：anchor（缺省）= 挨着钮；left = 靠左、让开左边的工具柱（跟着选中的东西变的面板，不是一块视图——user 11-12「画布小窗应该放在左侧而不是右侧？因为是context aware panel，不是viewport」）。 */
+  firstSide?: "anchor" | "left";
   onOpenChange?(open: boolean): void;
 }
 export interface BareFloatWin {
@@ -72,7 +74,7 @@ export function createBareFloatWin(spec: BareFloatWinSpec): BareFloatWin {
     open(anchor) {
       const was = win.isOpen();
       win.open();
-      if (!was && !placed) { const a = anchor.getBoundingClientRect(), w = el.offsetWidth || 440; win.restore({ left: a.right - w, top: a.bottom + 6 }); placed = true; }   // 第一次挨着钮；之后照这一次打开期间最后的位置
+      if (!was && !placed) { const a = anchor.getBoundingClientRect(), w = el.offsetWidth || 440, rail = spec.firstSide === "left" ? document.querySelector(".hud-rail-tools")?.getBoundingClientRect() : undefined; win.restore({ left: spec.firstSide === "left" ? (rail ? rail.right + 8 : 12) : a.right - w, top: a.bottom + 6 }); placed = true; }   // 第一次挨着钮；之后照这一次打开期间最后的位置
       win.clamp();
     },
     close: () => win.close(),

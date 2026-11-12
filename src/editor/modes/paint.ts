@@ -40,7 +40,7 @@ class EyedropTool implements ToolHandler {
 
 export class PaintMode implements Mode {
   readonly id = "paint" as const;
-  readonly label = "画画";
+  readonly label = "绘制";   // 界面上的名字（user 11-12「工作流面板上面画画改名绘制」；id 和文件里的键不动）
   readonly kinds = ["mesh"] as const;
   readonly showsSeams = true;   // 画的时候看得见展开从哪切开（施工单二十二 B）
   readonly tools: readonly Tool[] = ["paintPen", "paintEraser", "eyedrop"];

@@ -113,6 +113,7 @@
   "probe-paint-save.mjs": {"state":"green","redline":true},
   "probe-paint-scale.mjs": {"state":"green","role":"perf"},
   "probe-paint-undo.mjs": {"state":"green","redline":true},
+  "probe-step-atomic.mjs": {"state":"green"},
   "probe-paint-workbench.mjs": {"state":"green","perfArgs":["--perf"]},
   "probe-password.mjs": {"state":"green"},
   "probe-paste-conflict.mjs": {"state":"green"},

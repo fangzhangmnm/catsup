@@ -62,6 +62,7 @@ import { pointsCenter } from "./point-center.ts";   // 选择中心的两种算�
 import { type BreakTicksCache, breakTicksOf } from "./break-ticks.ts";
 import { PRESETS } from "./presets.ts";
 import { type Op, OpRejected, edgeKey, faceKey, resolveEdge, resolveFace, applyOp } from "./ops.ts";
+import { scopeText as scopeSay, eraseAskText } from "./repair-say.ts";   // 修复 / 擦线对人说的话（纯函数，2026-11-13 搬出本体）
 import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
@@ -261,11 +262,11 @@ export class Editor {
     this.host.changed();
     this.draw();
   }
-  private history = new History<Session>();
+  private history = new History<Session>(undefined, { onLeak: (w) => this.host?.trace?.({ kind: "fail", where: "history", op: null, message: `停放的重做尾巴漏到了「${w}」（已丢掉）` }) });
   /** 上一次经过选区口子 / 装场景时的会话：选区变了 = 记一步「只改选区」（撤销也撤选区，user 10-27「这个我们要」；连续几下不合并，Blender 同款）。上下文变了（进 / 出组件）不算选区步，只刷新。 */
   private static sessionKey(s: Session): string { return JSON.stringify(s); }
   private _tool: Tool = "select";   // 开机 = 鼠标（选择）工具（user 10-27「硬建模默认也是鼠标工具」）
-  private _revision = 0;                  // 场景每次变（commit/undo/redo/load/进出上下文）+1；碰撞世界等消费方据此重建
+  private _revision = 0;                  // 场景每次变（commit/undo/redo/load/进出上下文）+1；碰撞世界等消费方据此重建（只增不回拨：缓存按它认场景）
 
   // ---- 瞬态 ----
   private anchor3: Pt3 | null = null;
@@ -351,7 +352,7 @@ export class Editor {
   private stepHasOp = false;
   /** 这一步已提交了几条 / 有没有失败过（一步 = 原子：中途有一条失败 → 这一步已提交的全部回滚、剩下的不再执行；2026-10-26）。 */
   private stepOps = 0;
-  private stepFailed = false;
+  private stepFailed = false; private stepReason: string | null = null; private stepBumped = false; private _docRevision = 0;   // 一步全有或全无（统筹 11-13）：reason = 第一次被拒 / 出错的原因，收尾时写回状态栏；bumped = 这一步里换过场景，成功收尾时 docRevision 才加
   private stepTouched = false;                   // 这一步里会话（选区 / 上下文）被写过（写口 clearSel / setCtx / afterSelect 标）
   private stepBefore: Session | null = null;     // 这一步开始前的会话（手势按下时点选的那份延后到落定那一步）
   private stepLabel: StepLabel | undefined;      // 这一步的标签（提示行「撤销：建组」）
@@ -568,6 +569,8 @@ export class Editor {
   get context(): EditContext { return this.ctx; }
   get renderer3(): RenderProvider { return this.r3; }
   get revision(): number { return this._revision; }
+  /** 文档的改动号（「有没有改动」/ 自动保存只看它，session）：跟 revision 一起加，但一步之内的先记着、成功收尾才算一次，失败的步不算（失败的一步什么都没改）。 */ get docRevision(): number { return this._docRevision; }
+  private rev(): void { this._revision++; if (this.stepDepth > 0) this.stepBumped = true; else this._docRevision++; }
   canUndo(): boolean { return this.history.canUndo(); }
   canRedo(): boolean { return this.history.canRedo(); }
   /** 有任何选中（含参考几何）= 删除 / 取消选择 / 反选 / Esc 问这个；有工具能动的选中（点 / 边 / 面 / 组 / 组件）= 移动 / 旋转 / 缩放 / 建组 / 拷贝 / 镜像问这个。 */
@@ -991,7 +994,7 @@ export class Editor {
    */
   private sessionSnap(): Session { return { ctx: { chain: [...this.ctx.chain], group: this.ctx.group }, sel: this.selSnap() }; }
   private sessionRestore(s: Session | undefined): void {
-    if (s) { const c = this.validCtx(s.ctx); if (this.ctxKeyOf(c) !== this.ctxKey()) { this.ctx = c; if (c.chain.length === 0 && c.group === null) this._isolate = false; this._revision++; } }
+    if (s) { const c = this.validCtx(s.ctx); if (this.ctxKeyOf(c) !== this.ctxKey()) { this.ctx = c; if (c.chain.length === 0 && c.group === null) this._isolate = false; this.rev(); } }
     this.syncModeToKind();
     this.selRestore(s?.sel);
   }
@@ -1021,7 +1024,7 @@ export class Editor {
   }
   /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
   private step<T>(fn: (pass: StepPass) => T, label?: StepLabel): T {
-    if (this.stepDepth++ === 0) { this.mirrorNote = ""; this.mirrorNoteShown = false; this.mirrorDeferred = false; this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; this.stepTouched = false; this.stepBefore = this.deferredBefore ?? this.sessionSnap(); this.stepLabel = label; }
+    if (this.stepDepth++ === 0) { this.history.checkParked("step"); this.mirrorNote = ""; this.mirrorNoteShown = false; this.mirrorDeferred = false; this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; this.stepReason = null; this.stepBumped = false; this.stepTouched = false; this.stepBefore = this.deferredBefore ?? this.sessionSnap(); this.stepLabel = label; }
     else if (label && !this.stepLabel) this.stepLabel = label;
     try { return fn(STEP_PASS); }
     finally { if (--this.stepDepth === 0) this.closeStep(); }
@@ -1033,9 +1036,10 @@ export class Editor {
    */
   private closeStep(): void {
     this.typing.sync();   // 打的数一次手势一份 / 一步一份：去向变了就清（typed-input.ts）
-    const before = this.stepBefore ?? this.sessionSnap(), label = this.stepLabel, touched = this.stepTouched, hadOp = this.stepHasOp && !this.stepFailed, failed = this.stepFailed, ops = this.stepOps;
-    this.stepBefore = null; this.stepLabel = undefined; this.stepTouched = false;
-    if (failed) { this.deferredBefore = null; this.sessionRestore(before); this.host.changed(); return; }
+    const before = this.stepBefore ?? this.sessionSnap(), label = this.stepLabel, touched = this.stepTouched, hadOp = this.stepHasOp && !this.stepFailed, failed = this.stepFailed, ops = this.stepOps, reason = this.stepReason, bumped = this.stepBumped, doc0 = this._docRevision;
+    this.stepBefore = null; this.stepLabel = undefined; this.stepTouched = false; this.stepReason = null; this.stepBumped = false;
+    if (failed) { this.deferredBefore = null; this.sessionRestore(before); this._docRevision = doc0; this.host.changed(); if (reason) this.host.hint(reason); return; }   // 失败的步 = 没这一步：会话退回、文档不算改过（退回会话那一下也不算），状态栏最后说的是原因（谁写过成功都不作数；a12b 那句假的「建了组件」）
+    this.history.discardParkedRedo(); if (bumped) { this._docRevision++; this.host.changed(); }   // 成功：停着的重做尾巴真丢；文档算改过一次（一步之内 session 看不到半截）
     if (hadOp) {
       this.deferredBefore = null;
       this.history.sealStep(this.sessionSnap(), label);
@@ -1221,16 +1225,16 @@ export class Editor {
     // 工作流亚种（DT87）的唯一口：挪点自动折出的折缝带哪些边层，写进 op（日志重放一致），不靠全局状态。 自由建模工作台 = 折线；其余（SketchUp 式）= **硬边、看得见**（user 2026-10-27 先说改软 + 平滑、同日改回：「因为看不见的东西很谜语人，我们的披露原则」「我想了下还是折硬边」「就像折纸一样。你会先画一道」；SketchUp 的自动折缝也是可见硬边——新手常问「一挪点面上怎么多了条斜线」）。v0.15.2 曾默认软 + 平滑，v0.15.3 撤回。Claude Fable 5.1
     const rw = this.prepareOp(op0), op: Op = upkeepRewrite(this.forceEnv, rw.op);   // upkeepRewrite：强行对称下「开始画」只铺留着的那半（1-3b）   // 镜像：挪点的纪律（钉 / 不穿 / 并；镜像编辑补对面，FM134 / UX31）
     if (rw.note) this.mirrorNote = rw.note;
-    { const h = this.host.editHold?.(); if (h?.kind === "lock") { this.host.hint(h.why); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (presentation)" }); return []; } }
-    if (opTouchesLocked(this.scene, op, () => this.contextLocked())) { this.host.hint(LOCKED_HINT); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     if (this.stepDepth > 0 && this.stepFailed) return [];   // 这一步前面已经失败并回滚了：剩下的不再执行（不留半截）
+    { const h = this.host.editHold?.(); if (h?.kind === "lock") return this.refuseStep(op, h.why, "locked (presentation)"); }
+    if (opTouchesLocked(this.scene, op, () => this.contextLocked())) return this.refuseStep(op, LOCKED_HINT, "locked (object)");
     const t0 = performance.now();
     const join = this.stepDepth > 0 && this.stepHasOp, before = join ? undefined : (this.stepBefore ?? this.sessionSnap());   // 新的一步：它之前的会话（步开始时记的；手势按下时点选的那份延后进来）
     const label = join ? undefined : (this.stepLabel ?? opLabel(op));
     if (this.forceOriginAsk(op)) return [];   // 强行对称第 1 层：换原点 / 应用缩放会把模型挪到镜像面一边 = 先问
     const symBefore = upkeepSnapshot(this.forceEnv, op);   // 强行对称：这一步之前的样子（判「动了哪边」）+ 画：每个网格体的版本号和改动日志的号（1-3b）
     let r: ReturnType<History["commit"]>;
-    try { r = perf.time("commit", () => this.history.commit(this.scene, op, join, before, label)); }
+    try { r = perf.time("commit", () => this.history.commit(this.scene, op, join, before, label, true)); }
     catch (err) {
       const cause = err instanceof OpApplyError ? err.cause : err;
       if (err instanceof OpApplyError) this.installScene(err.restored);
@@ -1238,7 +1242,7 @@ export class Editor {
       let preBrep: BrepSnapshot | undefined;
       try { preBrep = this.scene.kernelOf(pool).toBrep(); } catch { /* 池在这一步里才建出来 */ }   // 复现包要「失败那条之前」——回滚整步之前先留
       this.rollbackStep();   // 一步 = 原子：这一步前面已提交的也撤掉，重做队列里不留半截
-      if (cause instanceof OpRejected) { this.host.trace?.({ kind: "fail", where: "commit", op, message: cause.message }); this.host.hint(cause.message); this.host.changed(); this.draw(); return []; }   // 护栏拒绝：不是崩溃，不弹错误胶囊
+      if (cause instanceof OpRejected) { this.stepReason ??= cause.message; this.host.trace?.({ kind: "fail", where: "commit", op, message: cause.message }); this.host.hint(cause.message); this.host.changed(); this.draw(); return []; }   // 护栏拒绝：不是崩溃，不弹错误胶囊
       this.host.trace?.({ kind: "fail", where: "commit", op, message: cause instanceof Error ? cause.message : String(cause), ...(preBrep ? { brep: preBrep } : {}), pool });
       this.fail("commit", cause);
       return [];
@@ -1256,6 +1260,8 @@ export class Editor {
     this.host.afterCommit?.(); this.host.changed();   // afterCommit：画板跟大小、那几步挂进这一步（1-8a）   // HUD（撤销钮 / 选项条 / 数值小窗）随每个 op 刷新
     return r.events;
   }
+  /** 锁着（演示锁 / 物件锁）拒了这一条：和护栏拒绝一样，这一步整个不算——已提交的回滚、后面的不再做、原因收尾时写回状态栏（以前只跳过这一条，一步里有好几条时会落半步）。 */
+  private refuseStep(op: Op, why: string, message: string): FaceEvent[] { this.host.trace?.({ kind: "fail", where: "commit", op, message }); this.rollbackStep(); this.stepReason ??= why; this.host.hint(why); this.host.changed(); this.draw(); return []; }
   /** 一步中途失败：把这一步已经提交的 op 撤掉（回到这一步之前，连会话），丢掉重做队列，这一步剩下的提交一律不执行。 */
   private rollbackStep(): void {
     if (this.stepDepth === 0) return;
@@ -1263,12 +1269,12 @@ export class Editor {
     if (!this.stepOps) return;
     let sc: Scene | null = null, before: Session | undefined;
     for (let i = 0; i < this.stepOps; i++) { const r = this.history.undoOp(); if (!r) break; sc = r.scene; before = r.before ?? before; this.opCount--; }
-    this.history.dropRedo();
+    this.history.restoreParkedRedo();   // 丢掉这半截、把这一步之前的重做尾巴放回原处（失败的一步什么都没改）
     this.stepOps = 0; this.stepHasOp = false;
     if (sc) this.installScene(sc, before);
   }
   private bump(): void {
-    this._revision++;
+    this.rev();
     // 上下文可能已不存在（撤掉了建组 / 建组件 / 复制）→ 退到还在的最深一层
     const c = this.validCtx(this.ctx);
     if (this.ctxKeyOf(c) !== this.ctxKey()) { this.ctx = c; if (c.chain.length === 0 && c.group === null) this._isolate = false; }
@@ -1301,16 +1307,16 @@ export class Editor {
     }
   }
   private fail(where: string, err: unknown): void {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = err instanceof Error ? err.message : String(err), text = `操作失败（${where === "commit" ? "提交" : "预演"}）：${msg}`;
     this.host.error?.(err, where);
-    this.host.hint(`操作失败（${where === "commit" ? "提交" : "预演"}）：${msg}`);
+    this.host.hint(text); if (where === "commit" && this.stepDepth > 0) this.stepReason ??= text;
   }
 
   // —— 外加的撤销成分（画，1-8a；施工单 ai-docs/20261111-paint-workorders-12.md）：登记（换文件新建的栈也带上）/ 在栈顶那一步挂记录 / 一步只有记录（文档算改过）/ 摘记录 ——
   private undoExtras: UndoComponent[] = [];
   registerUndoComponent<R>(c: UndoComponent<R>): void { this.undoExtras.push(c as UndoComponent); this.history.registerComponent(c as UndoComponent); }
   recordUndo(kind: string, data: unknown): void { this.history.record(kind, data); }
-  commitRecordsStep(label: StepLabel, records: readonly { readonly kind: string; readonly data: unknown }[]): void { if (!records.length) return; this.history.commitRecords(this.sessionSnap(), label, records); this._revision++; this.host.changed(); }
+  commitRecordsStep(label: StepLabel, records: readonly { readonly kind: string; readonly data: unknown }[]): void { if (!records.length) return; this.history.commitRecords(this.sessionSnap(), label, records); this.rev(); this.host.changed(); }
   dropUndoRecords(kind: string, pred: (d: unknown) => boolean): number { const n = this.history.dropRecords(kind, pred); this.host.changed(); return n; }
   /** 撤销 / 重做没做成（整步事务：什么都没动）：提示行说原因（翻回去也失败、已作废的那几样一起说）。 */
   private flipRefused(what: "撤销" | "重做", e: StepFlipError): void { this.host.hint(`${what}没做成：${e.message}${e.untrusted.length ? `；${e.untrusted.join("；")}` : ""}`); this.host.trace?.({ kind: "fail", where: what === "撤销" ? "undo" : "redo", op: null, message: e.message }); this.host.changed(); this.draw(); }
@@ -1365,8 +1371,8 @@ export class Editor {
     this.cancelGesture();
     this.scene = s;
     this.ctx = ROOT_CONTEXT;   // 装场景：不经写口
-    this.history = new History<Session>(s); for (const c of this.undoExtras) this.history.registerComponent(c);   // 外加的撤销成分（画）换文件也带上
-    this._revision++;
+    this.history.checkParked("load"); this.history = new History<Session>(s, { onLeak: (w) => this.host?.trace?.({ kind: "fail", where: "history", op: null, message: `停放的重做尾巴漏到了「${w}」（已丢掉）` }) }); for (const c of this.undoExtras) this.history.registerComponent(c);   // 外加的撤销成分（画）换文件也带上
+    this.rev();
     this.selection = this.blankSelection(); this.selectedPools.clear(); this.selectedGuides.clear();   // 装场景：不经写口
     this.clearCharged();
     this.syncModeToKind();   // 人回到根上：工作台跟着根的身体种类走（2026-10-28 user 黑匣子「definition 1 body is "brep", not mesh」= 在网格体里重开模型，工作台还停在自由建模）
@@ -1758,7 +1764,7 @@ export class Editor {
     if (!this.canMakeComponent()) { this.host.hint("建组件：先在网格体里选要做成组件的面"); return false; }
     const def = this.activePool().def, faces = [...(this.selection as { faces: Set<number> }).faces].sort((a, b) => a - b);
     const before = new Set(this.scene.def(def).instances.keys());
-    this.commitIn(pass, { op: "separateObject", at: { def, group: null }, def, faces, name });
+    this.commitIn(pass, { op: "separateObject", at: { def, group: null }, def, faces, name }); if (this.stepFailed) return false;   // 被拒（比如带着画的面）：不往下说「建了组件」（a12b，统筹 11-13）
     this.clearSel(pass);
     const fresh = [...this.scene.def(def).instances.keys()].find((id) => !before.has(id));
     if (fresh !== undefined) this.selectedPools.set(`i${fresh}`, { kind: "instance", instance: fresh });
@@ -1971,7 +1977,7 @@ export class Editor {
     const mode: "selection" | "context" = scope === "auto" && (geoSel || this.selectedPools.size > 0) ? "selection" : "context";
     const out: RepairScope = { pools: [], mode, components: 0, copies: 0, locked: 0 };
     const seenPool = new Set<string>(), seenDef = new Set<DefId>([ctxDef]);
-    const addPool = (at: PoolRef, sel: BrepSelection | null, xf: Xform = IDENTITY): void => { const key = `${at.def}/${at.group ?? "root"}`; if (seenPool.has(key) || s.def(at.def).body.kind !== "brep") return; seenPool.add(key); out.pools.push({ kind: "brep", at, sel, xf }); };
+    const addPool = (at: PoolRef, sel: BrepSelection | null, xf: Xform = IDENTITY): void => { const key = `${at.def}/${at.group ?? "root"}`; if (seenPool.has(key) || s.def(at.def).body.kind !== "brep") return; seenPool.add(key); if (s.poolLocked(at)) { out.locked++; return; } out.pools.push({ kind: "brep", at, sel, xf }); };
     const groupsUnder = (def: DefId, gid: GroupId | null): GroupId[] => {
       const body = s.def(def).body;
       if (body.kind !== "brep") return [];
@@ -2007,12 +2013,6 @@ export class Editor {
       } else { const inst = s.def(ctxDef).instances.get(p.instance); if (inst) addInst(inst); }
     }
     return out;
-  }
-  /** 提示行的「作用于」那半句（披露）。 */
-  private scopeText(sc: RepairScope): string {
-    const where = sc.mode === "selection" ? "选中的" : "整个物件";
-    const parts = [sc.components ? `含 ${sc.components} 个组件、共 ${sc.copies} 份` : "", sc.locked ? `锁着的 ${sc.locked} 个跳过` : ""].filter(Boolean);
-    return `作用于：${where}${parts.length ? `；${parts.join("；")}` : ""}`;
   }
   /** 修复模块（repairs/）用的窄接口：模块不碰 Editor 本体。 */
   private get repairCtx(): CommandEnv {
@@ -2254,7 +2254,7 @@ export class Editor {
     const notes = new Set<string>();
     for (const p of pools) { const r = this.repairPlan(kind, p.at, p.sel, v, p.xf); ops.push(...r.ops); count += r.count; extra += r.extra ?? 0; skipped += r.skipped ?? 0; for (const n of r.notes ?? []) notes.add(n); }
     const skipText = `${skipped && names.skippedText ? `；${names.skippedText(skipped, v)}` : ""}${[...notes].map((n) => `；${n}`).join("")}`;
-    const scopeText = `${this.scopeText(sc)}${skipText}`;
+    const scopeText = `${scopeSay(sc)}${skipText}`;
     if (!ops.length) return { count: 0, text: names.none, scope: scopeText, failed: false };
     // 会挪点的修复（tally：拉正 / 吸到格点）的披露：合并了几个点（落到同一格点）、面多了几张（折开 / 三角化）——账本 DT4「预演照样报『合并 N 点 / 折 M 张面』」
     const tally = (): { v: number; f: number } => { let nv = 0, nf = 0; for (const p of sc.pools) { const k = this.scene.kernelOf(p.at); nv += k.vertices().length; nf += k.faces().length; } return { v: nv, f: nf }; };
@@ -2275,7 +2275,7 @@ export class Editor {
     const est = this.host.confirm ? this.eraseEstimate([{ kind, v: v0 }], scope) : null;
     if (est) {
       const title = this.repairModule(kind).title;
-      void this.host.confirm!(`${title}：要等一会儿`, this.eraseAskText(title, est), "做（会卡住一会儿）").then((ok) => { if (ok) this.runSlow(title, () => this.repairNow(kind, scope, v0)); else { this.host.hint(`${title}：没做（你选了不做）`); this.draw(); } });
+      void this.host.confirm!(`${title}：要等一会儿`, eraseAskText(title, est), "做（会卡住一会儿）").then((ok) => { if (ok) this.runSlow(title, () => this.repairNow(kind, scope, v0)); else { this.host.hint(`${title}：没做（你选了不做）`); this.draw(); } });
       return 0;
     }
     return this.repairNow(kind, scope, v0);
@@ -2293,10 +2293,6 @@ export class Editor {
       edges += r.erases; faces = Math.max(faces, F); seconds += Editor.ERASE_REF.seconds * (F / Editor.ERASE_REF.faces);
     }
     return edges && seconds >= Editor.ERASE_ASK_SECONDS ? { edges, seconds, faces } : null;
-  }
-  private eraseAskText(title: string, e: { edges: number; seconds: number; faces: number }): string {
-    const t = e.seconds < 90 ? `${Math.round(e.seconds)} 秒` : `${(e.seconds / 60).toFixed(1)} 分钟`;
-    return `${title}要擦掉 ${e.edges} 条面和面之间的线。内核现在每擦一次线都要把整个物件重新整理一遍（这里最大的物件有 ${e.faces} 张面），估计要 ${t} 左右，期间界面会卡住——按坦克 3.2 万面实测一次约 95 秒推算，只是量级。要做吗？`;
   }
   private repairNow(kind: RepairKind, scope: "auto" | "context", v0: Record<string, ParamValue>): number { return this.step((pass) => {
     const go = (v: Readonly<Record<string, ParamValue>>): number => {
@@ -2400,15 +2396,15 @@ export class Editor {
     const apply = (): void => {
       // 大物体上要擦线：先问（同编辑条入口）
       const est = this.host.confirm ? this.eraseEstimate(REPAIR_STEPS.filter((s) => vals[s.command]).map((s) => ({ kind: s.command, v: { ...this.repairDefaults(s.command), children: vals.children !== false } })), "auto") : null;
-      if (est) { void this.host.confirm!("修复：要等一会儿", this.eraseAskText("这几步", est), "做（会卡住一会儿）").then((ok) => { if (ok) this.runSlow("修复", applyNow); else { this.host.hint("修复：没做（你选了不做）"); this.draw(); } }); return; }
+      if (est) { void this.host.confirm!("修复：要等一会儿", eraseAskText("这几步", est), "做（会卡住一会儿）").then((ok) => { if (ok) this.runSlow("修复", applyNow); else { this.host.hint("修复：没做（你选了不做）"); this.draw(); } }); return; }
       applyNow();
     };
     const applyNow = (): void => { this.step((pass) => {
       this.repairChildren = vals.children !== false; this.repairInspect = !!vals.inspect;
-      const n0 = this.opCount, parts = runAll(vals), sc = this.scopeText(this.repairScope("auto", vals.children !== false));
+      const n0 = this.opCount, parts = runAll(vals), sc = scopeSay(this.repairScope("auto", vals.children !== false));
       if (this.opCount === n0) { this.host.hint(`修复：没有要改的（${sc}）`); this.openParamSession(null); return; }
       const after = afterthought({ title: "修复", fields: [{ key: "children", def: { kind: "bool", label: "含子物件" } }, ...stepFields()], values: { ...vals }, nOps: this.opCount - n0, opCount: () => this.opCount, undoN: (n) => this.undoN(n),
-        redo: (v) => { this.repairChildren = v.children !== false; const ps = runAll(v); this.host.hint(`修复：${ps.length ? ps.join("；") : "没有要改的"}（${this.scopeText(this.repairScope("auto", v.children !== false))}）`); },
+        redo: (v) => { this.repairChildren = v.children !== false; const ps = runAll(v); this.host.hint(`修复：${ps.length ? ps.join("；") : "没有要改的"}（${scopeSay(this.repairScope("auto", v.children !== false))}）`); },
         note: (v) => { const sub = this.subtleFolds(v.children !== false).n; return sub ? `还剩 ${sub} 条微折软边（橙色高亮）` : "没有剩下的微折软边"; }, done: () => this.afterthoughtDone("修复") });
       this.repairSession = after; this.openParamSession(after);
       this.host.hint(`修复：${parts.join("；")}（${sc}）；右下角还能改勾选重做`);
@@ -2510,7 +2506,7 @@ export class Editor {
     this.clearSel(pass);
     this.setCtx(pass, p.kind === "group" ? { chain: this.ctx.chain, group: p.group } : { chain: [...this.ctx.chain, p.instance], group: null });
     this.selection = this.blankSelection();   // 上下文定了再造（选区的 id 空间 = 活动池的种类；写口已标过）；工作台在 setCtx 里已经跟上
-    this._revision++;
+    this.rev();
     this.host.changed(); this.draw();
     });
   }
@@ -2542,7 +2538,7 @@ export class Editor {
     }
     this.selection = this.blankSelection();   // 退到的那层可能是另一种身体（从网格体退回硬表面体；写口已标过；工作台在 setCtx 里已经跟上）
     if (reselect) this.selectedPools.set(this.pickKey(reselect), reselect);
-    this._revision++;
+    this.rev();
     this.host.changed(); this.draw();
     return true;
     });

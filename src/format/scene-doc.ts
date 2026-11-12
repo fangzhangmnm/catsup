@@ -146,19 +146,20 @@ export function definitionToDoc(scene: Scene, id: DefId, name?: string): Definit
 }
 
 /** 场景 → 文档（base = 打开时的文档，保留未知携带内容 / 设置 / 视图）。 */
-export function documentFromScene(scene: Scene, name: string, base?: CatsupDocument | null): CatsupDocument {
+/** name：以前用来把根改成文件名，2026-11-13 起不再用（根和别的物体一样叫自己的名字）；调用的地方多（测试 / 冻样本脚本），签名先留着。 */
+export function documentFromScene(scene: Scene, _name: string, base?: CatsupDocument | null): CatsupDocument {
   // 贴图坐标进文件了（1-2½）：definitionToDoc 带着贴图表的每一行和内核里同 GUID 的列。内核里有一列、贴图坐标表里却没有那一行 = 内部出了错，整份写盘抛（统筹 11-11：要响），
   //   不悄悄丢掉那一列。抛在整份写盘这里、不在 definitionToDoc：后者也是条目仓库的读面（粘贴对账、复制成唯一），那些路上不该炸。
   for (const d of scene.defs.values()) if (d.body.kind === "mesh") for (const c of d.body.kernel.columnDefs()) if (!d.body.uvSets.has(c.guid)) throw new Error(`definition "${d.name}" (${d.guid}): the mesh kernel has a corner column ${c.guid} that is not in its texture-coordinate table; refusing to write a file that would silently drop it`);
   const ids = [...scene.defs.keys()];
   const rootIndex = ids.indexOf(scene.root);
-  const definitions: DefinitionDoc[] = ids.map((id) => definitionToDoc(scene, id, id === scene.root ? name : undefined));
+  const definitions: DefinitionDoc[] = ids.map((id) => definitionToDoc(scene, id));   // 根的名字是它自己的（四位码或 user 起的），不拿文件名覆盖（user 11-13「以后根永远不跟文件名…不要跟文件名搞特殊」）；name 参数只剩签名
   const materials = scene.materials.map(materialToDoc), textures = [...scene.textures.values()];
   const root = definitions[rootIndex];
   const layers = scene.layers.map((l) => ({ ...l }));
   const shelf = shelfIsEmpty(scene.shelf) ? undefined : copyShelf(scene.shelf);
   if (base) { const { shelf: _old, ...rest } = base; void _old; return { ...rest, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, textures, axes: copyFrame(scene.axes), layers, ...(shelf ? { shelf } : {}) }; }   // final / finalRev 随 base 带
-  const doc = newDocument(root.brep, name);
+  const doc = newDocument(root.brep, root.name);
   doc.axes = copyFrame(scene.axes);
   doc.definitions = definitions;
   doc.rootIndex = rootIndex;

@@ -99,7 +99,8 @@ describe("贴图表：写盘（门 3 / 4 / 5）", () => {
   it("导出模型的字节不变（冻在改之前的样本；只对齐 generator 里的版本号）", () => {
     for (const [name, opts] of [["painted-all", { textures: true, lines: true }], ["painted-notex", { textures: false, lines: true }]] as const) {
       const want = decodeGlb(new Uint8Array(readFileSync(join("test", "fixtures", "export-model", `${name}.glb`)))) as unknown as { json: AnyJson; bin: Uint8Array };
-      const got = decodeGlb(writeGltfModel(documentFromScene(scenePainted(), "t"), opts)) as unknown as { json: AnyJson; bin: Uint8Array };
+      const sc = scenePainted(); sc.def(sc.root).name = "t";   // 2026-11-13 起根节点叫根自己的名字（不再拿文件名覆盖）；样本冻的时候根节点是 "t"
+      const got = decodeGlb(writeGltfModel(documentFromScene(sc, "file-name-not-used"), opts)) as unknown as { json: AnyJson; bin: Uint8Array };
       assert(sameBytes(got.bin, want.bin), `${name}：二进制逐字节一样`);
       got.json.asset.generator = want.json.asset.generator;
       eq(JSON.stringify(got.json), JSON.stringify(want.json), `${name}：JSON 一样`);

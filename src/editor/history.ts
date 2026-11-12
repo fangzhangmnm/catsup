@@ -154,12 +154,18 @@ export class History<M = unknown> {
   private evicted = 0;                           // ops[0..evicted) 的撤销记录已被配额驱逐（指令流留着）
   private current: Scene;                        // 现在的场景对象（撤销 / 重做原地改；scene 型记录 = 换对象）
   private labels: (StepLabel | undefined)[] = [];   // labels[i] = 以 ops[i] 开头的那一步的标签（join 进来的条目不看）
-  private recordOnly: boolean[] = [];            // recordOnly[i] = ops[i] 是 commitRecords 的记号（一步只有成分记录；摘空了整步删）
+  private recordOnly: boolean[] = [];
+  /** 一步里第一条提交成功时停放的重做尾巴（一步全有或全无，统筹 11-13）：这一步成功收尾 = discardParkedRedo 丢掉；失败回滚 = restoreParkedRedo 放回原处。 */
+  private parked: { ops: Op[]; mints: Guid[][]; joins: boolean[]; sessions: (StepSession<M> | null)[]; entries: Entry[][]; labels: (StepLabel | undefined)[]; recordOnly: boolean[] } | null = null;            // recordOnly[i] = ops[i] 是 commitRecords 的记号（一步只有成分记录；摘空了整步删）
   private readonly quota: number;
   private readonly components = new Map<string, UndoComponent>();
   private readonly host: UndoHost;
 
-  constructor(base?: Scene, opts?: { quotaBytes?: number }) {
+  /** 停放的重做尾巴漏过了一步的次数（本该永远 0：开一步 / 撤销 / 重做 / 装载时还停着 = 某条路没收尾；探针断言 0）。 */
+  parkedLeaks = 0;
+  private readonly onLeak?: (where: string) => void;
+  constructor(base?: Scene, opts?: { quotaBytes?: number; onLeak?: (where: string) => void }) {
+    this.onLeak = opts?.onLeak;
     this.base = base ? base.clone() : new Scene();
     this.current = base ?? new Scene();
     this.quota = opts?.quotaBytes ?? UNDO_QUOTA_BYTES;
@@ -203,9 +209,8 @@ export class History<M = unknown> {
   evictedCount(): number { return this.evicted; }
 
   /** 实时提交：应用 + 记账（新分支即清空 redo 尾巴）。join = 和上一条同一步；before = 新开一步时这一步之前的会话。失败抛 OpApplyError（不记账，带回提交前状态）。 */
-  commit(s: Scene, op: Op, join = false, before?: M, label?: StepLabel): ApplyResult {
-    if (this.cursor < this.ops.length) this.dropRedo();
-    const t = opTier(s, op);
+  commit(s: Scene, op: Op, join = false, before?: M, label?: StepLabel, inStep = false): ApplyResult {
+    const t = opTier(s, op);   // 重做尾巴等这条应用成功再动（被拒 / 出错 = 什么都没改，重做照旧能用）
     let r: ApplyResult;
     const entries: Entry[] = [];
     const rec = (kind: string, data: unknown): void => { entries.push({ kind, data, bytes: this.components.get(kind)!.bytes(data) }); };
@@ -234,6 +239,7 @@ export class History<M = unknown> {
       catch (e) { throw new OpApplyError(e, snap); }
       rec("scene", { snapshot: snap, skeleton: t.tier === "skeleton" } satisfies SceneRec);
     }
+    if (this.cursor < this.ops.length) { if (inStep) this.parkRedo(); else this.dropRedo(); }   // 一步里（编辑器）= 先停放、收尾定；单独用 History = 当场丢
     this.current = r.scene;
     const joined = join && this.cursor > 0 && !this.recordOnly[this.cursor - 1];   // 「只有记录」的步不许被 join 进来（摘记录时要能整步删）
     this.ops.push(op); this.mints.push(minted); this.joins.push(joined); this.recordOnly.push(false);
@@ -320,6 +326,7 @@ export class History<M = unknown> {
 
   /** 撤销一步（这一步的全部 op）：自反交换倒着走。返回场景 + 这一步之前的会话 + 标签；没得撤 → null。「之后」的会话由 sealStep 在步结束时封，这里不再补记。 */
   undo(): { scene: Scene; before: M | undefined; label: StepLabel | undefined } | null {
+    this.checkParked("undo");
     if (this.cursor <= this.evicted) return null;
     const end = this.cursor;
     let start = end;
@@ -337,6 +344,7 @@ export class History<M = unknown> {
   }
   /** 重做一步：自反交换正着走；带回这一步之后的会话。events 为空（重做不重跑动词）。 */
   redo(_s: Scene): (ApplyResult & { after: M | undefined; label: StepLabel | undefined }) | null {
+    this.checkParked("redo");
     if (this.cursor >= this.ops.length) return null;
     const c0 = this.cursor;
     let end = c0;
@@ -349,6 +357,22 @@ export class History<M = unknown> {
   steps(): number { let n = 0; for (let i = 0; i < this.cursor; i++) if (!this.joins[i]) n++; return n; }
   /** 被配额驱逐、撤不回去的**步**数（提示行「撤到头了（更早的 N 步超过配额）」）。 */
   evictedSteps(): number { let n = 0; for (let i = 0; i < this.evicted; i++) if (!this.joins[i]) n++; return n; }
+  /** 把重做尾巴停放起来（这一步还没定成败）；已经停着一份 = 这一份是这一步自己的半截，直接丢。 */
+  private parkRedo(): void {
+    if (this.parked) { this.dropRedo(); return; }
+    const c = this.cursor;
+    this.parked = { ops: this.ops.splice(c), mints: this.mints.splice(c), joins: this.joins.splice(c), sessions: this.sessions.splice(c), entries: this.entries.splice(c), labels: this.labels.splice(c), recordOnly: this.recordOnly.splice(c) };
+  }
+  /** 没有一步开着时停放的一定是空的（开一步 / 撤销 / 重做 / 装载前查）：不空 = 某条路没收尾——丢掉、计数、报给宿主。 */
+  checkParked(where: string): void { if (!this.parked) return; this.discardParkedRedo(); this.parkedLeaks++; this.onLeak?.(where); console.error(`[history] parked redo tail leaked into ${where}; dropped`); }
+  /** 这一步成功收尾：停着的重做尾巴真正丢掉（释放撤销记录）。 */
+  discardParkedRedo(): void { const p = this.parked; this.parked = null; if (p) for (const es of p.entries) for (const e of es) this.components.get(e.kind)?.dispose?.(e.data); }
+  /** 这一步失败、已回滚到这一步之前：把停着的重做尾巴放回原处（失败的一步什么都没改，重做照旧）。 */
+  restoreParkedRedo(): void {
+    this.dropRedo();   // 先丢这一步自己被撤回的半截（不管有没有停放的：这一步之前没有重做尾巴时，半截也不许留着被重做出来）
+    const p = this.parked; this.parked = null; if (!p) return;
+    this.ops.push(...p.ops); this.mints.push(...p.mints); this.joins.push(...p.joins); this.sessions.push(...p.sessions); this.entries.push(...p.entries); this.labels.push(...p.labels); this.recordOnly.push(...p.recordOnly);
+  }
   /** 丢掉重做队列（游标之后的 op、会话记录、撤销记录）。一步做到一半失败、回滚之后用：那半截不许被重做出来。 */
   dropRedo(): void {
     for (let i = this.cursor; i < this.entries.length; i++) for (const e of this.entries[i]) this.components.get(e.kind)?.dispose?.(e.data);

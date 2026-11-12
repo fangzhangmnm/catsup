@@ -90,7 +90,7 @@ export interface CanvasWindowProbe {
 export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
   const { editor, boards } = d;
   // 壳 = 没有标题栏的浮窗（ui/bare-float-win.ts，照参考窗；画画手感账 P-10）：左上圆钮（点收起、拖挪窗）、右上「…」和 ×、右下斜纹角；画布贴满
-  const win = createBareFloatWin({ id: "canvas", label: "画布小窗", icon: "checkerboard-background", min: { w: 200, h: 160 },
+  const win = createBareFloatWin({ id: "canvas", label: "画布小窗", icon: "image", firstSide: "left", min: { w: 200, h: 160 },   // 图标 = 参考窗以前那颗（参考窗换画中画）；第一次开在左边（user 11-12）
     more: { items: () => menuItems(), onPick: (id) => pickMenu(id) },
     onOpenChange: (o) => { if (o) { stamp = ""; key = ""; sync(); } else { hover = null; pinned = null; editor.draw(); } d.onOpenChange?.(o); } });
   win.el.classList.add("canvas-win");

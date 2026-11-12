@@ -238,14 +238,14 @@ export class Session {
   get heldForLoss(): boolean { return this.lossyHold !== null; }
   constructor(private d: SessionDeps) {
     this.now = d.clock ?? (() => performance.now());
-    this.savedRevision = this.lastSeenRevision = d.editor.revision;
+    this.savedRevision = this.lastSeenRevision = d.editor.docRevision;
     this.savedRefRev = this.lastSeenRefRev = this.refRev();
     this.mintLuggage();   // 开机的初始 transient 也要有牌（否则开机就画的模型没影子）
     this.timer = window.setInterval(() => this.tick(), 1000);
   }
 
   // ---------- 只读 ----------
-  dirty(): boolean { return !this.halted && (this.d.editor.revision !== this.savedRevision || this.refRev() !== this.savedRefRev); }
+  dirty(): boolean { return !this.halted && (this.d.editor.docRevision !== this.savedRevision || this.refRev() !== this.savedRefRev); }
   private refRev(): number { return this.d.refs?.rev() ?? 0; }
   /** 参考窗跟着文件换：目录 + 窗交给接缝，牌组修订号对齐成「已存」（载入不是改动）。 */
   private applyRefs(doc: CatsupDocument | null): void {
@@ -303,7 +303,7 @@ export class Session {
     const online = this.d.online();
     if (online && !this.wasOnline) this.lastPushTryAt = 0;   // 刚回线：不等节奏，这一拍就补
     this.wasOnline = online;
-    const rev = this.d.editor.revision, rr = this.refRev();
+    const rev = this.d.editor.docRevision, rr = this.refRev();
     if (rev !== this.lastSeenRevision || rr !== this.lastSeenRefRev) { this.lastSeenRevision = rev; this.lastSeenRefRev = rr; this.lastEditAt = this.now(); this.d.onHomeChanged(); }
     if (this.lazy && this.home.kind === "gallery" && this.hasContent() && (this.forkBaseRev === null || rev !== this.forkBaseRev)) {
       this.forkBaseRev = null;
@@ -316,7 +316,7 @@ export class Session {
     const online = this.d.online();
     if (online && !this.wasOnline) this.lastPushTryAt = 0;   // 刚回线：不等节奏，这一拍就补
     this.wasOnline = online;
-    const rev = this.d.editor.revision, rr = this.refRev();
+    const rev = this.d.editor.docRevision, rr = this.refRev();
     if (rev !== this.lastSeenRevision || rr !== this.lastSeenRefRev) { this.lastSeenRevision = rev; this.lastSeenRefRev = rr; this.lastEditAt = this.now(); this.d.onHomeChanged(); }
     // T-crash / 自动保存（图库家）：空闲 30 s 且脏且手上没有一下没收（编辑器的手势、画画的一笔……都算，统筹 11-11）→ 落本地（在线且登录则一并推云）
     const handBusy = this.d.hand.busy();
@@ -335,7 +335,7 @@ export class Session {
   }
 
   // ---------- T-crash（附加层）----------
-  private mintLuggage(): void { this.luggage = mintLuggageTag(); this.snapRevision = this.d.editor.revision; this.snapRefRev = this.refRev(); }
+  private mintLuggage(): void { this.luggage = mintLuggageTag(); this.snapRevision = this.d.editor.docRevision; this.snapRefRev = this.refRev(); }
   /** 释放行李牌（离开 file / transient 家的每条路都要过这）：正常关闭即删（pending-adoption 由库内拒删）。 */
   private dropLuggage(): void {
     const t = this.luggage; this.luggage = null;
@@ -352,7 +352,7 @@ export class Session {
   private async snapshotOnce(state: "crash" | "pending-adoption"): Promise<boolean> {
     const kind = this.localHomeKind(); const tag = this.luggage, seal = this.seal;
     if (!kind || !tag) return false;
-    const rev = this.d.editor.revision, rr = this.refRev(), pk = this.paintKey();
+    const rev = this.d.editor.docRevision, rr = this.refRev(), pk = this.paintKey();
     try {
       const frozen = this.freeze("snapshot");   // 不现编画：用缓存里最近一次编好的（画板比缓存新 = stale，恢复时说）
       const bytes = await frozen.finish();
@@ -456,7 +456,7 @@ export class Session {
     this.d.editor.holdChanged();   // 演示锁跟文件走（desk.locked；编辑器现问输入闸）
     this.applyDeskView();   // 风格 / 屏幕跟文件走（desk 1.3）
     this.d.editor.zoomExtents();
-    this.lastSeenRevision = this.d.editor.revision; this.savedRevision = -1;
+    this.lastSeenRevision = this.d.editor.docRevision; this.savedRevision = -1;
     if (hasStore() && !seal) {
       const path = await this.freeName(this.currentDir, `${name}-恢复`);
       this.createPending = true;
@@ -487,7 +487,7 @@ export class Session {
   /** 画的缓存版本（没有画 = 空）。 */
   private paintKey(): string { return this.d.paintSave?.cacheKey() ?? ""; }
   /** 快照该不该重拍：模型 / 参考窗 / 画的缓存，哪个变了都算。 */
-  private snapDue(): boolean { return this.d.editor.revision !== this.snapRevision || this.refRev() !== this.snapRefRev || this.paintKey() !== this.snapPaintKey; }
+  private snapDue(): boolean { return this.d.editor.docRevision !== this.snapRevision || this.refRev() !== this.snapRefRev || this.paintKey() !== this.snapPaintKey; }
   /** 一口气编完（钉点 + 编码；导出 / 另存这些不清脏的路用）。 */
   private encodeNow(): Promise<Uint8Array> { return this.freeze("save").finish(); }
   /**
@@ -568,7 +568,7 @@ export class Session {
       return;
     }
     const stem = `${name}（分叉 ${stampNow()}）`;
-    this.forkBaseRev = this.dirty() ? -1 : this.d.editor.revision;   // 本来就有没存的改动 = 下一次 noteChange 就安家
+    this.forkBaseRev = this.dirty() ? -1 : this.d.editor.docRevision;   // 本来就有没存的改动 = 下一次 noteChange 就安家
     this.lazy = true; this.createPending = false; this.pushPending = false; this.attention = null;
     this.setHome({ kind: "gallery", path: fullName(dirOf(path), stem) });
     this.d.setStatus(`「${name}」还在后台更新。眼前这份是更新之前的：不动它就什么都不留，改了存成「${stem}」，不碰原来的`);
@@ -625,7 +625,7 @@ export class Session {
     this.d.editor.holdChanged();   // 演示锁跟文件走（desk.locked；编辑器现问输入闸）
     this.applyDeskView();   // 风格 / 屏幕跟文件走（desk 1.3）
     this.d.editor.zoomExtents();
-    this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
+    this.savedRevision = this.lastSeenRevision = this.d.editor.docRevision;
   }
   /** 家的唯一写点（= WeebPaint _setActive）：行李牌 / store activeIdentifier / **回执条**（@internal/gallery resume-slate）都从这收口。
    *  回执条语义（WeebPaint 同）：图库家（非 lazy）→ {doc}；文件家 → {gallery}（句柄跨刷新不可恢复，下次落图库）；transient / lazyblank 不碰
@@ -665,7 +665,7 @@ export class Session {
     if (sc.def(sc.root).name !== ROOT_PLACEHOLDER || sc.defs.size !== 1 || this.d.editor.kernel.edges().length) return;   // 只动刚开机、什么都没画的那张
     this.d.editor.loadScene(nameRoot(new Scene(new Kernel())), "新建");
     this.d.editor.setGrid({ ...NEW_DOC_GRID }, true);   // 新文件的网格设置（每条「新建」路都跟这一行，守卫 snap-default.test）
-    this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
+    this.savedRevision = this.lastSeenRevision = this.d.editor.docRevision;
   }
   beginLazyBlank(): void {
     this.forkBaseRev = null;
@@ -679,7 +679,7 @@ export class Session {
     this.applyRefs(null);   // 新文件 = 空牌组、窗收着
     this.d.editor.holdChanged();
     this.applyDeskView();   // 新文件 = 默认风格 / 屏幕
-    this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
+    this.savedRevision = this.lastSeenRevision = this.d.editor.docRevision;
     this.dropLuggage();
     this.lazy = true;
     this.setHome({ kind: "gallery", path: fullName(this.currentDir, defaultDocName()) });
@@ -711,7 +711,7 @@ export class Session {
     this.applyRefs(null);   // 新文件 = 空牌组、窗收着
     this.d.editor.holdChanged();
     this.applyDeskView();   // 新文件 = 默认风格 / 屏幕
-    this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
+    this.savedRevision = this.lastSeenRevision = this.d.editor.docRevision;
     this.dropLuggage();   // 旧模型的影子随旧牌焚；新家（下面 setHome）现铸新牌
     this.setHome({ kind: "transient" });
     return true;
@@ -948,7 +948,7 @@ export class Session {
     let replaceCover: { close(): void } | null = null;
     try {
       if (this.d.refs) await this.d.refs.settled();   // 刚加的参考卡字节还在编：等它，别存一份缺卡的
-      const revAtStart = this.d.editor.revision, refRevAtStart = this.refRev();
+      const revAtStart = this.d.editor.docRevision, refRevAtStart = this.refRev();
       const frozen = this.freeze("save");   // 钉点：紧跟着记下的版本号，中间不 await（贴图主线 1-8b）
       const bytes = await frozen.finish();   // 编码期间画的、切的让版本号往前走：存完仍然算改过
       if (home.kind === "file") {
@@ -1184,6 +1184,6 @@ export class Session {
     window.clearInterval(this.timer);
     this.halted = true; this.lazy = false; this.luggage = null;
     this.home = { kind: "transient" };
-    this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
+    this.savedRevision = this.lastSeenRevision = this.d.editor.docRevision;
   }
 }

@@ -127,6 +127,7 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
       { const o = e.history.ops.at(-1); if (o?.op === "paste" && o.merge && o !== lastCounted) { lastCounted = o; const k = `真走了 ${o.merge.entries}${o.closure?.definitions.length ? "（带文件形状）" : ""}`; out.merged[k] = (out.merged[k] ?? 0) + 1; } }
       if (e.isGestureActive()) e.cancel();
       if (e.stepViolations !== 0) fail(`stepViolations=${e.stepViolations}`);
+      if (e.history.parkedLeaks !== 0) fail(`parkedLeaks=${e.history.parkedLeaks}`);   // 停放的重做尾巴从没漏过一步（一步全有或全无，2026-11-13）
       if (name !== "undo" && name !== "redo" && e.history.steps() - stepsBefore > 1) fail(`one action grew ${e.history.steps() - stepsBefore} steps`);
       if (name !== "undo" && name !== "redo" && e.history.steps() === stepsBefore && fp(S()) !== fpBefore) fail("scene changed without a step");
       let rep; try { rep = fp(e.history.replay()); } catch (err) { fail(`replay threw: ${String(err).slice(0, 120)}`); continue; }
