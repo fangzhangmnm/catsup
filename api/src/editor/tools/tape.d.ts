@@ -16,6 +16,7 @@ export declare class TapeTool implements ToolHandler {
     private start;
     private b;
     active(): boolean;
+    private minL;
     cancel(): void;
     sample(): Record<string, number>;
     scaleGeom(): ScaleGeom | null;

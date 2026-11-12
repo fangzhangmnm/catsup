@@ -14,6 +14,7 @@ export declare class AxesTool implements ToolHandler {
     private o;
     private px;
     private cur;
+    private minL;
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;

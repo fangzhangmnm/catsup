@@ -14,3 +14,17 @@ export declare function gestureMinLen(ctx: {
     vp(): Viewport;
     eps(): EpsSet;
 }, p: Pt3): number;
+/** 几何上成立的最短长度 = 内核的身份分辨率（STICKY_R = 3 µm：再短内核也会把两个点并成一个）。吸到的、取整出来的、键入的数只看它（统筹 11-12）。 */
+export declare const GEOM_MIN_LEN: number;
+/**
+ * 这一下够不够长（统筹 11-12 的规矩，B）：光标这一下有吸附结果（点 / 边 / 格点 / 整格……）= 只要几何上成立；自由拖的 = 不到这一处的手势门槛就当没动。
+ * snapped 不给 = 问 ctx.currentSnap()（工具都把这一下的吸附结果写进 setSnap）。
+ */
+export declare function longEnough(ctx: {
+    frame(): PointerFrame;
+    vp(): Viewport;
+    eps(): EpsSet;
+    currentSnap(): {
+        kind: string | null;
+    } | null;
+}, at: Pt3, len: number, snapped?: boolean): boolean;

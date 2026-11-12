@@ -165,9 +165,9 @@ export { type GridSettings, type GridPlane, type UnitSystem, GRID_PLANES, UNIT_S
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export declare const CIRCLE_SEGMENTS: 24;
 export { fmtLen, fmtDeg } from "./units.ts";
-import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
+import { SNAP_LABELS } from "./gesture-consts.ts";
 import { type TypedInput } from "../controller/typed-input.ts";
-export { MIN_GESTURE_LEN, SNAP_LABELS };
+export { SNAP_LABELS };
 /** 子池选区项（相对活动上下文的直接子项）。 */
 export type PoolPick = {
     kind: "group";
