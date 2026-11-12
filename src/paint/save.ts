@@ -167,7 +167,9 @@ export class PaintSaver {
     const k = `${w}x${h}`;
     let p = this.blanks.get(k);
     if (!p) {
-      const data: PaintingData = { width: w, height: h, nodes: [{ name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: null }] };
+      // 那一层要带 id、选中要指着它（2026-11-12 第 3 刀查出来的）：不带 = 内核写进 stack.xml 的是 weebpaint:id="undefined"、读回来是 NaN，
+      //   再打开时画板的当前图层是 NaN，一笔都画不上（「这一笔没能开始」）。内核那一头读写的修法另报统筹。
+      const data: PaintingData = { width: w, height: h, activeId: 1, nodes: [{ id: 1, name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: null }] };
       p = encodeDocToOra(paintingDataToEncodeDoc(data), { wroteWith: this.wroteWith }).then(toBytes);
       p.catch(() => this.blanks.delete(k));
       this.blanks.set(k, p);
