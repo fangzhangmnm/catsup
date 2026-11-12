@@ -15,6 +15,19 @@ export declare function paintPlaceOf(s: Scene, texture: Guid): {
     material: Material;
 } | null;
 /**
+ * 一张画在哪（画板登记处：画板在不在、底色、能不能变热、给渲染器什么图；存盘：底色。施工单二十一第 3 刀）：两种——
+ * uv = 铺在一套贴图坐标上的（就是 paintPlaceOf）；tiled = 平铺的画（CATSUP_textures 1.2：有材质的颜色那一槽指着它、分层 + sizeM、没有 layout）→ sizeM 和指着它的第一个材质。
+ * 平铺的画没有坐标：画布大小写在它自己的分层字节里（新建时就编好空白的，editor/paint-ops.ts addTiledPaint），不跟谁改大小。
+ */
+export type BoardPlace = ({
+    readonly kind: "uv";
+} & NonNullable<ReturnType<typeof paintPlaceOf>>) | {
+    readonly kind: "tiled";
+    readonly sizeM: readonly [number, number];
+    readonly material: Material;
+};
+export declare function boardPlaceOf(s: Scene, texture: Guid): BoardPlace | null;
+/**
  * 规矩（进场景的自检，和 MeshKernel.check() 一起跑；1-3b 第一节）：uvSets 表里每一行，内核里有同 GUID、每角两个数的列；这一列上有值的角都落在画布里
  * （横 0 到宽、纵 0 到高）。返回毛病（空 = 好）。
  */

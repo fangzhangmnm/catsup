@@ -54,7 +54,7 @@ export declare const FORMAT: {
     };
     readonly CATSUP_textures: {
         readonly major: 1;
-        readonly minor: 1;
+        readonly minor: 2;
         readonly patch: 0;
     };
 };
@@ -64,10 +64,19 @@ export declare const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[];
 export declare const MESH_STAMP_NO_UV: Stamp;
 /** 带贴图坐标、但没有一套是按密度开的（fit）网格体照旧盖的拍子（施工单十六）：和 2.1 之前写出来的逐字节一样。 */
 export declare const MESH_STAMP_UV_NO_FIT: Stamp;
+/** 贴图表里没有平铺的画（document.ts isTiledRow）照旧盖的拍子（施工单二十一第 3 刀，统筹审格式时定 A）：和 1.2 之前写出来的逐字节一样——
+ *  文件里没有旧版本不认识的东西，旧版本就不该提示「这是更新版写的」（不然提示成了狼来了）。 */
+export declare const TEXTURES_STAMP_NO_TILED: Stamp;
 /** 各子结构的 major（老名字，读写两端的 too-new 判定与 STEPS 索引都用它）。 */
 export declare const EXTENSION_VERSIONS: Readonly<Record<CatsupExtension, number>>;
 /** 写入器盖拍子：`version` 必写；`minor` / `patch` 是可选键（缺 = 0），为 0 时不写——省字节（§3.2「抠」），字节照样确定。 */
 export declare const stampOf: (ext: CatsupExtension) => {
+    version: number;
+    minor?: number;
+    patch?: number;
+};
+/** 一个拍子写进文件的样子（stampOf 的通用版：按内容盖例外拍子的地方用）。 */
+export declare const stampFields: (f: Stamp) => {
     version: number;
     minor?: number;
     patch?: number;

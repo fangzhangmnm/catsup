@@ -56,6 +56,8 @@ export declare class PaintSaver {
     prime(scene: Scene, texture: Guid): Promise<void> | null;
     /** 一张画钉下来的东西变成字节；编了的进缓存（只在比缓存里的新时替换）。 */
     private realize;
+    /** 新建平铺的画用的空白分层字节（施工单二十一第 3 刀）：和存盘给没画过的新画编空白是同一个编码器、同一份缓存。没有全局的 zip = ZipMissingError。 */
+    blankOra(w: number, h: number): Promise<Uint8Array>;
     /** 空白的分层字节（一层空的；按宽高只编一次）。 */
     private blank;
 }

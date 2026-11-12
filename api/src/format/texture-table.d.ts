@@ -1,5 +1,5 @@
 import type { ViewSink } from "./brep-codec.ts";
-import type { CarriedJson, TextureDoc } from "./document.ts";
+import { type CarriedJson, type TextureDoc } from "./document.ts";
 import type { FormatReadNotes } from "./migrate/index.ts";
 import { type Guid } from "./guid.ts";
 /** 一段 JSON 连同它引用的字节（按文件里的号）拷出来。 */

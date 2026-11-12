@@ -50,7 +50,7 @@ export declare class PaintBoards {
     guids(): Guid[];
     /** 给这张画建一块空白的画板（已经有了 = 原样返回）。不是画（贴图表里没有、不是分层的、材质不指它、定义里没那一套坐标）= 抛。 */
     ensure(scene: Scene, texture: Guid): PaintBoard;
-    /** 建一块画板（宽高由调用的人给：新画 = 那一套坐标的大小；变热 = 分层字节里的大小）。 */
+    /** 建一块画板（宽高由调用的人给：新画 = 那一套坐标的大小；变热 = 分层字节里的大小）。tile = 平铺的画（活的图带这个标记：渲染器重复平铺、过滤跟画风）。 */
     private create;
     /** 这一帧的准备活（这一笔的薄层：画、交给档口），prepare 里在合成之前跑。返回撤掉。 */
     onPrepare(job: () => void): () => void;

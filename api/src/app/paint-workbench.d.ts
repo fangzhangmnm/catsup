@@ -22,6 +22,9 @@ export interface PaintWorkbenchDeps {
     /** 上方正中的主按钮闪一下（没画过的物件上落笔：提示行说一句 + 让人看到按哪里；施工单十五第三节）。 */
     flashStart?(): void;
 }
+/** 笔尖下打到了什么。 */
+/** 模型上落笔撞到平铺的画（施工单二十一第 3 刀第二节第 6 条）：不画、说原因。 */
+export declare const tiledOnlyInWindow: (name: string) => string;
 export declare class PaintWorkbench {
     private readonly d;
     private stroke;

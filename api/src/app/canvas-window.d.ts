@@ -12,6 +12,8 @@ export interface CanvasWindowDeps {
     } | null;
     /** 在画布上画（施工单二十一第 2 刀；main.ts 递进来）。缺 = 只看（单测 / 老入口）。 */
     readonly paint?: CanvasPaintPort;
+    /** 「…」里「新建平铺的画…」（施工单二十一第 3 刀；main.ts 递进来：问大小 → 编空白分层字节 → 指令 addTiledPaint → showTiled）。缺 = 菜单里没有这一项。 */
+    newTiled?(): void;
 }
 /** 画布上落笔的口（宿主的）：工具、开一笔、吸色、笔印多大。坐标 = 画布格（可以带小数）。 */
 export interface CanvasPaintPort {
@@ -48,6 +50,8 @@ export interface CanvasWindow {
     peekWorld(): ReadonlySet<number> | null;
     /** 探针用：现在的样子和计数。 */
     probe(): CanvasWindowProbe;
+    /** 显示这张平铺的画（新建完 / 探针用）：打开小窗、切过去、先变热（好直接画）。不是平铺的画 = 什么都不做。 */
+    showTiled(texture: string, anchor?: HTMLElement): void;
     readonly el: HTMLElement;
 }
 export interface CanvasWindowProbe {
@@ -56,6 +60,8 @@ export interface CanvasWindowProbe {
     tex: string | null;
     width: number;
     height: number;
+    /** 正在显示的平铺的画（施工单二十一第 3 刀）；没有 = null（显示的是这个物件的画）。 */
+    tiled: string | null;
     faces: number[];
     thin: number;
     thick: number;

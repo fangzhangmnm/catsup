@@ -239,6 +239,17 @@ export type Op =
     bytes: Uint8Array;
     sizeM: [number, number];
 }
+/** 新建一张平铺的画（施工单二十一第 3 刀，CATSUP_textures 1.2）：贴图表一行（分层 = ora：新建时就编好的空白分层字节，画布大小只写在它里面；sizeM = 在模型上一张多大）
+ *  + 一个颜色那一槽指着它的材质（底色 color）。一步撤销。不铺到任何面上（涂到面上是油漆桶的事）。 */
+ | {
+    op: "addTiledPaint";
+    textureGuid: Guid;
+    materialGuid: Guid;
+    name: string;
+    ora: Uint8Array;
+    sizeM: [number, number];
+    color: [number, number, number];
+}
 /** 清理没人用的贴图（用户在资源页点了「清理」才跑）：全家唯一删贴图的地方（守卫 test/textures-table.test.ts）；还有材质指着 / 素材架收着 = 整条拒绝。 */
  | {
     op: "purgeTextures";

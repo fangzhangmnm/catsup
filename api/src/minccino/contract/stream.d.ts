@@ -12,7 +12,8 @@ export interface TextureRef {
      * base = 这个材质的底色（sRGB 0..1）：图还在解的那几帧，占位用它（不用导入贴图那个灰色占位：打开文件时画过的面不许先闪一下灰）。
      */
     readonly paint?: {
-        readonly base: readonly number[];
+        readonly base: readonly number[]; /** 平铺的画（施工单二十一第 3 刀）：显示图重复平铺、过滤跟画风（和自由的图一样）；缺 = 夹边、过滤固定。 */
+        readonly tile?: boolean;
     };
 }
 /**
@@ -24,6 +25,8 @@ export interface LiveImage {
     readonly kind: "live";
     readonly width: number;
     readonly height: number;
+    /** 平铺的画（施工单二十一第 3 刀）：显示图重复平铺、过滤跟画风（和自由的图一样）；缺 = 夹边、放大最近邻 / 缩小三线性。同一张图一辈子不变（建的时候就定）。 */
+    readonly tile?: boolean;
     current(): {
         readonly gpuImage: unknown;
         readonly version: number;

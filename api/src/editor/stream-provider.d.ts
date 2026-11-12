@@ -29,6 +29,10 @@ export declare class EditorStreamProvider implements StreamProvider {
     /** 一张图 = 一个 TextureRef（渲染器按它解码一次：两个材质用同一张图只解一次）。 */
     private readonly texRefs;
     private refOf;
+    /** 平铺的画那几个材质交给渲染器的引用：同一个材质 + 同一张图 = 同一个对象。 */
+    private readonly tiledRefs;
+    /** 这个材质是平铺的画、而且画板现在有图（热的 / 冷的有合成图）→ 那张图；不是 / 没有图 = null（按底色画）。 */
+    private tiledImage;
     /** 世界视图对象 → 小整数（内容键 / 包围球缓存：预演影子每帧是新对象 = 身份变 = 自然失效，和以前 render3 的 kernelId 同构）。 */
     private worldIds;
     private nextWorldId;

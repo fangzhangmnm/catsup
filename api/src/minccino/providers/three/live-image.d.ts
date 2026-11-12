@@ -13,6 +13,10 @@ export declare class LiveTextures {
     private dsLinear;
     /** 缩小图在哪个空间取平均（画风的 mixSpace；复古 = srgb，写实 = linear）。 */
     mipSpace: "srgb" | "linear";
+    /** 平铺的画的过滤（跟画风，和自由的图同一条规矩：nearest = 放大缩小都最近邻；否则放大线性、缩小三线性）。不是平铺的不受它管。 */
+    tileNearest: boolean;
+    /** 换画风：平铺的画的过滤跟着换（只改采样设置，不重拷）。返回动没动显卡（调用的人 resetState() 一次）。 */
+    setTileFilter(nearest: boolean): boolean;
     /** 换画风：空间变了 = 活的图下一帧整张重拷、冷的合成图缩小图整套重做（一张图里不混两种平均法）。动了显卡：调用的人 resetState() 一次。 */
     setMipSpace(sp: "srgb" | "linear"): boolean;
     /**
@@ -42,10 +46,12 @@ export declare class LiveTextures {
      * 画的合成图（冷的画）的显示图：位图传进第 0 级（字节原样，不翻、不预乘——ImageBitmap 不看那几个 UNPACK 开关，和 three 传它时一样），缩小图走 mips()。
      * 同一张显示图的设置和活的图一样（RGBA8、放大最近邻 / 缩小三线性、夹边）。动了显卡：调用的人 resetState() 一次。
      */
-    fromBitmap(bmp: ImageBitmap): unknown;
+    fromBitmap(bmp: ImageBitmap, tile?: boolean): unknown;
     private upload;
-    /** 新建一张显示图（不可变大小 + 全套缩小图），绑在 TEXTURE_2D 上返回。 */
+    /** 新建一张显示图（不可变大小 + 全套缩小图），绑在 TEXTURE_2D 上返回。tile = 平铺的画（重复平铺、过滤跟画风）；否则夹边、放大最近邻 / 缩小三线性。 */
     private makeDisplay;
+    /** 一张显示图的过滤（绑在 TEXTURE_2D 上设）：画 = 放大最近邻、缩小三线性；平铺的画 = 跟画风（tileNearest）。 */
+    private filterOf;
     /** 这张活的图在 three 那边的贴图（同一张图永远是同一个对象）。还没拷过 = 指着空（three 绑 null = 黑；第一帧 update 就拷上）。 */
     textureFor(img: LiveImage): unknown;
     /** 画的时候：挨个问 current()（只读准备好的），版本变了的拷进显示图。返回 true = 拷过（调用的人 resetState 一次）。一张都没有 = 什么都不做。 */
