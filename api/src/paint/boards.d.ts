@@ -1,6 +1,6 @@
 import type { Gl2Port } from "./kernel/src/common/gl2-port.ts";
 import type { LiveImage, TextureRef } from "../minccino/contract/stream.ts";
-import { PaintBoard } from "./board.ts";
+import { PaintBoard, type BoardStroke } from "./board.ts";
 import { type SharedTilePool } from "./kernel/src/backend/gl/shared-tile-pool.ts";
 import { HostedSteps } from "./kernel/src/backend/workpiece/hosted-steps.ts";
 import type { UndoComponent } from "../editor/history.ts";
@@ -99,6 +99,13 @@ export declare class PaintBoards {
     /** 正开着的一笔（档口开着令牌）：撤销 / 重做之前取消它们（beforeHistoryMove）。返回撤掉登记。 */
     trackOpen(texture: Guid, cancel: () => void): () => void;
     private readonly opens;
+    /**
+     * 二维笔开一笔（施工单二十一第 1 刀；画板的 openBrushStroke + 登记成「开着的一笔」）：撤销 / 重做 / 扔画板之前被 cancelOpen 取消，抬笔 / 取消时摘掉登记。
+     * 没有这张画的画板 = 抛（宿主先 ensure / 让它热起来）。锁、单令牌墙在画板那一层抛。
+     */
+    openBrushStroke(texture: Guid, ...args: Parameters<PaintBoard["openBrushStroke"]>): BoardStroke;
+    /** 有没有哪块画板开着一笔（三维那一笔 / 二维笔都算；「手上有一下没收」的名册问它）。 */
+    anyStrokeOpen(): boolean;
     /** 撤销 / 重做之前：开着的那几笔全部取消（零痕迹）。 */
     cancelOpen(): void;
     /** 这张画的状态不可信：叫内核把以前的步全部作废（onReset → undoReset → 三维的栈摘掉记录）。 */

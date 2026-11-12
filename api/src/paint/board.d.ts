@@ -5,6 +5,7 @@ import type { SharedTilePool } from "./kernel/src/backend/gl/shared-tile-pool.ts
 import type { ExternalImage, ExternalTexture, Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
 import type { StepSink } from "./kernel/src/backend/workpiece/undo-stack.ts";
 import { StrokeSession } from "./kernel/src/backend/stroke-session.ts";
+import type { ResolvedBrush } from "./kernel/src/common/resolved-brush.ts";
 /** 显存预算（和画画软件的后端同一个数）：图块池按需长，长到这个顶。施工单十九第 3 刀起是一份文件合用的那个池的顶（PaintBoards 建池时用；只有正在编辑的画板醒着占片）。 */
 export declare const PAINT_GPU_BUDGET_BYTES: number;
 export interface PaintBoardOpts {
@@ -35,6 +36,13 @@ export interface ChangedRect {
 }
 /** 合成图上变了的那些格（内核的脏格子位图）；"all" = 说不清、按整张算。 */
 export type Changed = DirtyCells | "all";
+/** 二维笔的一笔（PaintBoard.openBrushStroke 交出来的）：move = 一个点（画布像素、压感、一笔里的毫秒）；end = 抬笔落层（落了 = true；没碰到任何像素 = false、不封步）；cancel = 零痕迹。 */
+export interface BoardStroke {
+    readonly open: boolean;
+    move(x: number, y: number, pressure: number, t: number | null): void;
+    end(): boolean;
+    cancel(): void;
+}
 export declare class PaintBoard {
     readonly wp: PaintingWorkpiece;
     /** 内核的画板。**只经 gpu() 拿**（睡着就先叫醒；守卫 test/paint-board-sleep.test.ts 查这个文件里别处不碰它），睡 / 退租除外。 */
@@ -91,6 +99,40 @@ export declare class PaintBoard {
      * 抬笔 = 内核把它落进图层（commitBrushStroke = bakeStamps 写回链），取消 = 零痕迹。layerId 不给 = 当前层。
      */
     openStroke(layerId?: number): StrokeSession;
+    /**
+     * 二维笔（施工单二十一第 1 刀）：内核自己的二维笔（BrushEngine，overlay 方式 = 画画软件里普通笔那条路），画在这块画板的画布上（坐标 = 画布像素，t = 一笔里的毫秒）。
+     * 和 openStroke 同一个令牌、同一个步的去处：一次手势 = 一个令牌 = 一步（封好的步交给 HostedSteps，宿主抬笔后照旧 takePending → 编辑器撤销里的一步）。
+     * 画着的时候：这一笔的笔尖单子（collectStamps）当 overlay 垫进合成（compose / verifyFull；存盘的 composeBytes 不带 = 一笔当中存的是落定那一版）。
+     * 抬笔：笔尖单子经 gpu() 落层（GLBoard.commitBrushStroke = bakeStamps 写回链，照画画仓后端 _commitStamps；三维没有选区 = 不带蒙版）。
+     * 锁问两次：开一笔（这里）、落层（commitStamps）；落层时锁上了 = 抛 → 档口取消令牌、整笔回滚、零痕迹。同一块画板同一时间只有一笔（三维那一笔开着也不行）。
+     */
+    openBrushStroke(brush: ResolvedBrush, at: {
+        readonly x: number;
+        readonly y: number;
+        readonly pressure: number;
+        readonly t: number | null;
+    }, o?: {
+        readonly erase?: boolean;
+        readonly smooth?: {
+            tau?: number;
+            deadzone?: number;
+            tailBow?: number;
+        };
+        readonly layerId?: number;
+    }): BoardStroke;
+    /**
+     * 二维笔动了一下：这一版按变了算、显示那一侧按整张（内核那边笔尖单子本来就整张重合；只重做改到的那一块是第 2 刀要核的）。
+     * 不看引擎报不报脏区：带平滑的笔，平滑器攒着的那段尾巴（笔尖单子里有它）每动一下都变，引擎不一定报脏区——只看脏区 = 合成拿旧图交差（mid-stroke-save V12 抓到的）。
+     */
+    private stampsMoved;
+    /** 开着的二维笔（同一时间最多一笔）。 */
+    private live2d;
+    /** 合成时垫进去的东西：三维那一笔的薄层 + 二维笔这一笔的笔尖单子。 */
+    private liveOverlays;
+    /** 这一层（不给 = 当前层）：一笔要的那几个口。 */
+    private leafOf;
+    /** 档口要的口（三维那一笔和二维笔共用；只有落笔尖单子那一个口不同）。 */
+    private sessionDeps;
     /** 合成时垫在最底下的不透明底色（材质自己的底色，sRGB 0..1）：交出来的图不透明。 */
     setBackground(rgb: readonly number[]): void;
     /** 灌一份内容（调试钩子用；以后读文件）。整份换：内核把栈清了（这一张本来没有栈）。 */
@@ -141,7 +183,7 @@ export declare class PaintBoard {
     dispose(): void;
     /** 显卡那一半睡着吗。 */
     get asleep(): boolean;
-    /** 一笔正开着（薄层还垫着）：不许睡。 */
+    /** 一笔正开着（三维那一笔的薄层还垫着，或者二维笔开着）：不许睡。 */
     get strokeOpen(): boolean;
     /** 显示的那一版过期了（内容 / 底色 / 薄层在上一次交出去之后变过）：要合成一次才对。睡着的画板靠它决定要不要醒来合一次（撤销、跟大小、装载都只动内存）。 */
     get displayStale(): boolean;
