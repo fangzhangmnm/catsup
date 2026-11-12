@@ -126,6 +126,7 @@ console.log("\n⑥ 存盘 → 重新打开：还是平铺的画；冷的显示�
 const tex2 = await S(() => globalThis.__catsup.paint.newTiled(16, 1));   // 第二张：一笔都不画就存（守空白分层字节：以前那一层没有 id，再打开画不上）
 check(typeof tex2 === "string", "又建了一张（一笔不画）");
 check(await S(async () => globalThis.__catsup.session.save()) === true && await S(() => !globalThis.__catsup.session.dirty()), "存上了、不脏");
+check(await S(() => globalThis.__catsup.paint.saverIdWarnings()) === 0, "正常路径上（新建编空白、存盘编分层字节）内核一次都没说「有一层没有可用的 id」");
 await reloaded(() => page.reload());
 await frames(4);
 const r6 = await S((t) => { const C = globalThis.__catsup, Sc = C.editor.sceneRef, m = Sc.materials.find((x) => Sc.tiledPaintOf(x)?.textureDoc.guid === t), sh = C.paint.boards.board(t); return { tiled: !!m, state: C.paint.state(t), coldTile: sh && sh.image && "paint" in sh.image ? !!sh.image.paint?.tile : null }; }, tex);
@@ -162,6 +163,7 @@ check(!!r7?.refused && /锁/.test(h7b) && (await H(tex)) === L7 && (await pos())
 check((await fileHash()) === F7, "锁着：被拒之后存出来的文件字节和锁上时一样", JSON.stringify({ F7 }));
 await S(async () => { await globalThis.__catsup.session.setLocked(false); });
 
+check(await S(() => globalThis.__catsup.paint.saverIdWarnings()) === 0, "重新打开之后也一次都没说「没有可用的 id」");
 check(errs.length === 0, "没有页面错误", errs.slice(0, 3).join(" | "));
 console.log(`\nprobe-tiled-paint ${failN ? "FAIL" : "OK"}（${pass} ✓ / ${failN} ✗）`);
 await browser.close();

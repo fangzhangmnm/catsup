@@ -306,7 +306,7 @@ const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => e
   },
   (on) => { paintTileJobs.driver.setActive(on); if (!on) paintSaver.clear(); },   // 有画板才跑空闲压缩（0-3a）；画板全扔了（换文件）= 画的存盘缓存也清（1-8b）
   (text) => { note("paint", text); notify({ text, level: "warning" }); });   // 这张画只能看不能画：明说为什么（1-8b）
-const paintSaver = new PaintSaver({ boards: paintBoards, wroteWith: `catsup ${APP_VERSION}` });   // 画存进文件（1-8b）：钉点同步、编码异步
+const paintSaver = new PaintSaver({ boards: paintBoards, wroteWith: `catsup ${APP_VERSION}`, log: (m) => note("paint", m) });   // 画存进文件（1-8b）：钉点同步、编码异步
 // 画板要睡之前（施工单十九第 3 刀）：趁醒着把这张画钉进存盘缓存（同步合成读回、后台编码），之后存盘碰到这块睡着的画板直接用缓存、不用叫醒
 paintBoards.beforeSleep = (g) => { paintSaver.prime(editor.sceneRef, g)?.catch((e) => note("paint", `prime before sleep failed for ${g}: ${e instanceof Error ? e.message : String(e)}`)); };
 editor.registerUndoComponent(paintBoards.undoComponent());
@@ -2725,6 +2725,8 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
     brushKinds: BRUSH_KIND_IDS, brushPaths: BRUSH_PATHS, brushPathOf: (k: BrushKind) => BRUSH_KINDS[k].path,
     /** 新建平铺的画（施工单二十一第 3 刀；不经表单，和「…」里那一项建的那一半同一段）：返回贴图 GUID，没建成 = null。 */
     newTiled: (px = 64, m = 1): Promise<string | null> => createTiledPaint(px, m),
+    /** 存盘器编分层字节时内核说「有一层没有可用的 id」的次数（正常路径上永远 0）。 */
+    saverIdWarnings: (): number => paintSaver.idWarnings,
     /** 每支笔的旋钮 / 现在拿的哪支（app/paint-brushes.ts；探针 probe-paint-brushes 用）。 */
     brushes: paintBrushes,
     /** 网格体的全部自检（内核不变量 + 画的规矩；scene/paint.ts meshBodyIssues）：空 = 过（规模探针 K 坏面那一段用）。 */

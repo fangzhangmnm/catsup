@@ -105,6 +105,7 @@
   "probe-no-home-dispose.mjs": {"state":"green"},
   "probe-objects-merge.mjs": {"state":"green"},
   "probe-offset-grid.mjs": {"state":"green"},
+  "probe-old-blank-paint.mjs": {"state":"green"},
   "probe-onebit.mjs": {"state":"green"},
   "probe-paint-display.mjs": {"state":"green"},
   "probe-paint-gpu-release.mjs": {"state":"green"},

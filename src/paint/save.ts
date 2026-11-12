@@ -49,8 +49,12 @@ export class PaintSaver {
   private readonly cache = new Map<Guid, Cached>();
   private readonly blanks = new Map<string, Promise<Uint8Array>>();
   /** 分层字节的编码器（缺省 = 内核；探针 / 测试换成会抛的，验「编码中途出错 = 这一轮整个没成」）。 */
-  encodeOra: (data: PaintingData, wroteWith: string) => Promise<Uint8Array> = async (data, wroteWith) => toBytes(await encodeDocToOra(paintingDataToEncodeDoc(data), { wroteWith }));
-  constructor(o: { readonly boards: PaintBoardSource; readonly wroteWith: string }) { this.boards = o.boards; this.wroteWith = o.wroteWith; }
+  encodeOra: (data: PaintingData, wroteWith: string) => Promise<Uint8Array> = async (data, wroteWith) => toBytes(await encodeDocToOra(paintingDataToEncodeDoc(data), { wroteWith, warn: this.warn }));
+  constructor(o: { readonly boards: PaintBoardSource; readonly wroteWith: string; readonly log?: (msg: string) => void }) { this.boards = o.boards; this.wroteWith = o.wroteWith; this.log = o.log ?? (() => {}); }
+  private readonly log: (msg: string) => void;
+  /** 内核编分层字节时说「有一层没有可用的 id」的次数（画画内核 v0.14.89 起：不写 weebpaint:id、读回来自动编号）。正常路径上永远是 0：不是 0 = 哪个调用的人没给 id（探针 probe-tiled-paint 断言）。 */
+  idWarnings = 0;
+  private readonly warn = (msg: string): void => { this.idWarnings++; this.log(msg); };
 
   /** 缓存的版本签名（崩溃快照「这一版拍过了」的键里带上它：缓存一新快照就重拍）。 */
   cacheKey(): string { return [...this.cache].map(([g, c]) => `${g}:${c.version}`).sort().join(";"); }
@@ -170,7 +174,7 @@ export class PaintSaver {
       // 那一层要带 id、选中要指着它（2026-11-12 第 3 刀查出来的）：不带 = 内核写进 stack.xml 的是 weebpaint:id="undefined"、读回来是 NaN，
       //   再打开时画板的当前图层是 NaN，一笔都画不上（「这一笔没能开始」）。内核那一头读写的修法另报统筹。
       const data: PaintingData = { width: w, height: h, activeId: 1, nodes: [{ id: 1, name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: null }] };
-      p = encodeDocToOra(paintingDataToEncodeDoc(data), { wroteWith: this.wroteWith }).then(toBytes);
+      p = encodeDocToOra(paintingDataToEncodeDoc(data), { wroteWith: this.wroteWith, warn: this.warn }).then(toBytes);
       p.catch(() => this.blanks.delete(k));
       this.blanks.set(k, p);
     }

@@ -101,6 +101,7 @@
     "test/incremental-composite.test.mjs",
     "test/bake-cells.test.mjs",
     "test/bake-scope.test.mjs",
+    "test/ora-ids.test.mjs",
     "test/stroke-session-region.test.mjs",
     "test/stroke-smoother.test.mjs",
     "test/tile-bridge.test.mjs",

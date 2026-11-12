@@ -2,8 +2,8 @@
   "about": "Paint kernel copied verbatim from WeebPaint by scripts/pull-paint-kernel.sh. Do not edit here: change it in WeebPaint, then pull again. test/paint-kernel-guard.test.ts checks every hash.",
   "source": {
     "repo": "WeebPaint",
-    "commit": "3c3fe37e8b6661934bb8e9c471f1459c6df45c5e",
-    "version": "v0.14.88-2026-11-12"
+    "commit": "2300f5955e6cbe9a7daf69f5c5939a4ca4823c8f",
+    "version": "v0.14.89-2026-11-12"
   },
   "files": {
     "src/backend/algorithms/README.md": "07faa259a0e864acc853614fc284f75fda2d259efacf5483ff993f75323fa434",
@@ -49,8 +49,8 @@
     "src/backend/gl/tile-bridge.ts": "54c4ac4330a8002686371726336e2a7a9d66f9756176b8f4c7d64a68912aa63e",
     "src/backend/jpeg-codec.ts": "9dfc17a0ddd46864c52bfb7a0e733801b0371d3996c150aaf8190150ecb69693",
     "src/backend/layers-face.ts": "26e4a658e8a0f68c80801d957e16c24754ef58eb84b834db7e447b49e479a18b",
-    "src/backend/ora-stack-xml.ts": "c53969e1cf550616bd9fe7ab3c910c140a3780496dd7056cafcd1045160bdda6",
-    "src/backend/ora.ts": "0228de89f0e182c9a75728657f5869ccbffef27825715c3b9883e93feb157df5",
+    "src/backend/ora-stack-xml.ts": "1bdb415778409999d9af188b8ea2fbd9f30b280dc24598641fa02faa54d84cb8",
+    "src/backend/ora.ts": "b6ba95b1b838ca676e694fba38e5625b26cb295ad4aeb9420457bba761d68df5",
     "src/backend/png-codec.ts": "f13056cc3d87a5b0fdfdb33e57de804457b28556df77f338ae50e1616c38772b",
     "src/backend/psd.ts": "28427c9f64fb6b24c21e18bce619613ef8674a48364f7fa5f7820ebdf7660f59",
     "src/backend/selection.ts": "05dddfe16276823f083087d50c564bf1497fb103b0e30d23072218191339a4aa",
@@ -141,13 +141,14 @@
     "test/hosted-steps.test.mjs": "9f17e687ff0ee209eb266d458e89620361ed46bf0f017cc148eb60899810ada7",
     "test/incremental-composite.test.mjs": "14a333bd116fdc9c14d6e6fd553c7ff02b4b8e43afecc316002be8555894969f",
     "test/kernel-shim.mjs": "dcf663ec7e7cebcc1c07e5f3d8002b12baf04b615de90c0d7600b8c119d46f19",
-    "test/kernel-tests.json": "05b1f4bb3e29103e510f87a9a9fd364328f04db7d4bf396770349c869f5715f6",
+    "test/kernel-tests.json": "848ed877950948cf7ef70b8f204c693c7fff1f68dd41fdb2016042ff35ba5d83",
     "test/layer-cap-budget.test.mjs": "71050c769b32c2895933fc0c7dc0757ef37277d7c96fe62be599dc47f833fc7a",
     "test/layer-ops-undo-fuzz.test.mjs": "b30dc705c6a85f31a24da0de01e0fd6cac522741b06c2f14891488a2d37fc59f",
     "test/layer-tiles.test.mjs": "1fc2781d69ed76472a30c783001ff097a37e0b58f981bb1610eef107e67d09ad",
     "test/layer-tree-json.test.mjs": "3650a1df7b48cf9757acfb9c007c5645c936792150b134ceb7151106d06a80e8",
     "test/liquify-bicubic.test.mjs": "c2e2e594a05ae281e41aa9c7f4f0187d736d8620dbbdad429923ad25d0035582",
     "test/liquify-bilinear.test.mjs": "d73511644dcdede95779455cf23e6a4e9d08d2a2a1fbc36b328d36fdb36f271d",
+    "test/ora-ids.test.mjs": "2e75e897c77a068b84745d2c59f3a02242e27114309dceac40f1eb6177153623",
     "test/ora-tree.test.mjs": "6f1a08732b70fdc4fc2e5caa6d36c515f3a8d9bedd8e6972c90dcb6a659f8719",
     "test/painting-workpiece.test.mjs": "36e6128490081c2f5e2260915280ec12a35e7ead44ec3e078dd814b124064d94",
     "test/pending-fill.test.mjs": "72f50345408f045eb3a1877050b3be89ba3b768804ec56e694b4c6723c2f2a05",
