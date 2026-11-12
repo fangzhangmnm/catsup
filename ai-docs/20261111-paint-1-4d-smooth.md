@@ -290,3 +290,12 @@
   - T2 同一份带图的文件（一张画过的画 + 6 张导入的图，面上用着 1 张）开了关、关了开 6 次（新建一份空的 → 图库里打开）：每开一次缓存多 2 条（这一次用着的那张图 + 冷画的合成图）、显卡上多 2 张图、约 0.33 MB。6 次之后 18 条、23 张；最后新建一份空的，一条都没放。
   - **结论：只涨不落**。缓存按贴图对象认，每次打开都是新对象，旧的永远不删，留到关页。这次的图很小；换成 2048² 的画，合成图连缩小图约 21 MB，开 6 次就是一百多 MB。修归「很多张 atlas 时的显存」那一步（统筹定的），这一条只量。
 
+### 收尾：全部探针整跑一遍（2026-11-11，Catsup小弟；对着 v0.19.47）
+- **跑法**：`test/probes/` 下 199 个（`fake-cloud.mjs` 是给别的探针用的，不跑），一个接一个串行跑，每个限时 15 分钟，规模探针带真模型，一共 35 分钟。退出码不是 0 = 红；红的再拿 v0.19.45 的构建跑一遍，分清是不是这几版改出来的。
+- **结论：19 个红，全部在 v0.19.45 上也红 = 不是 v0.19.45–47 改出来的；这几版没有新红。** `probe-snap-base` 是偶发（两版上各跑 7 次都红 1 次）。
+- 红的分三类（还没修，排期交统筹）：
+  - **探针过时、行为是对的**：`probe-lock`（期望菜单 id `lock`，现在叫 `action:lock`；锁上、拒挪、拒删、拒进、解锁都对）、`probe-weld-breaks`（焊接对，红在「右键菜单里有焊接」，那条搬进了修复面板）；`probe-cleanup` / `probe-fill-holes` / `probe-gridplane` / `probe-resegment` / `probe-shapes` / `probe-straighten` 只打一行结果、要逐个对条件，看着是同一类。
+  - **跑不起来（用的口已经不在了）**：`bench-scene`（算出的指针坐标是无效数）、`probe-gallery-menu`（等不到 `#galleryMenuBtn`）、`probe-make-planar`（指令 `planar` 没加载）、`probe-shelf`（`session.encode` 不存在了）、`probe-slow-ask`（等不到 `#sheetCancel`）。
+  - **可能是真毛病，要查**：`probe-left-dial`（拖动时的气泡、圈 6 项 false）、`probe-paint-workbench`（「锁着时离开画画工作台，『开始画…』不露」那一条）、`probe-draw-frame`（`markerAfterSet`）、`probe-mesh-workbench` / `probe-new-primitive`（该抛的没抛：`threw` false）。
+- 日志在本机：`$CLAUDE_JOB_DIR/tmp/sweep/`（每个探针一份，加上 `results.tsv`）。
+
