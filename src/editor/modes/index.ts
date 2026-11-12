@@ -14,10 +14,12 @@ export function workbenches(): readonly Mode[] { return [new GeometryMode(), new
 export function workbenchOf(list: readonly Mode[], t: Tool, kind: BodyKind | null, among?: readonly ModeId[]): Mode | undefined {
   return list.find((m) => (!among || among.includes(m.id)) && m.tools.includes(t) && (kind === null || (m.kinds as readonly BodyKind[]).includes(kind)));
 }
-/** 锁上时去哪拿哪把（照工作台自己的声明 whenLocked；统筹 11-11，v0.19.48）：mode = null 留在这个工作台；不然 = 明着换到那个工作台再拿。 */
-export function lockedHold(list: readonly Mode[], mode: Mode, kind: BodyKind): { readonly mode: ModeId | null; readonly tool: Tool } {
+/** 锁上时去哪拿哪把（照工作台自己的声明 whenLocked；统筹 11-11，v0.19.48）：mode = null 留在这个工作台；不然 = 明着换到那个工作台再拿。
+ *  missing = 写了「去别处拿」却找不到管这种身体、又有这把工具的工作台（守卫 test/workbench-tools.test.ts 按身体种类钉着走不到；真遇到了 holdChanged 记一条错，不悄悄过去）。 */
+export function lockedHold(list: readonly Mode[], mode: Mode, kind: BodyKind): { readonly mode: ModeId | null; readonly tool: Tool; readonly missing: boolean } {
   const w = mode.whenLocked;
-  if ("tool" in w) return { mode: null, tool: w.tool };
-  return { mode: workbenchOf(list, w.elsewhere, kind)?.id ?? null, tool: w.elsewhere };
+  if ("tool" in w) return { mode: null, tool: w.tool, missing: false };
+  const to = workbenchOf(list, w.elsewhere, kind)?.id ?? null;
+  return { mode: to, tool: w.elsewhere, missing: to === null };
 }
 

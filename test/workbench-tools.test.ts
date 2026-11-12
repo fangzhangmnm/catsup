@@ -3,7 +3,7 @@
 // 行为（在真 app 里把每个工具键按一遍）在探针 test/probes/probe-workbench-tools.mjs。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { TOOL_KEY_JUMPS } from "../src/controller/keymap.ts";
-import { workbenches, workbenchOf } from "../src/editor/modes/index.ts";
+import { workbenches, workbenchOf, lockedHold } from "../src/editor/modes/index.ts";
 import { isReadOnlyTool } from "../src/editor/tool-ids.ts";
 const { readFileSync, readdirSync, statSync } = (await import("node:fs" as string)) as { readFileSync(p: string, enc: "utf8"): string; readdirSync(p: string): string[]; statSync(p: string): { isDirectory(): boolean } };
 
@@ -42,6 +42,14 @@ describe("工作台只发自己的工具", () => {
       else for (const k of m.kinds) assert(!!workbenchOf(workbenches(), t, k), `「${m.label}」说去别处拿 ${t}，可是管 ${k} 的工作台里没有它`);
     }
     eq(JSON.stringify(workbenches().find((m) => m.id === "paint")!.whenLocked), JSON.stringify({ elsewhere: "select" }), "画画工作台 = 去有「选择」的工作台（行为 = v0.19.46）");
+    // 按身体种类逐个走一遍 lockedHold：每个工作台管的每一种身体都找得到去处（missing 永远 false），去处真有那把工具、也管得了这种身体
+    const list = workbenches();
+    for (const m of list) for (const k of m.kinds) {
+      const h = lockedHold(list, m, k);
+      assert(!h.missing, `「${m.label}」管 ${k} 时锁上找不到去处`);
+      const at = h.mode ? list.find((x) => x.id === h.mode)! : m;
+      assert(at.tools.includes(h.tool) && (at.kinds as readonly string[]).includes(k), `「${m.label}」管 ${k} 时锁上去「${at.label}」拿 ${h.tool}：那里没有它或者管不了 ${k}`);
+    }
   });
   it("src 里每一处调 setTool 的地方都表态了（v0.19.48；v0.19.47 漏的就是这一类：以为 setTool 会替人换工作台）", () => {
     // 加一处 = 这里加一行，写明它拿的是哪种：当前工作台单子上的 / 走 takeTool（明着换工作台）/ 照声明（先明着 setMode）
