@@ -1,4 +1,4 @@
-export declare const METER_SEGS: readonly ["input", "rays", "walk", "reach", "layer", "compose", "copy", "mips", "scene"];
+export declare const METER_SEGS: readonly ["input", "rays", "walk", "reach", "layer", "compose", "copy", "mips", "scene", "canvas", "land"];
 export type MeterSeg = (typeof METER_SEGS)[number];
 export declare const METER_LABELS: Readonly<Record<MeterSeg, string>>;
 export type MeterFrame = Record<MeterSeg, number>;

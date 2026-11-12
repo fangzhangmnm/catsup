@@ -22,7 +22,14 @@ export interface PaintMeterBadge {
         checks: number;
         mismatches: number;
         skipped: number;
+        lastLift: LastLift | null;
     };
+}
+/** 最近一次抬笔那一帧（带着「抬笔落层」的那一帧：合计 + 各段）和它后面那一帧的合计（有没有把活推到下一帧；2026-11-12 统筹：抬笔那一帧单独拎出来，真设备上直接看得见）。 */
+export interface LastLift {
+    readonly total: number;
+    readonly f: MeterFrame;
+    next: number | null;
 }
 export declare function mountPaintMeterBadge(o: {
     sceneMs(): number;

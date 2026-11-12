@@ -106,8 +106,8 @@ export declare class PaintBoards {
     openBrushStroke(texture: Guid, ...args: Parameters<PaintBoard["openBrushStroke"]>): BoardStroke;
     /** 有没有哪块画板开着一笔（三维那一笔 / 二维笔都算；「手上有一下没收」的名册问它）。 */
     anyStrokeOpen(): boolean;
-    /** 撤销 / 重做之前：开着的那几笔全部取消（零痕迹）。 */
-    cancelOpen(): void;
+    /** 撤销 / 重做之前：开着的那几笔全部取消（零痕迹）。返回取消了几笔（编辑器拿它决定这一下撤销 / 重做只是取消这一笔、不翻历史）。 */
+    cancelOpen(): number;
     /** 这张画的状态不可信：叫内核把以前的步全部作废（onReset → undoReset → 三维的栈摘掉记录）。 */
     distrust(texture: Guid, why: string): void;
     /** 灌一份内容（调试钩子；以后读文件）：内核装载 = 这张画以前的步全作废（不用告诉用户：是装载，不是出错）。 */

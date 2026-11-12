@@ -117,7 +117,7 @@ export interface EditorHost {
     hint(text: string | null): void;
     /** 每条指令提交完（收尾之后、这一步还开在栈顶）：画板跟着贴图坐标改大小、内核封的那几步挂进这一步（1-8a）。beforeHistoryMove = 撤销 / 重做之前：开着的那一笔先取消。 */
     afterCommit?(): void;
-    beforeHistoryMove?(): void;
+    beforeHistoryMove?(): boolean | void;
     /** 跟指针的提示框；measure = 手势中的读数（user 2026-10-25「优先显示长度，参考只是参考」：第一行、最显眼）；scale = B43 尺度参考（拖动时才有；样式归宿主画）。 */
     tip(text: string | null, clientX: number, clientY: number, scale?: ScaleTipView | null, measure?: string): void;
     trace?(entry: EditorTrace): void;
