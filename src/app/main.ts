@@ -10,7 +10,8 @@ import { ERASERS, BRUSHES, isReadOnlyTool, isPaintTool } from "../editor/tool-id
 import { mountPaintMeterBadge, type PaintMeterBadge } from "./paint-meter-badge.ts";
 import { paintMeter } from "../paint/frame-meter.ts";
 import { strokeKindOpts, BRUSH_KIND_IDS, BRUSH_KINDS, BRUSH_PATHS, type BrushKind } from "../paint/brush-kinds.ts";
-import { resolvedBrushOf, strokeSmoothOf } from "../paint/brush-records.ts";
+import { resolvedBrushOf, strokeSmoothOf, brushUnusableWhy, CANVAS_HOST, BRUSHES as BRUSH_RECORDS } from "../paint/brush-records.ts";
+import { StrokeClock } from "../controller/stroke-clock.ts";
 import { createPaintBrushes } from "./paint-brushes.ts";
 import { CHECK_EVERY, displayDiag, DISPLAY_PATHS, DISPLAY_PATH_LABELS, MIPS_OF } from "../paint/display-diag.ts";
 import { inputGate, installInputDom } from "./input-dom.ts";
@@ -35,7 +36,7 @@ import { createShelfActions, type ShelfActions } from "./shelf-actions.ts";
 import { resolvePasteConflict } from "./paste-actions.ts";
 import { createHideWindows } from "./ui/hide-windows.ts";
 import { createFloatWin, createMenuWindow, type FloatWin, type MenuSpec, type MenuWindowHandle } from "./ui/menu-window.ts";
-import { mountCanvasWindow, type CanvasWindow } from "./canvas-window.ts";
+import { mountCanvasWindow, type CanvasWindow, type CanvasPointer, type CanvasStroke } from "./canvas-window.ts";
 import { mountWorkBar } from "./ui/work-bar.ts";
 import { mountMfd } from "./mfd.ts";
 import { stanceShown } from "../controller/chips.ts";
@@ -1251,7 +1252,7 @@ const canvasBtn = document.createElement("button"); canvasBtn.type = "button"; c
 refBtn.before(canvasBtn);
 // eslint-disable-next-line no-var
 var canvasWin: CanvasWindow | null = null;   // var：每帧的准备 / 渲染的 viewExtras 比它先写
-canvasBtn.addEventListener("click", () => { (canvasWin ??= mountCanvasWindow({ editor, boards: paintBoards, savedSizes: (t) => paintSaver.lastSizes(t), hint: (t) => { hintEl.textContent = t; }, onOpenChange: (o) => { canvasBtn.classList.toggle("is-open", o); canvasBtn.setAttribute("aria-pressed", o ? "true" : "false"); } })).toggle(canvasBtn); syncUi(); });
+canvasBtn.addEventListener("click", () => { (canvasWin ??= mountCanvasWindow({ editor, boards: paintBoards, savedSizes: (t) => paintSaver.lastSizes(t), paint: canvasPaintPort, hint: (t) => { hintEl.textContent = t; }, onOpenChange: (o) => { canvasBtn.classList.toggle("is-open", o); canvasBtn.setAttribute("aria-pressed", o ? "true" : "false"); } })).toggle(canvasBtn); syncUi(); });
 const syncCanvasBtn = (): void => { const any = [...editor.sceneRef.textures.values()].some((t) => t.content.kind === "layered"); canvasBtn.hidden = !any && !canvasWin?.isOpen(); };
 // ---------- B43 尺度参考：数据懒加载 + 视图 ☰「参考」页 ----------
 let ladder: Ladder | null = null;
@@ -2602,6 +2603,50 @@ function paintCheckDetail(): { ok: boolean; kernel: { guid: string; diff: number
 }
 editor.afterRender = () => meterBadge?.frame();
 var paintWb: PaintWorkbench | null = new PaintWorkbench({ editor, boards: paintBoards, strokeDeps: (chain) => paintStrokeDeps(chain), gate: (t) => paintStrokeGate(t), color: paintColor, brushOf: (t) => paintBrushes.current(t)!, prep: paintPrep, flashStart: () => { primary.sync(); primary.flash("paint"); }, hint: (t) => { hintEl.textContent = t; } });
+/**
+ * 画布小窗里落笔（施工单二十一第 2 刀）：手上的工具就是左边工具柱里那一把（一只手，两块画面）。笔 = 这把工具现在拿的那支 + 旋钮（大小 = 画布像素）+ 现在的颜色；
+ * 一笔的时钟和压感照 1a（StrokeClock：事件时间像样就整笔按它、压感只信笔的）；落笔先过同一道门（锁 / 冷的 / 只能看不能画）；这支笔在画布上用不了 = 说原因不画；
+ * 抬笔 = 一步（和模型上的笔同一个 commitRecordsStep）。一笔当中被撤销 / 重做先取消（登记处 cancelOpen）= 之后的点不理、抬笔不封步。
+ */
+const canvasPaintPort = {
+  tool: (): "paintPen" | "paintEraser" | "eyedrop" | null => { const t = editor.tool; return t === "paintPen" || t === "paintEraser" || t === "eyedrop" ? t : null; },
+  brushSize: (): number | null => { const t = editor.tool; return t === "paintPen" || t === "paintEraser" ? editor.config.get(t, "size") : null; },
+  open: (tex: string, p: CanvasPointer): CanvasStroke | null => {
+    const tool = editor.tool;
+    if (tool !== "paintPen" && tool !== "paintEraser") return null;
+    if (paintStrokeGate(tex)) return null;   // 门自己说了
+    paintBoards.ensure(editor.sceneRef, tex);
+    const kind = paintBrushes.current(tool)!, why = brushUnusableWhy(BRUSH_RECORDS[kind], CANVAS_HOST);
+    if (why) { hintEl.textContent = why; return null; }
+    const cfg = editor.config, brush = { ...resolvedBrushOf(kind, { size: cfg.get(tool, "size"), opacity: cfg.get(tool, "opacity"), hardness: cfg.get(tool, "hardness") }), color: hexOf(paintColor.get()) };
+    const erase = strokeKindOpts(kind).erase, smooth = strokeSmoothOf(brush), clock = new StrokeClock(p.at, performance.now());
+    let st: ReturnType<typeof paintBoards.openBrushStroke>;
+    try { st = paintBoards.openBrushStroke(tex, brush, { x: p.x, y: p.y, pressure: clock.pressure(p.pointerType, p.pressure), t: 0 }, { erase, ...(smooth ? { smooth } : {}) }); }
+    catch (err) { hintEl.textContent = String((err as { say?: string }).say ?? "这一笔没能开始"); funnel(err, "warning"); return null; }
+    editor.draw();
+    return {
+      move: (q) => { if (!st.open) return; st.move(q.x, q.y, clock.pressure(q.pointerType, q.pressure), clock.time(q.at, performance.now())); editor.draw(); },
+      cancel: () => { st.cancel(); editor.draw(); },
+      up: () => {
+        try { if (st.end()) editor.commitRecordsStep(erase ? PAINT_STEP_LABELS.erase : PAINT_STEP_LABELS.stroke, paintBoards.takePending().map((data) => ({ kind: PAINT_UNDO_KIND, data }))); }   // 一笔 = 三维的一步
+        catch (err) { hintEl.textContent = String((err as { say?: string }).say ?? "这一笔没能落进画里，已经整笔撤掉（画和落笔之前一样）"); }
+        editor.draw();
+      },
+    };
+  },
+  eyedrop: (tex: string, x: number, y: number): void => {
+    const take = (): void => {
+      const b = paintBoards.get(tex), px = b?.pixelAt(Math.floor(x), Math.floor(y));
+      if (!px) { hintEl.textContent = "这里取不到颜色"; return; }
+      const c: [number, number, number] = [px[0] / 255, px[1] / 255, px[2] / 255];
+      paintColor.set(c); hintEl.textContent = `取到颜色 ${hexOf(c)}`;
+      editor.setTool(paintWb?.pen ?? "paintPen");   // 取完回到上一把笔（和模型上的吸管一样）
+    };
+    if (paintBoards.stateOf(editor.sceneRef, tex) === "hot") { take(); return; }
+    hintEl.textContent = "这张画还在打开，取到颜色就换回笔";
+    void paintBoards.warm(editor.sceneRef, tex).then((r) => { if (r === "hot") take(); }).catch((e) => funnel(e, "warning"));
+  },
+};
 /** 画布上的二维笔开一笔（施工单二十一第 1 刀；调试钩子 paint.stroke2dOpen / stroke2d 用，第 2 刀小窗接上手时走同一个口）。 */
 type Stroke2dHandle = { readonly guid: string; readonly open: boolean; move(x: number, y: number, p?: number): void; cancel(): void; up(): { guid: string; landed?: boolean; threw?: string } };
 function paintStroke2dOpen(o: { guid?: string; x: number; y: number; p?: number; kind?: BrushKind; size?: number; opacity?: number; hardness?: number; color?: readonly number[] }): { readonly guid: string; readonly refused: string } | Stroke2dHandle {

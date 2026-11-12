@@ -128,6 +128,8 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
   const zoomAt = (sx: number, sy: number, f: number): void => { const nk = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, k * f)), p = toImg(sx, sy); k = nk; ox = sx - p.x * k; oy = sy - p.y * k; schedule(); };
 
   // —— 输入 ——
+  /** 抓住这个指针（拖出画布也收得到）。抓不到（指针在两个事件之间被系统收走了 / 程序合成的事件）= 照常往下走，不让按下这一下整个没了。 */
+  const capture = (id: number): void => { try { cv.setPointerCapture(id); } catch { /* 抓不到照常 */ } };
   const ptrs = new Map<number, { x: number; y: number }>();
   let down: { x: number; y: number; moved: boolean } | null = null, pinch: { d: number; cx: number; cy: number } | null = null;
   let drawing: number | null = null;   // 正在画的那个指针（stroke 钩子收下的）
@@ -141,11 +143,11 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
   const onDown = (e: PointerEvent): void => {
     if (drawing !== null) { e.preventDefault(); return; }   // 一笔当中别的指针不理（不挪不缩）
     if (e.pointerType !== "touch" && !ptrs.size && hooks.stroke?.wants({ pointerType: e.pointerType, button: e.button })) {
-      cv.setPointerCapture(e.pointerId); drawing = e.pointerId;
+      capture(e.pointerId); drawing = e.pointerId;
       const q = toImg(local(e).x, local(e).y); setTip(q); hooks.stroke.down(q.x, q.y, e);
       e.preventDefault(); return;
     }
-    cv.setPointerCapture(e.pointerId);
+    capture(e.pointerId);
     const p = local(e); ptrs.set(e.pointerId, p);
     if (ptrs.size === 1) down = { x: p.x, y: p.y, moved: false };
     else if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; if (down) down.moved = true; }

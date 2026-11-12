@@ -8,6 +8,8 @@
 // 两边一起亮：三维里选中的面 → 这里涂蓝；这里悬停 → 三维里那张面按悬停的样子亮（peekWorld，经 viewExtras 交给渲染）+ 底下一行写它是谁；
 //   这里点一张面 = 在三维里选中它（一步、进撤销；要正在编辑这个物件——没在编辑就说一句，不替人进去）。三维里点了一张面 = 自动切到那张面所在的 atlas。
 // 开着不进文件（这一次打开期间记着）；位置按设备记（和别的浮窗同一个 WIN_POS）。它进输入闸的名册（refwin：有焦点时键盘归它，不挡三维）。
+// 在上面画（施工单二十一第 2 刀）：手上的工具只有左边工具柱里那一个（设计稿「一只手，两块画面」）。画画工作台里笔 / 橡皮落在这里 = 二维笔（deps.paint.open，和模型上的笔
+//   同一块画板、同一串撤销）；吸管点一下 = 取这里显示的颜色；别的工具照旧（拖 = 挪、点 = 选面）。手指永远是看。一笔开着（这里画的或模型上画的）= 每帧只读回变了的那块，跟着变。
 import type { Editor } from "../editor/editor.ts";
 import { paintsOf } from "../editor/mesh-edits/start-paint.ts";
 import { atlasOutline, type AtlasOutline } from "../paint/atlas-outline.ts";
@@ -29,7 +31,22 @@ export interface CanvasWindowDeps {
   onOpenChange?(open: boolean): void;
   /** 这张画最近一次存下去的字节多大（热的画存过之后贴图行里没有字节，得问存盘那边；paint/save.ts PaintSaver.lastSizes）。 */
   savedSizes?(texture: string): { readonly ora: number; readonly png: number } | null;
+  /** 在画布上画（施工单二十一第 2 刀；main.ts 递进来）。缺 = 只看（单测 / 老入口）。 */
+  readonly paint?: CanvasPaintPort;
 }
+/** 画布上落笔的口（宿主的）：工具、开一笔、吸色、笔印多大。坐标 = 画布格（可以带小数）。 */
+export interface CanvasPaintPort {
+  /** 手上能在画布上用的那把（笔 / 橡皮 / 吸管）；别的 = null。 */
+  tool(): "paintPen" | "paintEraser" | "eyedrop" | null;
+  /** 开一笔：落笔的门不让（锁 / 冷的……）= null（门自己说了）。 */
+  open(texture: string, p: CanvasPointer): CanvasStroke | null;
+  /** 吸管：取这一格显示的颜色。 */
+  eyedrop(texture: string, x: number, y: number): void;
+  /** 手上那支笔的大小（画布格；悬停笔印）；不是笔 = null。 */
+  brushSize(): number | null;
+}
+export interface CanvasPointer { readonly x: number; readonly y: number; readonly pressure: number; readonly pointerType: string; readonly at: number }
+export interface CanvasStroke { move(p: CanvasPointer): void; up(): void; cancel(): void }
 export interface CanvasWindow {
   toggle(anchor: HTMLElement): void;
   open(anchor: HTMLElement): void;
@@ -50,6 +67,10 @@ export interface CanvasWindowProbe {
   selected: number[]; hover: number | null; debugView: boolean;
   /** 读回了几次 / 线重算了几次 / 冷图解了几次（开着画一笔：笔当中不涨）。 */
   readbacks: number; outlines: number; decodes: number;
+  /** 一笔开着时跟着变：读回了几次、一共读了多少格；这里正在画一笔吗。 */
+  liveReads: number; liveCells: number; drawing: boolean;
+  /** 小窗里那张图（热的画读回来的那张）的字节哈希 + 宽高（探针拿它和画板的显示那张 / 落定那张逐字节比）；不是读回来的图 = null。 */
+  workHash(): { hash: string; w: number; h: number } | null;
   hoverLine: string; statsLine: string; showNums: boolean; collapsed: boolean;
   /** 图上一点（格）在页面上的位置（探针点它用）。 */
   screenOf(x: number, y: number): { x: number; y: number } | null;
@@ -72,13 +93,27 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
   // —— 状态 ——
   let def: number | null = null, tex: string | null = null, outline: AtlasOutline | null = null, key = "", stamp = "", selKey = "", hover: number | null = null, pinned: number | null = null, debugView = false, showNums = false;
   let readbacks = 0, outlines = 0, decodes = 0, owner: { key: string; canvas: HTMLCanvasElement } | null = null;
+  let liveVer = -1, liveReads = 0, liveCells = 0, stroke: CanvasStroke | null = null;   // 一笔开着时跟着变：读到哪一版、读回了几次、一共读了多少格；这里正在画的那一笔
   const work = document.createElement("canvas");   // 读回的那张图放这里（只是显示：字节不经它进出文件）
   const coldIds = new WeakMap<object, number>(); let coldNext = 1;
 
+  const ptr = (x: number, y: number, e: PointerEvent): CanvasPointer => ({ x, y, pressure: e.pressure, pointerType: e.pointerType, at: e.timeStamp });
   const view = mountImageView(viewHost, {
     pick: (x, y) => outline?.facesAt(x, y)[0] ?? null,
     hover: (id) => { hover = id; writeHover(); editor.draw(); },
     click: (id) => { pinned = id; writeHover(); if (id !== null) selectIn3d(id); },   // 点到的那张面：它是谁那一行留着（触屏没有悬停），点空处收起
+    stroke: {
+      // 笔 / 鼠标左键 + 手上是能在画布上用的那把 + 这里有一张画 = 画；不然照旧（拖 = 挪、点 = 选面）
+      wants: (e) => !!d.paint && tex !== null && d.paint.tool() !== null && (e.pointerType === "pen" || (e.pointerType === "mouse" && e.button === 0)),
+      down: (x, y, e) => {
+        if (!d.paint || tex === null) return;
+        if (d.paint.tool() === "eyedrop") { d.paint.eyedrop(tex, x, y); return; }
+        stroke = d.paint.open(tex, ptr(x, y, e));
+      },
+      move: (x, y, e) => { stroke?.move(ptr(x, y, e)); },
+      up: (x, y, e, cancelled) => { const s = stroke; stroke = null; if (!s) return; if (cancelled) s.cancel(); else { s.move(ptr(x, y, e)); s.up(); } },
+    },
+    brushAt: () => { const t = d.paint?.tool(); return t === "paintPen" || t === "paintEraser" ? d.paint!.brushSize() : null; },
   });
   /** 「…」菜单：最上面一节 = 这个物件的每一张画（当前那张打勾，点了就换）；下面 = 每格归谁（开关）· 整张 · 显示数字（开关）。 */
   const menuItems = (): PopupMenuItem<string>[] => {
@@ -153,6 +188,8 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     if (!win.isOpen() || tex === null || !outline) return;
     const p = place(); if (!p) return;
     const hot = boards.get(tex), cold = hot ? null : boards.board(tex);
+    if (hot && hot.strokeOpen && !debugView) { live(hot); return; }   // 一笔开着（这里画的或模型上画的）：跟着变
+    liveVer = -1;
     const ns = debugView ? `own|${key}` : hot ? `hot|${hot.committedKey()}` : cold ? `cold|${idOf(cold.image as object)}` : `none|${p.uvSet.width}x${p.uvSet.height}`;
     if (ns === stamp) return;
     stamp = ns;
@@ -171,6 +208,30 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
       return;
     }
     view.setImage(null, p.uvSet.width, p.uvSet.height);   // 还没有内容（新开、还没打开过）= 底色
+  }
+  /**
+   * 一笔开着时：显示的那张（带着这一笔）每帧读回变了的那块（画板的变化史；第一次 / 说不清 = 整张），贴进小窗那张图。和三维那边看的是同一张合成图。
+   * 抬笔后 stamp 对不上 → 照旧整张读回落定的（composeBytes）。
+   */
+  function live(b: NonNullable<ReturnType<PaintBoards["get"]>>): void {
+    const v = b.compose();
+    if (!v) return;
+    stamp = `live|${v.version}`;
+    if (v.version === liveVer) return;
+    const whole = liveVer < 0 || work.width !== b.width || work.height !== b.height, ch = whole ? "all" : b.changedSince(liveVer);
+    let r = { x: 0, y: 0, w: b.width, h: b.height };
+    if (ch !== "all") {
+      if (ch.empty) { liveVer = v.version; return; }
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const q of ch.runs()) { x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x + q.w); y1 = Math.max(y1, q.y + q.h); }
+      r = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+    }
+    const got = b.shownBytes(r);
+    if (!got) return;
+    if (whole) { work.width = b.width; work.height = b.height; }
+    if (r.w > 0 && r.h > 0) work.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(got.px.buffer, got.px.byteOffset, got.px.byteLength), r.w, r.h), r.x, r.y);
+    liveVer = got.version; liveReads++; liveCells += r.w * r.h;
+    view.setImage(work, b.width, b.height);
   }
   const idOf = (o: object): number => { let n = coldIds.get(o); if (n === undefined) { n = coldNext++; coldIds.set(o, n); } return n; };
   /** 调试视图：每格归哪块多边形（和画画用的那张归属表同一个算法、同样往外延）；没人要 = 棋盘格。 */
@@ -243,8 +304,9 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     probe: () => ({
       open: win.isOpen(), def, tex, width: outline?.width ?? 0, height: outline?.height ?? 0, faces: [...(outline?.faces ?? [])],
       thin: (outline?.thin.length ?? 0) / 4, thick: (outline?.thick.length ?? 0) / 4, patches: outline?.patches ?? 0, covered: outline?.covered ?? 0, shared: outline?.shared ?? 0,
-      selected: editingDef() ? editor.selectedMeshFaces().filter((f) => outline?.rings.has(f)) : [], hover, debugView, showNums, collapsed: win.collapsed(), readbacks, outlines, decodes,
+      selected: editingDef() ? editor.selectedMeshFaces().filter((f) => outline?.rings.has(f)) : [], hover, debugView, showNums, collapsed: win.collapsed(), readbacks, outlines, decodes, liveReads, liveCells, drawing: stroke !== null,
       hoverLine: hoverLine.textContent ?? "", statsLine: statsLine.textContent ?? "",
+      workHash: () => { if (!work.width || !work.height || !stamp.startsWith("hot") && !stamp.startsWith("live")) return null; const px = work.getContext("2d")!.getImageData(0, 0, work.width, work.height).data; let h = 2166136261; for (let i = 0; i < px.length; i++) { h ^= px[i]; h = Math.imul(h, 16777619); } return { hash: (h >>> 0).toString(16), w: work.width, h: work.height }; },
       screenOf: (x, y) => { const r = viewHost.querySelector("canvas")?.getBoundingClientRect(); if (!r) return null; const p = view.toScreen(x, y); return { x: r.left + p.x, y: r.top + p.y }; },
     }),
   };

@@ -110,7 +110,8 @@ check(w.tex !== otherTex, `从「…」里换画：小窗切到另一张（${w.t
 await menu(await nameOf(otherTex)); w = await W();
 check(w.tex === otherTex, "再从「…」里换回来");
 
-console.log("\n④ 小窗里点 = 三维里选中；悬停 = 三维那边亮、底下一行写它是谁");
+console.log("\n④ 小窗里点 = 三维里选中；悬停 = 三维那边亮、底下一行写它是谁（不画画的工具：画画工作台里笔落在画布上 = 画，施工单二十一第 2 刀，那边由 probe-canvas-paint 管）");
+await S(() => { globalThis.__catsup.pickWorkbench("freeform"); globalThis.__catsup.editor.setTool("select"); }); await frames(2);
 const centerOf = (f) => S(([def, f]) => { const e = globalThis.__catsup.editor, Sc = e.sceneRef, k = Sc.mesh(def).kernel, p = Sc.facePaint(def, k.faceMat[f]), v = k.cornerValues(f, p.uvSet.guid); let x = 0, y = 0; const n = v.length / 2; for (let i = 0; i < n; i++) { x += v[2 * i]; y += v[2 * i + 1]; } return globalThis.__catsup.canvasWin().probe().screenOf(x / n, y / n); }, [setup.def, f]);
 const fC = truth[otherTex].faces[2], hBefore = await S(() => globalThis.__catsup.editor.history.position());
 const c = await centerOf(fC);
@@ -124,6 +125,7 @@ await page.mouse.click(c.x, c.y); await frames(2);
 const picked = await S(() => globalThis.__catsup.editor.selectedMeshFaces());
 check(picked.join(",") === String(fC) && await S(() => globalThis.__catsup.editor.history.position()) === hBefore + 1, `点了一下：三维里选中的是面 ${picked.join(",")}、一步`);
 
+await S(() => globalThis.__catsup.pickWorkbench("paint")); await frames(2);   // 回画画工作台（后面几段照旧）
 console.log("\n⑤ 底下那行数");
 const tgt = await S(([def, fs]) => { const k = globalThis.__catsup.editor.sceneRef.mesh(def).kernel; let tris = 0; for (const f of fs) tris += Math.max(1, k.faceVerts(f).length - 2); return { faces: Math.max(1, fs.length), tris: Math.max(1, tris) }; }, [setup.def, w.faces]);
 const mem = bytesSay(openMemory(truth[otherTex].w, truth[otherTex].h, tgt).fixed);   // app 自己的清单（施工单十九第 1 刀：以前探针里另抄了一份公式，清单补全后对不上）

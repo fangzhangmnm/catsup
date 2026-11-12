@@ -102,6 +102,8 @@ export interface HostCaps {
 }
 /** 三维模型上的画（有表面的宿主）。这一张里所有的笔都能用（施工单二十第三节第 7 条）。按格的笔（第 2 刀）来了再把 "cell" 和 pixelMode 加上。 */
 export const SURFACE_HOST: HostCaps = { name: "模型上", tools: ["brush", "eraser"], compositeModes: ["wash", "buildup"], blendModes: ["source-over"], shapes: ["round"], sizeUnits: [], pixelMode: false };
+/** 画布上（画布小窗里画，施工单二十一第 2 刀）：大小按画布像素（只有画布的宿主的习惯）。这一张里的笔都能用；按格的笔来了把 "cell" 和 pixelMode 加上。 */
+export const CANVAS_HOST: HostCaps = { name: "画布上", tools: ["brush", "eraser"], compositeModes: ["wash", "buildup"], blendModes: ["source-over"], shapes: ["round"], sizeUnits: [], pixelMode: false };
 /** 这支笔在这个宿主里能不能用：能 = null；不能 = 一句说清哪一样不认得（家规：不静默——带着不认得的取值的笔是灰的、说原因，记录原样带着）。 */
 export function brushUnusableWhy(r: BrushRecord, host: HostCaps): string | null {
   if (!host.tools.includes(r.tool)) return `${host.name}不认得「${r.tool}」这种笔`;

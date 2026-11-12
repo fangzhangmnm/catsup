@@ -350,6 +350,18 @@ export class PaintBoard {
     if (d.diff) { this.history.push({ version: ++this.shown, change: "all" }); if (this.history.length > HISTORY) this.history.shift(); }
     return d;
   }
+  /**
+   * 显示的那张合成图（带着正在画的那一笔，和 compose 同一张）的一块读回来（画布小窗一笔当中跟着变，施工单二十一第 2 刀）：不给块 = 整张。
+   * 没合成过 / 过期 = 先合成一次（经 gpu()）。读回在准备之外动了显卡 → 叫 touched（渲染器记着的绑定作废）。同步：会等显卡做完。显卡画面丢了 = null。
+   * 存盘从不用它（存盘用 composeBytes：不带正在画的那一笔）。
+   */
+  shownBytes(r?: { readonly x: number; readonly y: number; readonly w: number; readonly h: number }): { readonly px: Uint8Array; readonly version: number } | null {
+    const v = this.compose();
+    if (!v) return null;
+    const x = Math.max(0, r?.x ?? 0), y = Math.max(0, r?.y ?? 0), w = Math.min(this.width - x, r?.w ?? this.width), h = Math.min(this.height - y, r?.h ?? this.height);
+    try { return { px: w > 0 && h > 0 ? this.port.readPixels(v.fbo, x, y, w, h) : new Uint8Array(0), version: v.version }; }
+    finally { this.touched(); }
+  }
   /** 显示的那张合成图上一格的颜色（RGBA 字节，垫着底色、不透明；吸管用，1-7）。出界 / 显卡画面丢了 = null。 */
   pixelAt(x: number, y: number): Uint8Array | null {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return null;

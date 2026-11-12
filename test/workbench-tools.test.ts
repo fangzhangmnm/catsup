@@ -56,7 +56,7 @@ describe("工作台只发自己的工具", () => {
     const SITES: Record<string, { n: number; why: string }> = {
       "src/editor/editor.ts": { n: 7, why: "holdChanged 照工作台声明（要换先 setMode）；改组件原点拿 axes（先查这个工作台有没有）、结束 / 取消拿回原来那把（同一个工作台）×3；键盘起手 startModal 和环切 armLoopCut 只在自由建模里" },
       "src/app/paint-workbench.ts": { n: 1, why: "吸完色回到画画的笔（画画工作台自己的）" },
-      "src/app/main.ts": { n: 8, why: "左柱 / 笔刷小三角（只列这个工作台的工具）；离开步行放回选择（验证工作台有）；takeTool ×2（明着换工作台的那一口）；轮换组（只轮这个工作台有的）；键盘起手没选区时（只在自由建模）；开机拿选择（硬表面有）" },
+      "src/app/main.ts": { n: 9, why: "左柱 / 笔刷小三角（只列这个工作台的工具）；离开步行放回选择（验证工作台有）；takeTool ×2（明着换工作台的那一口）；轮换组（只轮这个工作台有的）；键盘起手没选区时（只在自由建模）；开机拿选择（硬表面有）；画布小窗的吸管取完色回到上一把笔（吸管只在画画工作台，笔也是这个工作台的；施工单二十一第 2 刀）" },
     };
     function* walk(dir: string): Generator<string> { const fs = (globalThis as unknown as { __fs?: unknown }).__fs; void fs; for (const f of readdirSync(dir)) { const p = `${dir}/${f}`; if (statSync(p).isDirectory()) { if (f !== "kernel") yield* walk(p); } else if (/\.ts$/.test(f)) yield p; } }
     const got: Record<string, number> = {};

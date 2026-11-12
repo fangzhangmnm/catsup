@@ -40,6 +40,7 @@ export const PIXEL_WRITES: Readonly<Record<"PaintBoard" | "PaintBoards" | "Space
     composeBytes: { kind: "no-pixels", why: "存盘用的整张合成读回，不碰图层" },
     verifyFull: { kind: "no-pixels", why: "核对显示，不碰图层" },
     pixelAt: { kind: "no-pixels", why: "读" },
+    shownBytes: { kind: "no-pixels", why: "读显示的那张（画布小窗一笔当中跟着变）；不碰图层" },
     lastBake: { kind: "no-pixels", why: "读" }, background: { kind: "no-pixels", why: "读" },
     dispose: { kind: "no-pixels", why: "扔显卡资源" },
     contentBounds: { kind: "no-pixels", why: "读" },
@@ -81,6 +82,7 @@ export const PIXEL_WRITES: Readonly<Record<"PaintBoard" | "PaintBoards" | "Space
     pointer: { kind: "asks-lock", how: "落笔之前过门 this.d.gate（= main.ts paintStrokeGate，锁着回 \"locked\"、提示行说锁的那句）", sleep: VIA("SpacePaintStroke.down（落笔的这张画正在编辑：tick 里 setEditing 了，本来就醒着）") },
     constructor: NO("建控制器"),
     stroking: { kind: "no-pixels", why: "读" },
+    pen: { kind: "no-pixels", why: "读：上一把笔（吸管取完色回到它）" },
     tick: { kind: "no-pixels", why: "每帧：叫醒冷的画（读文件）" },
   },
 };

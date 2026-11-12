@@ -16,6 +16,7 @@
   "probe-board.mjs": {"state":"green"},
   "probe-brushes.mjs": {"state":"green"},
   "probe-c2.mjs": {"state":"green"},
+  "probe-canvas-paint.mjs": {"state":"green"},
   "probe-canvas-window.mjs": {"state":"green"},
   "probe-capsule.mjs": {"state":"green"},
   "probe-center-snap.mjs": {"state":"green"},

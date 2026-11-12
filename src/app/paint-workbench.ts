@@ -51,6 +51,8 @@ export class PaintWorkbench {
   /** 这一笔的时钟和压感（施工单二十 1a；规矩在 controller/stroke-clock.ts：一笔里只用一种钟、压感只信笔的）。 */
   private clock = new StrokeClock(undefined, 0);
   private lastPen: "paintPen" | "paintEraser" = "paintPen";
+  /** 上一把笔（笔 / 橡皮）：吸管取完色回到它（模型上和画布小窗里的吸管同一个，施工单二十一第 2 刀）。 */
+  get pen(): "paintPen" | "paintEraser" { return this.lastPen; }
   private readonly grids = new WeakMap<MeshKernel, { rev: number; grid: TriGrid }>();
   private entered: string | null = null;
   constructor(d: PaintWorkbenchDeps) { this.d = d; }
