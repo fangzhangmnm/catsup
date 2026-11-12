@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // scripts/probe-sweep.mjs —— 全部探针串行整跑一遍，和底账 test/probes/probe-ledger.json 比，只报三样：新红、新绿、还红着的。created 2026-11-11 by Claude Opus 5.5
-// 统筹 11-11 定的规矩：每批收尾整跑一次；新红 = 停下来（这个脚本退出码 1）；目标是施工单开工时底账里「已知红」那一栏是空的。
+// 统筹 11-11 定的规矩：每批收尾整跑一次，放后台跑、不卡队（照常做下一张单）；新红 = 停下来（这个脚本退出码 1）；目标是施工单开工时底账里「已知红」那一栏是空的。
+// 只跑底账里 role 是 guard 的（没写 = guard）；scaffold = 做某张单时对着看的细探针，不进整跑（--only 点名的照跑）。末尾报最慢的二十个和总用时（统筹 11-11：先量时间花在哪再定怎么省）。
 // 用法：node scripts/probe-sweep.mjs [--only=probe-a,probe-b] [--models=<真模型文件夹>] [--timeout=900] [--logs=<目录>] [--compare=v0.19.47]
 //   跑的是这个仓现在的构建：脚本自己在仓根起一个 http.server（端口自选），不用手边开着的服务。先 bash scripts/build.sh。
 //   串行跑（不并行：软件显卡抢核会跑出假红）。退出码 0 = 绿；红的用 scripts/probe-why-red.mjs 打出红在哪一条。
@@ -20,7 +21,8 @@ const models = arg("models"), timeoutS = Number(arg("timeout", "900")), compare 
 const logs = arg("logs", path.join(tmpdir(), `catsup-probe-sweep-${Date.now()}`));
 mkdirSync(logs, { recursive: true });
 const ledger = JSON.parse(readFileSync(path.join(root, "test/probes/probe-ledger.json"), "utf8")).probes;
-const files = readdirSync(path.join(root, "test/probes")).filter((f) => /\.m[jt]s$/.test(f) && !f.startsWith("_") && ledger[f]?.state !== "helper").filter((f) => !only || only.includes(f.replace(/\.m[jt]s$/, ""))).sort();
+const files = readdirSync(path.join(root, "test/probes")).filter((f) => /\.m[jt]s$/.test(f) && !f.startsWith("_") && ledger[f]?.state !== "helper")
+  .filter((f) => only ? only.includes(f.replace(/\.m[jt]s$/, "")) : (ledger[f]?.role ?? "guard") === "guard").sort();
 
 /** 在 dir 起 http.server，返回 { url, stop }。 */
 async function serve(dir) {
@@ -82,5 +84,8 @@ if (compare && pick("新红").length) {
     }
   }
 }
+const slow = [...rows].sort((a, b) => b.s - a.s).slice(0, 20), total = rows.reduce((t, r) => t + r.s, 0);
+console.log(`\n最慢的 ${slow.length} 个（共 ${total} 秒，平均 ${rows.length ? (total / rows.length).toFixed(1) : 0} 秒）：${slow.map((r) => `${r.f.replace(/\.m[jt]s$/, "")} ${r.s}s`).join("、")}`);
+writeFileSync(path.join(logs, "timings.json"), JSON.stringify(Object.fromEntries(rows.map((r) => [r.f, { s: r.s, kind: r.kind }])), null, 1));
 console.log(`\n${rows.length} 个：绿 ${pick("绿").length + greens.length}、新红 ${pick("新红").length}、还红着 ${pick("还红着").length}、偶发这次红 ${pick("偶发这次红").length}、新绿 ${greens.length}`);
 process.exit(pick("新红").length ? 1 : 0);

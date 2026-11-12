@@ -3,7 +3,7 @@
 // ② 测试文件之间不互相 import（被 import 的那一份的测试会被并行运行器多登记、多跑一遍——kernel-fuzz 的公共检查就这么多跑过两条）
 // ③ 探针表里的探针、路径都存在 ④ test/par.mjs 里两张表（全套触发、贵的读文件测试）指的东西都存在
 // ⑤ 探针不把地址写死（命令行里 http 开头的参数 / 环境变量 PROBE_URL 能改；2026-11-11 W-9 加，Claude Opus 5.5）
-// ⑥ 探针底账 test/probes/probe-ledger.json 每个探针一行、状态该写的都写了（统筹 11-11 定，2026-11-11 Claude Opus 5.5 加；整跑脚本 scripts/probe-sweep.mjs 拿它比）
+// ⑥ 探针底账 test/probes/probe-ledger.json 每个探针一行、状态该写的都写了、role 只能是 guard / scaffold（统筹 11-11 定，2026-11-11 Claude Opus 5.5 加；整跑脚本 scripts/probe-sweep.mjs 拿它比）
 import { describe, it, eq } from "./runner.mjs";
 import { REGISTRY, unregistered, FULL_TRIGGERS, EXPENSIVE_FILE_READERS } from "./par.mjs";
 const fs = (await import("node:fs" as string)) as { readFileSync(p: string, enc: string): string; existsSync(p: string): boolean; readdirSync(p: string): string[]; statSync(p: string): { isDirectory(): boolean } };
@@ -50,6 +50,7 @@ describe("测试分档守卫", () => {
     eq(Object.keys(led.probes).filter((f) => !files.includes(f)).join("、"), "", "底账行的文件不在了");
     const need: Record<string, string[]> = { green: [], helper: ["why"], "known-red": ["reason", "since", "fixBy"], flaky: ["symptom", "seen", "fixBy"] };
     const bad = Object.entries(led.probes).flatMap(([f, r]) => !need[r.state] ? [`${f}：状态「${r.state}」不认识`] : need[r.state].filter((k) => !r[k]).map((k) => `${f}：${r.state} 缺 ${k}`));
+    for (const [f, r] of Object.entries(led.probes)) if (r.role !== undefined && r.role !== "guard" && r.role !== "scaffold") bad.push(`${f}：role「${r.role}」只能是 guard / scaffold（没写 = guard）`);   // 统筹 11-11：整跑只跑 guard
     eq(bad.join("；"), "");
   });
   it("探针不把地址写死：page.goto 的地址能从命令行或环境变量 PROBE_URL 改（分支构建要在别的端口上跑）", () => {
