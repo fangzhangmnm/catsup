@@ -1,3 +1,4 @@
+import { type BrushKind } from "../paint/brush-kinds.ts";
 import type { Editor } from "../editor/editor.ts";
 import type { PaintPointer } from "../editor/tool-handler.ts";
 import type { PaintBoards } from "../paint/boards.ts";
@@ -12,6 +13,8 @@ export interface PaintWorkbenchDeps {
     /** 落笔之前问的门（main.ts paintStrokeGate：冷的 = 不开始 + 解开；只能看不能画 = 说为什么）。能画 = null。 */
     gate(texture: string): "locked" | "warming" | "view-only" | null;
     readonly color: PaintColor;
+    /** 拿着这把工具画的是哪支笔（main.ts = app/paint-brushes.ts current；施工单二十 1b）。 */
+    brushOf(tool: "paintPen" | "paintEraser"): BrushKind;
     /** 画画的准备（main.ts paintPrep；和调试钩子同一个）。 */
     readonly prep: SpacePrep;
     /** 提示行。 */

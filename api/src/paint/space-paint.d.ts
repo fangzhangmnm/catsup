@@ -32,6 +32,12 @@ export interface SpacePaintOpts {
     readonly color: readonly [number, number, number];
     readonly accum: "max" | "over";
     readonly erase?: boolean;
+    /** 平滑器参数（笔的跟手 / 防抖经内核 resolveSmooth 换算；brush-records.ts strokeSmoothOf）。不给 = 不平滑（施工单二十 1b 之前一直如此）。 */
+    readonly smooth?: {
+        tau?: number;
+        deadzone?: number;
+        tailBow?: number;
+    };
 }
 /** 调试钩子 / 探针用的一支笔：屏幕上 size 像素、间距 0.1、浓度 1、不随压感变、没有起笔渐细（收笔渐细按 taperOut）。笔刷设置的界面是后面的施工单。 */
 export declare function hookBrush(o: {

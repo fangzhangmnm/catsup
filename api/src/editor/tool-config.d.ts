@@ -508,6 +508,16 @@ export declare const TOOL_OPTIONS: {
     };
     /** 表面指派共用（user 2026-10-24 要的持久化 = 跟机器；scope device，经 host 递来的 device-kv）。 */
     readonly paintPen: {
+        readonly brush: {
+            readonly kind: "enum";
+            readonly label: "笔";
+            readonly values: {
+                id: "pen" | "eraser" | "ink" | "sketch";
+                label: "笔" | "橡皮" | "草稿笔" | "勾线笔";
+            }[];
+            readonly def: "pen";
+            readonly scope: "doc";
+        };
         readonly size: {
             readonly kind: "number";
             readonly label: "大小";
