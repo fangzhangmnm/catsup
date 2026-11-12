@@ -4,6 +4,7 @@
 // 量：同一长笔（2048 见方的画布），每帧拷显示图花多少（前后各读回一格当同步：含显卡真做的时间）、拷了多大一块——三种做法各一遍：只拷一块（现在的）/ 每次整张（改之前的做法，同一个缩小图着色器）/ 画的时候不做缩小图、停了再整套做。
 // 笔的种类 × 极端的笔（统筹 11-11）：BRUSH_MATRIX 按 paint/brush-kinds.ts 的表一种一组；读数角标的「走法」三档和「核对」也在这里验（核对抓得到故意丢掉的报格）。
 // 软件显卡上的绝对数只作参考。用法：python3 -m http.server 8765 后 node test/probes/probe-live-region.mjs [url]
+import { sizeRow } from "./lib/canvas-rows.mjs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -145,7 +146,7 @@ await frames(2);
 await page.locator('button:has-text("开始画")').first().click();
 await page.waitForFunction(() => !document.getElementById("sheet").hidden && document.querySelectorAll("#sheetChoices .sheet-row").length >= 5);
 await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-note")].every((n) => !/在算/.test(n.textContent)), null, { timeout: 20000 });
-await page.locator(`#sheetChoices .sheet-row:has-text("2048 × 2048")`).click(); await frames(3);
+await sizeRow(page, "2048 × 2048").click(); await frames(3);
 const side = await S(() => [...globalThis.__catsup.editor.renderer3.live.entries.values()][0]?.w ?? 0);
 const rows = [];
 for (const m of ["full", "region", "defer"]) rows.push(await measure(m));

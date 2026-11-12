@@ -7,6 +7,7 @@
 //   A 临时家（开机没选家）= 崩溃快照那条路：笔按着、上次改动已经过了 31 秒、脏、该拍 → 一拍都不拍、画也不编；抬笔 → 这一下本身算改动，空闲再满 30 秒才拍；拍的时候画的缓存 = 带着这一笔的那一版。
 //   B 文件夹图库家 = 自动保存那条路：同样；存完刷新 → 画 = 存之前（逐字节）。另外记一笔当中按 Ctrl+S 现在是什么行为（只记、不判，统筹要现状）。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-hand-busy.mjs [url]
+import { sizeRow } from "./lib/canvas-rows.mjs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,7 +51,7 @@ async function boxAndStart(page, S) {
   await S(() => { globalThis.__catsup.pickWorkbench("paint"); });
   await page.locator('button:has-text("开始画")').first().click();
   await page.waitForFunction(() => !document.getElementById("sheet").hidden && [...document.querySelectorAll("#sheetChoices .sheet-row-label")].some((l) => /1024 × 1024$/.test(l.firstChild?.textContent ?? "")));
-  await page.locator('#sheetChoices .sheet-row:has-text("1024 × 1024")').click();
+  await sizeRow(page, "1024 × 1024").click();
   await S(() => globalThis.__catsup.editor.draw());
   return S(() => [...globalThis.__catsup.editor.sceneRef.textures.values()].find((t) => t.content.kind === "layered")?.guid ?? null);
 }

@@ -172,6 +172,13 @@ export class PbrMaterials {
     this.ground.frustumCulled = false; this.ground.renderOrder = -100; this.ground.visible = false;
   }
   private mapIds = new WeakMap<object, number>(); private nextMapId = 1;
+  /** 这张贴图（uniform 对象）不要了：用它的那几个材质放掉（施工单十九第 1 刀：以前每张新图多一组材质、只加不删）。 */
+  dropMap(map: { value: unknown }): void {
+    const mid = this.mapIds.get(map);
+    if (!mid) return;
+    for (const [k, m] of this.mats) if (k.split("|")[4] === String(mid)) { m.dispose(); this.mats.delete(k); }
+    this.mapIds.delete(map);
+  }
   /** map = 贴图的 uniform 对象（后端的贴图缓存给，解码完换贴图时同一个对象里换值）；只有贴图网格、照模型上色时给。layers = 涂装车间的表面层（按顺序拼进着色器）。 */
   face(side: "front" | "back" | "double", active: boolean, single: boolean, sel = false, map: { value: unknown } | null = null, layers: readonly SurfaceLayer[] = []): any {
     let mid = 0;

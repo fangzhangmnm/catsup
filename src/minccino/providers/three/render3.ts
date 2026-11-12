@@ -91,7 +91,7 @@ const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
 /** 贴图面却没有图（不该有：提供者只给有图的材质开贴图块）：灰占位的缓存键。 */
 const isLive = (m: TextureRef | LiveImage): m is LiveImage => (m as LiveImage).kind === "live";
 const NO_MAP: object = Object.freeze({});
-interface GpuFaces { readonly id: string; version: number; readonly mat: MaterialRef | null; readonly side: ChunkSide | null; readonly attrs: Record<string, any>; readonly geo: any; count: number; gen: number; }
+interface GpuFaces { readonly id: string; version: number; /** 块现在的材质 / 哪一侧（每次上传都跟着块：同一个块 id 的材质引用会换——图换了、画冷热换了；以前只在第一次建时记，撤销后旧贴图还画着、解码缓存放不掉，施工单十九第 1 刀查出来的）。 */ mat: MaterialRef | null; side: ChunkSide | null; readonly attrs: Record<string, any>; readonly geo: any; count: number; gen: number; }
 interface GpuLines { readonly id: string; version: number; readonly instanced: boolean; readonly bufs: Record<string, any>; readonly geo: any; count: number; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
 interface SlotNodes { thickOwn?: ThickOwn | null; root: any; plain: any; /** 这个槽的面现在用的源几何 / 材质 / 块 id（标记按它分段，刀 b）。 */ plainSrc: any; plainMat: any; plainChunk: string | null; tex: { mesh: any; src: any; mat: any; chunk: string | null }[]; pixel: any; thick: any; /** 线现在的底材质 / 块 id（线的标记按它换材质，刀 c）。 */ thickMat: any; pixelMat: any; linesChunk: string | null; /** 原生线的源几何（选中边按段分材质用）/ 粗线被标记那几条的拷贝 + 它的隐线版（X 光）。 */ pixelSrc: any; thickMark: any; thickMarkHidden: any; /** 这个槽的线这一帧画不画、粗线还是像素线（隐线标记按它开节点）。 */ linesVisible: boolean; thickLines: boolean; xpixel: any; xthick: any; gen: number; /** 上次应用的标记签名；标记的几何 = 共享源几何的属性 + 自己的索引分段（块 id → 几何）。 */ markKey: string; marked: Map<string, MarkedGeo> }
@@ -913,6 +913,21 @@ export class Renderer3 implements RenderProvider {
     }
     return tex;
   }
+  /**
+   * 缓存的命跟着内容（施工单十九第 1 刀规矩 2）：提供者说内容不再持有的图 / 材质引用，解码缓存、贴图 uniform、贴图材质、风格材质里一并放掉。
+   * 先摘账再释放：还在解的那一份解完看见缓存里不是自己了，自己作废（textureFor）。换文件 / 新建 = 旧的全不在持有里 = 全清。
+   */
+  private releaseUnretained(): void {
+    const held = this.provider?.retained?.();
+    if (!held) return;
+    for (const [key, tex] of this.texCache) {
+      if (key === NO_MAP || held.images.has(key)) continue;
+      this.texCache.delete(key);
+      if (tex?.userData?.paint) this.live?.dropStatic(tex); else tex?.dispose?.();
+    }
+    for (const [key, u] of this.texU) if (key !== NO_MAP && !held.images.has(key)) { this.pbr?.dropMap(u); this.texU.delete(key); }
+    for (const [mat, bySide] of this.texMats) if (!held.materials.has(mat)) { for (const m of bySide.values()) m.dispose(); this.texMats.delete(mat); }
+  }
   /** 贴图的 uniform 对象（风格的材质共用：解码完换贴图时在同一个对象里换值）。 */
   private texU = new Map<object, { value: unknown }>();
   private texUniform(map: TextureRef | LiveImage | undefined): { value: unknown } { const key: object = map ?? NO_MAP; let u = this.texU.get(key); if (!u) { u = { value: this.textureFor(map) }; this.texU.set(key, u); } return u; }
@@ -993,6 +1008,7 @@ export class Renderer3 implements RenderProvider {
     if (!this.provider) throw new Error("render3: no stream provider (editor wires EditorStreamProvider before the first draw)");
     const frame = this.provider.pull({ view: "main", eye: this.lastView?.camera.eye, bands: [{ near: 0, far: Infinity }], budget: {} });   // 小学：一带、预算只记不裁
     this.syncGen++;
+    this.releaseUnretained();
     if (this.live?.size) { const used = new Set<object>(); for (const ch of frame.chunks) if (ch.material?.map) used.add(ch.material.map); for (const im of this.live.images()) if (!used.has(im)) this.live.drop(im); }   // 没有块用的活的图：放掉显示图
     const byPool = new Map<string, { plain: GpuFaces | null; tex: GpuFaces[]; lines: GpuLines | null }>();
     this.perf.time("poolMesh.upload", () => {
@@ -1300,7 +1316,7 @@ export class Renderer3 implements RenderProvider {
   private uploadFaces(ch: Chunk): GpuFaces {
     let gf = this.chunkGpus.get(ch.id) as GpuFaces | undefined;
     const A = ch.attributes;
-    if (gf && gf.version === ch.version) { gf.gen = this.syncGen; return gf; }
+    if (gf && gf.version === ch.version) { gf.gen = this.syncGen; gf.mat = ch.material ?? null; gf.side = ch.side ?? null; return gf; }
     if (!gf || ch.dirty.grown || gf.attrs.position.array !== A.position.array) {
       if (gf) gf.geo.dispose();
       // 法线 / 面颜色是归一化整数（pool-mesh 的 i16n / i8n）：显卡读成 −1…1 的浮点
@@ -1311,7 +1327,7 @@ export class Renderer3 implements RenderProvider {
       if (at.aUv) geo.setAttribute("aUv", at.aUv); else geo.setAttribute("aColorB", at.aColorB);
       gf = { id: ch.id, version: ch.version, mat: ch.material ?? null, side: ch.side ?? null, attrs: at, geo, count: ch.count, gen: this.syncGen };
       this.chunkGpus.set(ch.id, gf);
-    } else { for (const a of Object.values(gf.attrs)) pushRanges(a, a.itemSize, ch.dirty.ranges); gf.version = ch.version; gf.count = ch.count; gf.gen = this.syncGen; }
+    } else { for (const a of Object.values(gf.attrs)) pushRanges(a, a.itemSize, ch.dirty.ranges); gf.version = ch.version; gf.count = ch.count; gf.gen = this.syncGen; gf.mat = ch.material ?? null; gf.side = ch.side ?? null; }
     gf.geo.setDrawRange(0, ch.count);
     return gf;
   }

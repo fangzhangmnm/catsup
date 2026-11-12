@@ -195,6 +195,16 @@ export class LiveTextures {
     return touched;
   }
 
+  /** fromBitmap 建的那张（冷的画的合成图）不要了：放掉显示图和位图（施工单十九第 1 刀：以前只加不删）。 */
+  dropStatic(tex: unknown): void {
+    for (const s of this.statics) {
+      if (s.tex !== tex) continue;
+      if (s.disp) this.gl.deleteTexture(s.disp);
+      s.bmp.close?.(); s.tex.dispose?.();
+      this.statics.delete(s);
+      return;
+    }
+  }
   /** 不再用的图：放掉显示图。 */
   drop(img: LiveImage): void {
     const e = this.entries.get(img);

@@ -404,10 +404,11 @@ async function c3() {
   process.exitCode = bad ? 1 : 0;
 }
 
-const [mode, a, b, label, only] = process.argv.slice(2);
+const [mode0, a, b, label, only] = process.argv.slice(2);
+const mode = mode0 === undefined || /^https?:/.test(mode0) ? "c3" : mode0;   // 不给 / 给的是网址（整跑脚本按惯例传网址）= 跑验收那一档 c3；以前打「用法见文件头」就绿了 = 一条都没查（11-12 查出）
 if (mode === "c3") await c3();
 else if (mode === "samples") await samples();
 else if (mode === "pair") await pair(a, b, label ?? `${path.basename(a)} → ${path.basename(b)}`, only ? only.split(",") : null);
-else console.log("用法见文件头");
+else { console.log(`不认识的用法「${mode}」，见文件头`); process.exitCode = 2; }   // 一条都没查 = 红
 await browser.close();
 console.log(errs.length ? `\nPAGEERRORS ${errs.length}:\n${[...new Set(errs)].slice(0, 6).join("\n")}` : "\n(no page errors)");

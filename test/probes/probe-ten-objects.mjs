@@ -92,7 +92,7 @@ await S(() => {
   H.stat = async () => {
     for (let i = 0; i < 3; i++) { globalThis.gc?.(); await sleep(60); }
     const c = C(), t = c.paint.tiles(), p = c.paint.prep.stats(), live = c.paint.stats(), r3 = c.editor.renderer3;
-    return { boards: c.paint.boards.guids().length, live: live.images, prep: p.entries, prepMB: +(p.gpuBytes / 1048576).toFixed(1), tiles: t.count, tilesRawMB: +(t.rawBytes / 1048576).toFixed(1), tilesZipKB: Math.round(t.compressedBytes / 1024), texCache: r3.texCache.size, ...globalThis.__glMem(), heapMB: +((performance.memory?.usedJSHeapSize ?? 0) / 1048576).toFixed(0) };
+    return { boards: c.paint.boards.guids().length, live: live.images, prep: p.entries, prepMB: +(p.gpuBytes / 1048576).toFixed(1), tiles: t.count, tilesRawMB: +(t.rawBytes / 1048576).toFixed(1), tilesZipKB: Math.round(t.compressedBytes / 1024), texCache: r3.texCache.size, texSlots: [...r3.slotNodes.values()].reduce((n, sn) => n + sn.tex.filter((t) => t.mesh.visible).length, 0), ...globalThis.__glMem(), heapMB: +((performance.memory?.usedJSHeapSize ?? 0) / 1048576).toFixed(0) };
   };
   /** 一张 16 × 16 的纯色 PNG（只给探针造图用）。 */
   H.png = async (rgb) => { const oc = new OffscreenCanvas(16, 16), x = oc.getContext("2d"); x.fillStyle = `rgb(${rgb.join(",")})`; x.fillRect(0, 0, 16, 16); return new Uint8Array(await (await oc.convertToBlob({ type: "image/png" })).arrayBuffer()); };
@@ -140,7 +140,7 @@ if (want("T")) {
   await S(([i]) => globalThis.__TO.enter(i), [mb.inst]);
   await S(() => globalThis.__TO.paintHere(256));
   await S(() => { const e = globalThis.__catsup.editor; e.exitTo(0); e.setMode("geometry"); e.commitOp({ op: "addEdges", at: e.activePool(), segs: globalThis.__TO.boxSegs(0, 0) }); e.selectAll?.(); e.runAction("brep.orientOutward", { curvature: 3 }); e.clearSelection?.(); e.deselectAll?.(); e.cam.setView("top"); e.zoomExtents(); e.draw(); });
-  const t0 = await stat();
+  const t0 = await stat(), h0 = await S(() => globalThis.__catsup.editor.history.position());   // 换图之前的撤销位置：撤回到这里正好是换图之前（撤 12 下会连开始画也撤掉）
   say(`换图之前：${JSON.stringify(t0)}`);
   const colors = [[220, 40, 40], [40, 200, 60], [40, 80, 220], [230, 200, 40], [160, 40, 200], [40, 200, 200]];
   const tRows = [];
@@ -160,11 +160,13 @@ if (want("T")) {
   }
   check(tRows[5].texCache > tRows[0].texCache || tRows[5].texCache >= 1, `换图那条路真的走进了解码缓存（${tRows.map((r) => r.texCache).join(" → ")} 条）`);
   // 全撤回去：图离开文档（面回到原来的样子；材质 / 贴图行跟着撤掉）之后，缓存落不落
-  const undone = await S(async () => { const e = globalThis.__catsup.editor; for (let i = 0; i < 12; i++) { e.undo(); } e.draw(); await new Promise((q) => setTimeout(q, 300)); return { materials: e.sceneRef.materials.length, textures: e.sceneRef.textures.size }; });
+  const undone = await S(async (h0) => { const e = globalThis.__catsup.editor; let n = 0; while (e.history.position() > h0 && n < 40) { e.undo(); n++; } e.draw(); await new Promise((q) => setTimeout(q, 300)); return { steps: n, materials: e.sceneRef.materials.length, textures: e.sceneRef.textures.size }; }, h0);
   const su = await stat();
-  say(`撤回 12 步之后：文档里材质 ${undone.materials} 个、贴图 ${undone.textures} 行；解码缓存 ${su.texCache} 条、显卡上的图 ${su.tex} 张 ${su.texMB} MB`);
+  say(`撤回 ${undone.steps} 步（回到换图之前）之后：文档里材质 ${undone.materials} 个、贴图 ${undone.textures} 行；解码缓存 ${su.texCache} 条、显卡上的图 ${su.tex} 张 ${su.texMB} MB`);
+  check(su.texSlots === t0.texSlots, `全撤回去之后画面上贴图面的块回到换图之前（${t0.texSlots} → ${su.texSlots}；以前空了的贴图组照样交块，渲染器为它留着贴图材质和解码的图——画面上是零面积、看不见，放不掉的是显存）`, JSON.stringify({ t0: t0.texSlots, su: su.texSlots }));
+  check(su.texCache === t0.texCache && su.tex === t0.tex, `全撤回去之后解码缓存和显卡上的图回到换图之前（缓存 ${t0.texCache} → ${su.texCache} 条、图 ${t0.tex} → ${su.tex} 张；施工单十九第 1 刀：缓存的命跟着文档里的条目）`, JSON.stringify({ t0, su }));
   // 重做回来，存成 T2 要开的那一份
-  await S(async () => { const e = globalThis.__catsup.editor; for (let i = 0; i < 12; i++) e.redo(); e.draw(); });
+  await S(async (n) => { const e = globalThis.__catsup.editor; for (let i = 0; i < n; i++) e.redo(); e.draw(); }, undone.steps);
   check(await S(async () => globalThis.__catsup.session.save()) === true, "存上（T2 要开的那一份：一张画过的画 + 6 张导入的图）");
   texFilePath = await S(() => globalThis.__catsup.session.home.path);
 
@@ -181,6 +183,8 @@ if (want("T")) {
   await newFile();
   const sEnd = await stat();
   say(`最后再新建一份空的：解码缓存 ${sEnd.texCache} 条、显卡上的图 ${sEnd.tex} 张 ${sEnd.texMB} MB`);
+  check(oRows.every((r) => r.texCache === oRows[0].texCache && r.tex === oRows[0].tex), `同一份文件开 6 次不涨：解码缓存 ${oRows.map((r) => r.texCache).join(" / ")} 条、显卡上的图 ${oRows.map((r) => r.tex).join(" / ")} 张`);
+  check(sEnd.texCache === 0, `新建一份空的 = 解码缓存清空（${sEnd.texCache} 条）`);
 }
 
 console.log(`\n${pass} 过 · ${failN} 红`);

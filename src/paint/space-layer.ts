@@ -37,7 +37,8 @@ export const MAX_DATA = 2 ** 24;
  * 取样点最多伸出格子 32767 / 1024 格（每格的表的偏移范围），所以 边长 − 1 + 0.5 + 32 < 2^14 → 边长 ≤ 2^14 − 32。有的电脑显卡每边能到 32768，所以单独卡。
  */
 export const MAX_CANVAS_SIDE = 2 ** 14 - 32;
-const TRI_STRIDE = 15, TIP_STRIDE = 8;
+export const TRI_STRIDE = 15;   // 三角形表每个三角形几个数（open-memory.ts 按它算这张表多大）
+const TIP_STRIDE = 8;
 
 const VS = `#version 300 es
 layout(location=0) in vec2 a_quad;

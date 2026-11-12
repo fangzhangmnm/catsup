@@ -12,7 +12,7 @@ import type { Editor } from "../editor/editor.ts";
 import { paintsOf } from "../editor/mesh-edits/start-paint.ts";
 import { atlasOutline, type AtlasOutline } from "../paint/atlas-outline.ts";
 import type { PaintBoards } from "../paint/boards.ts";
-import { bytesSay, openMemory } from "../paint/open-memory.ts";
+import { bytesSay, openMemory, paintTargetSize } from "../paint/open-memory.ts";
 import { xformScale } from "../paint/space-target.ts";
 import { buildTexelTable, paintFaces } from "../paint/texel-table.ts";
 import { ID_STRIDE } from "../scene/world-view.ts";
@@ -204,7 +204,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
   function writeStats(): void {
     const p = place(); if (!p || !outline || def === null) { statsLine.hidden = true; return; }
     statsLine.hidden = !showNums;   // 数照算（探针核对），显示与否看「显示数字」
-    const W = p.uvSet.width, H = p.uvSet.height, row = editor.sceneRef.textures.get(tex!), hot = boards.get(tex!);
+    const W = p.uvSet.width, H = p.uvSet.height, row = editor.sceneRef.textures.get(tex!), hot = boards.get(tex!), body = editor.sceneRef.def(def).body;
     const saved = hot ? d.savedSizes?.(tex!) ?? null : null;   // 热的：存盘那边最近一次编的；冷的：贴图行里读进来的
     const ora = saved ? saved.ora : row?.content.kind === "layered" ? row.content.ora?.byteLength ?? 0 : 0, png = saved ? saved.png : row?.composite?.png.byteLength ?? 0;
     const pct = (n: number): string => `${Math.round((1000 * n) / (W * H)) / 10}%`;
@@ -213,7 +213,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
       `面占画布 ${pct(outline.covered)}${outline.shared ? `（其中 ${pct(outline.shared)} 是两张以上的面共用）` : ""}`,
       hot ? `${hot.layerCount()} 层` : "层数：还没打开",
       ora || png ? `存进文件占（最近一次编的）分层 ${bytesSay(ora)} · 合成图 ${png ? bytesSay(png) : "没有"}` : "还没编进过文件",   // 存盘、自动保存、崩溃快照都会编；热的画以存盘那边的缓存为准
-      `打开画占显存 ${bytesSay(openMemory(W, H).fixed)}`,
+      `打开画占显存 ${bytesSay(openMemory(W, H, body.kind === "mesh" ? paintTargetSize(body.kernel, outline.patchOf.keys()) : undefined).fixed)}`,   // 面表 / 三角形表跟着这张画有哪些面（施工单十九第 1 刀）
     ].join(" · ");
   }
   function selectIn3d(f: number): void {

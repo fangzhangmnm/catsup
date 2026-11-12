@@ -19,8 +19,8 @@ const FIX = path.join(here, "../fixtures/format/v3.1.0-4.2.0-6.4.0-1.0.0-1.0.0-1
 const out = process.env.PROBE_OUT ?? "/tmp";
 const args = process.argv.slice(2);
 const update = args.includes("--update");
-const only = args.filter((a) => !a.startsWith("--"));
-const url = process.env.PROBE_URL ?? "http://127.0.0.1:8765/";
+const only = args.filter((a) => !a.startsWith("--") && !/^https?:/.test(a));   // 网址不是场景名（11-12 查出：整跑脚本按惯例传网址，被当成场景名 → 一个场景都没跑就报 baseline ok）
+const url = args.find((a) => /^https?:/.test(a)) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/";
 const VIEWPORT = { width: 744, height: 1133 }, DPR = 1;   // iPad mini 竖屏的 CSS 尺寸；DPR 1 = 基线图小一半、像素线走 GL 线那条路（粗线另有场景）
 const TOL = 8;            // 单通道差 ≤ 8 不算不同（swiftshader 同机同 build 应该是 0，留一点余量给驱动）
 const MAX_RATIO = 0.005;  // 不同像素 > 0.5% = 红（task #90 验收线）
@@ -177,12 +177,15 @@ async function runScene(ctx, name, def) {
   await page.close();
 }
 const todo = Object.entries(SCENES).filter(([name]) => !only.length || only.includes(name));
+if (only.length && todo.length !== only.length) { console.error(`没有这些场景：${only.filter((n) => !SCENES[n]).join("、")}（场景名见 SCENES）`); process.exit(2); }   // 点了名却对不上 = 红，不许一个都没跑就报绿
 const worker = async () => {
   const browser = await chromium.launch(LAUNCH), ctx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: DPR });
   for (let job = todo.shift(); job; job = todo.shift()) await runScene(ctx, job[0], job[1]);
   await browser.close();
 };
+const nScenes = todo.length;   // 这一轮要比几个场景（todo 会被 worker 取空）
 await Promise.all(Array.from({ length: Math.min(JOBS, todo.length) }, worker));
 if (update || Object.keys(manifest.scenes).length) writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 if (failed) { console.log(`FAILED: ${failed}`); process.exit(1); }
-console.log(update ? "baseline frozen" : "baseline ok");
+if (nScenes === 0) { console.log("一个场景都没比（0 个）= 红：一条都没查不算绿"); process.exit(1); }   // 统筹 11-12：一条都没查 = 红或者明说没跑，不许是绿
+console.log(update ? `baseline frozen（${nScenes} 个场景）` : `baseline ok（比了 ${nScenes} 个场景）`);

@@ -14,6 +14,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
+const { openMemory, bytesSay } = await import(path.join(here, "../../src/paint/open-memory.ts"));
 const { chromium } = createRequire(path.join(here, "../../../20260524 WeebPaint/package.json"))("playwright");
 const url = process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/";
 const FOLDER = "canvas-win";
@@ -124,7 +125,8 @@ const picked = await S(() => globalThis.__catsup.editor.selectedMeshFaces());
 check(picked.join(",") === String(fC) && await S(() => globalThis.__catsup.editor.history.position()) === hBefore + 1, `点了一下：三维里选中的是面 ${picked.join(",")}、一步`);
 
 console.log("\n⑤ 底下那行数");
-const mem = await S(([w0, h0]) => { const b = (n) => (n >= 1 << 20 ? `${Number((n / (1 << 20)).toFixed(n >= 10 << 20 ? 0 : 1))} MB` : `${Math.max(1, Math.round(n / 1024))} KB`); let d = 0; for (let w = w0, h = h0; ; w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) { d += w * h * 4; if (w === 1 && h === 1) break; } return b(d + 4 * w0 * h0 * 4 + w0 * h0 * 8); }, [truth[otherTex].w, truth[otherTex].h]);
+const tgt = await S(([def, fs]) => { const k = globalThis.__catsup.editor.sceneRef.mesh(def).kernel; let tris = 0; for (const f of fs) tris += Math.max(1, k.faceVerts(f).length - 2); return { faces: Math.max(1, fs.length), tris: Math.max(1, tris) }; }, [setup.def, w.faces]);
+const mem = bytesSay(openMemory(truth[otherTex].w, truth[otherTex].h, tgt).fixed);   // app 自己的清单（施工单十九第 1 刀：以前探针里另抄了一份公式，清单补全后对不上）
 w = await W();
 const pct = Math.round((1000 * w.covered) / (w.width * w.height)) / 10;
 check(!w.showNums && await S(() => document.querySelector(".canvas-win-stats").hidden), "那行数默认不显示（数照算）");

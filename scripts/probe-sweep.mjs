@@ -42,7 +42,7 @@ function runProbe(file, url, tag) {
     const p = spawn("node", args, { cwd: root, env: { ...process.env, PROBE_URL: url } });
     let out = ""; p.stdout.on("data", (d) => (out += d)); p.stderr.on("data", (d) => (out += d));
     const timer = setTimeout(() => { out += `\n（超时 ${timeoutS} 秒，杀掉）`; p.kill("SIGKILL"); }, timeoutS * 1000);
-    p.on("close", (code) => { clearTimeout(timer); writeFileSync(log, out); resolve({ code: code ?? 1, s: Math.round((performance.now() - t0) / 1000), load: Math.round(load * 10) / 10, log, out }); });
+    p.on("close", (code) => { clearTimeout(timer); writeFileSync(log, out); resolve({ code: code ?? 1, ms: Math.round(performance.now() - t0), s: Math.round((performance.now() - t0) / 1000), load: Math.round(load * 10) / 10, log, out }); });
   });
 }
 /** 那一版的发版提交（src/version.ts 改成那一版的那个提交）。 */
@@ -74,6 +74,8 @@ const report = (title, list) => { if (!list.length) return; console.log(`\n${tit
 report("新红", pick("新红"));
 report("还红着", pick("还红着"));
 report("偶发这次红", pick("偶发这次红"));
+const sus = rows.filter((r) => (r.kind === "绿" || r.kind === "新绿") && r.ms < 1400);   // 统筹 11-12：绿了、但比开一次 app 的固定开销（1.4 秒）还快 = 多半一条都没查（截图基线、update-conflict 都这样假绿过）
+if (sus.length) console.log(`\n可疑的绿（${sus.length}，比开一次 app 还快、多半一条都没查，看日志）：${sus.map((r) => `${r.f} ${r.ms} ms`).join("、")}`);
 const greens = pick("新绿"); if (greens.length) console.log(`\n新绿（${greens.length}）：${greens.map((r) => r.f).join("、")}——底账里改成 green`);
 if (compare && pick("新红").length) {
   const c = releaseCommit(compare);

@@ -8,7 +8,7 @@ import { PALETTE, hexToLinear } from "../minccino/index.ts";
 import { PoolMesh, type PoolMeshEnv } from "./pool-mesh.ts";
 import { type WorldView, type PoolSlot, slotKey } from "../scene/world-view.ts";
 import { poolKey, type Material, type Scene } from "../scene/scene.ts";
-import type { ColorMap } from "../format/document.ts";
+import { paintIn, type ColorMap } from "../format/document.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import { perf } from "./perf-stats.ts";
@@ -85,6 +85,21 @@ export class EditorStreamProvider implements StreamProvider {
   private worldId(w: WorldView): number { let id = this.worldIds.get(w); if (id === undefined) { id = this.nextWorldId++; this.worldIds.set(w, id); } return id; }
   /** 内容键（引擎契约）：世界身份 + 版本；没变 = 引擎不重新拉（= 以前 render3 的 poolKey 那半）。 */
   contentKey(): string { return this.world ? `${this.worldId(this.world)}:${this.revision}${this.editing ? "" : ":view"}${this.paint ? `|${this.paint.sig()}` : ""}` : "none"; }
+  /**
+   * 内容此刻还持有的图和材质引用（引擎契约 retained，施工单十九第 1 刀规矩 2）：文档材质表里每个材质 → 交给渲染器的那个材质引用和它的图；
+   * 画（颜色那一槽是分层的贴图）→ 画板现在的图（热的 = 活的图、冷的 = 合成图）和那一组材质引用。可见不可见都算。
+   * 不在这里的 = 文档里没有了（撤销掉的、换掉的文件、冷热换过的旧图），渲染器放掉。按需现算：材质表的长度量级，渲染器只在内容变了时问。
+   */
+  retained(): { readonly images: ReadonlySet<object>; readonly materials: ReadonlySet<object> } {
+    const images = new Set<object>(), materials = new Set<object>(), scene = this.world?.scene;
+    if (!scene) return { images, materials };
+    for (const m of [...scene.materials, BUILTIN_BACK]) {
+      const ref = this.refOf(m, scene); materials.add(ref); if (ref.map) images.add(ref.map);
+      const p = m === BUILTIN_BACK ? null : paintIn(scene.textures, m), pr = p ? this.paintRef(m, p.textureDoc.guid) : undefined;
+      if (pr) { materials.add(pr); if (pr.map) images.add(pr.map); }
+    }
+    return { images, materials };
+  }
   /** 场景包围球（引擎契约）：远平面 / 正交深度窗口 / 无限长线按它定（user 10-26「不应该写死特征长度」）。按世界身份 + 版本缓存。 */
   bounds(): { c: Vec3; r: number } | null {
     const w = this.world;
@@ -185,10 +200,13 @@ export class EditorStreamProvider implements StreamProvider {
     for (const key of [...b.faces.keys()]) if (!b.mesh.groups.has(key)) b.faces.delete(key);   // 全量重建后不再有的组
     for (const g of b.mesh.groups.values()) {
       const d = g.store.takeDirty(), A = g.store.arrays, prev = b.faces.get(g.key), count = g.store.end;
+      // 组里一张面都没有了（面挪去别的组，区段清成 0、范围不缩）：不交块。以前照交，空的贴图组带着旧材质的引用，渲染器为它留着贴图材质和解码的图，
+      // 撤销掉的图放不掉（施工单十九第 1 刀查出来的；画面上是零面积的三角形，看不见）。以后这一组又有面了 = 当新块交，整块重传（下面 grown）。
+      if (g.store.count === 0) { b.faces.delete(g.key); continue; }
       if (prev && !d.grown && d.ranges.length === 0 && prev.attributes.position.array === A.position && prev.count === count) continue;
       const attributes: Record<string, ChunkAttr> = {};
       for (const sp of g.store.specs) attributes[sp.name] = { array: A[sp.name], size: sp.size, normalized: sp.type !== undefined && sp.type !== "f32" };
-      b.faces.set(g.key, { id: `${b.id}/${g.key}`, pool: b.id, version: ++this.seq, kind: "tris", attributes, count, dirty: d, material: g.mat ? (g.key.startsWith("paint:") ? this.paintRef(g.mat, g.key.slice(6)) : this.refOf(g.mat, scene)) : undefined, side: g.side ?? undefined });
+      b.faces.set(g.key, { id: `${b.id}/${g.key}`, pool: b.id, version: ++this.seq, kind: "tris", attributes, count, dirty: prev ? d : { grown: true, ranges: [] }, material: g.mat ? (g.key.startsWith("paint:") ? this.paintRef(g.mat, g.key.slice(6)) : this.refOf(g.mat, scene)) : undefined, side: g.side ?? undefined });
     }
     const L = b.mesh.lines, d = L.takeDirty(), A = L.arrays, instanced = L.specs.some((sp) => sp.name === "seg");
     const first = instanced ? "seg" : "position", count = instanced ? L.count : L.end, prev = b.lines;

@@ -15,10 +15,10 @@ import { xformScale } from "../paint/space-target.ts";
 import { paintPlaceOf } from "../scene/paint.ts";
 import { displayUnit, formatLength, parseQuantity, unitSystem } from "../editor/units.ts";
 import { openInputSheet, openRowsSheet, type SheetRow } from "./ui/sheets.ts";
-import { bytesSay, openMemory } from "../paint/open-memory.ts";
+import { bytesSay, openMemory, paintTargetSize, type PaintTargetSize } from "../paint/open-memory.ts";
 
 /** 打开这张画时显卡上固定占多少 + 画的时候再多多少。 */
-export function memSay(n: number, h = n): string { const m = openMemory(n, h); return `打开占 ${bytesSay(m.fixed)}（画的时候再多 ${bytesSay(m.stroke)}）`; }
+export function memSay(n: number, h = n, target?: PaintTargetSize): string { const m = openMemory(n, h, target); return `打开占 ${bytesSay(m.fixed)}（画的时候再多 ${bytesSay(m.stroke)}）`; }
 /** 一格多大（米）念出来：米制下不到 1 厘米念毫米、否则念厘米；英制念英寸。 */
 export function cellSay(m: number): string { return (unitSystem(displayUnit()) === "imperial" ? formatLength(m, "in", 2) : formatLength(m, m < 0.01 ? "mm" : "cm", 1)).replace(/^~/, ""); }   // 前面已经说了「约」，单位模块表示取整的「~」去掉
 
@@ -56,11 +56,12 @@ export async function pickPaintStart(editor: Editor): Promise<PaintStartChoice |
   const S = editor.sceneRef, def = S.defOfContext(editor.context), body = S.def(def).body;
   const picked = editor.selectedMeshFaces(), u = { def, sel: picked.length ? ({ kind: "mesh", faces: new Set(picked), edges: new Set(), verts: new Set() } satisfies MeshSelection) : null };   // 只读选中的面（以前强转去读私有字段）
   const faces = body.kind === "mesh" ? facesToStart(S, u) : [];
+  const target = body.kind === "mesh" ? paintTargetSize(body.kernel, faces) : undefined;   // 面表 / 三角形表跟着画哪些面（打开占多少的一部分；施工单十九第 1 刀）
   const scale = xformScale(S.xformOfContext(editor.context)), recent = recentCanvas(editor);
   const existing = body.kind === "mesh" ? paintsOf(S, def) : [];
   const addRows: SheetRow<RowValue>[] = existing.map((p) => ({ label: `加进已有的画：${p.name}`, value: { kind: "add", tex: p.tex }, note: `用这张画的精细度（一格约 ${cellSay(scale / p.uvSet.pxPerM)}）、${p.uvSet.fit === "density" ? "放不下时画布会变大" : `画布定的是 ${p.uvSet.width} × ${p.uvSet.height}`}` }));
   const sizeRows: SheetRow<RowValue>[] = CANVAS_SIZES.map((n) => ({
-    label: existing.length ? `新开一张画：${n} × ${n}` : `${n} × ${n}`, value: { kind: "new", canvas: n }, note: `一格多大：在算…　${memSay(n)}`,
+    label: existing.length ? `新开一张画：${n} × ${n}` : `${n} × ${n}`, value: { kind: "new", canvas: n }, note: `一格多大：在算…　${memSay(n, n, target)}`,
     ...(recent === n ? { marked: "上次用的" } : {}),
   }));
   // 按一格多大（施工单十六第四节）：和上一张画一样 · 常用的几档 · 自己填；每行算出画布多大、打开占多少（画布取接近正方形、够用的最小宽高；以后加面画布会变大）
@@ -86,11 +87,11 @@ export async function pickPaintStart(editor: Editor): Promise<PaintStartChoice |
         if (!r.ok) fill.set(i, { blocked: p.uvSet.fit === "density" ? `加不进去：${r.reason}` : `这张画定的是 ${p.uvSet.width} × ${p.uvSet.height}，放不下了` });
       } else if (i >= addRows.length + CANVAS_SIZES.length) {   // 按一格多大：真铺一遍（只算不改）
         const r = fits(scale / cells[i - addRows.length - CANVAS_SIZES.length].m);
-        if (r.ok) fill.set(i, { note: `画布 ${r.width} × ${r.height}　${memSay(r.width, r.height)}` });
+        if (r.ok) fill.set(i, { note: `画布 ${r.width} × ${r.height}　${memSay(r.width, r.height, target)}` });
         else fill.set(i, { blocked: `太大了：${r.reason}` });
       } else {
         const n = CANVAS_SIZES[i - addRows.length], r = layoutFaces(k, faces, { base: n, gap: gapForCanvas(n), style: "patches" });   // 和真开始画同一套（连成片、留的格数跟着画布走）
-        if (r.ok && r.density > 0) fill.set(i, { note: `一格约 ${cellSay(scale / r.density)}　${memSay(n)}` });
+        if (r.ok && r.density > 0) fill.set(i, { note: `一格约 ${cellSay(scale / r.density)}　${memSay(n, n, target)}` });
         else fill.set(i, { blocked: `铺不下：${r.ok ? "面太小，量不出密度" : r.reason}` });
       }
       i++;

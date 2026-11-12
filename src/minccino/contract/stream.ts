@@ -124,4 +124,9 @@ export interface StreamProvider {
   contentKey?(): string;
   /** 场景包围球（可选，世界坐标）：远平面 / 正交深度窗口 / 无限长线画多远按它定（提供者才知道内容有多大）。不给或 null = 空场景。 */
   bounds?(): { readonly c: Vec3; readonly r: number } | null;
+  /**
+   * 内容此刻还持有的图和材质引用（可选；施工单十九第 1 刀：缓存的命跟着内容里的条目）。可见不可见都算（藏起来的再露出来不用重解）。
+   * 引擎的解码缓存、贴图材质、风格材质只留这里面的，别的放掉（撤销掉的图、换掉的文件；以后要用再建——都是能重算的东西）。不给 = 引擎不按内容回收。
+   */
+  retained?(): { readonly images: ReadonlySet<object>; readonly materials: ReadonlySet<object> };
 }

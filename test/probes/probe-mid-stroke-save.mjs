@@ -10,6 +10,7 @@
 // 现状钉住（统筹 11-11：行为不改）：V8 一笔当中按 Ctrl+Z = 这一笔取消得干净（和建模的手势一样）；V9 / V10（v0.19.47 起）一笔当中按工具键 E、空格 = 画画工作台里不响应、这一笔照常画完。
 // 标记 hand-save-check:<名册来源>：名册每个来源都要有一条「没收的时候存盘」的检查（守卫 test/hand-busy.test.ts 扫 test/ 找这个标记，少一个 = 红）。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-mid-stroke-save.mjs [url]
+import { sizeRow } from "./lib/canvas-rows.mjs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,7 +100,7 @@ async function boxAndStart(page, S) {
   await S(() => { globalThis.__catsup.pickWorkbench("paint"); });
   await page.locator('button:has-text("开始画")').first().click();
   await page.waitForFunction(() => !document.getElementById("sheet").hidden && [...document.querySelectorAll("#sheetChoices .sheet-row-label")].some((l) => /1024 × 1024$/.test(l.firstChild?.textContent ?? "")));
-  await page.locator('#sheetChoices .sheet-row:has-text("1024 × 1024")').click();
+  await sizeRow(page, "1024 × 1024").click();
   await S(() => globalThis.__catsup.editor.draw());
   return S(() => [...globalThis.__catsup.editor.sceneRef.textures.values()].find((t) => t.content.kind === "layered")?.guid ?? null);
 }
