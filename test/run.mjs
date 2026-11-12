@@ -68,6 +68,7 @@ import "./edge-mark-rules.test.ts";   // 边标记跟着拓扑操作怎么走：
 import "./auto-seams.test.ts";   // 自动标接缝：补完每片是一张盘、只加不减、确定性（施工单二十二第 1 刀后半，2026-11-12 Opus）
 import "./legacy-at-door.test.ts";   // 照顾旧东西的代码只住在门口：门口以外带 legacy 的名字只许是名单上的、搬走的旧键旧名不再出现（user 11-13，2026-11-12 Opus）
 import "./settings-door.test.ts";   // 文档 settings 的门口和搬家之前的写法对拍：3000 份随机老形状，打开逐项一样、存盘 JSON 逐字节一样（2026-11-12 Opus）
+import "./unwrap.test.ts";   // 展开：能摊平的几乎不拉伸、不翻不叠能量不升（独立写法查）、确定性、退化、拒绝、切口、取消（施工单二十二第 2 刀，2026-11-12 Opus）
 import "./marquee-visible.test.ts";   // 框选只框看得见的（X 光关）+ 自由建模框点（FM44 / FM139，2026-10-28 Opus）
 import "./mesh-bevel.test.ts";   // 网格体倒角：倒边 / 倒点，封闭、朝向一致、宽度、夹宽、确定性（FM152，2026-10-28 Opus）
 import "./export-naming.test.ts";   // 导出名带导出时间（WeebPaint 同款，2026-10-28 Opus）

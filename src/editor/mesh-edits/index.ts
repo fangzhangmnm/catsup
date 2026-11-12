@@ -159,7 +159,7 @@ export const autoSeamsCmd: Command<MeshUnit> = {
     if (!(deg > 0 && deg < 180)) return { ops: [], count: 0 };
     const faces = u.sel && u.sel.faces.size ? [...u.sel.faces].filter((f) => m.hasF(f)) : null;
     const r = autoSeams(m, faces, { angleDeg: deg });
-    const why = [r.why.crease ? `折痕 ${r.why.crease}` : "", r.why.nonManifold ? `三张以上的面共用的边 ${r.why.nonManifold}` : "", r.why.flatten ? `为了摊平（开口之间、把手）${r.why.flatten}` : "", r.why.closed ? `封闭的壳切一刀 ${r.why.closed}` : ""].filter(Boolean).join("、");
+    const why = [r.why.crease ? `折痕 ${r.why.crease}` : "", r.why.nonManifold ? `三张以上的面共用的边 ${r.why.nonManifold}` : "", r.why.handle ? `有把手的片 ${r.why.handle}` : "", r.why.closed ? `封闭的壳切一刀 ${r.why.closed}` : ""].filter(Boolean).join("、");
     if (!r.add.length) return { ops: [], count: 0, notes: [`不用补：${r.charts} 片都已经能摊平`] };
     return { ops: [{ op: "meshEdgeMarks", def: u.def, edges: r.add, mark: "seam" }], count: r.add.length, extra: r.charts, notes: [`${why}；分成 ${r.charts} 片`], select: { edges: r.add } };
   },
