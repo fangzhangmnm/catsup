@@ -18,6 +18,13 @@ import { BAKE_LIST_W, BAKE_PACK_FRAG, planCells, strayCount, unpackTiles, type B
 import type { GlRoom, OverlayInput, SurrogateInput } from "./gl-room.ts";
 import { overlayEmpty } from "./gl-room.ts";
 
+/** 方框（这一笔的 bx / by / bw / bh）外扩到图块边、夹在画布里（K2：落层那一遍只合这一块）。空 = null（交给调用的人照整张）。 */
+export function tileAlignedRect(bx: number, by: number, bw: number, bh: number, docW: number, docH: number): { x: number; y: number; w: number; h: number } | null {
+  const x0 = Math.max(0, Math.floor(bx / TILE_SIZE) * TILE_SIZE), y0 = Math.max(0, Math.floor(by / TILE_SIZE) * TILE_SIZE);
+  const x1 = Math.min(docW, Math.ceil((bx + bw) / TILE_SIZE) * TILE_SIZE), y1 = Math.min(docH, Math.ceil((by + bh) / TILE_SIZE) * TILE_SIZE);
+  return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
+}
+
 export class RasterService {
   private _room: GlRoom;
 
@@ -60,10 +67,21 @@ export class RasterService {
     room.setStampOverlay(ov, docW, docH);
     const ovDesc = room.overlayDesc();
     if (!ovDesc) return false;
-    room.comp.begin(docW, docH, false);
-    const acc = room.comp.newAcc(docW, docH);   // 透明底：source-over/op=1 输出 = merged 层内容
-    room.comp.pass(room.arena, "overlay", rec.index, null, "source-over", 1, null, acc, docW, docH, ovDesc);
-    const merged = room.comp.finishAcc(acc);
+    // 合成这一遍只做「这一笔的方框外扩到图块边」那一块（2026-11-12 CatsUp K2，统筹批）：
+    //   ① 前提：这一遍合成是逐点的——一个像素只看同一位置的输入（底下那层、薄层 / 笔尖单子、选区；着色器 compositeFragSource 的 overlay 那一段），
+    //      所以方框外的像素合不合都一样，限方框不改落进图层的任何一个字节。守卫 test/bake-scope.test.mjs 查着色器里取纹理只用当前像素的坐标、没有循环。
+    //      以后 overlay 那一段加带半径的东西（模糊、羽化、涂抹取邻格）：这里的方框要按半径外扩，或者退回整张。
+    //   ② 外扩到图块边：落层后变了的图块是整块从 merged 拷进图块池的（下面 copyBatchFrom），方框外、同一图块里的像素也必须是合好的，不然池里那份会坏。
+    //   ③ 读回照旧只在方框里（读格那条路的格和核对片也都在方框里）。整张合成的老路留一个只给测试的开关（bakeWhole），拿来和限方框的逐字节比。
+    const bakeRect = this.bakeWhole ? null : tileAlignedRect(ov.bx, ov.by, ov.bw, ov.bh, docW, docH);
+    room.comp.setRects(bakeRect ? [bakeRect] : null);
+    let merged: PooledFBO;
+    try {
+      room.comp.begin(docW, docH, false);
+      const acc = room.comp.newAcc(docW, docH);   // 透明底：source-over/op=1 输出 = merged 层内容（限方框时只在方框里铺底）
+      room.comp.pass(room.arena, "overlay", rec.index, null, "source-over", 1, null, acc, docW, docH, ovDesc);
+      merged = room.comp.finishAcc(acc);
+    } finally { room.comp.setRects(null); }   // 方框不许漏到后面（读格那条路自己的暂存图、下一帧的合成）
     room.releaseOverlayFBO();
     room.clearOverlay();
     try {
@@ -71,6 +89,9 @@ export class RasterService {
       const boxBytes = ov.bw * ov.bh * 4;
       const plan = "kind" in ov && ov.kind === "host" && ov.cells && ov.cells.w === docW && ov.cells.h === docH ? planCells(ov.cells, ov.bx, ov.by, ov.bw, ov.bh) : null;
       const max = room.glctx.caps.maxTextureSize;
+      // 「暂存图比方框小就只读报的格」这个门槛是在软件显卡上定的（那时读回很贵）。2026-11-12 在真显卡（核显 780M）上量：一笔方框不大的笔，
+      //   这条路比读整个方框还慢约 2 ms（暂存图那一套的固定开销）；没改，因为它保的是方框很大、很稀的笔（跨好几块的长笔，那时读整个方框接近读整张）。
+      //   以后再动抬笔这条路：先在真显卡上量方框大的笔。
       let changed: { tx: number; ty: number }[] | null = null, report: BakeReport | null = null;
       if (plan && plan.sw * plan.sh * 4 < boxBytes && plan.sw <= max && plan.sh <= max) {
         const r = this._readCells(merged, rec.index, pixels, plan, ov, docW, docH, apply);
@@ -117,6 +138,8 @@ export class RasterService {
 
   /** 最近一次 bakeStamps 的读回报告（1-4d 第 8 条；GLBoard.lastBake 交给宿主）。没落成 = null。 */
   lastBake: BakeReport | null = null;
+  /** 只给测试：落层那一遍照老路合整张（拿来和限方框的逐字节比；2026-11-12 K2）。不是宿主能开的开关。 */
+  bakeWhole = false;
 
   /**
    * 只读报的格：先取一张「这一层原来的」（region-load：从图块池原样取这一层的字节 = CPU 那份，只取方框），再一次画暂存图（格子 + 核对片）、一次读回。

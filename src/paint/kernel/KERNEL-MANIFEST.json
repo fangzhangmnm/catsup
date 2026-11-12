@@ -2,8 +2,8 @@
   "about": "Paint kernel copied verbatim from WeebPaint by scripts/pull-paint-kernel.sh. Do not edit here: change it in WeebPaint, then pull again. test/paint-kernel-guard.test.ts checks every hash.",
   "source": {
     "repo": "WeebPaint",
-    "commit": "bfda69cffa0565569428b2bc0ca37dc30dc98f5a",
-    "version": "v0.14.87-2026-11-12"
+    "commit": "3c3fe37e8b6661934bb8e9c471f1459c6df45c5e",
+    "version": "v0.14.88-2026-11-12"
   },
   "files": {
     "src/backend/algorithms/README.md": "07faa259a0e864acc853614fc284f75fda2d259efacf5483ff993f75323fa434",
@@ -39,7 +39,7 @@
     "src/backend/gl/gl-room.ts": "f82645304ade686706c99a4b0341e260ae1a02d0e2670b789d287a69cf873988",
     "src/backend/gl/gl-stamp.ts": "e3be13ceac6f5bb68dec321eba5055967e9da966db65da41d2a7b2d74885018b",
     "src/backend/gl/gpu-tile-pool.ts": "479d4b1538055dec0ce5ed018e692f6052b4c12f2590344216270833f506aebd",
-    "src/backend/gl/raster-service.ts": "f64534b6f55e8bfb2066197ec114889d91002b42426f4322fe0cf65237144df9",
+    "src/backend/gl/raster-service.ts": "a04473ea5d08b86413420aaafb16053eb1bf5c4b371c9871bbfa0075ffcbde53",
     "src/backend/gl/region-programs.ts": "2f087a931325a4fbb956e0b2938d96b6d9cbc483ca5ab912be6fa5189cc9812c",
     "src/backend/gl/region-stroke.ts": "a9596a21c4739e2a87bb423b060188c383ea8f8e5b44e6d691225b3a81839203",
     "src/backend/gl/render-plan.ts": "c3fdf01b425a99d96e5a665b846fc600afcd7f03036d46ed8864bfb186716b9c",
@@ -102,6 +102,7 @@
     "test/app-version.test.mjs": "670b064a75aaae9458e1f96db328199a93be60b0cce1985efb37abdda2b3da5a",
     "test/backend-stroke.test.mjs": "05ae83599494732fc40f896ecb8485fc603327f752666a211b89a125f71d94e9",
     "test/bake-cells.test.mjs": "8703121bade7e8dbcdcacfbbd83a4097d8055da53e925e2eef618d9b61b60ef0",
+    "test/bake-scope.test.mjs": "9f2d9d33357f1c86f460d1f1c7443c3039163a10128acb6316f96a6265deb22e",
     "test/blend-glsl.test.mjs": "6f84691049928da01b189dd21961993261108d94c62d189b6e1b236e7dde8c50",
     "test/brush-settings-model.test.mjs": "6105861edc57b5d43bf01fdf978f3bbcf1d2b6d043f97e3cf40afc25a95fc3b4",
     "test/bspline.test.mjs": "3b45280a0e8e0beb66c3da3f7b6a27024d3887e77b404693977e396ed54236b5",
@@ -140,7 +141,7 @@
     "test/hosted-steps.test.mjs": "9f17e687ff0ee209eb266d458e89620361ed46bf0f017cc148eb60899810ada7",
     "test/incremental-composite.test.mjs": "14a333bd116fdc9c14d6e6fd553c7ff02b4b8e43afecc316002be8555894969f",
     "test/kernel-shim.mjs": "dcf663ec7e7cebcc1c07e5f3d8002b12baf04b615de90c0d7600b8c119d46f19",
-    "test/kernel-tests.json": "cd10f4cf1fff11a7db16cd6f9fad98ab75e9368338631cbd2fc573d56997079a",
+    "test/kernel-tests.json": "05b1f4bb3e29103e510f87a9a9fd364328f04db7d4bf396770349c869f5715f6",
     "test/layer-cap-budget.test.mjs": "71050c769b32c2895933fc0c7dc0757ef37277d7c96fe62be599dc47f833fc7a",
     "test/layer-ops-undo-fuzz.test.mjs": "b30dc705c6a85f31a24da0de01e0fd6cac522741b06c2f14891488a2d37fc59f",
     "test/layer-tiles.test.mjs": "1fc2781d69ed76472a30c783001ff097a37e0b58f981bb1610eef107e67d09ad",
