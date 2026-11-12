@@ -5,7 +5,8 @@
 // 一片（chart-mesh.ts 的工作副本：点按扇面拆开、朝向统一、边界串成圈）要能摊平 = 可定向、亏格为零、至少一条边界（统筹 G）。步骤：
 //   1. 三角形 = 网格内核给显示用的同一套（MeshKernel.faceTriangles；每个三角形按面的朝向摆正）。
 //   2. 带洞的片（边界不止一圈）：除了最长那圈，每圈补一把虚的扇面（圈上各点连到圈的形心，形心是一个虚点）→ 变成一张盘（照 Blender 展开的「补洞」）。虚的面只活在这份副本里。
-//   3. 起步（Tutte）：最长那圈按三维里的弧长摆在圆上（圆周 = 圈长），里面的点（含洞的圈和虚点）= 邻居的平均（均匀权，正的）→ 解拉普拉斯方程。
+//   3. 起步（Tutte）：最长那圈按三维里的弧长摆在圆上（圆周 = 圈长；每条边另加圈长 ÷ 边数 × 百万分之一，零长度的边也不会把两个点摆在一处），
+//      里面的点（含洞的圈和虚点）= 邻居的平均（均匀权，正的）→ 解拉普拉斯方程。
 //      边界是严格凸的圆、权全是正的 → 一个三角形都不翻（Tutte / Floater）。
 //   4. 每一轮（SLIM，Rabinovich 等 2017）：每个三角形把雅可比 J（三维的三角形摊在它自己的平面里 → 平面上）做 2×2 奇异值分解，
 //      最近的旋转 R、权 W（w² = (σ+1)(σ²+1)/σ³，σ = 1 时 = 4）→ 解一次加权最小二乘 Σ A‖W(J − R)‖²（u、v 一起，共轭梯度、对角预条件、上一轮的解热启动；加一点点近端项防平移）
@@ -13,7 +14,8 @@
 //      停：能量相对下降 < tol、或到 maxIters 轮、或 shouldStop()。
 //   5. 每一步都查所有边界圈在平面上有没有交叉（格子哈希）：会交叉 = 这一步走不了，步子折半再试（起步那一轮一定不交叉，所以交出去的永远不交叉）。
 // 不变量（每片都查、测试钉住）：没有翻过来的三角形（含退化的、含虚的：洞不许翻过来）；边界不交叉；亏格为零、至少一条边界（不满足的不展开，说原因）；每一轮能量不升。
-// 退化的三角形（三维里面积几乎为零 / 三点共线 / 重复的点）：不进能量、跟着邻居走、报个数；照样不许翻。
+// 退化的三角形（三维里面积几乎为零 / 三点共线 / 重复的点）：拉伸的数不算、报个数；照样不许翻。能量里只给一个极小的权、名义原样 = 正三角形，
+//   作用只是让它的点跟着邻居走（权为零的话它一压扁就把整片卡住）。见 buildWork。
 // 拉伸的数（统筹 E；只算真的、不退化的三角形，按三维面积加权）：
 //   面积比 = 平面面积 ÷ 三维面积（= σ1·σ2）：最大、最小、加权平均；角度 = 两个方向伸缩之比 σ1 / σ2（1 = 不歪）：最大、加权平均；另附三个角平均差几度。
 //   另附按面积加权的分位（面积比 5% / 95%、角度比 95%）：最大最小常被三维里很细的碎三角形撑出来，分位看的是整片。
@@ -42,7 +44,9 @@ export interface Stretch {
 export type ChartUnwrap =
   | { readonly ok: true; readonly faces: readonly number[]; /** 每张面每个角（按 mesh 里环的顺序）的平面坐标（米）：[u0, v0, u1, v1, …]。 */ readonly corners: ReadonlyMap<number, Float64Array>;
       readonly stretch: Stretch; readonly iterations: number; /** 起步那一轮起每一轮的能量（每张三维面积上的对称狄利克雷，最小 = 4）。 */ readonly energies: readonly number[];
-      /** 边界贴上了：最后一轮的步子被「边界会交叉」砍过（这片想自己叠上才能更平，停在贴着的地方；拉伸多半大，要再切）。 */ readonly blockedByCrossing: boolean; readonly cancelled: boolean;
+      /** 停在哪（统筹 11-12：H 的「拉伸超了再切」和第 3 刀对 user 说实话都靠它）：converged = 收敛了；max-iters = 到轮数上限（还能更平）；
+       *  contact = 边界贴上了走不动（这片要自己叠上才能更平 = 得再切一刀；拉伸多半大）；cancelled = 被取消（交的是那一轮，照样合法）。 */
+      readonly stoppedBy: "converged" | "max-iters" | "contact" | "cancelled";
       /** 补了几个洞；两条边的「洞」（一条切开的边、两头都还连着 = 张不开）不补、当它没切，记在 slits。 */ readonly holesFilled: number; readonly slits: number;
       /** 为了和邻居一致、在副本里绕向倒过来的面（模型里这几张面的绕向和邻居不一致）：它们在平面上和自己的三维法向相反，这是对的。 */ readonly flipped: ReadonlySet<number> }
   | { readonly ok: false; readonly faces: readonly number[]; readonly reason: "non-orientable" | "genus" | "closed" | "broken-loops" | "tiny-boundary" | "start-flipped" };
@@ -111,9 +115,9 @@ export function unwrapChart(m: ChartSource, ch: ChartMesh, opts: UnwrapOptions =
   const loopsWedges = ch.loops.filter((l) => l.length >= 3).map((l) => l.map((k) => ch.boundary[k].a));
   const energies = [energy(wk, X)];
   if (!Number.isFinite(energies[0])) return { ok: false, faces: ch.faces, reason: "start-flipped" };   // 起步就有翻的 / 压扁的（不该发生）：如实说，不带着它往下跑
-  let iterations = 0, blockedByCrossing = false, cancelled = false;
+  let iterations = 0, stoppedBy: "converged" | "max-iters" | "contact" | "cancelled" = "max-iters";
   for (; iterations < maxIters; ) {
-    if (opts.shouldStop?.()) { cancelled = true; break; }
+    if (opts.shouldStop?.()) { stoppedBy = "cancelled"; break; }
     const target = slimTarget(wk, X);
     const d = new Float64Array(2 * nV);
     for (let i = 0; i < 2 * nV; i++) d[i] = target[i] - X[i];
@@ -128,15 +132,14 @@ export function unwrapChart(m: ChartSource, ch: ChartMesh, opts: UnwrapOptions =
       if (boundariesCross(Y, loopsWedges)) { crossed = true; continue; }   // 边界会交叉 = 这一步走不了，步子再小一半
       E1 = e; Xn = Y; break;
     }
-    blockedByCrossing = crossed;
-    if (Xn === X) break;   // 走不动了 = 收敛（或被交叉拦住）
+    if (Xn === X) { stoppedBy = crossed ? "contact" : "converged"; break; }   // 走不动了：被交叉拦住 / 再走能量不降 = 收敛
     X.set(Xn); iterations++; energies.push(E1);
-    if ((E0 - E1) / E0 < tol || (crossed && s < 1e-6)) break;   // 收敛了；或者边界贴上了、步子被砍到很小 = 别空转
+    if ((E0 - E1) / E0 < tol || (crossed && s < 1e-6)) { stoppedBy = crossed ? "contact" : "converged"; break; }   // 这一轮步子被交叉砍过 = 贴上了（别空转）；没砍过 = 收敛
   }
   // 5. 交出来：每张面每个角
   const corners = new Map<number, Float64Array>();
   for (const f of ch.faces) { const cw = ch.cornerWedge.get(f)!, out = new Float64Array(2 * cw.length); for (let i = 0; i < cw.length; i++) { out[2 * i] = X[cw[i]]; out[2 * i + 1] = X[nV + cw[i]]; } corners.set(f, out); }
-  return { ok: true, faces: ch.faces, corners, stretch: stretchOf(wk, X), iterations, energies, blockedByCrossing, cancelled, holesFilled, slits, flipped: ch.flipped };
+  return { ok: true, faces: ch.faces, corners, stretch: stretchOf(wk, X), iterations, energies, stoppedBy, holesFilled, slits, flipped: ch.flipped };
 }
 
 // ---------- 三维小工具 ----------
@@ -156,12 +159,23 @@ function buildWork(P: number[], tri: Int32Array, real: Uint8Array, n: number, vw
     if (x1 > lenEps) { x2 = (e2[0] * e1[0] + e2[1] * e1[1] + e2[2] * e1[2]) / x1; const cr = cross(e1, e2); y2 = Math.hypot(cr[0], cr[1], cr[2]) / x1; }
     const area = 0.5 * x1 * y2;
     A[t] = area; rest.set([0, 0, x1, 0, x2, y2], 6 * t);
-    if (area <= areaEps || x1 <= lenEps || y2 <= lenEps) { degenerate[t] = 1; continue; }
-    // G = D · E⁻¹，E = [[x1, x2], [0, y2]]
-    G[6 * t] = -1 / x1; G[6 * t + 1] = x2 / (x1 * y2) - 1 / y2;
-    G[6 * t + 2] = 1 / x1; G[6 * t + 3] = -x2 / (x1 * y2);
-    G[6 * t + 4] = 0; G[6 * t + 5] = 1 / y2;
-    weight[t] = (real[t] ? 1 : vw) * area;
+    let rx1 = x1, rx2 = x2, ry2 = y2, w = (real[t] ? 1 : vw) * area;
+    if (area <= areaEps || x1 <= lenEps || y2 <= lenEps) {
+      // 退化的：拉伸的数不算它；能量里给一个「名义原样」= 它自己在三维里的样子，太扁的把高垫到长边的千分之一（还是那条细缝、长度对，不往外鼓）；
+      // 三个点全重合的 = 边长为平均边长千分之一的小正三角形。权 = 名义面积（太扁的三角形梯度项本来就大，拉力和邻居同一个量级）。
+      // 只为了让它的点跟着邻居走（平移、转），不被压扁、不挡别人的步子：权为零的话，只挨着它的点不会动，它一压扁就把整片卡住（外圈上零长度的边那个例子：整片停在 0.9 倍）。
+      // 试过「名义原样 = 以最长边为边长的正三角形、权 × 千分之一」：细长的碎三角形想鼓成大三角形、把邻居推歪（Elf Haven 角度比平均 1.59 → 1.82），不用。
+      degenerate[t] = 1;
+      const tiny = 1e-3 * L;
+      if (x1 <= lenEps) { rx1 = tiny; rx2 = tiny / 2; ry2 = tiny * Math.sqrt(3) / 2; }
+      else { rx1 = x1; rx2 = x2; ry2 = Math.max(y2, 1e-3 * Math.max(x1, Math.abs(x2), tiny)); }
+      w = 0.5 * rx1 * ry2;
+    }
+    // G = D · E⁻¹，E = [[x1, x2], [0, y2]]（退化的用名义原样）
+    G[6 * t] = -1 / rx1; G[6 * t + 1] = rx2 / (rx1 * ry2) - 1 / ry2;
+    G[6 * t + 2] = 1 / rx1; G[6 * t + 3] = -rx2 / (rx1 * ry2);
+    G[6 * t + 4] = 0; G[6 * t + 5] = 1 / ry2;
+    weight[t] = w;
   }
   return { n, tri, real, weight, G, A, degenerate, rest };
 }
@@ -192,14 +206,21 @@ function energy(wk: Work, X: Float64Array): number {
   return wsum > 0 ? e / wsum : 0;
 }
 
-/** 起步：外圈按弧长摆圆上（圆周 = 圈长），别的点 = 邻居的平均（均匀权）。 */
+/**
+ * 起步：外圈的点摆在圆上（圆周 = 圈长），别的点 = 邻居的平均（均匀权）。
+ * 外圈怎么摆（统筹 11-12 问）：每条边占的圆弧 ∝（三维边长 + 圈长 ÷ 边数 × 百万分之一）。只按边长的话，零长度的边（重复的点、没焊的点）会把两个点摆在同一处 →
+ * 起步就有面积为零的三角形（测试里那个例子 = 报「起步就翻」不展开）；加上这一点点均匀的长度，圆上的点两两不重合 = 外圈是严格凸的多边形，Tutte 的「一个都不翻」照样成立。
+ * 为什么只加百万分之一：试过千分之一，熊 / Elf Haven 的角度比平均从 3.09 / 1.59 变成 3.45 / 1.82——停在「边界贴上了」「到轮数上限」的那几片，最后停在哪对起步很敏感
+ * （百万分之一时 3.31 / 1.62）。扰动越小越好；那几片的数本身就不稳，要靠再切（统筹 H）。
+ */
 function tutte(P: number[], wk: Work, outer: readonly number[], len: number): Float64Array {
   const n = wk.n, X = new Float64Array(2 * n), fixed = new Uint8Array(n), R = len / (2 * Math.PI) || 1;
+  const pad = (len > 0 ? len : 1) / outer.length * 1e-6, seg = outer.map((a, i) => dist3(P, a, outer[(i + 1) % outer.length]) + pad), total = seg.reduce((x, y) => x + y, 0);
   let s = 0;
   for (let i = 0; i < outer.length; i++) {
-    const a = outer[i], th = (2 * Math.PI * s) / (len || 1);
+    const a = outer[i], th = (2 * Math.PI * s) / total;
     X[a] = R * Math.cos(th); X[n + a] = R * Math.sin(th); fixed[a] = 1;
-    s += dist3(P, a, outer[(i + 1) % outer.length]);
+    s += seg[i];
   }
   // 邻接（三角形的边，去重）
   const nb: Set<number>[] = Array.from({ length: n }, () => new Set<number>());

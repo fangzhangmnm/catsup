@@ -46,10 +46,16 @@ function checkInjective(m: MeshKernel, r: Ok): void {
   eq(crosses, 0, "平面上三角形的边真相交");
   assert(r.energies.every((e, i) => i === 0 || e <= r.energies[i - 1]), `能量每一轮不升：${r.energies.join(" ")}`);
 }
-const nearIsometric = (r: Ok, what: string, tolA = 0.02, tolQ = 0.05): void => {
+/**
+ * 「能摊平的面拉伸接近没有」的门槛（统筹 11-12 要写明）：面积比按三维面积加权的 5% 分位 ≥ 0.98、95% 分位 ≤ 1.02，角度比加权 95% 分位 ≤ 1.03，而且停在「收敛了」。
+ * 依据：默认停止阈值（能量相对下降 < 1e-4）下实测圆柱侧面 0.993–1.008 / 1.011、圆锥 0.995–1.009 / 1.015、折纸 1.000–1.000 / 1.007，留一倍余量。
+ */
+const DEVELOPABLE = { areaLo: 0.98, areaHi: 1.02, angleHi: 1.03 } as const;
+const nearIsometric = (r: Ok, what: string): void => {
   const s = r.stretch;
-  assert(s.area.min > 1 - tolA && s.area.max < 1 + tolA, `${what}：面积比 ${s.area.min}–${s.area.max}`);
-  assert(s.angle.max < 1 + tolQ, `${what}：角度比最大 ${s.angle.max}`);
+  assert(s.area.p05 >= DEVELOPABLE.areaLo && s.area.p95 <= DEVELOPABLE.areaHi, `${what}：面积比分位 ${s.area.p05}–${s.area.p95}`);
+  assert(s.angle.p95 <= DEVELOPABLE.angleHi, `${what}：角度比 95% 分位 ${s.angle.p95}`);
+  eq(r.stoppedBy, "converged", `${what}：停在哪`);
 };
 
 describe("展开（unwrap.ts）", () => {
@@ -77,14 +83,14 @@ describe("展开（unwrap.ts）", () => {
     const v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0), P(-c, 1, s), P(-c, 0, s)].map((p) => m.addVertex(p));
     m.addFace([v[0], v[1], v[2], v[3]], -1, GROWN); m.addFace([v[5], v[0], v[3], v[4]], -1, GROWN);
     const [r] = oks(unwrap(m, m.faces(), () => false));
-    nearIsometric(r, "折纸", 0.01, 0.01); checkInjective(m, r);   // 默认停在能量相对下降 < 1e-4，剩约 0.5% 的变形
+    nearIsometric(r, "折纸"); checkInjective(m, r);
   });
   it("平的带洞圆环（一圈四边形围着一个洞）：补洞以后照样和原来一样大；洞的那一圈不翻", () => {
     const m = new MeshKernel(), N = 16, inner: number[] = [], outer: number[] = [];
     for (let i = 0; i < N; i++) { const a = (2 * Math.PI * i) / N; inner.push(m.addVertex(P(0.5 * Math.cos(a), 0.5 * Math.sin(a), 0))); outer.push(m.addVertex(P(Math.cos(a), Math.sin(a), 0))); }
     for (let i = 0; i < N; i++) { const j = (i + 1) % N; m.addFace([inner[i], outer[i], outer[j], inner[j]], -1, GROWN); }
     const [r] = oks(unwrap(m, m.faces(), () => false));
-    eq(r.holesFilled, 1); nearIsometric(r, "圆环", 1e-2, 1e-2); checkInjective(m, r);
+    eq(r.holesFilled, 1); nearIsometric(r, "圆环"); checkInjective(m, r);
   });
   it("不变量：球（自动标接缝）、环面（自动标接缝）展开后不翻、不叠、能量不升", () => {
     const sphere = new MeshKernel(); addPrimitive(sphere, "sphere", F, [0.5, 0.5, 0.5], 12);
@@ -128,11 +134,24 @@ describe("展开（unwrap.ts）", () => {
     for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) m.addFace([g[i][j], g[i + 1][j], g[i + 1][j + 1], g[i][j + 1]], -1, GROWN);
     m.setFlags(m.edgeOf(g[1][1], g[2][1]), F_SEAM, true);   // 片中间一条边，两头都连着别的面
     const [r] = oks(unwrap(m, m.faces(), seamCut(m)));
-    eq(r.slits, 1); eq(r.holesFilled, 0); nearIsometric(r, "切口", 0.02, 0.02); checkInjective(m, r);   // 默认 tol 1e-4 = 5 轮、最多歪 1.2%（1e-5 = 7 轮 0.37%、1e-8 = 13 轮 0.01%）
+    eq(r.slits, 1); eq(r.holesFilled, 0); nearIsometric(r, "切口"); checkInjective(m, r);   // 默认 tol 1e-4 = 5 轮、最多歪 1.2%（1e-5 = 7 轮 0.37%、1e-8 = 13 轮 0.01%）
+  });
+  it("外圈上有零长度的边（两个点重合、中间夹一张退化的三角形面）：起步不翻（以前两个点摆在圆上同一处 = 起步就翻、不展开），整片照样和原来一样大", () => {
+    const m = new MeshKernel(), a0 = m.addVertex(P(0, 0, 0)), a1 = m.addVertex(P(1, 0, 0)), b1 = m.addVertex(P(1, 1, 0)), b0 = m.addVertex(P(0, 1, 0)), b1d = m.addVertex(P(1, 1, 0));
+    m.addFace([a0, a1, b1, b0], -1, GROWN); m.addFace([b0, b1, b1d], -1, GROWN);   // 退化的三角形面：b1d 和 b1 重合，b1 → b1d 是外圈上一条零长度的边
+    const [r] = oks(unwrap(m, m.faces(), () => false));
+    eq(r.stretch.degenerate, 1); nearIsometric(r, "零长度的边"); checkInjective(m, r);
+  });
+  it("停在哪：轮数给 1 → 到轮数上限（球上那几片一轮收敛不了）", () => {
+    const m = new MeshKernel(); addPrimitive(m, "sphere", F, [0.5, 0.5, 0.5], 10);
+    for (const e of autoSeams(m, null, { angleDeg: 60 }).add) m.setFlags(e, F_SEAM, true);
+    const rs = oks(unwrap(m, m.faces(), seamCut(m), { maxIters: 1 }));
+    assert(rs.some((r) => r.stoppedBy === "max-iters"), rs.map((r) => r.stoppedBy).join(","));
+    for (const r of rs) checkInjective(m, r);
   });
   it("取消：第一轮就说停 → 交起步那一轮，照样不翻、不叠", () => {
     const m = new MeshKernel(); addPrimitive(m, "sphere", F, [0.5, 0.5, 0.5], 10);
     for (const e of autoSeams(m, null, { angleDeg: 60 }).add) m.setFlags(e, F_SEAM, true);
-    for (const r of oks(unwrap(m, m.faces(), seamCut(m), { shouldStop: () => true }))) { eq(r.cancelled, true); eq(r.iterations, 0); checkInjective(m, r); }
+    for (const r of oks(unwrap(m, m.faces(), seamCut(m), { shouldStop: () => true }))) { eq(r.stoppedBy, "cancelled"); eq(r.iterations, 0); checkInjective(m, r); }
   });
 });
