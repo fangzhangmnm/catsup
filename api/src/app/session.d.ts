@@ -4,6 +4,7 @@ import { type CatsupDocument } from "../format/index.ts";
 import { type BrepSideCounts } from "../scene/kinds.ts";
 import { type PaintDeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import type { Xform } from "../scene/xform.ts";
+import type { HandRoster } from "../controller/hand-busy.ts";
 interface FSHandle {
     readonly name: string;
     createWritable(): Promise<{
@@ -38,6 +39,8 @@ export interface RefsPort {
 }
 export interface SessionDeps {
     editor: Editor;
+    /** 手上还有没有一下没收（controller/hand-busy.ts 的名册：编辑器的手势、画画的一笔……）。自动保存 / 崩溃快照 / 重推只问它，不点具体来源（统筹 11-11；守卫 test/hand-busy.test.ts）。 */
+    hand: Pick<HandRoster, "busy">;
     /** 这份从没传过、人还没答应传：隐式保存只落本机（规则书第 15 条 (a)）。缺 = 不压。 */
     pushHeld?: (path: string) => boolean;
     /** 人按了「存」= 同意传这一份（压着的放开）。 */
