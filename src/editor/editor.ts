@@ -37,7 +37,7 @@ import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import type { BodyPlacePhase, EditorCore, ToolCtx, ToolHandler, CopyPayload, PaintPointer } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
-import { type GridSettings, type UnitSystem, AXIS_TICK_MIN_PX, UNIT_LABEL_MIN_PX, displayLadder, gridFrame, snapLabel, snapLevels } from "./grid-settings.ts";
+import { type GridSettings, type UnitSystem, AXIS_TICK_MIN_PX, UNIT_LABEL_MIN_PX, displayLadder, gridDocChanged, gridFrame, snapLabel, snapLevels } from "./grid-settings.ts";
 import { GridState } from "./grid-state.ts";
 import { guideCount } from "../scene/guides.ts";
 import { compassOp } from "./tools/compass.ts";
@@ -257,8 +257,8 @@ export class Editor {
   get grid(): Readonly<GridSettings> { return this.gridState.view(this.mode.id); }
   get docGrid(): Readonly<GridSettings> { return this.gridState.doc; }   // 文档的那一份（存盘只认它）
   setGrid(patch: Partial<GridSettings>, fromDoc = false): void {   // fromDoc = 读盘 / 新建（整份照文档的换）；平时开关落在当前工作台那一份
-    this.gridState.set(this.mode.id, patch, fromDoc); setUnitSystem(this.gridState.doc.system);   // 读数 / 输入跟着单位制（units.ts）
-    this.viewCache = null;
+    const was = this.gridState.doc; this.gridState.set(this.mode.id, patch, fromDoc); setUnitSystem(this.gridState.doc.system);   // 读数 / 输入跟着单位制（units.ts）
+    this.viewCache = null; if (!fromDoc && gridDocChanged(was, this.gridState.doc)) this._settingsRev++;   // 文件里那一份变了 = 算改过（统筹 11-12：只改设置就关掉不许悄悄丢；不进撤销）；自由建模自己那份开关不进文件、不算
     this.host.changed();
     this.draw();
   }
@@ -352,7 +352,7 @@ export class Editor {
   private stepHasOp = false;
   /** 这一步已提交了几条 / 有没有失败过（一步 = 原子：中途有一条失败 → 这一步已提交的全部回滚、剩下的不再执行；2026-10-26）。 */
   private stepOps = 0;
-  private stepFailed = false; private stepReason: { text: string; refused: boolean } | null = null; private stepBumped = false; private _docRevision = 0;   // 一步全有或全无（统筹 11-13）：reason = 第一次被拒 / 出错的原因，收尾时写回状态栏；bumped = 这一步里换过场景，成功收尾时 docRevision 才加
+  private stepFailed = false; private stepReason: { text: string; refused: boolean } | null = null; private stepBumped = false; private _docRevision = 0; private _settingsRev = 0;   // 一步全有或全无（统筹 11-13）：reason = 第一次被拒 / 出错的原因，收尾时写回状态栏；bumped = 这一步里换过场景，成功收尾时 docRevision 才加
   private stepTouched = false;                   // 这一步里会话（选区 / 上下文）被写过（写口 clearSel / setCtx / afterSelect 标）
   private stepBefore: Session | null = null;     // 这一步开始前的会话（手势按下时点选的那份延后到落定那一步）
   private stepLabel: StepLabel | undefined;      // 这一步的标签（提示行「撤销：建组」）
@@ -471,9 +471,9 @@ export class Editor {
   private scaleLadder: Ladder | null = null;
   get scaleRefs(): readonly string[] { return this._scaleRefs; }
   /** 勾 / 取消一项；算文档改动（同栅格设置）。 */
-  toggleScaleRef(id: string): void { this._scaleRefs = this._scaleRefs.includes(id) ? this._scaleRefs.filter((x) => x !== id) : [...this._scaleRefs, id]; this.host.changed(); }
+  toggleScaleRef(id: string): void { this._scaleRefs = this._scaleRefs.includes(id) ? this._scaleRefs.filter((x) => x !== id) : [...this._scaleRefs, id]; this._settingsRev++; this.host.changed(); }
   /** 全部取消（= 不显示）。 */
-  clearScaleRefs(): void { if (!this._scaleRefs.length) return; this._scaleRefs = []; this.host.changed(); }
+  clearScaleRefs(): void { if (!this._scaleRefs.length) return; this._scaleRefs = []; this._settingsRev++; this.host.changed(); }
   /** 读文件 / 新建时设（不算改动）。 */
   loadScaleRefs(refs: readonly string[]): void { this._scaleRefs = [...refs]; }
   setScaleLadder(L: Ladder): void { this.scaleLadder = L; }
@@ -569,7 +569,7 @@ export class Editor {
   get context(): EditContext { return this.ctx; }
   get renderer3(): RenderProvider { return this.r3; }
   get revision(): number { return this._revision; }
-  /** 文档的改动号（「有没有改动」/ 自动保存只看它，session）：跟 revision 一起加，但一步之内的先记着、成功收尾才算一次，失败的步不算（失败的一步什么都没改）。 */ get docRevision(): number { return this._docRevision; }
+  /** 文档的改动号（「有没有改动」/ 自动保存只看它，session）：跟 revision 一起加，但一步之内的先记着、成功收尾才算一次，失败的步不算（失败的一步什么都没改）。 */ get docRevision(): number { return this._docRevision + this._settingsRev; }   // + 住在文件设置里、不进撤销的那几样（网格 / 单位制 / 尺度参考）改了几次：失败的步退不回它们，也不该退（统筹 11-12，存盘忠实度清点第五节）
   private rev(): void { this._revision++; if (this.stepDepth > 0) this.stepBumped = true; else this._docRevision++; }
   canUndo(): boolean { return this.history.canUndo(); }
   canRedo(): boolean { return this.history.canRedo(); }

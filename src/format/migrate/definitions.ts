@@ -10,6 +10,8 @@ import { mintGuid, type Guid } from "../guid.ts";
 export interface MigrationCtx {
   /** 这份文件的材质表：下标 → GUID（材质先于定义读，见 read.ts）。 */
   readonly materialGuids: readonly Guid[];
+  /** 指着的东西不在（材质槽的序号越界 / 父组的序号找不到）：按以前的修法照旧当没有，但要记一笔（read.ts 记进 readNotes，打开时说；统筹 11-12 存盘忠实度清点 R1、R2）。 */
+  readonly dangling?: (what: "materialSlot" | "parent") => void;
 }
 
 const isRec = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -35,14 +37,14 @@ export function definitionsV6toV7(j: Record<string, unknown>, ctx?: MigrationCtx
   const out = list.map((rawDef, di) => {
     if (!isRec(rawDef)) return rawDef;
     const groupsIn = dedupeById(rawDef.groups), instsIn = dedupeById(rawDef.instances);
-    const groupRef = (x: unknown): Guid | null => (typeof x === "number" && groupsIn?.guidOf.get(x)) || null;
+    const groupRef = (x: unknown): Guid | null => { const g = (typeof x === "number" && groupsIn?.guidOf.get(x)) || null; if (g === null && x !== null && x !== undefined) ctx.dangling?.("parent"); return g; };   // 老文件「没有上一层」= null（样本里全是）
     const groups = groupsIn
       ? groupsIn.rows.map((g) => { const { id: _id, ...rest } = g; void _id; return { ...rest, guid: groupsIn.guidOf.get(groupsIn.idOf(g))!, parent: groupRef(g.parent) }; })
       : rawDef.groups;
     const instances = instsIn
       ? instsIn.rows.map((i) => { const { id: _id, ...rest } = i; void _id; return { ...rest, guid: instsIn.guidOf.get(instsIn.idOf(i))!, definition: defRef(i.definition), parent: groupRef(i.parent) }; })
       : rawDef.instances;
-    const materialSlots = (Array.isArray(rawDef.materialSlots) ? rawDef.materialSlots : []).map((m: unknown) => (typeof m === "number" ? (ctx.materialGuids[m] ?? null) : null));
+    const materialSlots = (Array.isArray(rawDef.materialSlots) ? rawDef.materialSlots : []).map((m: unknown) => { const g = typeof m === "number" ? (ctx.materialGuids[m] ?? null) : null; if (g === null && m !== null && m !== undefined) ctx.dangling?.("materialSlot"); return g; });
     return { ...rawDef, guid: defGuids[di], groups, instances, materialSlots };
   });
   return { ...j, version: 7, root: defRef(j.root), list: out };

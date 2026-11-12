@@ -494,9 +494,12 @@ export class Session {
    * 钉点（同步，中间不 await）：模型、桌面态、参考窗、缩略图和每张画都钉在这一刻（贴图主线 1-8b；照画画仓：编码的同步那一段就是钉点）。
    * finish() 异步：画编码（只碰钉下来的拷贝），然后写成字节。编码期间用户接着画、接着切，写出去的仍然是这一刻的。出错 = 抛（说是哪张画）。
    */
-  private freeze(mode: "save" | "snapshot"): { readonly stale: boolean; finish(): Promise<Uint8Array> } {
+  private freeze(mode: "save" | "snapshot"): { readonly stale: boolean; readonly dropped: { instances: number; materialSlots: number }; finish(): Promise<Uint8Array> } {
     const name = this.displayName();
-    const doc: CatsupDocument = documentFromScene(this.d.editor.sceneRef, name, this.loaded);
+    // 写的时候只好不写的（实例的定义没了 / 槽号指不到材质）：已知的路走不到，真走到了 = 软件的毛病——记进调试日志、状态栏说、结果里带着数（统筹 11-12，存盘忠实度清点 W2、W3）
+    const dropped = { instances: 0, materialSlots: 0 };
+    const doc: CatsupDocument = documentFromScene(this.d.editor.sceneRef, name, this.loaded, (what, detail) => { if (what === "instance") dropped.instances++; else dropped.materialSlots++; note("save", `${mode}: dropped ${what} (${detail})`); });
+    if (dropped.instances || dropped.materialSlots) this.d.setStatus(`存盘时有${dropped.instances ? ` ${dropped.instances} 个组件（它的定义已经不在了）` : ""}${dropped.instances && dropped.materialSlots ? "、" : ""}${dropped.materialSlots ? ` ${dropped.materialSlots} 格材质（指着的材质已经不在了）` : ""}写不进文件：这是软件的毛病，已记进调试日志`, true);
     doc.settings = scaleRefsToSettings(settingsFromGrid(doc.settings, this.d.editor.docGrid), this.d.editor.scaleRefs);   // 绝对网格（0.11 ⑤）住编辑器、存进文档 settings（不进 undo）
     doc.desk = this.deskForSave();   // 桌面态存盘时顺手捞走（不标脏，WeebPaint desk 同款）；含参考窗的窗
     if (this.d.refs) doc.references = { files: this.d.refs.files(), extra: this.loaded?.references.extra ?? {} };   // 参考窗目录（接缝编好的字节；太新时 = 原样那份，写入器另走 carry）
@@ -505,6 +508,7 @@ export class Session {
     const paint = this.d.paintSave?.freeze(doc, this.d.editor.sceneRef, mode) ?? null;
     return {
       stale: paint?.stale ?? false,
+      dropped,
       finish: async () => { const full = paint ? await paint.finish() : doc; this.loaded = full; return writeCatsup(full); },
     };
   }

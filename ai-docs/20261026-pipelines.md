@@ -994,3 +994,9 @@ layoutFaces(style = patches)：patchesOf（种子按面积、一样大看面心�
 - **重做尾巴**：`History.commit` 清重做挪到「应用成功之后」；在一步里（编辑器传 `inStep`）第一条成功的提交只把原来的重做**停放**（`parkRedo`），成功收尾 `discardParkedRedo`、失败回滚 `restoreParkedRedo`（先丢这一步被撤回的半截，再放回）。不在一步里（单独用 History）= 当场丢。开一步 / 撤销 / 重做 / 装载前 `checkParked`：停放的不空 = 漏了一步（丢掉、`parkedLeaks` 计数、黑匣子一条；撤销随机串和 `probe-step-atomic` 断言 0）。
 - **两个号**：`revision`（只增；画面、碰撞等缓存按它认场景，照旧）和 `docRevision`（只给 session 判断「有没有改动」/ 自动保存 / 崩溃快照用）：一步之内换场景先记着，成功收尾才加一并通知一次；失败的步不加（收尾时退回会话那一下也不算）。一步做到一半 session 看不到半截（不会因为半截就自动保存、或给空白新文件「安家」）。
 - 钉住 = `test/probes/probe-step-atomic.mjs`（守卫、平时那一档）。
+
+## 追记 2026-11-12（v0.19.68，Claude Opus 5.5；统筹 11-12 裁定，清点页 `ai-docs/20261112-save-faithfulness-audit.md`）：存盘忠实度三件
+
+- **「算不算改过」= 文档改动号 + 设置改动号**：`Editor.docRevision` = 场景那一半（一步之内先记着、成功收尾才算，失败退回）+ 设置那一半（`_settingsRev`：住在文件 settings 里、不进撤销的网格五项 / 尺度参考）。设置那一半失败的步退不回、也不该退。`setGrid` 只在**文件那一份**真变了（`grid-settings.ts gridDocChanged`）且不是读盘 / 新建时升；自由建模自己那份吸附开关不进文件、不升；`toggleScaleRef / clearScaleRefs` 升。自动保存、崩溃影子（`snapDue`）、离开前那一问（`leaveGate`）都只看 `dirty()` = 改动号，所以跟着对了。桌面态（画风 / 屏幕 / 参考窗位置 / ☰ 停留页）照旧不算（契约 §5.7）。碰多少：O(1)。
+- **读：悬空引用记账**：材质槽指着不在的材质（R1）、组 / 实例的上一层指着不在的组（R2）——修法照旧（当没有），记进 `readNotes.danglingMaterialSlots / danglingParents`，打开时说一句、算会丢（第一次存盘前要点头）。老格式 v6 → v7 升级时序号越界走同一个记账口（`MigrationCtx.dangling`）。`read.ts` 挂不挂 readNotes 改成按值判（以前手写键名单，新键没补 = 记了等于没记）。
+- **写：兜底留痕**：`definitionToDoc / documentFromScene` 多一个可选回调 `onDrop`（实例的定义没了 W2 / 槽号指不到材质 W3；槽缺 −1 是正常写法不报）。只有整份存盘（`session.freeze`）传：记调试日志 `save`、状态栏如实说、`freeze()` 的结果带 `dropped` 数。已知的路走不到这两种。

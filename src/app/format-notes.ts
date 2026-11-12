@@ -16,6 +16,9 @@ export const READ_NOTE_SAY: { readonly [K in keyof Required<FormatReadNotes>]: S
   danglingShelfRefs: (v) => [`素材架上有 ${v} 格指向的东西已经不在文件里，这次打开丢掉了（保存后就没了）`],
   remintedGuids: (v) => [`这份文件里有 ${v} 条身份重复或不合法（可能被手改过），这次打开换了新身份；保存后就固定了`],
   builtinFrontSlots: (v) => [`这份文件里有 ${v} 格默认材质的写法不标准（可能被手改过），已经按默认材质读进来；保存后就是标准写法`],
+  // 存盘忠实度清点 R1、R2（统筹 11-12：读的时候悄悄修的要记一笔、打开时说一次）
+  danglingMaterialSlots: (v) => [`这份文件里有 ${v} 格材质指着的材质不在文件里（可能被手改过或坏了），这次打开那几格按默认材质显示；再存盘会去掉这些引用`],
+  danglingParents: (v) => [`这份文件里有 ${v} 个组 / 组件的上一层指着不在文件里的组（可能被手改过或坏了），这次打开把它们放在了所在那一层的最外面；再存盘就按现在的位置存`],
   // 贴图表（贴图主线 1-0½；1-2½ 审过时补上说的话）
   texturesTooNew: (v) => [`这份文件的贴图表是更新版的 CatsUp 写的（textures ${fmtStamp(v)}）：本版读不懂，用到贴图的材质先按底色显示，保存时原样带回；这份文件里先不能加贴图、清理贴图、开始画（用更新版打开再改）`],
   danglingTextureRefs: (v) => [`有 ${v} 处材质指着的贴图不在文件里，这次打开那几处当空的（按材质的底色显示）；再存盘会去掉这些引用`],
@@ -45,6 +48,8 @@ export const LOSSY_NOTES: { readonly [K in keyof Required<FormatReadNotes>]: boo
   newerMinor: false, newerPatch: false, deskTooNew: false, referencesTooNew: false, shelfTooNew: false,
   danglingShelfRefs: true,       // 「保存后就没了」
   remintedGuids: false, builtinFrontSlots: false, texturesTooNew: false,
+  danglingMaterialSlots: true,   // 「再存盘会去掉这些引用」
+  danglingParents: true,         // 原来写的上一层存回去就没了
   danglingTextureRefs: true,     // 「再存盘会去掉这些引用」
   unknownTextureKinds: false,
   uvDropped: true,               // 「再存盘会把这些坏的部分去掉」

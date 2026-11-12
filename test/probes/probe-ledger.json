@@ -8,6 +8,7 @@
   "fake-cloud.mjs": {"state":"helper","why":"假 MSAL + 假 Graph，给 probe-cloud-gate 这些探针 import 的工具，自己不是探针"},
   "probe-afterthought-ok.mjs": {"state":"green"},
   "probe-autosave-clock.mjs": {"state":"green","role":"guard","redline":true},
+  "probe-settings-dirty.mjs": {"state":"green","role":"guard"},
   "probe-axes-point.mjs": {"state":"green"},
   "probe-axes-to-sel.mjs": {"state":"green"},
   "probe-axis-cross.mjs": {"state":"green"},

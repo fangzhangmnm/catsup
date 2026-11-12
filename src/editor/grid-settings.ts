@@ -74,6 +74,8 @@ export function gridFrame(F: Frame, plane: GridPlane): Frame {
 export function gridFromSettings(s: SettingsNow): GridSettings {
   return { on: s.absoluteGrid, snap: s.snapIncrement, plane: s.gridPlane, system: s.unitSystem, shown: !s.gridHidden };
 }
+/** 文件里那一份网格设置变没变（五样全进 settingsFromGrid；编辑器拿它判「算不算改过」——统筹 11-12：只改设置就关掉不许悄悄丢）。 */
+export const gridDocChanged = (a: GridSettings, b: GridSettings): boolean => a.on !== b.on || a.snap !== b.snap || a.plane !== b.plane || a.system !== b.system || a.shown !== b.shown;
 /** 网格状态 → 文档 settings（写的门口 format/migrate/settings.ts settingsForFile：给老读者照写的那几个旧键在那里）。 */
 export function settingsFromGrid(s: DocumentSettings, g: GridSettings): DocumentSettings {
   return settingsForFile(s, { absoluteGrid: g.on, unitSystem: g.system, snapIncrement: g.snap, gridPlane: g.plane, gridHidden: !g.shown });

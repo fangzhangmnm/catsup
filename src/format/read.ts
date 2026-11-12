@@ -163,7 +163,10 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   });
 
   if (!isObj(exts.CATSUP_definitions)) fail("missing CATSUP_definitions");
-  const defsExt = migrateExtension("CATSUP_definitions", exts.CATSUP_definitions as Record<string, unknown>, notes, { materialGuids: materials.map((m) => m.guid) });
+  // 指着的东西不在（材质槽 / 上一层的组）：修法照旧（当没有），但记一笔、打开时说（统筹 11-12，存盘忠实度清点 R1、R2）；升级那一步和下面读定义共用
+  const dangle = (w: "materialSlot" | "parent"): void => { if (w === "materialSlot") notes.danglingMaterialSlots = (notes.danglingMaterialSlots ?? 0) + 1; else notes.danglingParents = (notes.danglingParents ?? 0) + 1; };
+  const parentOr = (p: unknown, known: ReadonlySet<Guid>): Guid | null => { if (isGuid(p) && known.has(p)) return p; if (p !== null && p !== undefined) dangle("parent"); return null; };
+  const defsExt = migrateExtension("CATSUP_definitions", exts.CATSUP_definitions as Record<string, unknown>, notes, { materialGuids: materials.map((m) => m.guid), dangling: dangle });
   const list = defsExt.list;
   if (!Array.isArray(list)) fail("CATSUP_definitions.list missing");
   // 定义的身份先过一遍（实例引用要查；重复的：头一个留身份，后面的现铸 = 引用都指头一个，不崩）
@@ -202,7 +205,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (!isObj(gRaw) || !isObj(gRaw.brep)) fail(`definition ${di} group ${gi} invalid`);
       const g = gRaw as Record<string, unknown>;
       const gj = migrateExtension("CATSUP_brep", g.brep as Record<string, unknown>, notes) as unknown as CatsupBrepJson;
-      return { guid: groupGuids[gi], parent: isGuid(g.parent) && groupKnown.has(g.parent) ? g.parent : null, axes: frameOf(g.axes, `group ${gi} axes`), guides: guidesOf(g.guides, `group ${gi} guides`), brep: decodeBrep(gj, view), ...(typeof g.name === "string" ? { name: g.name } : {}) };
+      return { guid: groupGuids[gi], parent: parentOr(g.parent, groupKnown), axes: frameOf(g.axes, `group ${gi} axes`), guides: guidesOf(g.guides, `group ${gi} guides`), brep: decodeBrep(gj, view), ...(typeof g.name === "string" ? { name: g.name } : {}) };
     });
     const instSeen = new Set<Guid>();
     const instances: InstanceDoc[] = (Array.isArray(d.instances) ? d.instances : []).map((iRaw: unknown, ii: number) => {
@@ -211,10 +214,10 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (!isGuid(inst.definition) || !defSeen.has(inst.definition)) fail(`definition ${di} instance ${ii} references a missing definition`);
       const m = inst.matrix;
       if (!Array.isArray(m) || m.length !== 12 || !m.every((v) => typeof v === "number")) fail(`definition ${di} instance ${ii} matrix must have 12 numbers`);
-      return { guid: ownGuid(inst.guid, instSeen, reminted), definition: inst.definition as Guid, parent: isGuid(inst.parent) && groupKnown.has(inst.parent) ? inst.parent : null, xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.layer === "number" ? { layer: inst.layer } : {}), ...(inst.hidden === true ? { hidden: true } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
+      return { guid: ownGuid(inst.guid, instSeen, reminted), definition: inst.definition as Guid, parent: parentOr(inst.parent, groupKnown), xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.layer === "number" ? { layer: inst.layer } : {}), ...(inst.hidden === true ? { hidden: true } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
     });
     // 槽表值：材质 GUID / 内置默认背面；内置默认正面的唯一表示是「槽缺」，读到 = 没有（§9.2-A a；notes 记一笔）。
-    const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => { if (x === BUILTIN_FRONT_GUID) { notes.builtinFrontSlots = (notes.builtinFrontSlots ?? 0) + 1; return null; } return isGuid(x) && (x === BUILTIN_BACK_GUID || matKnown.has(x)) ? x : null; });
+    const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => { if (x === BUILTIN_FRONT_GUID) { notes.builtinFrontSlots = (notes.builtinFrontSlots ?? 0) + 1; return null; } if (isGuid(x) && (x === BUILTIN_BACK_GUID || matKnown.has(x))) return x; if (x !== null && x !== undefined) dangle("materialSlot"); return null; });
     // 门 1：definition 的种类。缺省 brep；0.14 起认 mesh（载荷：definitions v5；card 在 v6 退场 = 迁成空 brep）；别的种类 → 拒开说清（开了再存会把它丢掉 = 数据丢失，比拒开更坏）。
     const kindRaw = d.kind === undefined ? "brep" : d.kind;
     if (kindRaw !== "brep" && kindRaw !== "mesh") fail(`definition ${di} kind "${String(d.kind)}" is not supported by this version`);
@@ -328,6 +331,6 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     ...(shelf && !shelfIsEmpty(shelf) ? { shelf } : {}),
     ...(thumbnail ? { thumbnail } : {}),
     carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), ...(Object.keys(texturesExtraRaw).length ? { texturesExtra: texturesExtraRaw } : {}), views },
-    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew || notes.referencesTooNew || notes.shelfTooNew || notes.danglingShelfRefs || notes.builtinFrontSlots || notes.remintedGuids || notes.texturesTooNew || notes.danglingTextureRefs || notes.unknownTextureKinds || notes.uvDropped || notes.paintUnplaced || notes.foreignPaintSlots || notes.orphanPaintTextures ? { readNotes: notes } : {}),
+    ...(Object.values(notes).some((v) => (Array.isArray(v) ? v.length > 0 : !!v)) ? { readNotes: notes } : {}),   // 任何一个键有值就挂上（以前是手写的键名单，新键没补进去 = 记了等于没记；2026-11-12 Opus，存盘忠实度 R1 / R2 撞上的）
   };
 }

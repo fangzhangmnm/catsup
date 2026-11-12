@@ -124,12 +124,19 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
   return scene;
 }
 
-/** 一个定义 → 文件形状（documentFromScene 和跨文件载荷的闭包同一份；name = 根用文件名）。 */
-export function definitionToDoc(scene: Scene, id: DefId, name?: string): DefinitionDoc {
+/** 写的时候指着的东西不在、只好不写（实例的定义没了 / 槽号指不到材质）：已知的路走不到；真走到了 = 软件的毛病，调用方记账、说出来（统筹 11-12，存盘忠实度清点 W2、W3）。 */
+export type WriteDrop = (what: "instance" | "materialSlot", detail: string) => void;
+/** 一个定义 → 文件形状（documentFromScene 和跨文件载荷的闭包同一份）。onDrop = 上面那两种兜底真走到时告诉调用方（整份存盘传，别的读面不传）。 */
+export function definitionToDoc(scene: Scene, id: DefId, name?: string, onDrop?: WriteDrop): DefinitionDoc {
   const d = scene.def(id);
-  const slotGuids = (slots: readonly number[]): (Guid | null)[] => slots.map((m) => (m === BUILTIN_BACK_SLOT ? BUILTIN_BACK_GUID : (scene.materials[m]?.guid ?? null)));
+  const slotGuids = (slots: readonly number[]): (Guid | null)[] => slots.map((m, k) => {
+    if (m === BUILTIN_BACK_SLOT) return BUILTIN_BACK_GUID;
+    const g = scene.materials[m]?.guid ?? null;
+    if (g === null && m >= 0) onDrop?.("materialSlot", `definition ${d.guid} slot ${k} → material ${m}`);   // −1 = 槽缺 = 默认正面，正常写法
+    return g;
+  });
   const groupGuid = (g: GroupId | null): Guid | null => (g !== null && d.body.kind === "brep" ? (d.body.groups.get(g)?.guid ?? null) : null);
-  const instances = [...d.instances.values()].filter((i) => scene.defs.has(i.def)).map((i) => ({ guid: i.guid, definition: scene.def(i.def).guid, parent: groupGuid(i.parent), xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) }));
+  const instances = [...d.instances.values()].filter((i) => scene.defs.has(i.def) || (onDrop?.("instance", `definition ${d.guid} instance ${i.guid} → definition ${i.def}`), false)).map((i) => ({ guid: i.guid, definition: scene.def(i.def).guid, parent: groupGuid(i.parent), xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) }));
   if (d.body.kind === "mesh") { const mr = scene.meshMirrors.get(d.id); return { guid: d.guid, name: d.name, kind: "mesh", mesh: { ...meshDocFromKernel(d.body.kernel, [...d.body.uvSets.values()]), ...(mr ? { mirror: { mode: mr.mode, axis: mr.axis } } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: slotGuids(d.body.materialSlots), guides: emptyGuidesDoc() }; }
   const b = d.body;
   return {
@@ -147,13 +154,13 @@ export function definitionToDoc(scene: Scene, id: DefId, name?: string): Definit
 
 /** 场景 → 文档（base = 打开时的文档，保留未知携带内容 / 设置 / 视图）。 */
 /** name：以前用来把根改成文件名，2026-11-13 起不再用（根和别的物体一样叫自己的名字）；调用的地方多（测试 / 冻样本脚本），签名先留着。 */
-export function documentFromScene(scene: Scene, _name: string, base?: CatsupDocument | null): CatsupDocument {
+export function documentFromScene(scene: Scene, _name: string, base?: CatsupDocument | null, onDrop?: WriteDrop): CatsupDocument {
   // 贴图坐标进文件了（1-2½）：definitionToDoc 带着贴图表的每一行和内核里同 GUID 的列。内核里有一列、贴图坐标表里却没有那一行 = 内部出了错，整份写盘抛（统筹 11-11：要响），
   //   不悄悄丢掉那一列。抛在整份写盘这里、不在 definitionToDoc：后者也是条目仓库的读面（粘贴对账、复制成唯一），那些路上不该炸。
   for (const d of scene.defs.values()) if (d.body.kind === "mesh") for (const c of d.body.kernel.columnDefs()) if (!d.body.uvSets.has(c.guid)) throw new Error(`definition "${d.name}" (${d.guid}): the mesh kernel has a corner column ${c.guid} that is not in its texture-coordinate table; refusing to write a file that would silently drop it`);
   const ids = [...scene.defs.keys()];
   const rootIndex = ids.indexOf(scene.root);
-  const definitions: DefinitionDoc[] = ids.map((id) => definitionToDoc(scene, id));   // 根的名字是它自己的（四位码或 user 起的），不拿文件名覆盖（user 11-13「以后根永远不跟文件名…不要跟文件名搞特殊」）；name 参数只剩签名
+  const definitions: DefinitionDoc[] = ids.map((id) => definitionToDoc(scene, id, undefined, onDrop));   // 根的名字是它自己的（四位码或 user 起的），不拿文件名覆盖（user 11-13「以后根永远不跟文件名…不要跟文件名搞特殊」）；name 参数只剩签名
   const materials = scene.materials.map(materialToDoc), textures = [...scene.textures.values()];
   const root = definitions[rootIndex];
   const layers = scene.layers.map((l) => ({ ...l }));

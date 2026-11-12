@@ -32,7 +32,7 @@ const SAMPLE: Required<FormatReadNotes> = {
   newerMinor: [{ ext: "CATSUP_mesh", file: { major: 2, minor: 5, patch: 0 }, mine: { major: 2, minor: 0, patch: 0 } }],
   newerPatch: [{ ext: "CATSUP_mesh", file: { major: 2, minor: 0, patch: 3 }, mine: { major: 2, minor: 0, patch: 0 } }],
   deskTooNew: stamp, builtinFrontSlots: 1, referencesTooNew: stamp, shelfTooNew: stamp, danglingShelfRefs: 3,
-  texturesTooNew: stamp, danglingTextureRefs: 2, unknownTextureKinds: 1,
+  texturesTooNew: stamp, danglingTextureRefs: 2, unknownTextureKinds: 1, danglingMaterialSlots: 2, danglingParents: 1,
   uvDropped: [{ def: { guid: "00000000-0000-4000-8000-000000000001", name: "画盒" }, uvSet: { guid: "00000000-0000-4000-8000-000000000002", name: "UV" }, faces: 2, why: "partial-corners" }],
   paintUnplaced: [{ def: { guid: "00000000-0000-4000-8000-000000000001", name: "画盒" }, uvSet: { guid: "00000000-0000-4000-8000-000000000002", name: "UV" }, faces: 4 }],
   foreignPaintSlots: 1, orphanPaintTextures: 1,
@@ -57,9 +57,9 @@ describe("读入时记下的每一种都要说出来（1-2½）", () => {
 });
 
 describe("会丢 / 不丢的名单（1-8b，统筹 11-11 定）", () => {
-  it("每个键都表态；会丢的正好是这四种：uvDropped、foreignPaintSlots、danglingTextureRefs、danglingShelfRefs", () => {
+  it("每个键都表态；会丢的正好是这六种：uvDropped、foreignPaintSlots、danglingTextureRefs、danglingShelfRefs、danglingMaterialSlots、danglingParents", () => {
     eq(Object.keys(LOSSY_NOTES).sort().join(", "), KEYS.join(", "), "名单的键 = 接口的键");
-    eq(Object.entries(LOSSY_NOTES).filter(([, v]) => v).map(([k]) => k).sort().join(", "), "danglingShelfRefs, danglingTextureRefs, foreignPaintSlots, uvDropped");
+    eq(Object.entries(LOSSY_NOTES).filter(([, v]) => v).map(([k]) => k).sort().join(", "), "danglingMaterialSlots, danglingParents, danglingShelfRefs, danglingTextureRefs, foreignPaintSlots, uvDropped");
   });
   it("lossySay：只说会丢的那几种；空的 / 0 不算", () => {
     eq(lossySay({ newerMinor: [], newerPatch: [], foreignPaintSlots: 2, remintedGuids: 3 } as FormatReadNotes).length, 1, "只说会丢的");
