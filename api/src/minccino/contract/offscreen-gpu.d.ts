@@ -70,6 +70,16 @@ export interface OffscreenGpu {
         readonly w: number;
         readonly h: number;
     }): void;
+    /**
+     * 把 src 上这些块拷到 dst 的同一位置（一样大），一次画完（每块一个实例；块相交也没关系，拷的是同样的字节）：定型层 → 当帧那张只拷这一帧标过的格（1-4d 第 9 条：以前每帧拷整个外接框）。
+     * 空 = 什么都不做。不按块一次一次调（几百段 = 几百次调用）。
+     */
+    copyRects(src: OffscreenImage, dst: OffscreenImage, rects: readonly {
+        readonly x: number;
+        readonly y: number;
+        readonly w: number;
+        readonly h: number;
+    }[]): void;
     /** 读回（预乘 RGBA 字节，第 0 行 = 第 0 行）。测试 / 探针用。 */
     read(img: OffscreenImage): Uint8Array;
     release(x: OffscreenImage | OffscreenData): void;

@@ -14,6 +14,12 @@ export declare class SoftSpaceGpu implements SpaceGpu {
     image(w: number, h: number): SpaceImage;
     data(w: number, h: number, values: Float32Array | Uint16Array, format?: "r32f" | "rgba16ui"): SpaceData;
     draw(d: SpaceDraw): void;
+    copyRects(src: SpaceImage, dst: SpaceImage, rects: readonly {
+        readonly x: number;
+        readonly y: number;
+        readonly w: number;
+        readonly h: number;
+    }[]): void;
     copy(src: SpaceImage, dst: SpaceImage, rect?: {
         readonly x: number;
         readonly y: number;

@@ -6,6 +6,8 @@ export declare class GlOffscreenGpu implements OffscreenGpu {
     private vao;
     private quad;
     private instBuf;
+    /** copyRects 的小程序（内部的，不进登记表：拷贝没有软件 / 显卡两份要对拍，软件版就是逐块拷字节）。 */
+    private copyProg;
     /** 最近一次 draw 花了多少毫秒（CPU 时间；探针量）。 */
     lastDrawMs: number;
     /** 每边最多多少格（MAX_TEXTURE_SIZE；契约 maxSize）。 */
@@ -22,6 +24,12 @@ export declare class GlOffscreenGpu implements OffscreenGpu {
         readonly w: number;
         readonly h: number;
     }): void;
+    copyRects(src: OffscreenImage, dst: OffscreenImage, rects: readonly {
+        readonly x: number;
+        readonly y: number;
+        readonly w: number;
+        readonly h: number;
+    }[]): void;
     read(img: OffscreenImage): Uint8Array;
     release(x: OffscreenImage | OffscreenData): void;
     /** 真显卡版独有：离屏图的贴图句柄（交给画画内核的 wrapExternal）。 */
