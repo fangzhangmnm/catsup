@@ -932,8 +932,8 @@ export class Editor {
     };
     const n0 = this.opCount;
     if (!go("picked")) { this.setTool(E.prevTool); return; }
+    this.setTool(E.prevTool);   // 先换回原来的工具、再开马后炮（v0.15.30 起「换了工具 → 马后炮作废」：以前先开后换，面板一开就被收掉；2026-11-11 修）
     this.offerAfterthought(`改组件原点「${name}」`, [{ key: "where", def: { kind: "enum", label: "原点", values: [{ id: "picked", label: "刚才点的" }, ...ORIGIN_PRESETS] } }], { where: "picked" }, this.opCount - n0, (v) => { go(String(v.where)); });
-    this.setTool(E.prevTool);
     const pick: PoolPick = { kind: "instance", instance: inst.id };
     this.selectedPools.set(this.pickKey(pick), pick);
     this.host.hint(`组件原点已换（世界里没动；${n} 份一起换）`);
