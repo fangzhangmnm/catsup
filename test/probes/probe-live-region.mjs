@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
+const PERF = process.argv.includes("--perf");   // 性能档：量的那一半只在这里跑
 const { chromium } = createRequire(path.join(here, "../../../20260524 WeebPaint/package.json"))("playwright");
 const url = process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/";
 let pass = 0, failN = 0;
@@ -114,6 +115,7 @@ await S(() => { const e = globalThis.__catsup.editor; e.cam.setView("top"); e.zo
 await frames(2);
 const regionCells = await S(() => globalThis.__catsup.editor.renderer3.live.lastCopyCells);
 
+if (PERF) {   // 「量拷了多大」这一半进性能档（统筹 11-12：role perf；守卫档只留「增量 = 整张重合、逐字节」那一半）。不带 --perf = 不量
 console.log("\n量：2048 见方，同一长笔，每帧拷显示图");
 await S(() => { globalThis.__catsup.editor.undo(); });
 await frames(2);
@@ -155,6 +157,7 @@ for (const x of rows) console.log(`    ${x.mode === "full" ? "每次整张（改
 const full = rows[0], reg = rows[1];
 check(side === 2048 && reg.medianCells < full.medianCells / 4, `只拷一块：中位一块 ${reg.medianCells} 格 < 整张 ${full.medianCells} 格的四分之一`);
 check(regionCells >= 0, "（读到了最近一次拷的块）");
+} else console.log("\n量：2048 见方每帧拷显示图（只拷一块 vs 整张）——只在性能档跑（--perf）");
 // ───────── 笔的种类 × 几支极端的笔（统筹 11-11：「影响的半径这种我们现在的版本不会算错吧。以后碰到大喷枪之类的」）─────────
 // 每一组用调试钩子按笔的种类表起一笔，画到一半（笔还按着）和抬笔后各核一次：app 自己的核对（C.paint.diag.detail：内核合成图 = 强制整张重合、显示图每一级 = 整张重拷，逐字节）。
 // 场景 = 细分三次的方盒子（384 张碎面），等轴看。种类来自 paint/brush-kinds.ts：表里有、这里没有 = 守卫红（test/brush-kinds.test.ts），运行时再核一遍页面上的表。

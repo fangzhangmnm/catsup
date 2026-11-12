@@ -45,13 +45,19 @@ describe("测试分档守卫", () => {
     eq(Object.values(exp).flat().filter((w) => !prefixExists(w)).join("、"), "", "管的地方不存在");
   });
   it("探针底账（test/probes/probe-ledger.json）：每个探针文件一行、每行都有文件、每种状态该写的都写了（统筹 11-11；2026-11-11 Opus 加）", () => {
-    const led = JSON.parse(fs.readFileSync("test/probes/probe-ledger.json", "utf8")) as { probes: Record<string, Record<string, string>> };
+    const led = JSON.parse(fs.readFileSync("test/probes/probe-ledger.json", "utf8")) as { probes: Record<string, Record<string, string>> };   // 值是字符串 / true / 数组，按用到的地方各自看
     const files = fs.readdirSync("test/probes").filter((n) => /\.(mjs|mts)$/.test(n) && !n.startsWith("_"));
     eq(files.filter((f) => !led.probes[f]).join("、"), "", "探针文件没有底账行（新探针加一行，跑绿了写 green）");
     eq(Object.keys(led.probes).filter((f) => !files.includes(f)).join("、"), "", "底账行的文件不在了");
     const need: Record<string, string[]> = { green: [], helper: ["why"], "known-red": ["reason", "since", "fixBy"], flaky: ["symptom", "seen", "fixBy"] };
     const bad = Object.entries(led.probes).flatMap(([f, r]) => !need[r.state] ? [`${f}：状态「${r.state}」不认识`] : need[r.state].filter((k) => !r[k]).map((k) => `${f}：${r.state} 缺 ${k}`));
-    for (const [f, r] of Object.entries(led.probes)) if (r.role !== undefined && r.role !== "guard" && r.role !== "scaffold") bad.push(`${f}：role「${r.role}」只能是 guard / scaffold（没写 = guard）`);   // 统筹 11-11：整跑只跑 guard
+    for (const [f, r] of Object.entries(led.probes) as [string, Record<string, unknown>][]) {
+      if (r.role !== undefined && r.role !== "guard" && r.role !== "scaffold" && r.role !== "perf") bad.push(`${f}：role「${r.role}」只能是 guard / scaffold / perf（没写 = guard）`);   // 统筹 11-12：分档本身
+      if (r.redline !== undefined && (r.redline !== true || (r.role ?? "guard") !== "guard" || (r.state !== "green" && r.state !== "flaky"))) bad.push(`${f}：redline 只能写 true，而且得是守卫档、现在是绿的（红线那一小组不许放已知红的）`);
+      if (r.perfArgs !== undefined && (!Array.isArray(r.perfArgs) || !r.perfArgs.length || !r.perfArgs.every((x) => typeof x === "string" && x.startsWith("--")))) bad.push(`${f}：perfArgs 是一串 --开头的参数`);
+    }
+    const reds = Object.entries(led.probes).filter(([, r]) => (r as Record<string, unknown>).redline === true).map(([f]) => f);
+    if (reds.length < 5) bad.push(`红线那一小组只有 ${reds.length} 个（锁、存盘、撤销、文件格式、崩溃快照至少各一个）`);
     eq(bad.join("；"), "");
   });
   it("test/、scripts/ 里用墙上钟（Date.now）的每一行都写明为什么；量时长、判超时一律 performance.now（统筹 11-11：这台 WSL 的墙上钟约每 32 秒往回拨 1.8 秒）", () => {
