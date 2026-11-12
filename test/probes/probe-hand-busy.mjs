@@ -86,10 +86,10 @@ const counts = (S) => S(() => ({ ...globalThis.__HB }));
 const zero = (S) => S(() => { for (const k of Object.keys(globalThis.__HB)) globalThis.__HB[k] = 0; });
 /** 拨「上次改动」到 31 秒前、手动走几拍，再真等一会儿让定时器自己走几拍（笔还按着就边等边走）。 */
 const idleTicks = async (page, S, { moving = false, y = 0.5, from = 0 } = {}) => {
-  await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); s.tick(); s.tick(); });
-  for (let k = 0; k < 5; k++) { await page.waitForTimeout(500); if (moving) await pen(S, "move", y, from + k + 1); await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); }); }
+  await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); s.tick(); s.tick(); });   // 墙上钟：app 的 session.lastEditAt 用的是 Date.now()（src 清单里报了），这里跟它同一个钟
+  for (let k = 0; k < 5; k++) { await page.waitForTimeout(500); if (moving) await pen(S, "move", y, from + k + 1); await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); }); }   // 墙上钟：app 的 session.lastEditAt 用的是 Date.now()（src 清单里报了），这里跟它同一个钟
 };
-const why = (S) => S(() => { const C = globalThis.__catsup, s = C.session; return { hand: C.hand.which(), dirty: s.dirty(), snapDue: s.snapDue(), saving: s.saving, home: s.home.kind, lazy: s.lazy, luggage: !!s.luggage, idleFor: Math.round((Date.now() - s.lastEditAt) / 1000) }; });
+const why = (S) => S(() => { const C = globalThis.__catsup, s = C.session; return { hand: C.hand.which(), dirty: s.dirty(), snapDue: s.snapDue(), saving: s.saving, home: s.home.kind, lazy: s.lazy, luggage: !!s.luggage, idleFor: Math.round((Date.now() - s.lastEditAt) / 1000) }; });   // 墙上钟：app 的 session.lastEditAt 用的是 Date.now()（src 清单里报了），这里跟它同一个钟
 const paintHash = (S, g) => S((g) => { const b = globalThis.__catsup.paint.boards.get(g); if (!b) return "没有画板"; const d = b.wp.exportData(); let h = 2166136261; for (const n of d.nodes) if (n.pixels) for (const v of n.pixels.bytes) { h ^= v; h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); }, g);
 const cacheFresh = (S, g) => S((g) => { const C = globalThis.__catsup, b = C.paint.boards.get(g), c = C.paint.saver.cache?.get(g); return !!b && !!c && c.board === b && c.version === b.wp.commitVersion; }, g);
 
@@ -112,11 +112,11 @@ console.log("\nA 临时家（开机没选家）：一笔当中不拍崩溃快照
   check(w1.dirty && w1.snapDue && !w1.saving && w1.luggage && w1.idleFor >= 30, `别的条件都满足（脏、该拍、没在存、有行李牌、上次改动 ${w1.idleFor} 秒前）= 只差「手上有一下没收」这一条`, JSON.stringify(w1));
   check(c1.snapshot === 0 && c1.refresh === 0 && c1.freeze === 0 && c1.save === 0, `一笔当中：快照 ${c1.snapshot}、画的编码 ${c1.refresh + c1.freeze}、保存 ${c1.save}（都该是 0）`, JSON.stringify(c1));
   await pen(S, "up", 0.6, 12);
-  const revUp = await S(() => { const s = globalThis.__catsup.session; s.tick(); return Math.round((Date.now() - s.lastEditAt) / 1000); });
+  const revUp = await S(() => { const s = globalThis.__catsup.session; s.tick(); return Math.round((Date.now() - s.lastEditAt) / 1000); });   // 墙上钟：app 的 session.lastEditAt 用的是 Date.now()（src 清单里报了），这里跟它同一个钟
   await page.waitForTimeout(300);
   const c2 = await counts(S);
   check(revUp <= 1 && c2.snapshot === 0, `抬笔这一下本身算改动（上次改动 = ${revUp} 秒前）：这一拍不拍（和编辑器的手势一样，空闲再满 30 秒）`, JSON.stringify({ revUp, c2 }));
-  await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); });
+  await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); });   // 墙上钟：app 的 session.lastEditAt 用的是 Date.now()（src 清单里报了），这里跟它同一个钟
   await page.waitForFunction(() => globalThis.__HB.snapshot > 0 && !globalThis.__catsup.session.snapRun && !globalThis.__catsup.session.refreshing, null, { timeout: 30000 }).catch(() => {});
   const c3 = await counts(S);
   check(c3.snapshot >= 1 && c3.refresh >= 1, `抬笔后空闲满 30 秒：拍了（快照 ${c3.snapshot}、画的编码 ${c3.refresh}）`, JSON.stringify(c3));
@@ -162,10 +162,10 @@ console.log("\nB 文件夹图库家：一笔当中不自动保存；抬笔后空
   const afterUp = await paintHash(S, g);
   check(afterUp !== hashMid, "笔 B 抬起：落进画里了（Ctrl+S 之后这一笔照样画完）");
   await zero(S);
-  const revUp = await S(() => { const s = globalThis.__catsup.session; s.tick(); return Math.round((Date.now() - s.lastEditAt) / 1000); });
+  const revUp = await S(() => { const s = globalThis.__catsup.session; s.tick(); return Math.round((Date.now() - s.lastEditAt) / 1000); });   // 墙上钟：app 的 session.lastEditAt 用的是 Date.now()（src 清单里报了），这里跟它同一个钟
   await page.waitForTimeout(300);
   check(revUp <= 1 && (await counts(S)).save === 0, `抬笔这一下本身算改动（上次改动 = ${revUp} 秒前）：这一拍不存`);
-  await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); });
+  await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); });   // 墙上钟：app 的 session.lastEditAt 用的是 Date.now()（src 清单里报了），这里跟它同一个钟
   await page.waitForFunction(() => globalThis.__HB.save > 0 && !globalThis.__catsup.session.saving && !globalThis.__catsup.session.dirty(), null, { timeout: 30000 }).catch(() => {});
   const c3 = await counts(S), clean = !(await S(() => globalThis.__catsup.session.dirty()));
   check(c3.save >= 1 && clean, `抬笔后空闲满 30 秒：自动存了（保存 ${c3.save}）、文件干净了`, JSON.stringify({ c3, clean }));
@@ -191,8 +191,8 @@ console.log("\nC 绕开编辑器、直接调画画控制器（调试钩子那条
   const who = await S(() => ({ which: globalThis.__catsup.hand.which(), gesture: globalThis.__catsup.editor.isGestureActive() }));
   check(!!g && who.which === "paint.stroke" && !who.gesture, `只有名册的 paint.stroke 那一行说忙（编辑器的手势 = ${who.gesture}）`, JSON.stringify(who));
   await zero(S);
-  await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); s.tick(); });
-  for (let k = 0; k < 4; k++) { await page.waitForTimeout(500); await penDirect(S, "move", 0.6, 2 + k); await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); }); }
+  await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); s.tick(); });   // 墙上钟：app 的 session.lastEditAt 用的是 Date.now()（src 清单里报了），这里跟它同一个钟
+  for (let k = 0; k < 4; k++) { await page.waitForTimeout(500); await penDirect(S, "move", 0.6, 2 + k); await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); }); }   // 墙上钟：app 的 session.lastEditAt 用的是 Date.now()（src 清单里报了），这里跟它同一个钟
   const w = await why(S), c = await counts(S);
   check(w.dirty && w.snapDue && w.idleFor >= 30 && c.snapshot === 0 && c.refresh === 0 && c.freeze === 0, `一笔当中：快照 ${c.snapshot}、画的编码 ${c.refresh + c.freeze}（别的条件都满足：脏、该拍、上次改动 ${w.idleFor} 秒前）`, JSON.stringify({ w, c }));
   await penDirect(S, "up", 0.6, 12);

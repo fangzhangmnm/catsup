@@ -88,7 +88,7 @@ async function scenario(browser, { label, scope, swText }) {
   return out;
 }
 
-const t0 = Date.now();
+const t0 = performance.now();
 const browser = await chromium.launch();
 const results = [];
 for (const c of [
@@ -99,4 +99,4 @@ for (const c of [
 console.log("Chromium", await browser.version());
 await browser.close();
 for (const r of results) { console.log("\n== " + r.label); for (const [k, v] of Object.entries(r)) if (k !== "label") console.log("  " + k + ":", JSON.stringify(v)); }
-console.log(`\n用时 ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+console.log(`\n用时 ${((performance.now() - t0) / 1000).toFixed(1)} s`);

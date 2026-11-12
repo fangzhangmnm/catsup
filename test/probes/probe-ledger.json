@@ -1,6 +1,6 @@
 {
  "note": "探针底账（统筹 11-11 定）：每个探针一行，状态四种——green / known-red（reason 为什么红、since 从哪一版、fixBy 谁什么时候修）/ flaky（symptom、seen = 几次里红几次、fixBy）/ helper（不是探针，整跑不跑）。另一栏 role：guard = 整跑要跑的；scaffold = 做某张单时对着看的细探针，不进整跑；没写 = guard（统筹 11-11：碰到哪个分哪个；每张单收尾时把那张单的细探针收成一两条综合的，守卫不许变薄）。整跑 = node scripts/probe-sweep.mjs（放后台跑、不卡队），只报新红 / 新绿 / 还红着、最慢的二十个和总用时；新红 = 停下来。目标：施工单开工时 known-red 一行都没有。比旧版本只用发版提交干净构建出来的（脚本 --compare 写死了）。守卫 test/test-tiers-guard.test.ts：每个探针文件都有一行、每一行都有文件、每种状态该写的都写了。created 2026-11-11 by Claude Opus 5.5",
- "asOf": "2026-11-11 v0.19.48 + reds 分支（19 个旧红：2 个真毛病修了、17 个探针照现在的口改了；记录 = ai-docs/20261111-paint-1-4d-smooth.md「收尾：全部探针整跑一遍」和它下面的「19 个旧红的交代」）",
+ "asOf": "2026-11-11 v0.19.50（19 个旧红交代完；snap-base 偶发查清修好 = known-red 零行、flaky 零行；记录 = ai-docs/20261111-paint-1-4d-smooth.md「收尾：全部探针整跑一遍」和它下面的「19 个旧红的交代」）",
  "probes": {
   "bench-bake-paths.mts": {"state":"green"},
   "bench-pools.mjs": {"state":"green"},
@@ -153,7 +153,7 @@
   "probe-slow-ask.mjs": {"state":"green"},
   "probe-smallbatch.mjs": {"state":"green"},
   "probe-smooth-normals.mjs": {"state":"green"},
-  "probe-snap-base.mjs": {"state":"flaky","symptom":"mouseShiftSnaps（鼠标按住 Shift 拖、松手落在吸附点上）有时是 false","seen":"v0.19.48 上 4 / 10 次红，v0.19.47 上 5 / 10 次红；松手前先停 100 毫秒 = 10 / 10 绿","since":"至少 v0.19.47（更早没量）","cause":"读码查清（11-11）：抬笔结算（A21，editor.ts settledSample）对所有设备都做——松开处停不到 100 ms，就回看 150 ms 里停过 ≥ 40 ms、离松开处 24 px 以内的那一帧当落点。探针的真鼠标一步 7–17 px、每步等 16 ms 就松手；无头软件显卡一帧慢，Chromium 把真鼠标的移动对齐到帧上发，两帧之间能过 40 ms = 算「停过」→ 落点换成前一步，离目标点超出吸附半径。笔是页面里同步派的事件，不对齐帧，所以不红。","fixBy":"统筹定：① 探针松手前停 ≥ 100 ms（= A21 说的「有意」）；② 应用：鼠标松键时光标不会滑，A21 要不要只管笔 / 手指（设计问题，A21 是 user 定的）"},
+  "probe-snap-base.mjs": {"state":"green","note":"11-11 v0.19.50 起绿：以前偶发红（10 次红 4–5 次）的根 = 探针用 page.mouse，Playwright 发一个等一个，每步在事件时间上也隔 28–49 ms、跨过 A21 的 40 ms「停过」线（数据核过）。现在探针的手经 CDP 自己报事件时间（每步 16 ms、松手挨着最后一步），另加帧慢那条（v0.19.49 上红）。连跑 20 次不红，负载 5.7–15.7。"},
   "probe-snap-default.mjs": {"state":"green"},
   "probe-snap-grid.mjs": {"state":"green"},
   "probe-snap-jitter.mts": {"state":"green"},

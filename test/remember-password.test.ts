@@ -24,7 +24,7 @@ function setup({ verifierPw = "real pw" as string | null, enabled = true } = {})
   });
   return { clock, store, keeper, v, remembered, errors };
 }
-const until = async (fn: () => Promise<boolean> | boolean, ms = 2000): Promise<boolean> => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await new Promise((r) => setTimeout(r, 10)); } return false; };
+const until = async (fn: () => Promise<boolean> | boolean, ms = 2000): Promise<boolean> => { const t = performance.now(); while (performance.now() - t < ms) { if (await fn()) return true; await new Promise((r) => setTimeout(r, 10)); } return false; };
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 30));
 
 describe("remember-password · 开页", () => {

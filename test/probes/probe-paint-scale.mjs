@@ -172,14 +172,14 @@ const inject = () => page.evaluate(helpers);
 const reloaded = async (act) => { const nav = page.waitForEvent("load", { timeout: 60000 }); await act(); await nav; await ready(); await page.waitForTimeout(900); await inject(); };
 const clearNotes = () => S(() => { for (const n of [...document.querySelectorAll("#noticeStack > *")]) n.remove(); });
 const newFile = async () => {
-  const t0 = Date.now(), state = () => S(() => ({ gallery: !document.getElementById("galleryFull").hidden, sheet: !document.getElementById("sheet").hidden, sheetText: document.getElementById("sheet").textContent.trim().slice(0, 120), hint: document.querySelector("#hint")?.textContent ?? "", notices: [...document.querySelectorAll("#noticeStack > *")].map((n) => n.textContent.trim().slice(0, 80)) }));
-  const waitOr = async (f, what) => { try { await page.waitForFunction(f, null, { timeout: 300000 }); } catch (err) { console.log(`    卡在「${what}」${((Date.now() - t0) / 1000).toFixed(0)} 秒：${JSON.stringify(await state())}`); await page.screenshot({ path: "/tmp/catsup-scale-stall.png" }); console.log("    黑匣子最后 60 行：\n" + (await S(() => globalThis.__catsup.debugLog.toText().split("\n").slice(-60).join("\n")).catch((e) => String(e))).replace(/^/gm, "      ")); throw err; } };   // 卡住时打黑匣子看卡在哪一步（统筹 11-11：第三次撞上新建卡住）
+  const t0 = performance.now(), state = () => S(() => ({ gallery: !document.getElementById("galleryFull").hidden, sheet: !document.getElementById("sheet").hidden, sheetText: document.getElementById("sheet").textContent.trim().slice(0, 120), hint: document.querySelector("#hint")?.textContent ?? "", notices: [...document.querySelectorAll("#noticeStack > *")].map((n) => n.textContent.trim().slice(0, 80)) }));
+  const waitOr = async (f, what) => { try { await page.waitForFunction(f, null, { timeout: 300000 }); } catch (err) { console.log(`    卡在「${what}」${((performance.now() - t0) / 1000).toFixed(0)} 秒：${JSON.stringify(await state())}`); await page.screenshot({ path: "/tmp/catsup-scale-stall.png" }); console.log("    黑匣子最后 60 行：\n" + (await S(() => globalThis.__catsup.debugLog.toText().split("\n").slice(-60).join("\n")).catch((e) => String(e))).replace(/^/gm, "      ")); throw err; } };   // 卡住时打黑匣子看卡在哪一步（统筹 11-11：第三次撞上新建卡住）
   await S(() => globalThis.__catsup.galleryHost.open());
   await waitOr(() => !document.getElementById("galleryFull").hidden, "开图库");   // 前面画过的文件多了，图库要现做缩略图（软件显卡上慢）
-  const t1 = Date.now();
+  const t1 = performance.now();
   await page.click("#galleryNew");
   await waitOr(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden, "新建");
-  if (Date.now() - t0 > 10000) console.log(`    （换文件用了 ${((Date.now() - t0) / 1000).toFixed(1)} 秒：开图库 ${((t1 - t0) / 1000).toFixed(1)} 秒、新建 ${((Date.now() - t1) / 1000).toFixed(1)} 秒）`);
+  if (performance.now() - t0 > 10000) console.log(`    （换文件用了 ${((performance.now() - t0) / 1000).toFixed(1)} 秒：开图库 ${((t1 - t0) / 1000).toFixed(1)} 秒、新建 ${((performance.now() - t1) / 1000).toFixed(1)} 秒）`);
   await clearNotes(); await inject();
 };
 

@@ -87,7 +87,7 @@ async function samples() {
   let i = 0; const list = [];
   for (const tag of dirs) for (const f of listFixtures(tag)) {
     const key = `s${++i}.catsup`;
-    drive.items.set(key, { id: `i-${i}`, name: key, bytes: Buffer.from(readFixture(tag, f)), eTag: `"seed${i}"`, lastModifiedDateTime: new Date(Date.now() - 86400000).toISOString() });
+    drive.items.set(key, { id: `i-${i}`, name: key, bytes: Buffer.from(readFixture(tag, f)), eTag: `"seed${i}"`, lastModifiedDateTime: new Date(Date.now() - 86400000).toISOString() });   // 墙上钟：造一个一天前的修改时间，不是量时长
     list.push({ key, tag, f });
   }
   const d = await device(drive, repo);
@@ -256,7 +256,7 @@ async function c3() {
   let bad = 0;
   const eq = (x, y, what) => { if (x !== y) { bad++; console.error(`  ✗ ${what}: expected ${JSON.stringify(y)}, got ${JSON.stringify(x)}`); } else console.log("  ✓", what); };
   const ok = (c, what) => eq(!!c, true, what);
-  const reloadViaButton = async (d) => { const t0 = Date.now(); const nav = d.page.waitForEvent("load", { timeout: 15000 }); await d.page.evaluate(() => { void globalThis.__catsup.pwa.reload(); }); await nav; await d.page.waitForFunction(() => globalThis.__catsup?.session); return Date.now() - t0; };
+  const reloadViaButton = async (d) => { const t0 = performance.now(); const nav = d.page.waitForEvent("load", { timeout: 15000 }); await d.page.evaluate(() => { void globalThis.__catsup.pwa.reload(); }); await nav; await d.page.waitForFunction(() => globalThis.__catsup?.session); return performance.now() - t0; };
   console.log("A：改一笔 → 切后台 ≥ 5 s → 回来");
   {
     const drive = fakeDrive(); const A = await device(drive, repo);

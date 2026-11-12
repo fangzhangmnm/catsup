@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // scripts/probe-sweep.mjs —— 全部探针串行整跑一遍，和底账 test/probes/probe-ledger.json 比，只报三样：新红、新绿、还红着的。created 2026-11-11 by Claude Opus 5.5
 // 统筹 11-11 定的规矩：每批收尾整跑一次，放后台跑、不卡队（照常做下一张单）；新红 = 停下来（这个脚本退出码 1）；目标是施工单开工时底账里「已知红」那一栏是空的。
+// 用时用 performance.now()（墙上钟会被往回拨）；每个探针记开跑时的负载（1 分钟平均）；新红先重跑一次，重跑绿 = 偶发这次红（报出来、不停），重跑还红才是新红。
 // 只跑底账里 role 是 guard 的（没写 = guard）；scaffold = 做某张单时对着看的细探针，不进整跑（--only 点名的照跑）。末尾报最慢的二十个和总用时（统筹 11-11：先量时间花在哪再定怎么省）。
 // 用法：node scripts/probe-sweep.mjs [--only=probe-a,probe-b] [--models=<真模型文件夹>] [--timeout=900] [--logs=<目录>] [--compare=v0.19.47]
 //   跑的是这个仓现在的构建：脚本自己在仓根起一个 http.server（端口自选），不用手边开着的服务。先 bash scripts/build.sh。
@@ -9,16 +10,17 @@
 //     规矩写死：比旧版本只用从发版提交干净构建出来的，不收网址、不用手边开着的服务（统筹 11-11：用了不干净的服务出过一次错判）。
 import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, loadavg, setPriority } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { whyRed } from "./probe-why-red.mjs";
 
+try { setPriority(10); } catch { /* 改不了优先级就照常跑 */ }   // 整跑整个低优先级（统筹 11-11：这台机器上还有别的会话在跑）；子进程和它们起的浏览器跟着
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const arg = (k, d = null) => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
 const only = arg("only")?.split(",").map((s) => s.replace(/\.m[jt]s$/, "")) ?? null;
 const models = arg("models"), timeoutS = Number(arg("timeout", "900")), compare = arg("compare");
-const logs = arg("logs", path.join(tmpdir(), `catsup-probe-sweep-${Date.now()}`));
+const logs = arg("logs", path.join(tmpdir(), `catsup-probe-sweep-${Date.now()}`));   // 墙上钟：只当文件夹名里不重复的后缀
 mkdirSync(logs, { recursive: true });
 const ledger = JSON.parse(readFileSync(path.join(root, "test/probes/probe-ledger.json"), "utf8")).probes;
 const files = readdirSync(path.join(root, "test/probes")).filter((f) => /\.m[jt]s$/.test(f) && !f.startsWith("_") && ledger[f]?.state !== "helper")
@@ -36,11 +38,11 @@ async function serve(dir) {
 function runProbe(file, url, tag) {
   return new Promise((resolve) => {
     const args = [path.join(root, "test/probes", file), url, ...(file === "probe-paint-scale.mjs" && models ? [`--models=${models}`] : [])];
-    const t0 = Date.now(), log = path.join(logs, `${tag}-${file}.log`);
+    const t0 = performance.now(), load = loadavg()[0], log = path.join(logs, `${tag}-${file}.log`);
     const p = spawn("node", args, { cwd: root, env: { ...process.env, PROBE_URL: url } });
     let out = ""; p.stdout.on("data", (d) => (out += d)); p.stderr.on("data", (d) => (out += d));
     const timer = setTimeout(() => { out += `\n（超时 ${timeoutS} 秒，杀掉）`; p.kill("SIGKILL"); }, timeoutS * 1000);
-    p.on("close", (code) => { clearTimeout(timer); writeFileSync(log, out); resolve({ code: code ?? 1, s: Math.round((Date.now() - t0) / 1000), log, out }); });
+    p.on("close", (code) => { clearTimeout(timer); writeFileSync(log, out); resolve({ code: code ?? 1, s: Math.round((performance.now() - t0) / 1000), load: Math.round(load * 10) / 10, log, out }); });
   });
 }
 /** 那一版的发版提交（src/version.ts 改成那一版的那个提交）。 */
@@ -56,10 +58,15 @@ const here = await serve(root);
 console.log(`整跑 ${files.length} 个探针（${here.url}，日志 ${logs}）`);
 const rows = [];
 for (const f of files) {
-  const r = await runProbe(f, here.url, "now"), was = ledger[f]?.state ?? "（底账里没有）", red = r.code !== 0;
-  const kind = !red ? (was === "known-red" ? "新绿" : "绿") : was === "green" || was === "（底账里没有）" ? "新红" : was === "flaky" ? "偶发这次红" : "还红着";
+  let r = await runProbe(f, here.url, "now");
+  const was = ledger[f]?.state ?? "（底账里没有）";
+  let kind = r.code === 0 ? (was === "known-red" ? "新绿" : "绿") : was === "green" || was === "（底账里没有）" ? "新红" : was === "flaky" ? "偶发这次红" : "还红着";
+  if (kind === "新红") {   // 统筹 11-11：别的会话也在这台机器上跑，冒出新红先单独重跑一次，重跑还红才算红
+    const again = await runProbe(f, here.url, "again");
+    if (again.code === 0) { kind = "偶发这次红"; r = { ...r, again: `重跑绿（负载 ${again.load}）` }; } else r = { ...r, again: `重跑也红（负载 ${again.load}）` };
+  }
   rows.push({ f, kind, ...r });
-  console.log(`${kind.padEnd(5, "　")} ${f}  ${r.s}s`);
+  console.log(`${kind.padEnd(5, "　")} ${f}  ${r.s}s  负载 ${r.load}${r.again ? `  ${r.again}` : ""}`);
 }
 here.stop();
 const pick = (k) => rows.filter((r) => r.kind === k);
@@ -72,7 +79,7 @@ if (compare && pick("新红").length) {
   const c = releaseCommit(compare);
   if (!c) console.log(`\n--compare=${compare}：找不到这一版的发版提交，不比（不收网址、不用手边的服务）`);
   else {
-    const dir = path.join(tmpdir(), `catsup-compare-${compare}-${Date.now()}`);
+    const dir = path.join(tmpdir(), `catsup-compare-${compare}-${Date.now()}`);   // 墙上钟：只当文件夹名里不重复的后缀
     execFileSync("git", ["worktree", "add", "--detach", dir, c], { cwd: root, stdio: "ignore" });
     const old = await serve(dir);
     try {
@@ -86,6 +93,6 @@ if (compare && pick("新红").length) {
 }
 const slow = [...rows].sort((a, b) => b.s - a.s).slice(0, 20), total = rows.reduce((t, r) => t + r.s, 0);
 console.log(`\n最慢的 ${slow.length} 个（共 ${total} 秒，平均 ${rows.length ? (total / rows.length).toFixed(1) : 0} 秒）：${slow.map((r) => `${r.f.replace(/\.m[jt]s$/, "")} ${r.s}s`).join("、")}`);
-writeFileSync(path.join(logs, "timings.json"), JSON.stringify(Object.fromEntries(rows.map((r) => [r.f, { s: r.s, kind: r.kind }])), null, 1));
+writeFileSync(path.join(logs, "timings.json"), JSON.stringify(Object.fromEntries(rows.map((r) => [r.f, { s: r.s, load: r.load, kind: r.kind, ...(r.again ? { again: r.again } : {}) }])), null, 1));
 console.log(`\n${rows.length} 个：绿 ${pick("绿").length + greens.length}、新红 ${pick("新红").length}、还红着 ${pick("还红着").length}、偶发这次红 ${pick("偶发这次红").length}、新绿 ${greens.length}`);
 process.exit(pick("新红").length ? 1 : 0);

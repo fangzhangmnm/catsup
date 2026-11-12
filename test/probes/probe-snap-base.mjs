@@ -36,11 +36,31 @@ const box = await page.evaluate(() => { const r = document.getElementById("board
 const pen = (type, x, y, shift) => page.evaluate(([type, x, y, shift]) => { const c = document.getElementById("board"), q = c.getBoundingClientRect(); c.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: q.left + x, clientY: q.top + y, pointerType: "pen", pointerId: 7, isPrimary: true, button: 0, buttons: type === "pointerup" ? 0 : 1, pressure: type === "pointerup" ? 0 : 0.5, shiftKey: !!shift })); }, [type, x, y, shift]);
 const close = (p, q) => Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) < 1e-6;
 const hint = () => page.evaluate(() => document.getElementById("hint").textContent);
-/** 拖 A 到 B 屏幕位置旁 5 px，返回 A 落点和 B 一样不一样（= 吸上了）。 */
+const cdp = await page.context().newCDPSession(page);
+await page.evaluate(() => { globalThis.__ts = []; for (const ty of ["pointermove", "pointerdown", "pointerup"]) addEventListener(ty, (e) => globalThis.__ts.push(e.timeStamp), true); });
+/**
+ * 探针的手自己报事件时间（2026-11-11，统筹定）：CDP 的 timestamp 原样变成 event.timeStamp（实测到 0.1 ms）。每步 16 ms、最后一步之后 3 ms 松手 = 「拖到点上立刻松手」。
+ * 以前用 page.mouse：Playwright 发一个等一个，每步实际隔 28–49 ms，在事件时间上也真的停了 ≥ 40 ms → 抬笔结算（A21）按原意判成「停过」、落点换成前一步 → 偶发红。
+ * slowFrames：页面每帧堵 100 ms，最后一步和松手一起发、排在同一帧后面处理 = 机器慢、人没停（按处理时刻算会判成「停过」：v0.19.49 及以前红）。
+ */
 async function dragA(how) {
   const A = await pt(pair.a), B = await pt(pair.c), sa = await scr(A), sb = await scr(B), tx = sb.x + 5, ty = sb.y + 3;
-  if (how.pen) { await pen("pointerdown", sa.x, sa.y, how.shift); await page.waitForTimeout(40); out[how.name + "Hint"] = await hint(); for (let i = 1; i <= 8; i++) { await pen("pointermove", sa.x + (tx - sa.x) * i / 8, sa.y + (ty - sa.y) * i / 8, how.shift); await page.waitForTimeout(16); } await pen("pointerup", tx, ty, how.shift); await page.waitForTimeout(80); }
-  else { if (how.shift) await page.keyboard.down("Shift"); await page.mouse.move(box.x + sa.x, box.y + sa.y); await page.mouse.down(); await page.waitForTimeout(40); out[how.name + "Hint"] = await hint(); for (let i = 1; i <= 8; i++) { await page.mouse.move(box.x + sa.x + (tx - sa.x) * i / 8, box.y + sa.y + (ty - sa.y) * i / 8); await page.waitForTimeout(16); } await page.mouse.up(); if (how.shift) await page.keyboard.up("Shift"); await page.waitForTimeout(80); }
+  const base = (await page.evaluate(() => performance.timeOrigin + performance.now())) + 20, want = [];
+  const ev = (type, x, y, dt) => { want.push(dt); return cdp.send("Input.dispatchMouseEvent", { type, x: box.x + x, y: box.y + y, button: type === "mouseMoved" && dt === 0 && !how.pen ? "none" : "left", buttons: type === "mouseReleased" || (type === "mouseMoved" && dt === 0 && !how.pen) ? 0 : 1, clickCount: 1, modifiers: how.shift ? 8 : 0, pointerType: how.pen ? "pen" : "mouse", force: how.pen && type !== "mouseReleased" ? 0.5 : 0, timestamp: (base + dt) / 1000 }); };
+  await page.evaluate(() => { globalThis.__ts.length = 0; });
+  if (how.shift && !how.pen) await page.keyboard.down("Shift");
+  if (!how.pen) await ev("mouseMoved", sa.x, sa.y, 0);
+  await ev("mousePressed", sa.x, sa.y, 10); await page.waitForTimeout(40); out[how.name + "Hint"] = await hint();
+  if (how.slowFrames) await page.evaluate(() => { globalThis.__spin = true; const f = () => { if (!globalThis.__spin) return; const t = performance.now(); while (performance.now() - t < 100) { /* 这一帧堵 100 ms */ } requestAnimationFrame(f); }; requestAnimationFrame(f); });
+  const step = (i) => [sa.x + (tx - sa.x) * i / 8, sa.y + (ty - sa.y) * i / 8], tAt = (i) => 50 + 16 * (i - 1);
+  for (let i = 1; i <= 7; i++) await ev("mouseMoved", ...step(i), tAt(i));
+  await Promise.all([ev("mouseMoved", ...step(8), tAt(8)), ev("mouseReleased", tx, ty, tAt(8) + 3)]);   // 最后一步和松手挨着（慢帧时排在同一帧后面一起处理）
+  if (how.slowFrames) await page.evaluate(() => { globalThis.__spin = false; });
+  if (how.shift && !how.pen) await page.keyboard.up("Shift");
+  await page.waitForTimeout(120);
+  const got = await page.evaluate(() => globalThis.__ts.slice()), t0 = got[0];
+  out[how.name + "HandClock"] = got.length >= 3 && Math.abs((got[got.length - 1] - t0) - (want[want.length - 1] - want[0])) < 1;   // 页面收到的事件时间 = 手报的时间线（CDP 哪天不认 timestamp 了，这里先红，不是悄悄偶发）
+  if (!out[how.name + "HandClock"]) process.exitCode = 1;
   const A2 = await pt(pair.a), moved = !close(A, A2), snapped = close(A2, B);
   await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(40);
   ok(how.name + "Moved", moved);
@@ -50,6 +70,7 @@ ok("penSnaps", await dragA({ name: "pen", pen: true, shift: false }));
 ok("penShiftNoSnap", !(await dragA({ name: "penShift", pen: true, shift: true })));
 ok("mouseNoSnap", !(await dragA({ name: "mouse", pen: false, shift: false })));
 ok("mouseShiftSnaps", await dragA({ name: "mouseShift", pen: false, shift: true }));
+ok("mouseShiftSnapsSlowFrames", await dragA({ name: "mouseShiftSlow", pen: false, shift: true, slowFrames: true }));   // 帧慢 ≠ 人停（抬笔结算按事件时间，v0.19.50）
 ok("hintByDevice", /Shift = 反过来/.test(out.penHint) && /按住 Shift = 吸附/.test(out.mouseHint));
 // 锁钮关掉：笔的底跟着关
 await page.evaluate(() => globalThis.__catsup.editor.setGrid({ ...globalThis.__catsup.editor.grid, on: false }));

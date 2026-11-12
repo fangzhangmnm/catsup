@@ -70,8 +70,8 @@ const newGalleryDoc = async (page) => {
 const waitCover = async (page, key) => {   // 真流程：开图库 → 卡片画封面 → 写缩略库
   await page.evaluate(() => globalThis.__catsup.galleryHost.open());
   await page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
-  const t0 = Date.now(); let v = "";
-  while (Date.now() - t0 < 8000) { v = await thumbEntry(page, key); if (v.startsWith("cover:")) break; await page.waitForTimeout(150); }
+  const t0 = performance.now(); let v = "";
+  while (performance.now() - t0 < 8000) { v = await thumbEntry(page, key); if (v.startsWith("cover:")) break; await page.waitForTimeout(150); }
   await page.evaluate(() => globalThis.__catsup.galleryHost.close());
   return v;
 };
@@ -91,9 +91,9 @@ console.log("① 解开的加密件：影子只存容器");
   ok(opened.okOpen && opened.home === "transient", "本地加密文件当临时模型打开");
   ok(await page.evaluate(() => !globalThis.__catsup.crypto.isUnlocked()), "这个口令没进全局（解开本地件不解锁图库）");
   await addEdge(page);
-  const t0 = Date.now();
+  const t0 = performance.now();
   ok(await page.evaluate(() => globalThis.__catsup.session.snapshot()), "脏了 → 留影子成功");
-  console.log(`    封口一帧 ${Date.now() - t0} ms`);
+  console.log(`    封口一帧 ${performance.now() - t0} ms`);
   let fs = await frames(page);
   const f1 = fs.find((f) => f.name === "本地加密");
   ok(f1 && f1.encrypted && !f1.glTF, "影子字节是容器（真 isEncryptedBlob），开头不是明文 glb");

@@ -236,9 +236,9 @@ console.log("④ 没网（navigator.onLine=false）：直接进闸，不等超�
   const s = await scene();
   await s.prepare();
   await s.reload("ok", true);
-  const t0 = Date.now();
+  const t0 = performance.now();
   await s.page.waitForFunction(() => document.getElementById("syncGateTitle").textContent === "网盘没连上", null, { timeout: 5000 });
-  ok(Date.now() - t0 < 3000, `进闸 ${Date.now() - t0} ms`);
+  ok(performance.now() - t0 < 3000, `进闸 ${performance.now() - t0} ms`);
   ok(/现在没有网络/.test(await s.gateText()), "原因 = 现在没有网络");
   eq(s.drive.requests, 0, "零 Graph 请求");
   await s.gateClick("离线继续"); await s.gateDone();
@@ -258,10 +258,10 @@ console.log("⑤ 云端慢：点「先离线用」立刻放行；不点，8 s �
   await s.reload("ok");
   await s.page.waitForFunction(() => !document.getElementById("syncGate").hidden && document.getElementById("syncGateTitle").textContent.includes("核对"), null, { timeout: 8000 });
   ok(await s.page.locator("#syncGateActions button", { hasText: "先离线用" }).isVisible(), "逃生钮在");
-  const t0 = Date.now();
+  const t0 = performance.now();
   await s.gateClick("先离线用");
   await s.gateDone(2000);
-  ok(Date.now() - t0 < 1500, `放行 ${Date.now() - t0} ms`);
+  ok(performance.now() - t0 < 1500, `放行 ${performance.now() - t0} ms`);
   eq(await s.gateUp(), false, "罩子收了");
   eq(await s.page.evaluate(() => globalThis.__catsup.gate.isUserOffline()), true, "离线");
   await s.draw(40); await sleep(200);
@@ -269,9 +269,9 @@ console.log("⑤ 云端慢：点「先离线用」立刻放行；不点，8 s �
   // 不点：真等 8 s
   await s.page.evaluate(() => localStorage.setItem("__keep", "1"));
   await s.reload("ok");
-  const t1 = Date.now();
+  const t1 = performance.now();
   await s.page.waitForFunction(() => document.getElementById("syncGateTitle").textContent === "网盘没连上", null, { timeout: 14000 });
-  const waited = Date.now() - t1;
+  const waited = performance.now() - t1;
   ok(waited > 6000 && waited < 13000, `自动进闸 ${waited} ms`);
   ok(/网盘没有回应/.test(await s.gateText()), "原因 = 网盘没有回应");
   await s.gateClick("离线继续"); await s.gateDone();

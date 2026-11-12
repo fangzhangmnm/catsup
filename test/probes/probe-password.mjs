@@ -66,7 +66,7 @@ const boot2 = await page2.evaluate(async (p) => { const c = globalThis.__catsup.
   const unlocked = c.isUnlocked(), until = c.rememberedUntil();
   const r = await globalThis.__catsup.session.openFromGallery(p);
   return { unlocked, until, r, encrypted: globalThis.__catsup.session.encrypted }; }, path1);
-ok("rememberedBootUnlocks", boot2.unlocked === true && typeof boot2.until === "number" && boot2.until > Date.now());
+ok("rememberedBootUnlocks", boot2.unlocked === true && typeof boot2.until === "number" && boot2.until > Date.now());   // 墙上钟：和 app 存下的到期时刻比（app 用墙上钟存，跨刷新只能用它）
 ok("rememberedOpensWithoutAsking", boot2.r === true && boot2.encrypted === true);
 await page2.evaluate(async () => { await globalThis.__catsup.crypto.forgetRemembered(); });
 const page3 = await ctx.newPage(); await page3.goto(url, { waitUntil: "load", timeout: 30000 }); await page3.waitForFunction(() => globalThis.__catsup?.session); await page3.waitForTimeout(1000);

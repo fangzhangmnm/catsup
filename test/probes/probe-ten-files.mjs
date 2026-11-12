@@ -46,11 +46,11 @@ const rows = [];
 for (let r = 0; r < ROUNDS; r++) {
   await S(() => globalThis.__catsup.galleryHost.open());
   await page.waitForFunction(() => !document.getElementById("galleryFull").hidden, null, { timeout: 60000 });
-  const t1 = Date.now();
+  const t1 = performance.now();
   await page.click("#galleryNew");
   let ok = true;
   try { await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden, null, { timeout: 30000 }); } catch { ok = false; }
-  const newS = (Date.now() - t1) / 1000;
+  const newS = (performance.now() - t1) / 1000;
   if (!ok) { console.log("    卡在新建：黑匣子最后 40 行\n" + (await S(() => globalThis.__catsup.debugLog.toText().split("\n").slice(-40).join("\n"))).replace(/^/gm, "      ")); check(false, `第 ${r + 1} 份：新建 30 秒都没好`); break; }
   await S(() => { for (const n of [...document.querySelectorAll("#noticeStack > *")]) n.remove(); });
   const saved = await S(async () => {
@@ -76,14 +76,14 @@ if (rows.length === ROUNDS) {
 console.log("正在存的时候点「新建」（统筹 11-11 卡住的根：以前这一下被吞掉、什么都不说）");
 for (let r = 0; r < 3; r++) {
   await S(() => { const C = globalThis.__catsup, e = C.editor, P = (x, y, z = 0) => ({ x, y, z }); e.commitOp({ op: "addEdges", at: e.activePool(), segs: [[P(0.1 + 0.1 * Math.random(), 0.2, 2), P(0.8, 0.8, 2)]] }); });   // 脏一下
-  const t0 = Date.now();
+  const t0 = performance.now();
   await S(async () => { const C = globalThis.__catsup; void C.session.save(); await C.galleryHost.open(); });   // 一份在存，同时开图库
   await page.waitForFunction(() => !document.getElementById("galleryFull").hidden, null, { timeout: 30000 });
   const during = await S(() => globalThis.__catsup.session.saveState?.() ?? "");
   await page.click("#galleryNew");
   let ok = true;
   try { await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden, null, { timeout: 15000 }); } catch { ok = false; }
-  check(ok, `第 ${r + 1} 次：存着的时候点「新建」= 等它存完、照样新建（${((Date.now() - t0) / 1000).toFixed(1)} 秒；点的时候 ${during}）`);
+  check(ok, `第 ${r + 1} 次：存着的时候点「新建」= 等它存完、照样新建（${((performance.now() - t0) / 1000).toFixed(1)} 秒；点的时候 ${during}）`);
   if (!ok) break;
   await S(() => { for (const n of [...document.querySelectorAll("#noticeStack > *")]) n.remove(); });
 }

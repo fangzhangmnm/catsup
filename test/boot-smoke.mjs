@@ -179,7 +179,7 @@ eq((await page.evaluate(() => globalThis.__catsup.crash.listAtBoot())).length, 0
 if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-5-adopted.png") });
 
 // ⑤ crash 帧通知：人工放一帧（= 真 crash 幸存的快照）→ 刷新 → 非模态通知 → 恢复
-await page.evaluate(async (p) => { const b = await globalThis.__catsup.store().file(p, { mode: "existing" }).open(); await globalThis.__catsup.crash.put("tag-smoke-ghost", b, { state: "crash", name: "幽灵", at: Date.now(), homeKind: "transient" }); }, gpath);
+await page.evaluate(async (p) => { const b = await globalThis.__catsup.store().file(p, { mode: "existing" }).open(); await globalThis.__catsup.crash.put("tag-smoke-ghost", b, { state: "crash", name: "幽灵", at: Date.now(), homeKind: "transient" }); }, gpath);   // 墙上钟：崩溃影子记的是「什么时候」（app 也用墙上钟记），不是量时长
 await page.reload({ waitUntil: "load" });
 await page.waitForFunction(() => (document.getElementById("noticeStack")?.textContent ?? "").includes("幽灵"), null, { timeout: 15000 }).catch(() => {});
 eq((await page.evaluate(() => document.getElementById("noticeStack")?.textContent ?? "")).includes("上次没保存的模型「幽灵」"), true, "boot notice offers the crash frame");

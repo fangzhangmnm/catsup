@@ -174,11 +174,11 @@ check(await px() !== p6, "接着画能画");
 // 文件里的笔写成离谱的数（size 1e9、浓度 5、硬度 −1）：打开不炸、不卡，笔夹到滑条的范围
 await S(() => { const C = globalThis.__catsup; C.session.setPaintDesk({ ...C.session.paintDesk, tools: { ...C.session.paintDesk.tools, paintPen: { size: 1e9, opacity: 5, hardness: -1, extra: {} } } }); });
 check(await S(async () => globalThis.__catsup.session.save()) === true, "把离谱的数存进文件");
-const t6 = Date.now();
+const t6 = performance.now();
 await reloaded(() => page.reload());
 await S(() => { for (const n of [...document.querySelectorAll("#noticeStack > *")]) n.remove(); });
 const pen6c = await S(() => { const c = globalThis.__catsup.editor.config; return ["size", "opacity", "hardness"].map((k) => c.get("paintPen", k)).join(" / "); });
-check(pen6c === "400 / 1 / 0" && Date.now() - t6 < 30000, `打开不炸：笔 = ${pen6c}（滑条的最大 / 最大 / 最小）`, pen6c);
+check(pen6c === "400 / 1 / 0" && performance.now() - t6 < 30000, `打开不炸：笔 = ${pen6c}（滑条的最大 / 最大 / 最小）`, pen6c);
 await enterBox(); await S(() => { globalThis.__catsup.pickWorkbench("paint"); }); await frames(2);
 
 console.log("\n⑧ 颜色：色块 / 填颜色代码（填错说一句、不改）走同一个入口");
