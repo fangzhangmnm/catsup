@@ -4,24 +4,26 @@ import type { Editor } from "../editor/editor.ts";
 import type { LeftDial } from "./left-dial.ts";
 import { paintPenOf } from "../editor/tool-ids.ts";
 
-const MIN = 1, MAX = 400;
+// 上限 = 手上那支笔的 size.max（施工单二十 1b：画画软件的 sizeBaseMax，草稿笔 80、勾线笔 60；普通笔 / 橡皮 400 = 以前写死的那个数）。
+const MIN = 1;
 const BANDS: readonly [number, number][] = [[10, 1], [20, 1], [50, 2], [100, 5], [200, 10], [Infinity, 20]];
 const stepAt = (v: number): number => BANDS.find(([top]) => v < top)![1];
-const nice = (v: number): number => { const r = Math.min(MAX, Math.max(MIN, v)), s = stepAt(r); return Math.min(MAX, Math.max(MIN, Math.round(r / s) * s)); };
-const sizePos = (r: number): number => Math.log(r / MIN) / Math.log(MAX / MIN);
-const sizeFrom = (p: number): number => nice(MIN * (MAX / MIN) ** p);
-const sizeStep = (r: number, dir: 1 | -1): number => { let n = nice(r * (dir > 0 ? 1.15 : 1 / 1.15)); if (n === nice(r)) n = nice(r + dir * stepAt(r)); return n; };
+const nice = (v: number, max: number): number => { const r = Math.min(max, Math.max(MIN, v)), s = stepAt(r); return Math.min(max, Math.max(MIN, Math.round(r / s) * s)); };
+const sizePos = (r: number, max: number): number => Math.log(r / MIN) / Math.log(max / MIN);
+const sizeFrom = (p: number, max: number): number => nice(MIN * (max / MIN) ** p, max);
+const sizeStep = (r: number, dir: 1 | -1, max: number): number => { let n = nice(r * (dir > 0 ? 1.15 : 1 / 1.15), max); if (n === nice(r, max)) n = nice(r + dir * stepAt(r), max); return n; };
 const opaNice = (v: number): number => Math.min(1, Math.max(0.05, Math.round(v * 20) / 20));
 
-export function mountPaintSliders(dial: LeftDial, editor: Editor): { render(): void } {
+export function mountPaintSliders(dial: LeftDial, editor: Editor, sizeMax: (tool: "paintPen" | "paintEraser") => number): { render(): void } {
   const pen = (): "paintPen" | "paintEraser" | null => paintPenOf(editor.tool);   // 笔 / 橡皮只在画画工作台里有
   const name = (): string => (pen() === "paintEraser" ? "橡皮" : "笔");
+  const max = (): number => { const t = pen(); return t ? sizeMax(t) : 400; };
   dial.addSlider({
     id: "paintSize", icon: "brush-width", visible: () => pen() !== null,
     title: () => `${name()}的大小 ${pen() ? editor.config.get(pen()!, "size") : ""} 像素（屏幕上看到多大就多大）`,
     ariaLabel: "画笔大小",
     value: () => (pen() ? editor.config.get(pen()!, "size") : 12),
-    toPos: sizePos, fromPos: sizeFrom, step: sizeStep,
+    toPos: (r) => sizePos(r, max()), fromPos: (p) => sizeFrom(p, max()), step: (r, dir) => sizeStep(r, dir, max()),
     readout: (v) => `${name()} ${v} 像素`,
     onInput: (v) => { const t = pen(); if (t) editor.config.set(t, "size", v); },
   });

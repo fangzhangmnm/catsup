@@ -8,7 +8,8 @@
 //   画画的准备（1-4c space-prep.ts：整份几何 + 每格的表）每帧对一次：这个物件上热的画都要现成；过期了（在工作台里撤销到建模那几步 = 网格体修改号变了）
 //   这一帧就重建，不等落笔。落笔撞上「还没重建完」= 这一笔不开始、提示行说一句（和「这张画还在打开」同一个口）。出了画画工作台 = 全放。
 // · 不用不多做事：不进画画工作台就什么都不做（不建画板、不起内核）。
-import { brushKindOfTool, strokeKindOpts, resolvedBrushOf } from "../paint/brush-kinds.ts";
+import { strokeKindOpts, type BrushKind } from "../paint/brush-kinds.ts";
+import { resolvedBrushOf, strokeSmoothOf } from "../paint/brush-records.ts";
 import { StrokeClock } from "../controller/stroke-clock.ts";
 import type { Editor } from "../editor/editor.ts";
 import type { PaintPointer } from "../editor/tool-handler.ts";
@@ -30,6 +31,8 @@ export interface PaintWorkbenchDeps {
   /** 落笔之前问的门（main.ts paintStrokeGate：冷的 = 不开始 + 解开；只能看不能画 = 说为什么）。能画 = null。 */
   gate(texture: string): "locked" | "warming" | "view-only" | null;
   readonly color: PaintColor;
+  /** 拿着这把工具画的是哪支笔（main.ts = app/paint-brushes.ts current；施工单二十 1b）。 */
+  brushOf(tool: "paintPen" | "paintEraser"): BrushKind;
   /** 画画的准备（main.ts paintPrep；和调试钩子同一个）。 */
   readonly prep: SpacePrep;
   /** 提示行。 */
@@ -144,9 +147,9 @@ export class PaintWorkbench {
     if (this.d.gate(a.tex)) return;   // 锁着 / 冷的 / 只能看不能画：门自己说了（锁 = 第二层，v0.19.48）
     const e = this.d.editor, cfg = e.config, tool = ev.tool;
     const size = cfg.get(tool, "size"), opacity = cfg.get(tool, "opacity"), hardness = cfg.get(tool, "hardness");
-    const brush = resolvedBrushOf(brushKindOfTool(tool)!, { size, opacity, hardness });   // 笔的表那一行 + 旋钮（施工单二十 1a；以前 = 调试钩子那支 hookBrush，数一模一样）
+    const kind = this.d.brushOf(tool), brush = resolvedBrushOf(kind, { size, opacity, hardness });   // 手上那支笔的记录 + 旋钮（施工单二十 1a / 1b）
     try {
-      this.stroke = new SpacePaintStroke({ ...this.d.strokeDeps(e.context.chain), failed: (err) => { this.stroke = null; this.d.hint(strokeFailedSay(err)); } }, a.tex, { brush, color: this.d.color.get(), ...strokeKindOpts(brushKindOfTool(tool)!) });   // 种类相关的（擦不擦、怎么叠）只经笔的种类表
+      this.stroke = new SpacePaintStroke({ ...this.d.strokeDeps(e.context.chain), failed: (err) => { this.stroke = null; this.d.hint(strokeFailedSay(err)); } }, a.tex, { brush, color: this.d.color.get(), smooth: strokeSmoothOf(brush), ...strokeKindOpts(kind) });   // 种类相关的（擦不擦、怎么叠）只经笔的种类表；平滑只经内核的 resolveSmooth（跟手、防抖都是 0 = 不递 = 不平滑）
     } catch (err) { this.d.hint(strokeFailedSay(err)); this.stroke = null; return; }   // 准备没好（刚撤销改了模型）/ 撞到容量上限：这一笔不开始，说那句人话
     this.clock = new StrokeClock(ev.at, performance.now());
     this.stroke.down(ev.x, ev.y, this.clock.pressure(ev.pointerType, ev.pressure), 0);

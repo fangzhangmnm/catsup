@@ -42,6 +42,8 @@ export interface SpacePaintOpts {
   readonly color: readonly [number, number, number];
   readonly accum: "max" | "over";
   readonly erase?: boolean;
+  /** 平滑器参数（笔的跟手 / 防抖经内核 resolveSmooth 换算；brush-records.ts strokeSmoothOf）。不给 = 不平滑（施工单二十 1b 之前一直如此）。 */
+  readonly smooth?: { tau?: number; deadzone?: number; tailBow?: number };
 }
 
 
@@ -76,7 +78,7 @@ export class SpacePaintStroke {
     if (targets.length !== 1) throw new Error(`SpacePaintStroke: ${targets.length} placements of this paint (1-4b handles exactly one)`);
     const ready = targets.map((t) => d.prep.take(t));   // 没准备好 / 过期了 = 抛 PrepPendingError（不现建：建表不许在落笔那一下）；建不了 = 抛那个错
     this.cells = ready[0].cells; this.tables = ready[0].tables;
-    this.stroke = new SpaceStroke(targets, d.camera(), o.brush, { geos: ready.map((r) => r.geo) });
+    this.stroke = new SpaceStroke(targets, d.camera(), o.brush, { geos: ready.map((r) => r.geo), ...(o.smooth ? { smooth: o.smooth } : {}) });
     this.unhook = d.boards.onPrepare(() => this.prepare());
     this.untrack = d.boards.trackOpen(texture, () => this.cancel());   // 撤销 / 重做之前：开着的这一笔先取消（1-8a）
   }

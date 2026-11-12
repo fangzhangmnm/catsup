@@ -2,7 +2,7 @@
 // probe-live-region.mjs —— 显示图只拷变了的那一块、缩小图只重做受影响的那一块（贴图主线 1-4d 第 6 条，三维这一半）。created 2026-11-11 by Claude Opus 5.5
 // 证明：增量拷出来的显示图 = 整张重拷出来的，逐字节相同（第 0 级和几级缩小图）。查的时刻：一长笔画到一半（笔还按着）、抬笔之后、撤销之后、再画一笔之后。
 // 量：同一长笔（2048 见方的画布），每帧拷显示图花多少（前后各读回一格当同步：含显卡真做的时间）、拷了多大一块——三种做法各一遍：只拷一块（现在的）/ 每次整张（改之前的做法，同一个缩小图着色器）/ 画的时候不做缩小图、停了再整套做。
-// 笔的种类 × 极端的笔（统筹 11-11）：BRUSH_MATRIX 按 paint/brush-kinds.ts 的表一种一组；读数角标的「走法」三档和「核对」也在这里验（核对抓得到故意丢掉的报格）。
+// 笔的种类 × 极端的笔（统筹 11-11）：BRUSH_MATRIX 按 paint/brush-kinds.ts 的表一条路一组（施工单二十 1b 起按路：只是手感的数不一样的笔走同一条路）；读数角标的「走法」三档和「核对」也在这里验（核对抓得到故意丢掉的报格）。
 // 软件显卡上的绝对数只作参考。用法：python3 -m http.server 8765 后 node test/probes/probe-live-region.mjs [url]
 import { sizeRow } from "./lib/canvas-rows.mjs";
 import { createRequire } from "node:module";
@@ -160,7 +160,7 @@ check(regionCells >= 0, "（读到了最近一次拷的块）");
 } else console.log("\n量：2048 见方每帧拷显示图（只拷一块 vs 整张）——只在性能档跑（--perf）");
 // ───────── 笔的种类 × 几支极端的笔（统筹 11-11：「影响的半径这种我们现在的版本不会算错吧。以后碰到大喷枪之类的」）─────────
 // 每一组用调试钩子按笔的种类表起一笔，画到一半（笔还按着）和抬笔后各核一次：app 自己的核对（C.paint.diag.detail：内核合成图 = 强制整张重合、显示图每一级 = 整张重拷，逐字节）。
-// 场景 = 细分三次的方盒子（384 张碎面），等轴看。种类来自 paint/brush-kinds.ts：表里有、这里没有 = 守卫红（test/brush-kinds.test.ts），运行时再核一遍页面上的表。
+// 场景 = 细分三次的方盒子（384 张碎面），等轴看。路来自 paint/brush-kinds.ts：表里有的路、这里没有一组 = 守卫红（test/brush-kinds.test.ts），运行时再核一遍页面上的表。
 // 加一种笔 = 这里加一组（形状和它有关的极端情况：喷枪要停着不动喷、流挂要往下淌……）。
 const BRUSH_MATRIX = {
   pen: [
@@ -177,6 +177,14 @@ const BRUSH_MATRIX = {
     { what: "橡皮贴着画布边", size: 10, hardness: 1, path: "canvasEdge" },
     { what: "橡皮贴着岛边", size: 6, hardness: 1, path: "islandEdge" },
   ],
+  // 取最浓的笔（施工单二十 1b：草稿笔、勾线笔都走这条路，拿表里第一支 = 草稿笔；它还带平滑、间距 0.06、压感管粗细）
+  sketch: [
+    { what: "取最浓 · 最小的硬笔（1 像素）", size: 1, hardness: 1, path: "across" },
+    { what: "取最浓 · 滑条最大的软笔（草稿笔上限 80 像素、硬度 0）", size: 80, hardness: 0, path: "across2" },
+    { what: "取最浓 · 比一张面还大的笔（60 像素）", size: 60, hardness: 0.7, path: "across" },
+    { what: "取最浓 · 贴着画布边", size: 10, hardness: 1, path: "canvasEdge" },
+    { what: "取最浓 · 贴着岛边", size: 6, hardness: 1, path: "islandEdge" },
+  ],
 };
 
 console.log("\n笔的种类 × 极端的笔（碎面方盒子，等轴看）：画到一半和抬笔后，内核合成图 = 强制整张重合、显示图每一级 = 整张重拷（app 自己的核对，逐字节）");
@@ -185,8 +193,8 @@ page2.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
 const S2 = (f, a) => page2.evaluate(f, a);
 const frames2 = (n = 3) => S2(async (n) => { for (let i = 0; i < n; i++) { globalThis.__catsup.editor.draw(); await new Promise((r) => requestAnimationFrame(r)); } }, n);
 await page2.goto(url, { waitUntil: "load" }); await page2.waitForFunction(() => globalThis.__catsup?.editor); await page2.waitForTimeout(600);
-const kinds = await S2(() => globalThis.__catsup.paint.brushKinds);
-check(kinds.length > 0 && kinds.every((k) => k in BRUSH_MATRIX), `页面上的笔的种类（${kinds.join(" / ")}）这里每一种都有一组`, JSON.stringify({ kinds, matrix: Object.keys(BRUSH_MATRIX) }));
+const pagePaths = Object.keys(await S2(() => globalThis.__catsup.paint.brushPaths)), matrixPaths = await S2((ks) => ks.map((k) => globalThis.__catsup.paint.brushPathOf(k)), Object.keys(BRUSH_MATRIX));
+check(pagePaths.length > 0 && pagePaths.every((p) => matrixPaths.includes(p)), `页面上笔的表里的每一条路（${pagePaths.join(" | ")}）这里都有一组`, JSON.stringify({ pagePaths, matrixPaths }));
 const scene2 = await S2(async () => {
   const C = globalThis.__catsup, e = C.editor, P = (x, y, z = 0) => ({ x, y, z }), g = () => crypto.randomUUID(), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   e.setGrid({ ...e.grid, on: false });

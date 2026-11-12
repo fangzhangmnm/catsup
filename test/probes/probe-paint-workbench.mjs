@@ -6,7 +6,7 @@
 // ③ 吸管：点画过的一格 → 颜色 = 那一格的颜色；取完回到笔
 // ④ 手指拖 = 转视角、不画点（不长步）；笔一笔当中双指 = 相机不动
 // ⑤ 出了画画工作台（自由建模）：笔点面 = 选中，和以前一样
-// ⑥ 存盘 → 刷新 → 进物件 → 画画工作台：画还在（冷的照合成图），落笔先解开、再画能画
+// ⑥ 存盘 → 刷新 → 进物件 → 画画工作台：画还在（冷的照合成图），落笔先解开、再画能画；⑥½ 工具条下拉换笔（施工单二十 1b）：旋钮按笔记、上限跟笔、存了重开拿的还是那支
 // ⑦ 截图：iPad 竖屏（820 × 1180）和桌面（1280 × 800）
 // ⑧ 颜色：色块 / 填颜色代码（填错说一句、不改）走同一个入口；⑨ 量：2 万多张面的物件存了重开，进画画工作台要准备多久、画得上；6144 张面开始画之后画得上
 // ⑩ 在画画工作台里撤销一步建模、紧接着落笔：要么画在对的格子上、要么明着挡住（1-4c 的准备过期了不许拿旧的表画）
@@ -176,14 +176,46 @@ const pen6b = await S(() => { const C = globalThis.__catsup, c = C.editor.config
 check(JSON.stringify(pen6b.pen) === JSON.stringify(pen6.pen) && JSON.stringify(pen6b.eraser) === JSON.stringify(pen6.eraser) && pen6b.color === "51,153,77", `重开：笔 ${pen6b.pen.join(" / ")}、橡皮 ${pen6b.eraser.join(" / ")}、颜色 ${pen6b.color} = 存之前`, JSON.stringify({ want: pen6, got: pen6b }));
 await drag(await line(0.2, 0.8, 0.7));
 check(await px() !== p6, "接着画能画");
-// 文件里的笔写成离谱的数（size 1e9、浓度 5、硬度 −1）：打开不炸、不卡，笔夹到滑条的范围
-await S(() => { const C = globalThis.__catsup; C.session.setPaintDesk({ ...C.session.paintDesk, tools: { ...C.session.paintDesk.tools, paintPen: { size: 1e9, opacity: 5, hardness: -1, extra: {} } } }); });
+// ⑥½ 换笔（施工单二十 1b）：工具条的「笔」下拉（带文字）→ 草稿笔；旋钮按笔记（换回来各是各的）、大小上限跟着笔；草稿笔画得上；存了重开拿的还是草稿笔
+const pickBrush = async (label) => {
+  await page.click('.strip-select.select-field[aria-label="笔"]'); await page.waitForTimeout(80);
+  await page.locator(".choice-layer button", { hasText: label }).first().click(); await page.waitForTimeout(60);
+};
+const brushNow = () => S(() => { const C = globalThis.__catsup, c = C.editor.config; return { cur: C.paint.brushes.current("paintPen"), knobs: ["size", "opacity", "hardness"].map((k) => c.get("paintPen", k)).join(" / "), max: C.paint.brushes.sizeMax("paintPen"), field: document.querySelector('.strip-select.select-field[aria-label="笔"]')?.dataset.value ?? null, label: document.querySelector('.strip-select.select-field[aria-label="笔"] .select-field-label')?.textContent ?? null }; });
+await S(() => { globalThis.__catsup.editor.setTool("paintPen"); }); await frames(1);
+const bk0 = await brushNow();
+check(bk0.cur === "pen" && bk0.field === "pen" && bk0.label === "笔", `工具条上有带文字的「笔」下拉，现在 = ${bk0.label}`, JSON.stringify(bk0));
+await pickBrush("草稿笔");
+const bk1 = await brushNow();
+check(bk1.cur === "sketch" && bk1.knobs === "6 / 1 / 0.75" && bk1.max === 80 && bk1.label === "草稿笔", `下拉选草稿笔：旋钮 = 它的初值（${bk1.knobs}）、大小上限 ${bk1.max}`, JSON.stringify(bk1));
+await S(() => { const c = globalThis.__catsup.editor.config; c.set("paintPen", "size", 300); });
+check((await brushNow()).knobs.startsWith("80 /"), "直接把大小设到 300 = 夹到草稿笔的上限 80");
+await S(() => { const c = globalThis.__catsup.editor.config; c.set("paintPen", "size", 40); c.set("paintPen", "opacity", 0.7); });
+const p6s = await px();
+await drag(await line(0.25, 0.75, 0.55));
+check(await px() !== p6s, "草稿笔画得上");
+await pickBrush("笔");
+check((await brushNow()).knobs === pen6b.pen.join(" / "), `换回普通笔：它自己的旋钮回来了（${pen6b.pen.join(" / ")}）`);
+await pickBrush("草稿笔");
+check((await brushNow()).knobs === "40 / 0.7 / 0.75", "再换草稿笔：它的也还在（40 / 0.7 / 0.75）");
+check(await S(async () => globalThis.__catsup.session.save()) === true, "存上（拿着草稿笔）");
+await reloaded(() => page.reload());
+await S(() => { for (const n of [...document.querySelectorAll("#noticeStack > *")]) n.remove(); });
+const bk2 = await brushNow(), dk2 = await S(() => globalThis.__catsup.session.paintDesk);
+check(bk2.cur === "sketch" && bk2.knobs === "40 / 0.7 / 0.75" && dk2?.active?.brush === "sketch" && dk2?.brushes?.pen?.size === pen6b.pen[0] && !("tools" in (dk2?.extra ?? {})), `重开：拿的还是草稿笔（${bk2.knobs}），桌面态记着两支笔、不写 1.5 的 tools`, JSON.stringify({ bk2, dk2 }));
+await S(() => globalThis.__catsup.editor.config.set("paintPen", "brush", "pen"));
+check((await brushNow()).knobs === pen6b.pen.join(" / "), "重开后换回普通笔：它的旋钮也跟文件回来了");
+// 文件里的笔写成离谱的数（size 1e9、浓度 5、硬度 −1）：打开不炸、不卡，笔夹到滑条的范围（草稿笔夹到它自己的上限 80）
+await S(() => { const C = globalThis.__catsup, d = C.session.paintDesk; C.session.setPaintDesk({ ...d, brushes: { ...d.brushes, pen: { size: 1e9, opacity: 5, hardness: -1, extra: {} }, sketch: { size: 1e9, extra: {} } }, active: { ...d.active, brush: "pen" } }); });
 check(await S(async () => globalThis.__catsup.session.save()) === true, "把离谱的数存进文件");
 const t6 = performance.now();
 await reloaded(() => page.reload());
 await S(() => { for (const n of [...document.querySelectorAll("#noticeStack > *")]) n.remove(); });
 const pen6c = await S(() => { const c = globalThis.__catsup.editor.config; return ["size", "opacity", "hardness"].map((k) => c.get("paintPen", k)).join(" / "); });
 check(pen6c === "400 / 1 / 0" && performance.now() - t6 < 30000, `打开不炸：笔 = ${pen6c}（滑条的最大 / 最大 / 最小）`, pen6c);
+await S(() => globalThis.__catsup.editor.config.set("paintPen", "brush", "sketch"));
+check((await brushNow()).knobs.startsWith("80 /"), "草稿笔的离谱大小夹到它的上限 80");
+await S(() => globalThis.__catsup.editor.config.set("paintPen", "brush", "pen"));
 await enterBox(); await S(() => { globalThis.__catsup.pickWorkbench("paint"); }); await frames(2);
 
 console.log("\n⑧ 颜色：色块 / 填颜色代码（填错说一句、不改）走同一个入口");

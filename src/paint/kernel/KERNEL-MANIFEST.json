@@ -2,8 +2,8 @@
   "about": "Paint kernel copied verbatim from WeebPaint by scripts/pull-paint-kernel.sh. Do not edit here: change it in WeebPaint, then pull again. test/paint-kernel-guard.test.ts checks every hash.",
   "source": {
     "repo": "WeebPaint",
-    "commit": "b3040c0201ceb66192a554368282d3c1621d1e88",
-    "version": "v0.14.85-2026-11-12"
+    "commit": "94cc32df488fef1048d9bcd499ea895f18b8c8a0",
+    "version": "v0.14.86-2026-11-12"
   },
   "files": {
     "src/backend/algorithms/README.md": "07faa259a0e864acc853614fc284f75fda2d259efacf5483ff993f75323fa434",
@@ -64,7 +64,7 @@
     "src/backend/tiles/cpu-tile-pool.ts": "51a43055bc1d84b971e40a9c2e92f3d2150839b69737576d2e5fa66eca815209",
     "src/backend/tiles/tile-layer.ts": "6301aa7b91422cb584241af9dfcac387d042a02818a4f647e680d2267ef9ae35",
     "src/backend/weebpaint-backend-interface.ts": "dccc6613d1550fa7ebf0fc020d201566c483481ca12d8b58231a5a6bc6f584e5",
-    "src/backend/weebpaint-backend.ts": "c0cc508d1409902f5050e30b7caef22952f498203e493cef5762ae38d73ab832",
+    "src/backend/weebpaint-backend.ts": "b7b35a70979d8f71056981eafe2fdfa415c1ae20977141ad59671178d5b2934d",
     "src/backend/workpiece/float-component.ts": "59c61590007f9b7d4c1e202cf6d07fcb8aeaced88db876976020a0db2d63e215",
     "src/backend/workpiece/float-ops.ts": "0b85d853b62fff8f9dfcf31881bfe61d094c94665ecb78e2fd51ab7072b9e5ef",
     "src/backend/workpiece/history.ts": "f74434d32f84ccf1be4798538bd7cd23e16966d8bafdd8478af0645dfc4536f3",
@@ -92,7 +92,7 @@
     "src/common/pressure-level.ts": "2497073dc801cf0b25f6d891dd965858786228a2259be4f2b73d462185b9757e",
     "src/common/resolved-brush.ts": "35d35b25d9c13293a9f2ddde3490e779495d4c9fb3f6cdec405e8bd881e95a22",
     "src/common/settle-hold.ts": "064940226b593d53731d70ae27124282566a5557ecd7664faf01cfdf7a9881e9",
-    "src/common/smooth-defaults.ts": "ee8a5c364defc3847c5908e36027a87061f72a1b5517529ce77ca3c2261a87e3",
+    "src/common/smooth-defaults.ts": "a7047028eef2951682eb27b046a2a1b60f3018a0796a9133143b00f0f2ac8706",
     "src/common/tile-geometry.ts": "cb107eadc29fc3d9f4516cd39791fbe828b1a2c7629b98aa45e554c98ffa2c5c",
     "src/common/verbs.ts": "9825ea6ff68e4b6387e6d0107b152a17fab4b6d41fa36b266abab35fa4805cc4",
     "src/shell/browser-gl2-port.ts": "b84e5e848a7f77761b6285fd35c475a25a73246d1c4801618c261623bf4d6c0b",
@@ -169,7 +169,7 @@
     "test/stroke-core-golden.test.mjs": "05a838fb818cb684064ff686442dd672c94cc84fd93f7faa1dba28f4015743cd",
     "test/stroke-core.test.mjs": "486c0b8ddcc069081b872c0f383fe0b4267c00b59de30dad9f78956c21d7af8c",
     "test/stroke-session-region.test.mjs": "f0cc8203ef31a5908707f4f41cca883cc307d97e3c6222e50484574eebf5c159",
-    "test/stroke-smoother.test.mjs": "f8042040af04393cac70bb05598fcac80deedd6ed8bcdf4c0e7eadb7d723a429",
+    "test/stroke-smoother.test.mjs": "dfb25164c71846494a62e90a118813572fc8d2dd3e7600daa435bbc67f5a417c",
     "test/tile-bridge.test.mjs": "8b4bf02473345253262b4a013367898b3d8f51188376120450ccae6c789ea1af",
     "test/tile-geometry.test.mjs": "d3f492be6de0b3dfc4a14fe5e654572ac9a849bfb5147175e5e905596c66e315",
     "test/tile-pixels.test.mjs": "9a242c4fb945e4d43352c2978949087508efaf79fd1e20ef7141342b431f7e59",

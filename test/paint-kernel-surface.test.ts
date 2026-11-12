@@ -15,6 +15,7 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   // 一笔的手感（0-6）
   "src/backend/stroke-core.ts": ["StrokeCore", "PathPlacer", "StrokePath"],   // 1-4a 的走步、平滑、间距、渐细（和二维同一套）；PathPlacer = 三维把路落到表面上的那个口
   "src/common/resolved-brush.ts": ["ResolvedBrush", "resolveBrush"],   // 笔的设置（和二维同一套）
+  "src/common/smooth-defaults.ts": ["resolveSmooth"],   // 笔的跟手 / 防抖 → 平滑器参数（施工单二十 1b，内核 v0.14.86，统筹 11-12 定「平滑只有一个内核函数」）；三维传 scale 1，只在跟手或防抖不是 0 时才调（只拿函数，不拿出厂表 SMOOTH_DEFAULTS）
   // 档口和薄层的输入（0-5）
   "src/backend/stroke-session.ts": ["StrokeSession", "StrokeSessionDeps", "HostLayerInput"],   // 档口：预览、落层（一步撤销）、取消；三维把薄层交给它
   "src/backend/gl/gl-room.ts": ["HostOverlayInput", "poolCapacityForBudget"],   // HostOverlayInput = 合成时垫在那一层上的薄层；poolCapacityForBudget = 额度的口（三维只说字节数，不直接说内核的片数）

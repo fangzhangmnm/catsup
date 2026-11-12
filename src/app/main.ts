@@ -9,7 +9,9 @@ import { mountSelectField, type SelectField } from "./ui/select-field.ts";
 import { ERASERS, BRUSHES, isReadOnlyTool, isPaintTool } from "../editor/tool-ids.ts";
 import { mountPaintMeterBadge, type PaintMeterBadge } from "./paint-meter-badge.ts";
 import { paintMeter } from "../paint/frame-meter.ts";
-import { strokeKindOpts, BRUSH_KIND_IDS, type BrushKind } from "../paint/brush-kinds.ts";
+import { strokeKindOpts, BRUSH_KIND_IDS, BRUSH_KINDS, BRUSH_PATHS, type BrushKind } from "../paint/brush-kinds.ts";
+import { resolvedBrushOf, strokeSmoothOf } from "../paint/brush-records.ts";
+import { createPaintBrushes } from "./paint-brushes.ts";
 import { CHECK_EVERY, displayDiag, DISPLAY_PATHS, DISPLAY_PATH_LABELS, MIPS_OF } from "../paint/display-diag.ts";
 import { inputGate, installInputDom } from "./input-dom.ts";
 import { planeLockLabel } from "../editor/locks.ts";
@@ -1519,7 +1521,9 @@ const SOFT_TOOLS: readonly Tool[] = ["move", "rotate", "scale", "shrink"];
 const brushInHand = (): boolean => editor.modeId === "freeform" && (BRUSHES as readonly string[]).includes(editor.tool);   // 笔刷拿在手上 = 半径格露（和软选择共用一根）
 // eslint-disable-next-line no-var
 const leftDial = mountLeftDial($("stage"));   // 左栏 dial：软选择半径 + 画画的大小 / 浓度（1-7）
-mountPaintSliders(leftDial, editor);
+// 每支笔的旋钮 / 换笔（施工单二十 1b，app/paint-brushes.ts）：滑条的上限要问它，所以在挂滑条之前建；写回桌面态的 mirrorPaintDesk 在下面「笔跟文件走」那段。
+const paintBrushes = createPaintBrushes(editor.config, () => mirrorPaintDesk());
+mountPaintSliders(leftDial, editor, (t) => paintBrushes.sizeMax(t));
 var softSliderRef: SoftSlider | null = mountSoftSlider(leftDial, $("stage"), canvas, editor, {
   visible: () => brushInHand() || (editor.modeId === "freeform" && editor.config.get("soft", "on") && SOFT_TOOLS.includes(editor.tool)),
   selectionScreenCenter: () => { const p = editor.selectionCenter("mean"); return p ? editor.cam.angularPx(p, editor.vp()) : null; },
@@ -1759,30 +1763,24 @@ refBtn.addEventListener("click", () => { refHost.toggle(); syncRefBtn(); });
 const syncRefBtn = (): void => { const on = refHost.isOpen(); refBtn.classList.toggle("on", on); refBtn.setAttribute("aria-pressed", on ? "true" : "false"); };
 new MutationObserver(syncRefBtn).observe(refHost.el, { attributes: true, attributeFilter: ["open"] });
 syncRefBtn();
-// 画画工作台的笔跟文件走（desk 1.5 paint；user 11-11「笔的设置记在哪 学weebpaint」：画画软件 v406 起就是这样，设备上不记）。
-// 载入 / 新建时套上（套的时候不回写）；改了大小 / 浓度 / 硬度 / 颜色 = 写回桌面态（不标脏、不进撤销，下次存盘顺手带走）。
+// 画画工作台的笔跟文件走（desk 1.5 paint；user 11-11「笔的设置记在哪 学weebpaint」：画画软件 v406 起就是这样，设备上不记；1.6 起按笔记，施工单二十 1b）。
+// 载入 / 新建时套上（套的时候不回写）；换笔、改了大小 / 浓度 / 硬度 / 颜色 = 写回桌面态（不标脏、不进撤销，下次存盘顺手带走）。每支笔的旋钮和换笔归 app/paint-brushes.ts。
 // 先建颜色：会话一载入文件就要套上它（在会话之前建，免得开机那一下还没建好）。
 const paintColor = createPaintColor();
-const PAINT_DESK_TOOLS = ["paintPen", "paintEraser"] as const;
 let applyingPaintDesk = false, paintDeskReady = false;
 function applyPaintDesk(p: PaintDeskDoc | null): void {
   applyingPaintDesk = true;
   try {
-    for (const t of PAINT_DESK_TOOLS) {
-      editor.config.reset(t);
-      const d = p?.tools[t];
-      if (d) for (const k of ["size", "opacity", "hardness"] as const) if (d[k] !== undefined) editor.config.set(t, k, d[k]!);   // 工具表的 set 自己夹到滑条的范围（文件里写了 1e9 / 负数 / 浓度 5 也不炸）
-    }
+    paintBrushes.apply(p);   // 每支笔的旋钮 + 每把工具拿的是哪支（工具表的 set 自己夹到滑条的范围：文件里写了 1e9 / 负数 / 浓度 5 也不炸）
     paintColor.set(parseHexColor(p?.color ?? "") ?? PAINT_COLOR_DEFAULT);
   } finally { applyingPaintDesk = false; }
 }
 function mirrorPaintDesk(): void {
   if (applyingPaintDesk || !paintDeskReady) return;
-  const prev = session.paintDesk, tools = { ...(prev?.tools ?? {}) };   // 别的工具名、每把工具里不认识的键原样留着
-  for (const t of PAINT_DESK_TOOLS) tools[t] = { extra: prev?.tools[t]?.extra ?? {}, size: editor.config.get(t, "size"), opacity: editor.config.get(t, "opacity"), hardness: editor.config.get(t, "hardness") };
-  session.setPaintDesk({ color: hexOf(paintColor.get()), tools, extra: prev?.extra ?? {} });
+  const prev = session.paintDesk;   // 本版没有的笔、别的 tool、paint 里不认识的键原样留着
+  session.setPaintDesk({ color: hexOf(paintColor.get()), ...paintBrushes.toDesk(prev), extra: prev?.extra ?? {} });
 }
-editor.config.subscribe((tool) => { if ((PAINT_DESK_TOOLS as readonly string[]).includes(tool)) mirrorPaintDesk(); });
+editor.config.subscribe((tool) => paintBrushes.onConfig(tool));
 paintColor.subscribe(mirrorPaintDesk);
 // 手上还有没有一下没收（controller/hand-busy.ts）：会话的自动保存 / 崩溃快照 / 重推只问这张名册。加一种来源 = HAND_SOURCES 一个名字 + 这里一行（守卫 test/hand-busy.test.ts）
 const hand = createHandRoster();
@@ -2603,7 +2601,7 @@ function paintCheckDetail(): { ok: boolean; kernel: { guid: string; diff: number
   return { ok: kernel.every((k) => !k.diff) && display.every((L) => !L.diff), kernel, display };
 }
 editor.afterRender = () => meterBadge?.frame();
-var paintWb: PaintWorkbench | null = new PaintWorkbench({ editor, boards: paintBoards, strokeDeps: (chain) => paintStrokeDeps(chain), gate: (t) => paintStrokeGate(t), color: paintColor, prep: paintPrep, flashStart: () => { primary.sync(); primary.flash("paint"); }, hint: (t) => { hintEl.textContent = t; } });
+var paintWb: PaintWorkbench | null = new PaintWorkbench({ editor, boards: paintBoards, strokeDeps: (chain) => paintStrokeDeps(chain), gate: (t) => paintStrokeGate(t), color: paintColor, brushOf: (t) => paintBrushes.current(t)!, prep: paintPrep, flashStart: () => { primary.sync(); primary.flash("paint"); }, hint: (t) => { hintEl.textContent = t; } });
 function paintStrokeGate(texture: string): "locked" | "warming" | "view-only" | null {
   { const why = paintEditLocked(); if (why) { hintEl.textContent = why; return "locked"; } }   // 第二层：落笔的门（画画控制器和调试钩子都过这里；v0.19.48）
   const st = paintBoards.stateOf(editor.sceneRef, texture);
@@ -2619,8 +2617,10 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
 (window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor, canvasWin: () => canvasWin, meter: () => meterBadge,
   // 画板（贴图主线 1-3c；没有界面入口）：ensure = 给一张走画的贴图建画板（不给 GUID = 场景里第一张画）；fill = 灌一层像素（RGBA、画板大小）；探针 test/probes/probe-paint-display.mjs
   paint: {
-    /** 笔的种类表（paint/brush-kinds.ts；probe-live-region 按它跑）。 */
-    brushKinds: BRUSH_KIND_IDS,
+    /** 笔的种类表（paint/brush-kinds.ts）；paths = 表里的每一条路 → 走它的第一支笔（probe-live-region 按路跑，施工单二十 1b）。 */
+    brushKinds: BRUSH_KIND_IDS, brushPaths: BRUSH_PATHS, brushPathOf: (k: BrushKind) => BRUSH_KINDS[k].path,
+    /** 每支笔的旋钮 / 现在拿的哪支（app/paint-brushes.ts；探针 probe-paint-brushes 用）。 */
+    brushes: paintBrushes,
     /** 网格体的全部自检（内核不变量 + 画的规矩；scene/paint.ts meshBodyIssues）：空 = 过（规模探针 K 坏面那一段用）。 */
     issues: (def: number) => meshBodyIssues(editor.sceneRef, def as never),
     /** 读数那一组的两个开关（统筹 11-11）：探针用——setPath = 角标「走法」那一下、check = 跑一次核对（true = 都对上）、state = 现在的开关。 */
@@ -2644,14 +2644,14 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
       const gate = paintStrokeGate(g);   // 落笔撞上冷的画：这一笔不开始、说一句、同时解开（1-8b）；以后真的笔（1-7）走同一个口
       if (gate) return { guid: g, refused: gate };
       const cam = editor.cam, gpu = editor.renderer3.offscreenGpu() as unknown as { glTexture(img: unknown): WebGLTexture } | null;
-      const brush = hookBrush(o);
+      const brush = o.kind ? resolvedBrushOf(o.kind, { size: o.size ?? 20, opacity: 1, hardness: o.hardness ?? 0.5 }) : hookBrush(o);   // kind = 笔的表那一行（和画画工作台同一个解析；普通笔 / 橡皮解出来 = 以前的 hookBrush，test/brush-kinds.test.ts 钉着）；不给 = 老的散参数
       // 调试钩子没有工作台：这里先替它把准备做了（量出来单独报 prepMs，不算进落笔）；真的笔（1-7）在进工作台时做
       const pb = paintBoards.ensure(editor.sceneRef, g), pt = paintTargets(editor.worldGeom(), editor.sceneRef, g, { width: pb.width, height: pb.height }), prepMs = paintPrep.ensure(pt);
       const prob = paintPrep.problem(pt);
       if (prob !== null) return { guid: g, refused: prob === "pending" ? "pending" : String((prob as { say?: string }).say ?? prob), prepMs };   // 撞到容量上限：这一笔不开始，交出那句人话
       void cam; void gpu;
       const kindOpts = o.kind ? strokeKindOpts(o.kind) : { accum: o.accum ?? "over", erase: o.erase };   // kind = 按笔的种类表起笔（探针按表跑）；不给 = 老的散参数
-      const st = new SpacePaintStroke(paintStrokeDeps(), g, { brush, color: [o.color?.[0] ?? 0.1, o.color?.[1] ?? 0.1, o.color?.[2] ?? 0.1], ...kindOpts });
+      const st = new SpacePaintStroke(paintStrokeDeps(), g, { brush, color: [o.color?.[0] ?? 0.1, o.color?.[1] ?? 0.1, o.color?.[2] ?? 0.1], ...(o.kind ? { smooth: strokeSmoothOf(brush) } : {}), ...kindOpts });
       // measure：每一帧各段（射线 + 走步 = move；准备里的取新笔尖 / 画薄层 / 交给档口；内核合成；拷到显示图；整帧）
       const frames: Record<string, number>[] = [], R3 = editor.renderer3 as unknown as { liveStats(): { copyMs: number } };
       const ctx = (document.getElementById("board") as HTMLCanvasElement).getContext("webgl2")!, px1 = new Uint8Array(4);

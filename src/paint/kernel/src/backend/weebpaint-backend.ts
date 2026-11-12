@@ -26,7 +26,7 @@ import { StrokeSession, type StampCollect, type StrokeSessionDeps } from "./stro
 import { BrushEngine } from "./brush.ts";
 import { DEFAULT_CONFIG } from "../common/current-brush-config.ts";
 import type { ResolvedBrush } from "../common/resolved-brush.ts";
-import { SMOOTH_DEFAULTS } from "../common/smooth-defaults.ts";
+import { resolveSmooth } from "../common/smooth-defaults.ts";
 import { SoftGl2Port } from "./soft-gl2-port.ts";
 import { GlRoom, poolCapacityForBudget } from "./gl/gl-room.ts";
 import { RasterService } from "./gl/raster-service.ts";
@@ -444,14 +444,9 @@ export class WeebPaintBackend implements WeebPaintBackendInterface {
     //（user mental model：console 设一下工具也能画——MCP 只传 {size,color} 也出完整可画的笔）。
     const settings = Object.freeze({ ...DEFAULT_CONFIG, ...brush }) as ResolvedBrush;
     const mode = (brush as { mode?: unknown }).mode === "erase" ? "erase" : "brush";
-    const clamp01 = (v: unknown) => Math.max(0, Math.min(1, typeof v === "number" ? v : 0));
-    // 平滑推导 = input._resolveSmooth 的 backend 版：常数吃 SMOOTH_DEFAULTS（headless 无 prefs，
-    // 决定论要求常数固定）；deadzone 单位 = doc px（无 viewport，scale≡1）。pixelMode 无平滑（同壳）。
-    const smooth = settings.pixelMode ? {} : {
-      tau: clamp01(settings.streamline) * SMOOTH_DEFAULTS.tauMaxMs,
-      deadzone: clamp01(settings.stabilization) * SMOOTH_DEFAULTS.stabMaxPx,
-      tailBow: SMOOTH_DEFAULTS.tailBow,
-    };
+    // 平滑推导 = common/smooth-defaults.ts resolveSmooth（三维那边也调它）：常数吃出厂表（headless 无 prefs，
+    // 决定论要求常数固定）；deadzone 单位 = doc px（无 viewport，scale = 1）。pixelMode 无平滑（同壳）。
+    const smooth = settings.pixelMode ? {} : resolveSmooth(settings.streamline, settings.stabilization, 1);
     const engine = new BrushEngine();
     // 预览宿（census §3.4）：buffered=overlay（headless 下即「无」——描边活在 smoother，零 substrate 写）；
     // pixelMode=livesync（stroke 档合法的令牌内真层写）。session 构造即 wp2.begin 开令牌（fail-loud）。

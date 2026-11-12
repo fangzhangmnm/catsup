@@ -41,7 +41,7 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     const prims = g.json.meshes[node.mesh].primitives as AnyJson[];
     assert(prims.some((p) => (p.mode ?? 4) === 4) && prims.some((p) => p.mode === 1), "TRIANGLES + LINES");
     assert(prims.some((p) => p.material === 0), "涂了材质的面单独一个 primitive");
-    eq(formatTag(), "3.5.0-4.2.0-7.0.0-2.0.0-1.3.0-1.5.0-1.0.0-2.1.0-1.0.0-1.1.0");   // CATSUP_mesh 2.1（2026-11-11 施工单十六：贴图坐标的一套上 fit）； CATSUP_desk 1.5（2026-11-11 笔跟文件走）；// CATSUP_textures 1.1（2026-11-11 1-8b：画的合成图）   // CATSUP_mesh 2.0（2026-11-11 1-2½：贴图坐标；不带它的网格体照旧盖 1.2，上面那条）   // CATSUP_document 3.4（单位制 + 吸附长度）； 3.2（2026-10-29 吸附细分多四档）   // CATSUP_mesh 1.1（2026-10-28 默认平滑）→ 1.2（2026-10-28 晚 对称属性）；CATSUP_desk 1.2（2026-10-29 演示锁）
+    eq(formatTag(), "3.5.0-4.2.0-7.0.0-2.0.0-1.3.0-1.6.0-1.0.0-2.1.0-1.0.0-1.1.0");   // CATSUP_desk 1.6（2026-11-12 笔按笔记）；CATSUP_mesh 2.1（2026-11-11 施工单十六：贴图坐标的一套上 fit）； CATSUP_desk 1.5（2026-11-11 笔跟文件走）；// CATSUP_textures 1.1（2026-11-11 1-8b：画的合成图）   // CATSUP_mesh 2.0（2026-11-11 1-2½：贴图坐标；不带它的网格体照旧盖 1.2，上面那条）   // CATSUP_document 3.4（单位制 + 吸附长度）； 3.2（2026-10-29 吸附细分多四档）   // CATSUP_mesh 1.1（2026-10-28 默认平滑）→ 1.2（2026-10-28 晚 对称属性）；CATSUP_desk 1.2（2026-10-29 演示锁）
     assert(!g.json.extensionsUsed.includes("CATSUP_mesh"), "不是顶层扩展（住在定义里）");
   });
   it("0.14 的三角汤最小形（没拍子、只有 positions / indices）照开：每三角一面；重存变成多边形载荷", () => {

@@ -1,7 +1,8 @@
 // 主笔刷平滑 StrokeSmoother：时间常数指数追踪 out += (pen−out)·(1−exp(−dt/tau))。
 // 详 ai-docs/20260613-brush-procreate-smoothing.md。验：固定时间滞后 / 帧率(采样率)无关 / 死区 / 收尾钉终点 / 因果。
-import { describe, it, assert } from "./runner.mjs";
+import { describe, it, assert, eq } from "./runner.mjs";
 import { StrokeSmoother } from "../src/backend/stroke-smoother.ts";
+import { resolveSmooth, SMOOTH_DEFAULTS } from "../src/common/smooth-defaults.ts";
 
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 // 按固定 dt(ms) 喂一串点（带时间戳）
@@ -113,5 +114,25 @@ describe("stroke-smoother · StrokeSmoother（时间常数指数追踪）", () =
     const sm = new StrokeSmoother({ tau: 50 });
     sm.push(0, 0, 1); sm.push(50, 0, 1); sm.push(100, 0, 1);   // 无 t
     assert(sm._ox > 0 && sm._ox < 100, `无时间戳应兜底平滑（0<out<100），实得 ${sm._ox.toFixed(1)}`);
+  });
+});
+
+// 笔的跟手 / 防抖 → 平滑器参数：全仓（含三维）只有这一个换算（2026-11-12，CatsUp 施工单二十 1b）。
+describe("smooth-defaults · resolveSmooth（跟手 / 防抖 → 平滑器参数）", () => {
+  const D = SMOOTH_DEFAULTS;
+  it("0..1 按比例：tau = 跟手 × tauMaxMs、deadzone = 防抖 × stabMaxPx、tailBow = 出厂值", () => {
+    const r = resolveSmooth(0.5, 0.25, 1);
+    eq(r.tau, 0.5 * D.tauMaxMs); eq(r.deadzone, 0.25 * D.stabMaxPx); eq(r.tailBow, D.tailBow);
+    eq(JSON.stringify(resolveSmooth(0, 0, 1)), JSON.stringify({ tau: 0, deadzone: 0, tailBow: D.tailBow }), "都是 0 = 不平滑");
+  });
+  it("夹到 0..1；不是数（缺省、null、字符串）当 0", () => {
+    const r = resolveSmooth(1.7, -1, 1);
+    eq(r.tau, D.tauMaxMs, "超过 1 夹到 1"); eq(r.deadzone, 0, "负数夹到 0");
+    for (const v of [undefined, null, "0.5"]) { const q = resolveSmooth(v, v, 1); eq(q.tau, 0, `跟手 ${String(v)} 当 0`); eq(q.deadzone, 0, `防抖 ${String(v)} 当 0`); }
+  });
+  it("deadzone 除以 scale（屏幕像素 → 画布像素）；scale 不是正数当 1；tau 不随 scale 变", () => {
+    eq(resolveSmooth(1, 1, 2).deadzone, D.stabMaxPx / 2, "放大两倍看 = 画布上半个死区");
+    eq(resolveSmooth(1, 1, 2).tau, D.tauMaxMs, "时间常数和缩放无关");
+    for (const s of [0, -3, NaN]) eq(resolveSmooth(1, 1, s).deadzone, D.stabMaxPx, `scale ${s} 当 1`);
   });
 });

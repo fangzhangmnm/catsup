@@ -160,6 +160,9 @@ export class ToolConfig<T extends OptionTable> {
 import { SURFACE_TIERS } from "./surface-assign.ts";
 import { ARC_MODES } from "./arc-build.ts";
 import { BOOLEAN_DEFAULT } from "../controller/stance.ts";
+import { BRUSHES, brushesOfTool } from "../paint/brush-records.ts";
+/** 画画工作台「笔」那把工具上能挑的几支（笔的表里 tool = brush 的那几行，表里的顺序；施工单二十 1b）。 */
+const PEN_BRUSHES = brushesOfTool("brush").map((id) => ({ id, label: BRUSHES[id].name }));
 /** 工具 → 选项组：表面指派工具（油漆桶 / 以后的碰撞、贴图投影）共用 `surface` 一组（user「锐角阈值和模式的持久化不同工具共享」）。 */
 export function optionGroupOf(tool: string): string { return tool === "paint" ? "surface" : tool === "brushDraw" || tool === "brushSmooth" || tool === "brushFlatten" ? "brush" : tool; }   // 刷的三把共用「力度」；抓不吃力度（手拖多少走多少）
 
@@ -270,6 +273,9 @@ export const TOOL_OPTIONS = {
   /** 表面指派共用（user 2026-10-24 要的持久化 = 跟机器；scope device，经 host 递来的 device-kv）。 */
   // 画画工作台（贴图主线 1-7）：笔 / 橡皮各一套；大小 = 屏幕像素、浓度 = 不透明度（这两样在左栏 dial）、硬度 = 笔尖边缘（工具条）；doc = 跟文件走（user 11-11「笔的设置记在哪 学weebpaint」；文件里是 CATSUP_desk 1.5 paint，main.ts 套上 / 写回；设备上不记）
   paintPen: {
+    // 拿的是哪支笔（施工单二十 1b；带文字的下拉 = 家规「四项以上用带文字的」，现在三项也照样用）。大小 / 浓度 / 硬度是这支笔的旋钮：换笔时 app 把它们存回上一支、套上这一支的（app/paint-brushes.ts）。
+    //   跟文件走 = 桌面态 1.6 paint.active.brush（main.ts 套上 / 写回）。
+    brush: { kind: "enum", label: "笔", values: PEN_BRUSHES, def: "pen", scope: "doc" },
     size: { kind: "number", label: "大小", def: 12, min: 1, max: 400, step: 1, unit: "像素", scope: "doc", elsewhere: true },
     opacity: { kind: "number", label: "浓度", def: 1, min: 0.05, max: 1, step: 0.05, scope: "doc", elsewhere: true },
     hardness: { kind: "number", label: "硬度", def: 0.8, min: 0, max: 1, step: 0.05, scope: "doc" },
