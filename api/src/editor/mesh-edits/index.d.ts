@@ -19,6 +19,11 @@ export declare const markSmooth: Command<MeshUnit>;
 export declare const clearMarks: Command<MeshUnit>;
 export declare const markSeam: Command<MeshUnit>;
 export declare const clearSeam: Command<MeshUnit>;
+/**
+ * 自动标接缝（施工单二十二第 1 刀后半；找法在 mesh/auto-seams.ts）：明着的动作，只加不动 user 标的，补的是普通的接缝标记；和手标同一条 op（一步撤销）。
+ * 范围 = 选中的面（选了面的话），否则整个网格体。做完把补上的那几条选中 = 亮出来（统筹 C：「点一下能把补的那几条亮出来」）；提示行说补了几条、为什么补、分成几片。
+ */
+export declare const autoSeamsCmd: Command<MeshUnit>;
 export declare const bevel: Command<MeshUnit>;
 export declare const bevelPoints: Command<MeshUnit>;
 export declare const mergeCenter: Command<MeshUnit>;
