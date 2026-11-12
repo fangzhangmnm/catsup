@@ -292,10 +292,11 @@ export function docReferenced(): CatsupDocument {
 /** 整份文档级的样本（场景之外还带文档 / 桌面态内容的）：冻结样本脚本与语料测试共用。 */
 /** 吸附细分 1/20（CATSUP_document 3.2 起 2 / 20 / 50 / 100 也能存）。 */
 export function docSnap20(): CatsupDocument { const doc = newDocument(sceneBox().toBrep(), "snap20"); doc.settings = { ...doc.settings, gridSubdiv: 20, gridStep: 1, snapIncrement: 0.05 }; return doc; }
-/** 画画工作台的笔跟文件走（desk 1.5，2026-11-11）：两把认识的工具 + 一把本版不认识的 + 不认识的键，都要原样带回。 */
+/** 画画工作台的笔跟文件走（desk 1.5，2026-11-11；1.6 起按笔记，2026-11-12）：几支认识的笔 + 一支本版没有的 + 每种 tool 上次那支（含本版没有的 tool）+ 不认识的键，都要原样带回。
+ *  1.5 那一版样本（tools 的形状）冻在老目录里，当「1.5 的 tools 保留读」的语料。 */
 export function docPenDesk(): CatsupDocument {
   const doc = newDocument(sceneBox().toBrep(), "penDesk");
-  doc.desk.paint = { color: "#c03050", tools: { paintPen: { size: 18, opacity: 0.75, hardness: 0.6, extra: {} }, paintEraser: { size: 48, opacity: 1, hardness: 0.9, extra: {} }, airbrush: { size: 4, extra: { flow: 0.3 } } }, extra: { future: true } };
+  doc.desk.paint = { color: "#c03050", brushes: { pen: { size: 18, opacity: 0.75, hardness: 0.6, extra: {} }, eraser: { size: 48, opacity: 1, hardness: 0.9, extra: {} }, sketch: { size: 6, opacity: 0.9, hardness: 0.75, extra: {} }, wash: { size: 4, extra: { flow: 0.3 } } }, active: { brush: "sketch", eraser: "eraser", fill: "fill-face" }, extra: { future: true } };
   return doc;
 }
 export const DOC_SAMPLES: Record<string, () => CatsupDocument> = { referenced: docReferenced, snap20: docSnap20, penDesk: docPenDesk };

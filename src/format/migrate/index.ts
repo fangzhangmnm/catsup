@@ -57,6 +57,9 @@
 //                      不认识的工具名和键原样带回（tools 不是对象也原样带回）。size 的含义和单位由工具自己定：这一版的笔和橡皮 = 直径、屏幕上的 CSS 像素（不是空间长度，
 //                      不换国际单位；以后的像素笔 = 画布上的格数）。color 原样存。hardness 以后归「笔」（笔架来了它属于那支笔，到时候这个键保留读、停止写）；
 //                      activeBrushId 留给笔架、现在不写。这一层收任何有限的数，app 套上时夹到滑条的范围。老读者少看见它 = 笔用默认（minor：习惯丢了，内容一字不少）。
+//   CATSUP_desk        1.6（2026-11-12，Claude Opus 5.5；施工单二十 1b，笔的模型第五节）：paint 里加两个可选键（改过才写）——brushes { <笔的 id>: { size?, opacity?, hardness? } }、
+//                      active { <tool 的取值>: <笔的 id> }；不认识的笔 id、键原样带回，active 指着本版没有的笔 = app 用这种 tool 默认的那支、原样带回。
+//                      1.5 的 tools 保留读、停止写：paintPen → pen、paintEraser → eraser（只有 ≤ 1.5 的版本会写 tools，它在就以它为准）；tools 里不认识的工具名原样带回。
 //   CATSUP_references  1.0（2026-10-25，Claude Opus 5.5；契约 §5.8）：参考窗牌组 = @internal/reference-window 的目录 `.catsup/references/`（manifest.json + 每张卡）原样进 glb：
 //                      files[] = { path, mimeType, bufferView }；**本层不懂清单**（清单的拍子 / 迁移归库）。空牌组不写这个扩展（抠）。不进定稿指纹、不进撤销；
 //                      **major 比本版新 → 不拒开**（同 desk）：原字节带回、参考窗先不显示、提示一次。user 2026-10-25「咱们是不忘了接reference window. 先看懂我们的文件规范」。
@@ -121,7 +124,7 @@ export const FORMAT = {
   CATSUP_definitions: { major: 7, minor: 0, patch: 0 },   // 7.0（2026-11-04）：引用换 GUID
   CATSUP_instance: { major: 2, minor: 0, patch: 0 },   // 2.0（2026-11-04）：节点 definition 换 GUID（只写不读）
   CATSUP_material: { major: 1, minor: 3, patch: 0 },   // 1.3（2026-11-10）：channels（图搬进贴图表，sizeM 只是给老版本的回声）   // 1.2（2026-11-04）：guid   // 1.1（2026-10-30）：材质的 baseColorFactor 按 glTF 规定存线性值（以前存 sRGB 的数；color-space.ts）；老文件不迁移（user「老文件我们现在真的不用念旧」）
-  CATSUP_desk: { major: 1, minor: 5, patch: 0 },   // 1.5（2026-11-11）：可选键 paint（画画工作台的笔）；1.4（2026-11-04）：可选键 exportModel；1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
+  CATSUP_desk: { major: 1, minor: 6, patch: 0 },   // 1.6（2026-11-12）：paint 按笔记（brushes / active），1.5 的 tools 保留读停止写；1.5（2026-11-11）：可选键 paint（画画工作台的笔）；1.4（2026-11-04）：可选键 exportModel；1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
   CATSUP_references: { major: 1, minor: 0, patch: 0 },
   /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
   CATSUP_mesh: { major: 2, minor: 1, patch: 0 },   // 2.1（2026-11-11，施工单十六）：贴图坐标的一套上可选键 fit（只有带它的网格体盖 2.1，见 MESH_STAMP_UV_NO_FIT）；2.0（2026-11-11，1-2½）：uvSets 贴图坐标（只有带它的网格体盖 2.0，见 MESH_STAMP_NO_UV）；1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）

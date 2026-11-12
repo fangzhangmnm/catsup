@@ -177,56 +177,73 @@ export interface DeskDoc { menuTabs: Record<string, string>; lastView?: unknown;
   style?: string; screen?: string;
   /** 导出表单上次的选择（desk 1.4，2026-11-04；user「导出的时候永远有个框……我建议文件workbench而不是workpiece记住」）：导出过才写；本层不解释键，app 认不出的键当默认。 */
   exportModel?: Record<string, string>;
-  /** 画画工作台的笔（desk 1.5，2026-11-11；user「笔的设置记在哪 学weebpaint」= 跟文件走，设备上不记）：改过才写。见 PaintDeskDoc。 */
+  /** 画画工作台的笔（desk 1.5，2026-11-11；user「笔的设置记在哪 学weebpaint」= 跟文件走，设备上不记；1.6 起按笔记）：改过才写。见 PaintDeskDoc。 */
   paint?: PaintDeskDoc;
   extra: Record<string, unknown>; }
 export const defaultDesk = (): DeskDoc => ({ menuTabs: {}, extra: {} });
 
 /**
- * 画画工作台的笔（desk 1.5）：{ color?: "#rrggbb", tools: { <工具名>: { size?, opacity?, hardness? } } }。字段名照画画软件的 dial（size / opacity）。
- * - 工具名本层不解释（不透明字符串）：本版不认识的工具名、每把工具里不认识的键、paint 里不认识的键都原样带回（各自的 extra）。
- *   tools 本身不是对象（数组、字符串……）：原样放进 extra 带回；这时候没有认识的工具，写回去的就是它。有认识的工具时以认识的为准。paint 本身不是对象 = 当没有（和 desk 别的键一样）。
- * - size 的含义和单位由工具自己定；这一版的笔和橡皮 = 直径，屏幕上的 CSS 像素（user 11-10「笔的大小应该是屏幕大小，因为这个是你的语义」；不是空间里的长度，所以不换国际单位）。
- *   以后的像素笔的 size 会是画布上的格数——这一层不替工具定单位。opacity = 浓度（0..1）；hardness = 笔尖边缘（0..1）。
- * - color 原样存（不在这一层规整大小写；app 比的时候不分大小写）。
- * - 这一层收任何有限的数；夹到能用的范围是 app 套上的时候做的（main.ts applyPaintDesk 经工具表 set，夹到滑条的范围）。
- * - hardness 以后归「笔」：笔架来了它属于那支笔，到时候这个键保留读、停止写。activeBrushId（画画软件的 dial 里有）现在不写，留给笔架。
+ * 画画工作台的笔（desk 1.5 起；1.6 = 2026-11-12 施工单二十 1b，笔的模型 ai-docs/20261111-brush-model.md 第五节）：
+ *   { color?: "#rrggbb", brushes?: { <笔的 id>: { size?, opacity?, hardness? } }, active?: { <tool 的取值>: <笔的 id> } }。字段名照画画软件的 dial（size / opacity）。
+ * - 笔的 id、tool 的取值本层都不解释（不透明字符串）：本版没有的笔、每支笔里不认识的键、paint 里不认识的键都原样带回（各自的 extra）。
+ *   active 指着本版没有的笔 = app 用这种 tool 默认的那支，这里原样带回。
+ * - 1.5 的 tools（{ <工具名>: { size?, opacity?, hardness? } }）保留读、停止写：paintPen 读成普通笔（pen）的旋钮、paintEraser 读成橡皮（eraser）的（LEGACY_PAINT_TOOLS）。
+ *   只有 1.5 及更早的版本会写 tools，所以它在 = 这份文件最后是那种版本存的，它比 brushes 里同一支笔的新，以它为准。
+ *   tools 里不认识的工具名原样带回（写回去的 tools 只剩它们）；tools 本身不是对象 = 原样带回。
+ * - brushes / active 本身不是对象（数组、字符串……）：原样放进 extra 带回；这时候没有认识的条目，写回去的就是它。有认识的条目时以认识的为准。paint 本身不是对象 = 当没有。
+ * - size 的含义和单位由笔自己定；这一版的几支笔 = 直径，屏幕上的 CSS 像素（user 11-10「笔的大小应该是屏幕大小，因为这个是你的语义」；不换国际单位）。
+ *   以后按格的笔的 size 会是画布上的格数——这一层不替笔定单位。opacity = 浓度（0..1）；hardness = 笔尖边缘（0..1）。
+ * - color 原样存（不在这一层规整大小写；app 比的时候不分大小写）。这一层收任何有限的数；夹到能用的范围是 app 套上的时候做的。
  * - 类型不对的已知键不当成值，原样放进 extra 带回（不悄悄改别人写的字节）。
  */
-export interface PaintDeskDoc { color?: string; tools: Record<string, PaintToolDesk>; extra: Record<string, unknown> }
-export interface PaintToolDesk { size?: number; opacity?: number; hardness?: number; extra: Record<string, unknown> }
+export interface PaintDeskDoc { color?: string; brushes: Record<string, PaintKnobsDesk>; active: Record<string, string>; extra: Record<string, unknown> }
+/** 一支笔的旋钮。 */
+export interface PaintKnobsDesk { size?: number; opacity?: number; hardness?: number; extra: Record<string, unknown> }
+/** desk 1.5 的 tools 里的工具名 → 笔的 id（只读：1.6 起不写 tools）。 */
+export const LEGACY_PAINT_TOOLS: Readonly<Record<string, string>> = { paintPen: "pen", paintEraser: "eraser" };
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const knobsOf = (t: Record<string, unknown>): PaintKnobsDesk => {
+  const k: PaintKnobsDesk = { extra: {} };
+  for (const [tk, tv] of Object.entries(t)) {
+    if ((tk === "size" || tk === "opacity" || tk === "hardness") && finite(tv)) k[tk] = tv;
+    else k.extra[tk] = tv;
+  }
+  return k;
+};
+const knobsJson = (k: PaintKnobsDesk): Record<string, unknown> => ({ ...k.extra, ...(k.size !== undefined ? { size: k.size } : {}), ...(k.opacity !== undefined ? { opacity: k.opacity } : {}), ...(k.hardness !== undefined ? { hardness: k.hardness } : {}) });
 /** 文件里的 paint → PaintDeskDoc；不是对象 = 没有。 */
 export function paintDeskOf(raw: unknown): PaintDeskDoc | undefined {
   if (!isRecord(raw)) return undefined;
-  const out: PaintDeskDoc = { tools: {}, extra: {} };
+  const out: PaintDeskDoc = { brushes: {}, active: {}, extra: {} };
+  const carry = (key: string, name: string, v: unknown): void => { const c = (out.extra[key] ??= {}) as Record<string, unknown>; c[name] = v; };
+  let legacy: unknown;
   for (const [k, v] of Object.entries(raw)) {
     if (k === "color" && typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v)) out.color = v;
-    else if (k === "tools" && isRecord(v)) {
-      for (const [name, t] of Object.entries(v)) {
-        if (!isRecord(t)) { out.extra[`tools`] ??= {}; (out.extra.tools as Record<string, unknown>)[name] = t; continue; }   // 一把工具的值不是对象：原样带回
-        const tool: PaintToolDesk = { extra: {} };
-        for (const [tk, tv] of Object.entries(t)) {
-          if ((tk === "size" || tk === "opacity" || tk === "hardness") && finite(tv)) tool[tk] = tv;
-          else tool.extra[tk] = tv;
-        }
-        out.tools[name] = tool;
-      }
-    } else out.extra[k] = v;
+    else if (k === "brushes" && isRecord(v)) { for (const [id, t] of Object.entries(v)) { if (isRecord(t)) out.brushes[id] = knobsOf(t); else carry("brushes", id, t); } }   // 一支笔的值不是对象：原样带回
+    else if (k === "active" && isRecord(v)) { for (const [tool, id] of Object.entries(v)) { if (typeof id === "string") out.active[tool] = id; else carry("active", tool, id); } }
+    else if (k === "tools" && isRecord(v)) legacy = v;   // 1.5：brushes 读完再套（它以 tools 为准）
+    else out.extra[k] = v;
+  }
+  if (isRecord(legacy)) for (const [name, t] of Object.entries(legacy)) {
+    const id = LEGACY_PAINT_TOOLS[name];
+    if (id !== undefined && isRecord(t)) out.brushes[id] = knobsOf(t);   // 1.5 的工具 → 那支笔的旋钮（比 brushes 新）
+    else carry("tools", name, t);   // 不认识的工具名 / 值不是对象：原样带回
   }
   return out;
 }
-/** PaintDeskDoc → 写进文件的样子（extra 先铺、已知键后铺；tools 没有东西 = 不写；tools 本来不是对象、又没有认识的工具 = 原样写回）。 */
+/** 带回的（extra 里）+ 认识的 → 写进文件的那个键；带回的不是对象、又没有认识的 = 原样；什么都没有 = 不写（undefined）。 */
+const mergeOut = <T>(carried: unknown, known: Record<string, T>, toJson: (t: T) => unknown): unknown => {
+  if (carried !== undefined && !isRecord(carried) && !Object.keys(known).length) return carried;
+  const o: Record<string, unknown> = { ...(isRecord(carried) ? carried : {}) };
+  for (const [k, v] of Object.entries(known)) o[k] = toJson(v);
+  return Object.keys(o).length ? o : undefined;
+};
+/** PaintDeskDoc → 写进文件的样子（extra 先铺、已知键后铺；brushes / active 没有东西 = 不写；tools 只剩带回的那些——1.6 起不写认识的工具）。 */
 export function paintDeskToJson(p: PaintDeskDoc): Record<string, unknown> {
-  if (p.extra.tools !== undefined && !isRecord(p.extra.tools) && !Object.keys(p.tools).length) {   // tools 不是对象（读进来就放在 extra 里）、又没有认识的工具：原样带回
-    return { ...p.extra, ...(p.color !== undefined ? { color: p.color } : {}) };
-  }
-  const extraTools = isRecord(p.extra.tools) ? p.extra.tools : {};
-  const tools: Record<string, unknown> = { ...extraTools };
-  for (const [name, t] of Object.entries(p.tools)) tools[name] = { ...t.extra, ...(t.size !== undefined ? { size: t.size } : {}), ...(t.opacity !== undefined ? { opacity: t.opacity } : {}), ...(t.hardness !== undefined ? { hardness: t.hardness } : {}) };
-  const { tools: _t, ...rest } = p.extra;
-  return { ...rest, ...(p.color !== undefined ? { color: p.color } : {}), ...(Object.keys(tools).length ? { tools } : {}) };
+  const { tools, brushes: xb, active: xa, ...rest } = p.extra;
+  const brushes = mergeOut(xb, p.brushes, knobsJson), active = mergeOut(xa, p.active, (id) => id);
+  return { ...rest, ...(p.color !== undefined ? { color: p.color } : {}), ...(brushes !== undefined ? { brushes } : {}), ...(active !== undefined ? { active } : {}), ...(tools !== undefined && (!isRecord(tools) || Object.keys(tools).length) ? { tools } : {}) };
 }
 /** 参考窗的窗（视图态，CSS px）：WeebPaint / MoonSinger 同形 { open, left, top, width, height }。 */
 export interface RefPanelDoc { open: boolean; left: number; top: number; width: number; height: number; }
