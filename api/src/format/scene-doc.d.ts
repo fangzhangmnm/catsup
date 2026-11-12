@@ -21,7 +21,8 @@ export declare function sceneFromDocument(doc: CatsupDocument): Scene;
 /** 一个定义 → 文件形状（documentFromScene 和跨文件载荷的闭包同一份；name = 根用文件名）。 */
 export declare function definitionToDoc(scene: Scene, id: DefId, name?: string): DefinitionDoc;
 /** 场景 → 文档（base = 打开时的文档，保留未知携带内容 / 设置 / 视图）。 */
-export declare function documentFromScene(scene: Scene, name: string, base?: CatsupDocument | null): CatsupDocument;
+/** name：以前用来把根改成文件名，2026-11-13 起不再用（根和别的物体一样叫自己的名字）；调用的地方多（测试 / 冻样本脚本），签名先留着。 */
+export declare function documentFromScene(scene: Scene, _name: string, base?: CatsupDocument | null): CatsupDocument;
 export declare const materialFromDoc: (m: MaterialDoc) => Omit<Material, "guid"> & {
     guid: Guid;
 };

@@ -16,6 +16,8 @@ export interface BareFloatWinSpec {
         w: number;
         h: number;
     };
+    /** 第一次打开放哪：anchor（缺省）= 挨着钮；left = 靠左、让开左边的工具柱（跟着选中的东西变的面板，不是一块视图——user 11-12「画布小窗应该放在左侧而不是右侧？因为是context aware panel，不是viewport」）。 */
+    firstSide?: "anchor" | "left";
     onOpenChange?(open: boolean): void;
 }
 export interface BareFloatWin {

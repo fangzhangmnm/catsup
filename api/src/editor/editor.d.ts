@@ -416,6 +416,9 @@ export declare class Editor {
     /** 这一步已提交了几条 / 有没有失败过（一步 = 原子：中途有一条失败 → 这一步已提交的全部回滚、剩下的不再执行；2026-10-26）。 */
     private stepOps;
     private stepFailed;
+    private stepReason;
+    private stepBumped;
+    private _docRevision;
     private stepTouched;
     private stepBefore;
     private stepLabel;
@@ -526,6 +529,8 @@ export declare class Editor {
     get context(): EditContext;
     get renderer3(): RenderProvider;
     get revision(): number;
+    /** 文档的改动号（「有没有改动」/ 自动保存只看它，session）：跟 revision 一起加，但一步之内的先记着、成功收尾才算一次，失败的步不算（失败的一步什么都没改）。 */ get docRevision(): number;
+    private rev;
     canUndo(): boolean;
     canRedo(): boolean;
     /** 有任何选中（含参考几何）= 删除 / 取消选择 / 反选 / Esc 问这个；有工具能动的选中（点 / 边 / 面 / 组 / 组件）= 移动 / 旋转 / 缩放 / 建组 / 拷贝 / 镜像问这个。 */
@@ -749,6 +754,8 @@ export declare class Editor {
     private prepareOp;
     /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
     private commitIn;
+    /** 锁着（演示锁 / 物件锁）拒了这一条：和护栏拒绝一样，这一步整个不算——已提交的回滚、后面的不再做、原因收尾时写回状态栏（以前只跳过这一条，一步里有好几条时会落半步）。 */
+    private refuseStep;
     /** 一步中途失败：把这一步已经提交的 op 撤掉（回到这一步之前，连会话），丢掉重做队列，这一步剩下的提交一律不执行。 */
     private rollbackStep;
     private bump;
@@ -930,8 +937,6 @@ export declare class Editor {
      * 组不是物体，选中的组连同它下面的组一起算；组里放的组件看「含子物体」。
      */
     private repairScope;
-    /** 提示行的「作用于」那半句（披露）。 */
-    private scopeText;
     /** 修复模块（repairs/）用的窄接口：模块不碰 Editor 本体。 */
     private get repairCtx();
     /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
@@ -1006,7 +1011,6 @@ export declare class Editor {
     /** 估计超过这么多秒才问（量纲：秒；AI 定的门槛）。 */
     private static readonly ERASE_ASK_SECONDS;
     private eraseEstimate;
-    private eraseAskText;
     private repairNow;
     /** 「检查」的门槛：弯折 ≤ 这么多度的软边 = 看起来平、其实被折过（折线层是有意折的，不算）。量纲：度。 */
     private static readonly SUBTLE_FOLD_DEG;

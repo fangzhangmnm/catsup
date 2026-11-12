@@ -73,11 +73,17 @@ export declare class History<M = unknown> {
     private current;
     private labels;
     private recordOnly;
+    /** 一步里第一条提交成功时停放的重做尾巴（一步全有或全无，统筹 11-13）：这一步成功收尾 = discardParkedRedo 丢掉；失败回滚 = restoreParkedRedo 放回原处。 */
+    private parked;
     private readonly quota;
     private readonly components;
     private readonly host;
+    /** 停放的重做尾巴漏过了一步的次数（本该永远 0：开一步 / 撤销 / 重做 / 装载时还停着 = 某条路没收尾；探针断言 0）。 */
+    parkedLeaks: number;
+    private readonly onLeak?;
     constructor(base?: Scene, opts?: {
         quotaBytes?: number;
+        onLeak?: (where: string) => void;
     });
     /** 登记一种部件（以后的节点图 / 图片层 / 元数据）。重名 = 在登记处响亮失败（调用点的误用，不留到撤销时炸）。 */
     registerComponent(c: UndoComponent): void;
@@ -96,7 +102,7 @@ export declare class History<M = unknown> {
     /** 被配额驱逐、不能再撤的 op 数（披露用）。 */
     evictedCount(): number;
     /** 实时提交：应用 + 记账（新分支即清空 redo 尾巴）。join = 和上一条同一步；before = 新开一步时这一步之前的会话。失败抛 OpApplyError（不记账，带回提交前状态）。 */
-    commit(s: Scene, op: Op, join?: boolean, before?: M, label?: StepLabel): ApplyResult;
+    commit(s: Scene, op: Op, join?: boolean, before?: M, label?: StepLabel, inStep?: boolean): ApplyResult;
     /** 当前这一步（栈顶）的开头下标；没有步 = -1。 */
     private topStart;
     /** 封步：这一步结束时的会话（重做回到它）+ 可补标签。没有步 = 不做（规章定义的结果，不炸）。 */
@@ -140,6 +146,14 @@ export declare class History<M = unknown> {
     steps(): number;
     /** 被配额驱逐、撤不回去的**步**数（提示行「撤到头了（更早的 N 步超过配额）」）。 */
     evictedSteps(): number;
+    /** 把重做尾巴停放起来（这一步还没定成败）；已经停着一份 = 这一份是这一步自己的半截，直接丢。 */
+    private parkRedo;
+    /** 没有一步开着时停放的一定是空的（开一步 / 撤销 / 重做 / 装载前查）：不空 = 某条路没收尾——丢掉、计数、报给宿主。 */
+    checkParked(where: string): void;
+    /** 这一步成功收尾：停着的重做尾巴真正丢掉（释放撤销记录）。 */
+    discardParkedRedo(): void;
+    /** 这一步失败、已回滚到这一步之前：把停着的重做尾巴放回原处（失败的一步什么都没改，重做照旧）。 */
+    restoreParkedRedo(): void;
     /** 丢掉重做队列（游标之后的 op、会话记录、撤销记录）。一步做到一半失败、回滚之后用：那半截不许被重做出来。 */
     dropRedo(): void;
     /** 当前状态的独立重建（装载态 + 指令流全量重放，GUID 和当初一样；测试 / 校验用，不在热路径）。 */
