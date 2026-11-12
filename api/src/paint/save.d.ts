@@ -42,8 +42,18 @@ export declare class PaintSaver {
      * mode = "save"：版本变了的当场拷出来、finish 里编；"snapshot"：不现编，用缓存（没有缓存 = 贴图行里的 / 空白的），画板比缓存新 = stale。
      */
     freeze(doc: CatsupDocument, scene: Scene, mode: "save" | "snapshot"): PaintFrozen;
+    /** 钉点的同步那一段：这几行贴图里每张画这一次的来源定死（freeze / prime / refresh 共用；只吃贴图行，不吃整份文档）。 */
+    private pin;
+    /** 钉点的异步那一段：钉下来的变成字节，按传进来的顺序交回新的贴图行（编了的进缓存）。编码出错 = 抛（说是哪张画）。 */
+    private realizeRows;
     /** 有画板、比缓存新的那几张先编进缓存（崩溃快照之前、切后台时；跟自动保存同一个节奏，不单开定时器——统筹 11-11）。都是新的 = 什么都不做。 */
     refresh(scene: Scene): Promise<void>;
+    /**
+     * 画板要睡了（施工单十九第 3 刀，PaintBoards.beforeSleep）：它比缓存新 = 趁醒着同步钉一份（分层的冻结拷贝 + 整张合成读回，和存盘同一个钉点），
+     * 后台编进缓存；之后存盘碰到这块睡着的画板直接用缓存、不用叫醒。缓存已经是新的 / 不是画 = null（什么都不做）。
+     * 编码失败只回一个失败的 Promise（调的人记日志）：存盘时照常当场钉（叫醒、合、读回、再睡），不会因此丢东西。
+     */
+    prime(scene: Scene, texture: Guid): Promise<void> | null;
     /** 一张画钉下来的东西变成字节；编了的进缓存（只在比缓存里的新时替换）。 */
     private realize;
     /** 空白的分层字节（一层空的；按宽高只编一次）。 */

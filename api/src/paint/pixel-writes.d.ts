@@ -1,13 +1,24 @@
-export type PixelRule = {
+/** 画板睡着时这个口怎么办（见头注释）。 */
+export interface AsleepRule {
+    readonly asleep: "gpu" | "memory" | "via";
+    readonly how: string;
+}
+export type PixelRule = ({
     readonly kind: "asks-lock";
     readonly how: string;
-} | {
+} & {
+    readonly sleep: AsleepRule;
+}) | ({
     readonly kind: "via";
     readonly from: string;
-} | {
+} & {
+    readonly sleep: AsleepRule;
+}) | ({
     readonly kind: "load";
     readonly why: string;
-} | {
+} & {
+    readonly sleep: AsleepRule;
+}) | {
     readonly kind: "no-pixels";
     readonly why: string;
 };

@@ -1,6 +1,7 @@
 import type { Gl2Port } from "./kernel/src/common/gl2-port.ts";
 import type { LiveImage, TextureRef } from "../minccino/contract/stream.ts";
 import { PaintBoard } from "./board.ts";
+import { type SharedTilePool } from "./kernel/src/backend/gl/shared-tile-pool.ts";
 import { HostedSteps } from "./kernel/src/backend/workpiece/hosted-steps.ts";
 import type { UndoComponent } from "../editor/history.ts";
 import type { Scene } from "../scene/scene.ts";
@@ -32,6 +33,14 @@ export declare const PAINT_UNDO_KIND = "paint";
 export declare class PaintBoards {
     private readonly entries;
     private port;
+    /** 这份文件合用的显卡图块池（第一块画板建时建；换文件时画板全扔了再退）。 */
+    private pool;
+    /** 正在编辑的那几张（画画工作台每帧说；空 = 都不在编辑）。 */
+    private editing;
+    /** 第几次准备（醒睡按它判「这一帧刚交出新版本」）。 */
+    private frame;
+    /** 画板要睡之前（存盘那边趁醒着钉一份：main.ts 接 PaintSaver.prime）。 */
+    beforeSleep: ((texture: Guid) => void) | null;
     private epochSeen;
     private sigCache;
     private readonly o;
@@ -56,6 +65,19 @@ export declare class PaintBoards {
         diff: number;
         box: readonly [number, number, number, number] | null;
     } | null;
+    /** 该醒着：正在编辑、或者一笔开着。 */
+    private awake;
+    /** 准备的末尾：不该醒着的睡回去（这一帧刚交出新版本的等渲染器拷完、下一帧再睡）。睡之前存盘那边钉一份。 */
+    private sleepIdle;
+    /** 正在编辑哪几张（画画工作台每帧说；不在画画工作台 = 空）。不在里面的、没开着一笔的，下一次准备的末尾睡下。 */
+    setEditing(textures: Iterable<Guid>): void;
+    /** 量（探针 / 读数）：合用池的报数 + 醒着几块、睡着几块、一共叫醒过几次。 */
+    gpuStats(): {
+        pool: SharedTilePool["stats"] | null;
+        awake: number;
+        asleep: number;
+        wakes: number;
+    };
     /** 上一次「准备」两段（量；毫秒）：这一帧的准备活（薄层）/ 内核合成（含缩小图）。 */
     lastPrepare: {
         jobsMs: number;

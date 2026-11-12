@@ -1,9 +1,12 @@
 import { DirtyCells } from "./kernel/src/common/dirty-rects.ts";
 import { PaintingWorkpiece, type PaintingData } from "./kernel/src/backend/workpiece/painting-workpiece.ts";
 import { GLBoard } from "./kernel/src/shell/gl-board.ts";
+import type { SharedTilePool } from "./kernel/src/backend/gl/shared-tile-pool.ts";
 import type { ExternalImage, ExternalTexture, Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
 import type { StepSink } from "./kernel/src/backend/workpiece/undo-stack.ts";
 import { StrokeSession } from "./kernel/src/backend/stroke-session.ts";
+/** 显存预算（和画画软件的后端同一个数）：图块池按需长，长到这个顶。施工单十九第 3 刀起是一份文件合用的那个池的顶（PaintBoards 建池时用；只有正在编辑的画板醒着占片）。 */
+export declare const PAINT_GPU_BUDGET_BYTES: number;
 export interface PaintBoardOpts {
     /** 内核的显卡接口（整个程序一个，建在渲染器的画面上）。 */
     readonly port: Gl2Port;
@@ -15,6 +18,13 @@ export interface PaintBoardOpts {
     readonly log?: (msg: string) => void;
     /** 文件锁着吗（锁着 = 交出给人看的那句理由，能改 = null）。开一笔、落层都问它（v0.19.48）。缺 = 当没锁（单测）；app 里由 PaintBoards 递进来，守卫 test/paint-pixel-writes.test.ts。画板不认识编辑器。 */
     readonly locked?: () => string | null;
+    /** 几块画板合用的显卡图块池（施工单十九第 3 刀：一份文件一个，PaintBoards 建、换文件退租）。缺 = 自己开一个（单测）。 */
+    readonly pool?: SharedTilePool;
+    /**
+     * 在每帧准备的合成之外动过显卡之后叫（借一下显卡、睡下）：渲染器和内核共用一个 GL 画面，内核动过 GL，渲染器记着的绑定就不对了，要作废一次
+     * （render3.resetPaintState）。准备里的合成由登记处统一叫。缺 = 不叫（单测）。
+     */
+    readonly touched?: () => void;
 }
 /** 画布上一块（格子；[x, x + w) × [y, y + h)）。 */
 export interface ChangedRect {
@@ -27,10 +37,12 @@ export interface ChangedRect {
 export type Changed = DirtyCells | "all";
 export declare class PaintBoard {
     readonly wp: PaintingWorkpiece;
+    /** 内核的画板。**只经 gpu() 拿**（睡着就先叫醒；守卫 test/paint-board-sleep.test.ts 查这个文件里别处不碰它），睡 / 退租除外。 */
     private readonly gl;
     private readonly port;
     private readonly log;
     private readonly locked;
+    private readonly touched;
     private bg;
     /** 合成出来的那张图（内核的，下一次合成之前有效）+ 合成它时的内容键。 */
     private last;
@@ -127,6 +139,25 @@ export declare class PaintBoard {
     /** 现在的底色（sRGB 0..1，三个数）。 */
     get background(): readonly [number, number, number];
     dispose(): void;
+    /** 显卡那一半睡着吗。 */
+    get asleep(): boolean;
+    /** 一笔正开着（薄层还垫着）：不许睡。 */
+    get strokeOpen(): boolean;
+    /** 显示的那一版过期了（内容 / 底色 / 薄层在上一次交出去之后变过）：要合成一次才对。睡着的画板靠它决定要不要醒来合一次（撤销、跟大小、装载都只动内存）。 */
+    get displayStale(): boolean;
+    /** 叫醒了几次（量；探针看来回切物件时醒睡的次数）。 */
+    wakes: number;
+    /** 睡。一笔开着 = 抛（宿主先收笔 / 取消）。睡两次没事。 */
+    sleep(): void;
+    /** 要用显卡：睡着就先叫醒。 */
+    private gpu;
+    /** 借一下显卡（存盘读回、吸色）：原来睡着的，用完睡回去（一笔开着时不会是睡着的）。 */
+    private borrowGpu;
+    /** 合成一次（三个口共用）；记下这一次给内核的薄层有没有（睡之前要清）。 */
+    private composite;
+    private glHasOverlay;
+    /** 最近一次交给显示那一侧的那一版的内容键（compose / verifyFull 交出时记；存盘读回不算：它不换显示的那一版）。 */
+    private shownKey;
     private tree;
     /** 所有图层内容的并（紧的）：null = 全空。 */
     /** 所有图层有内容的范围合在一起（全空 = null）；存盘裁高用（1-8b）。 */
