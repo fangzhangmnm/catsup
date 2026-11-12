@@ -74,6 +74,7 @@ user 随后（11-13）：「cursed bear」「熊和小红帽可以测试自动�
 | 小红帽 | `littlered.glb` | 检疫目录 `~/jupyter/third-party/catsup-user-models/` |
 | 熊（cursed bear，被诅咒的熊） | 精简版：吼叫一帧烤进网格，392 个三角形，256² 贴图，自带贴图坐标 | 家族根的 Shader 实验室 `assets/characters.js` 里内嵌的 base64（要先解出来）。原件在检疫区 `~/jupyter/third-party/onedrive-3d/2026/20260219 cursed bear/`，不用动 |
 | 角色中模 | 可莉（`klee.js`，要先解出来）、`wip2020.glb`、`wip2021.glb` | 可莉在家族根的 Shader 实验室 `assets/models/`；另两份在检疫目录 |
+| 建筑（user 11-13：「brep的建筑也是一个例子，可以试一下elf haven」） | Elf Haven 烘好的那份：一个物件、35795 个三角形、一张 1024² 的图（颜色和光烘在一起，图用了 46%），自带一套贴图坐标 | 检疫区 `~/jupyter/third-party/onedrive-3d/2023/20230503_Anime Bedroom/SimpleBake_Bakes_Day/Elf Haven/Elf Haven.glb`，只读。原件 `2022/20221003_ElfHaven/ElfHaven.blend` 这台机器读不了（没有 Blender） |
 | 坦克（很痛的边界） | Shader 实验室里程序生成的那辆：精细坦克（带面板细节，零件很多），另有简陋坦克 196 个三角形 | 实验室的生成代码里，没有现成的文件，要跑生成代码导出一份。（统筹一开始对成了检疫区里 Metasequoia 示例转的 `tank.glb`，对错了，同日更正；那一份是第三方的，想多一个样本可以用，不是 user 说的这辆） |
 
 - 用法照第四节第 0 刀那句：路径用参数给，不写死在仓里，不进 `npm test`、不进每次都跑的探针；模型文件不进三维仓。
