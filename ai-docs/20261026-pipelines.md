@@ -334,7 +334,7 @@ flowchart LR
 
 ## 追记 2026-11-03（v0.18.21，Claude Opus 5.5；家族工单 C2）：崩溃影子这一帧写什么 + 黑匣子总闸 + 封面作废 + 全部导出
 
-- **崩溃影子**（`tick` 空闲 30 s / `flushForHide` / `prepareForRedirect` → `session.snapshot`）：不叠（`snapRun`，封口要跑 7z；redirect 帧等前一帧落完）→ `encode()` O(模型) → `shadowFrame`（`shadow-seal.ts`，这里决定写什么）：普通模型 = 原字节；解开的加密件（`seal`）= 同一口令封成容器（7z，O(模型)；小模型实测 419 ms，主线程）；口令忘掉了 = 这一拍不写，这一版记过不再试，说一次 → `crashStore.put`（session 里只此一处，守卫核）。
+- **崩溃影子**（`tick` 空闲 30 s 且手上没有一下没收 / `flushForHide` / `prepareForRedirect` → `session.snapshot`）：不叠（`snapRun`，封口要跑 7z；redirect 帧等前一帧落完）→ `encode()` O(模型) → `shadowFrame`（`shadow-seal.ts`，这里决定写什么）：普通模型 = 原字节；解开的加密件（`seal`）= 同一口令封成容器（7z，O(模型)；小模型实测 419 ms，主线程）；口令忘掉了 = 这一拍不写，这一版记过不再试，说一次 → `crashStore.put`（session 里只此一处，守卫核）。
 - **恢复**（`crash-recovery` → `adoptRecovered`）：字节是容器 → 问口令（取消 = 记录放回）→ 解开后只当临时模型、带着 `seal`，**不走** `<名>-恢复` 进图库。不是容器 → 照旧。
 - **黑匣子**（`debug-log.ts` 的 `record` / `note`）：写入前一律过 `noCoords`（三元组和 JSON 的 x/y/z）；`traceLine` 的失败行 = 动词 + 条数 + 大致字节数，不序列化 op。复现钥匙留在内存的 repro 盒。
 - **加密 / 解除**（`encryptCurrent` / `decryptCurrent` 成功后）→ `thumbChanged` → `galleryHost.invalidateThumb`：图库没挂也先挂上再清（否则空操作，明文封面留在缩略库）。图库卡片菜单的加密走库自己的动词，库本来就清。
@@ -346,7 +346,7 @@ flowchart LR
 
 | 时机 | 走哪条 | 落本地 | 推 |
 |---|---|---|---|
-| 空闲 30 s 且脏（`tick`） | `save({ implicit })` | ✓ | 在线且登录 |
+| 空闲 30 s 且脏且手上没有一下没收（`tick`；「手上」= `controller/hand-busy.ts` 的名册：编辑器的手势、画画的一笔，2026-11-11） | `save({ implicit })` | ✓ | 在线且登录 |
 | 切走窗口 / 切后台（`flushForHide`） | `save({ implicit })`，脏或待推才做 | ✓ | 在线且登录（**C3 起**；以前只落本地） |
 | 待推没推成（`tick` + `shouldRetryPush`） | `save({ implicit })` | 重写一遍 | 页面可见、在线、登录、没有真分叉；节奏 30 s，推成或刚回线清零（**C3 起**） |
 | 点「有新版本」/ 强制更新（`flushBeforeReload`） | 脏 → `save({ implicit, localOnly })`（不设时限）→ 待推 → `save({ implicit })` 最多等 5 s | 脏才写 | ✓（**C3 起**）；干净的模型什么都不做（以前无条件写，干净的也标脏） |

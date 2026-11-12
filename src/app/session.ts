@@ -42,6 +42,7 @@ import { shadowFrame, type ShadowSeal } from "./shadow-seal.ts";
 /** 规则书 §1 第 5 条（user 11-03）：加密作品的明文出门，这句话必经。 */
 const PLAIN_NOTE = "这份是明文、没有加密";
 import { shouldRetryPush } from "./push-retry.ts";
+import type { HandRoster } from "../controller/hand-busy.ts";
 
 interface FSHandle { readonly name: string; createWritable(): Promise<{ write(b: Blob): Promise<void>; close(): Promise<void> }>; getFile(): Promise<File> }
 const fsa = window as unknown as {
@@ -72,6 +73,8 @@ export interface RefsPort {
 
 export interface SessionDeps {
   editor: Editor;
+  /** 手上还有没有一下没收（controller/hand-busy.ts 的名册：编辑器的手势、画画的一笔……）。自动保存 / 崩溃快照 / 重推只问它，不点具体来源（统筹 11-11；守卫 test/hand-busy.test.ts）。 */
+  hand: Pick<HandRoster, "busy">;
   /** 这份从没传过、人还没答应传：隐式保存只落本机（规则书第 15 条 (a)）。缺 = 不压。 */
   pushHeld?: (path: string) => boolean;
   /** 人按了「存」= 同意传这一份（压着的放开）。 */
@@ -304,14 +307,15 @@ export class Session {
     this.wasOnline = online;
     const rev = this.d.editor.revision, rr = this.refRev();
     if (rev !== this.lastSeenRevision || rr !== this.lastSeenRefRev) { this.lastSeenRevision = rev; this.lastSeenRefRev = rr; this.lastEditAt = Date.now(); this.d.onHomeChanged(); }
-    // T-crash / 自动保存（图库家）：空闲 30 s 且脏且不在手势中 → 落本地（在线且登录则一并推云）
-    const idle = !this.saving && !this.d.editor.isGestureActive() && Date.now() - this.lastEditAt >= AUTOSAVE_IDLE_MS;
+    // T-crash / 自动保存（图库家）：空闲 30 s 且脏且手上没有一下没收（编辑器的手势、画画的一笔……都算，统筹 11-11）→ 落本地（在线且登录则一并推云）
+    const handBusy = this.d.hand.busy();
+    const idle = !this.saving && !handBusy && Date.now() - this.lastEditAt >= AUTOSAVE_IDLE_MS;
     if (this.home.kind === "gallery" && !this.lazy && this.dirty() && idle) {
       void this.save({ implicit: true });
     } else if (this.localHomeKind() && this.luggage && this.dirty() && this.snapDue() && idle) {
       void this.refreshThenSnapshot();   // file / transient 家：画的缓存旧了先编（跟自动保存同一个节奏，1-8b），再盲快照进 crash-store（附加层，best-effort）
     } else if (this.home.kind === "gallery" && !this.lazy && !this.dirty() && shouldRetryPush({
-      pushPending: this.pushPending, attention: !!this.attention, saving: this.saving, gesture: this.d.editor.isGestureActive(),
+      pushPending: this.pushPending, attention: !!this.attention, saving: this.saving, gesture: handBusy,
       visible: document.visibilityState === "visible", online: isFolderHome() ? folderHomeOnline() : online, signedIn: isFolderHome() || auth.isSignedIn(), lastTryAt: this.lastPushTryAt, now: Date.now(), held: this.d.pushHeld?.(this.home.path) ?? false,
     })) {
       this.lastPushTryAt = Date.now();

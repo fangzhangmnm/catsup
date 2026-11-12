@@ -15,6 +15,7 @@ import { inputGate, installInputDom } from "./input-dom.ts";
 import { planeLockLabel } from "../editor/locks.ts";
 import { snapSwitchLook, snapSwitchSay } from "../editor/grid-state.ts";
 import { PICK_KINDS, pickAfter, pickSay, type PickKind, type PickSet } from "../controller/pick-kinds.ts";
+import { createHandRoster } from "../controller/hand-busy.ts";
 import { type Ladder, allReminders, loadLadder } from "../editor/scale-ref.ts";
 import { SCALE_TIP_MAX, scaleTipHtml } from "./scale-tip.ts";
 import { type ChoiceOption, multiSummary, openMultiSelect } from "./ui/choice-layer.ts";
@@ -1768,8 +1769,13 @@ function mirrorPaintDesk(): void {
 }
 editor.config.subscribe((tool) => { if ((PAINT_DESK_TOOLS as readonly string[]).includes(tool)) mirrorPaintDesk(); });
 paintColor.subscribe(mirrorPaintDesk);
+// 手上还有没有一下没收（controller/hand-busy.ts）：会话的自动保存 / 崩溃快照 / 重推只问这张名册。加一种来源 = HAND_SOURCES 一个名字 + 这里一行（守卫 test/hand-busy.test.ts）
+const hand = createHandRoster();
+hand.add({ source: "editor.gesture", busy: () => editor.isGestureActive() });   // 编辑器的工具手势（拖到一半、点了第一下等第二下……）
+hand.add({ source: "paint.stroke", busy: () => !!paintWb?.stroking });   // 画画工作台按着的一笔（1-7）
 const session = new Session({
   editor,
+  hand,
   paintSave: paintSaver,
   pushHeld: (path) => pushHoldAll || heldNeverUploaded.has(path),
   onExplicitSave: (path) => { heldNeverUploaded.delete(path); },
@@ -2672,7 +2678,7 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
       const hit = pickSurface(k, cellAtGrid.grid, place.uvSet.guid, applyPt(X, r.origin), applyDir(X, r.dir));
       return hit && hit.inPaint ? { face: hit.face, cell: hit.cell, uv: hit.uv } : hit ? { face: hit.face } : null;
     },
-  }, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore, test: { openConfirmSheet, openInputSheet, toggleHelp, toggleMatSheet, openDebugLogSheet, openSyncGate, withBusy, inputGate },
+  }, locomotion, vr, hud, session, hand, galleryHost, refs: refHost, crash: crashStore, test: { openConfirmSheet, openInputSheet, toggleHelp, toggleMatSheet, openDebugLogSheet, openSyncGate, withBusy, inputGate },
   gate: { cloudGate, tune: gateTune, isUserOffline },
   // 图库的家（探针 test/probes/probe-folder-home.mjs 用）：openGallery = 用户点「图库」那条路；legacyFiles = 另开一个离线实例数以前那个库（不看退役旗）
   home: { openGallery: () => openGalleryFromUi(), state: () => currentHomeState(), folder: () => folderHomeLabel(), online: () => folderHomeOnline(), browserOnly: () => browserOnlyCount,
