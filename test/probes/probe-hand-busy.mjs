@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // probe-hand-busy.mjs —— 一笔当中不自动保存、不拍崩溃快照（「手上还有没有一下没收」的名册，controller/hand-busy.ts；统筹 11-11）。created 2026-11-11 by Claude Opus 5.5
-// 以前会话判断「空闲」只问编辑器的手势，画画工作台的一笔不在里面：上一次改动过了 30 秒再接着画一长笔，自动保存可能落在这一笔中间。
-// 真的编辑器 + 真的会话 + 真的画画工作台（笔走 workbench.pointer = 画画控制器真的那条路，和鼠标 / 笔一样）；无头 swiftshader。
+// 会话判断「空闲、可以自动保存 / 崩溃快照」只问名册（手上还有没有一下没收：编辑器的手势、画画的一笔……），不再直接问编辑器。
+// 真的编辑器 + 真的会话 + 真的画画工作台；A / B 的笔走真的 PointerEvent（笔 → 编辑器的画画工具 → 画画控制器，和人画一样），C 绕开编辑器直接调画画控制器（调试钩子那条路）；无头 swiftshader。
+// 更正（同日）：真的笔画一笔时编辑器本来就算在手势中，旧的问法在 A / B 上也挡得住；只有 C 那条路以前挡不住（v0.19.45 的提交说明说「以前真会在一笔当中存」是验错了路）。
 // 会话每秒一拍（tick）；「上次改动多久了」直接拨会话的 lastEditAt（不真等 30 秒），每一拍手动走 + 另外真等两秒多让定时器自己也走几拍。
 //   A 临时家（开机没选家）= 崩溃快照那条路：笔按着、上次改动已经过了 31 秒、脏、该拍 → 一拍都不拍、画也不编；抬笔 → 这一下本身算改动，空闲再满 30 秒才拍；拍的时候画的缓存 = 带着这一笔的那一版。
 //   B 文件夹图库家 = 自动保存那条路：同样；存完刷新 → 画 = 存之前（逐字节）。另外记一笔当中按 Ctrl+S 现在是什么行为（只记、不判，统筹要现状）。
@@ -58,8 +59,15 @@ const enterBox = (S) => S(() => {
   e.exitTo(0); e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected();
   e.cam.setView("top"); e.zoomExtents(); e.draw();
 });
-/** 笔在盒子顶面上：落下 / 走 n 步 / 抬起（画画控制器真的那条路；每步画一帧）。y = 顶面上哪一行（0–1）。 */
+/** 笔在盒子顶面上：落下 / 走 n 步 / 抬起。真的 PointerEvent（笔 → 编辑器的画画工具 → 画画控制器，和人画一样；每步画一帧）。y = 顶面上哪一行（0–1）。 */
 const pen = (S, phase, y, i = 0) => S(([phase, y, i]) => {
+  const C = globalThis.__catsup, e = C.editor, a = e.cam.project({ x: 0.2, y, z: 1 }, e.vp()), b = e.cam.project({ x: 0.8, y, z: 1 }, e.vp());
+  const t = Math.min(1, i / 12), x = a.x + (b.x - a.x) * t, yy = a.y + (b.y - a.y) * t, c = document.getElementById("board"), r = c.getBoundingClientRect();
+  c.dispatchEvent(new PointerEvent({ down: "pointerdown", move: "pointermove", up: "pointerup" }[phase], { pointerId: 5, pointerType: "pen", clientX: r.left + x, clientY: r.top + yy, bubbles: true, cancelable: true, isPrimary: true, buttons: phase === "up" ? 0 : 1, pressure: phase === "up" ? 0 : 0.5 }));
+  e.draw();
+}, [phase, y, i]);
+/** 同样的一笔，但绕开编辑器、直接调画画控制器（调试钩子那条路）：钉住名册的 paint.stroke 那一行自己挡得住（编辑器的手势这时候是假的）。 */
+const penDirect = (S, phase, y, i = 0) => S(([phase, y, i]) => {
   const C = globalThis.__catsup, e = C.editor, a = e.cam.project({ x: 0.2, y, z: 1 }, e.vp()), b = e.cam.project({ x: 0.8, y, z: 1 }, e.vp());
   const t = Math.min(1, i / 12), x = a.x + (b.x - a.x) * t, yy = a.y + (b.y - a.y) * t;
   C.paint.workbench.pointer({ tool: "paintPen", phase, x, y: yy }); e.draw();
@@ -96,11 +104,12 @@ console.log("\nA 临时家（开机没选家）：一笔当中不拍崩溃快照
   await S(() => globalThis.__catsup.session.tick());   // 会话看见这一笔（上次改动 = 现在）
   await watch(S);
   await pen(S, "down", 0.6); await pen(S, "move", 0.6, 1);   // 笔 B 按下去
-  check((await S(() => globalThis.__catsup.paint.workbench.stroking)) && (await S(() => globalThis.__catsup.hand.which())) === "paint.stroke", "笔 B 按着：名册说手上有一下没收（画画的一笔）");
+  const who = await S(() => ({ stroking: globalThis.__catsup.paint.workbench.stroking, busy: globalThis.__catsup.hand.busy(), which: globalThis.__catsup.hand.which(), gesture: globalThis.__catsup.editor.isGestureActive() }));
+  check(who.stroking && who.busy, `笔 B 按着：名册说手上有一下没收（${who.which}；真的笔走编辑器的画画工具，编辑器也算手势中 = ${who.gesture}）`, JSON.stringify(who));
   await zero(S);
   await idleTicks(page, S, { moving: true, y: 0.6, from: 1 });
   const w1 = await why(S), c1 = await counts(S);
-  check(w1.dirty && w1.snapDue && !w1.saving && w1.luggage && w1.idleFor >= 30, `别的条件都满足（脏、该拍、没在存、有行李牌、上次改动 ${w1.idleFor} 秒前）= 以前这一拍就会拍`, JSON.stringify(w1));
+  check(w1.dirty && w1.snapDue && !w1.saving && w1.luggage && w1.idleFor >= 30, `别的条件都满足（脏、该拍、没在存、有行李牌、上次改动 ${w1.idleFor} 秒前）= 只差「手上有一下没收」这一条`, JSON.stringify(w1));
   check(c1.snapshot === 0 && c1.refresh === 0 && c1.freeze === 0 && c1.save === 0, `一笔当中：快照 ${c1.snapshot}、画的编码 ${c1.refresh + c1.freeze}、保存 ${c1.save}（都该是 0）`, JSON.stringify(c1));
   await pen(S, "up", 0.6, 12);
   const revUp = await S(() => { const s = globalThis.__catsup.session; s.tick(); return Math.round((Date.now() - s.lastEditAt) / 1000); });
@@ -138,7 +147,7 @@ console.log("\nB 文件夹图库家：一笔当中不自动保存；抬笔后空
   await zero(S);
   await idleTicks(page, S, { moving: true, y: 0.6, from: 1 });
   const w1 = await why(S), c1 = await counts(S);
-  check(w1.dirty && !w1.saving && w1.home === "gallery" && !w1.lazy && w1.idleFor >= 30, `别的条件都满足（脏、没在存、图库家、不是空白、上次改动 ${w1.idleFor} 秒前）= 以前这一拍就会存`, JSON.stringify(w1));
+  check(w1.dirty && !w1.saving && w1.home === "gallery" && !w1.lazy && w1.idleFor >= 30, `别的条件都满足（脏、没在存、图库家、不是空白、上次改动 ${w1.idleFor} 秒前）= 只差「手上有一下没收」这一条`, JSON.stringify(w1));
   check(c1.save === 0 && c1.freeze === 0 && c1.refresh === 0, `一笔当中：保存 ${c1.save}、画的编码 ${c1.freeze + c1.refresh}（都该是 0）`, JSON.stringify(c1));
   // 一笔当中按 Ctrl+S：只记现状（统筹 11-11「查一下现状报我，这次先不改」）
   await zero(S);
@@ -167,6 +176,26 @@ console.log("\nB 文件夹图库家：一笔当中不自动保存；抬笔后空
   await page.waitForFunction((g) => globalThis.__catsup.paint.state(g) === "hot", g, { timeout: 15000 }).catch(() => {});
   const reopened = await paintHash(S, g);
   check(reopened === afterUp, `刷新重开：画 = 自动存之前那一版（带着笔 B）`, JSON.stringify({ reopened, afterUp }));
+  await ctx.close();
+}
+
+// ---------- C 绕开编辑器的那条路（调试钩子）：名册的 paint.stroke 那一行自己挡得住 ----------
+console.log("\nC 绕开编辑器、直接调画画控制器（调试钩子那条路；编辑器的手势这时是假的）：一笔当中照样不拍");
+{
+  const { ctx, page, S } = await open();
+  const g = await boxAndStart(page, S);
+  await penDirect(S, "down", 0.3); for (let i = 1; i <= 12; i++) await penDirect(S, "move", 0.3, i); await penDirect(S, "up", 0.3, 12);
+  await S(() => globalThis.__catsup.session.tick());
+  await watch(S);
+  await penDirect(S, "down", 0.6); await penDirect(S, "move", 0.6, 1);
+  const who = await S(() => ({ which: globalThis.__catsup.hand.which(), gesture: globalThis.__catsup.editor.isGestureActive() }));
+  check(!!g && who.which === "paint.stroke" && !who.gesture, `只有名册的 paint.stroke 那一行说忙（编辑器的手势 = ${who.gesture}）`, JSON.stringify(who));
+  await zero(S);
+  await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); s.tick(); });
+  for (let k = 0; k < 4; k++) { await page.waitForTimeout(500); await penDirect(S, "move", 0.6, 2 + k); await S(() => { const s = globalThis.__catsup.session; s.lastEditAt = Date.now() - 31000; s.tick(); }); }
+  const w = await why(S), c = await counts(S);
+  check(w.dirty && w.snapDue && w.idleFor >= 30 && c.snapshot === 0 && c.refresh === 0 && c.freeze === 0, `一笔当中：快照 ${c.snapshot}、画的编码 ${c.refresh + c.freeze}（别的条件都满足：脏、该拍、上次改动 ${w.idleFor} 秒前）`, JSON.stringify({ w, c }));
+  await penDirect(S, "up", 0.6, 12);
   await ctx.close();
 }
 

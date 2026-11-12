@@ -1,6 +1,7 @@
 {
  "note": "改了哪里 → 建议跑哪些探针（测试分档第四节；ai-docs/20261110-test-tiers.md）。npm run test:changed 末尾按这张表提醒，不自动跑。when = 路径前缀；以 /* 结尾 = 只算这个文件夹里直接的文件。每条只挑几个最有代表性的，不求全；改到某一块、心里清楚还碰到哪个探针，照样点名跑。脚本和人都读这一份；守卫 test/test-tiers-guard.test.ts 查每个探针、每个前缀都存在。created 2026-11-10 by Claude Opus 5.5",
  "rules": [
+  { "when": ["src/paint/save.ts", "src/paint/board.ts", "src/app/session.ts", "src/app/paint-workbench.ts", "src/editor/modes/paint.ts"], "probes": ["probe-mid-stroke-save.mjs"], "why": "一笔当中存盘（失焦 / 切后台再 pointercancel / 关页 / 临时家的崩溃快照），存出来的自己一致：落定版本 = 笔之前、合成图逐字节 = 笔之前的整张合成（没有半笔）、文件和快照里就是这份字节、存完接着画核对对上（统筹 11-11）" },
   { "when": ["src/controller/hand-busy.ts", "src/app/session.ts", "src/app/paint-workbench.ts"], "probes": ["probe-hand-busy.mjs"], "why": "一笔当中不自动保存、不拍崩溃快照（手上还有没有一下没收的名册，统筹 11-11）：临时家 / 文件夹图库家各一遍、抬笔后空闲满 30 秒才存、存下来带着这一笔（刷新对字节）" },
   { "when": ["src/editor/surface-assign.ts", "src/editor/modes/surface.ts"], "probes": ["probe-mesh-bucket.mjs"], "why": "油漆桶（表面工作台；W-12 起也管网格体的面）" },
   { "when": ["src/controller/lock-drag.ts", "src/editor/tools/mesh-grab.ts", "src/editor/tools/mesh-transform.ts", "src/editor/tools/mesh-pull.ts"], "probes": ["probe-lock-plane-drag.mjs"], "why": "拖动的位移（锁面跟手，W-13）" },
