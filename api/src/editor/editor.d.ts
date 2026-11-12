@@ -72,6 +72,8 @@ export interface ToolPointer {
     altKey?: boolean;
     /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。缺省 = 本帧 distTo（editor.movedSinceDown）。 */
     travel?: number;
+    /** 事件自己发生的时间（ms，PointerEvent.timeStamp）：抬笔结算按它算停了多久（controller/lift-settle.ts）。键盘起手 / 程序造的没有。 */
+    at?: number;
 }
 /** 记账面包屑（调试日志；op 一行一条）。 */
 export type EditorTrace = {
@@ -1349,10 +1351,7 @@ export declare class Editor {
     /** 取点悬停（无手势）：画面平面 + 吸附（迟滞）+ 充能。内建的画线 / 矩形 / 圆 / 移动与模块工具共用。 */
     private hoverSnap;
     private recordSample;
-    /**
-     * 抬笔结算（A21）——按物理过程判：样本按「同一处」（HOLD_PX 内）分成一段段停留。松开处停留 ≥ FINAL_HOLD_MS → 有意，用松开帧；
-     * 否则回看 RELEASE_WINDOW_MS 内结束的停留，取最长的那段（≥ MIN_DWELL_MS 且比松开处停得久）= 用户对齐时停住的地方；都没有 → 松开帧。
-     */
+    /** 抬笔结算（A21）：松手那一下用哪个样本当落点（算法和时钟 = controller/lift-settle.ts）。 */
     private settledSample;
     /** 意图门开关：屏上拖够 eps.drag 才有意图（intent.ts hasIntent）。 */
     private intentOn;

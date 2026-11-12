@@ -63,6 +63,7 @@ export interface PopupMenuHandle {
     isOpen(): boolean;
 }
 export declare function closePopupMenu(): void;
+/** 开着 = 记着的那个菜单自己说开着、而且它的元素还在页面上（被别处删了 = 当它关了：闸不能因为一块不在了的菜单吞键盘；2026-11-11 名册审计，v0.19.50）。 */
 export declare function isPopupOpen(): boolean;
 export declare function togglePopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): PopupMenuHandle | null;
 export declare function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): PopupMenuHandle;
