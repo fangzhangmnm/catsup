@@ -21,6 +21,7 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   // 只合成（0-5）
   "src/shell/gl-board.ts": ["GLBoard"],   // 只合成、不上屏
   // 只合成改到的那些格（1-4d 第 6 条，内核 v0.14.79，统筹 11-11 点头）
+  "src/common/tile-geometry.ts": ["TILE_SIZE"],   // 图块边长：显卡内存清单（open-memory.ts）按它算图块池和索引小图多大（施工单十九第 1 刀）
   "src/common/dirty-rects.ts": ["DirtyCells", "DirtyRect"],   // 脏格子位图：薄层直接标格、画板的变化史存它、渲染器拷显示图和缩小图逐级 half；外来薄层的 markChanged 报它的行段
   "src/backend/gl/gl-doc-bridge.ts": ["DocNode"],   // 合成的输入
   // 画板 = 内核的一份作品（1-3c）
