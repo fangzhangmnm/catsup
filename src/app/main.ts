@@ -245,10 +245,10 @@ const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.is
 let _session: Session | null = null;   // editor.host.changed 要同步喂 session（lazyblank 首笔安家）；session 在 editor 之后才建
 installInputDom();   // 输入闸的门口：window 捕获监听按注册先后跑，要排第一（ai-docs/20261105-input-gate-design.md）
 // 画的撤销（贴图主线 1-8a）：编辑器比画板登记处先建，宿主钩子经这两个转接（登记处建好之后赋值）
-let paintAfterCommit: (() => void) | null = null, paintBeforeHistoryMove: (() => void) | null = null;
+let paintAfterCommit: (() => void) | null = null, paintBeforeHistoryMove: (() => boolean) | null = null;
 const editor = new Editor(canvas, {
   afterCommit: () => paintAfterCommit?.(),   // 每条指令提交完：画板跟大小、内核封的那几步挂进这一步
-  beforeHistoryMove: () => paintBeforeHistoryMove?.(),   // 撤销 / 重做之前：开着的那一笔先取消
+  beforeHistoryMove: () => paintBeforeHistoryMove?.() ?? false,   // 撤销 / 重做之前：开着的那一笔先取消（取消了 = true：这一下只取消它、不翻历史）
   editHold: () => inputGate.held(),   // 编辑器的口问这里；理由在 session 建好之后登记
   optionKv: { get: (k) => deviceKvGet(k), set: (k, v) => deviceKvSet(k, v) },   // 工具选项 device 持久化（surface 组：user「锐角阈值和模式的持久化不同工具共享」）
   hint: (t) => { hintEl.textContent = t ?? hintDefault(); },
@@ -310,7 +310,7 @@ const paintSaver = new PaintSaver({ boards: paintBoards, wroteWith: `catsup ${AP
 paintBoards.beforeSleep = (g) => { paintSaver.prime(editor.sceneRef, g)?.catch((e) => note("paint", `prime before sleep failed for ${g}: ${e instanceof Error ? e.message : String(e)}`)); };
 editor.registerUndoComponent(paintBoards.undoComponent());
 paintAfterCommit = () => { paintBoards.follow(editor.sceneRef); for (const r of paintBoards.takePending()) editor.recordUndo(PAINT_UNDO_KIND, r); };
-paintBeforeHistoryMove = () => paintBoards.cancelOpen();
+paintBeforeHistoryMove = () => paintBoards.cancelOpen() > 0;
 editor.provider.setPaint(paintBoards);
 const paintPrep = new SpacePrep(() => editor.renderer3.offscreenGpu(), () => editor.docEpoch);   // 画画的准备（1-4c）：整份几何 + 每格的表，进工作台时建、落笔只取现成的；换文件自己放
 editor.beforeRender = () => { paintPrep.checkEpoch(); paintWb?.tick(); paintBoards.prepare(editor.sceneRef); canvasWin?.frame(); };   // 画布小窗：落定的内容变了才读回一次（一笔当中不读）   // 每帧开画之前的「准备」（1-4b 统筹 B）：画画工作台的准备 / 热画、画板跟大小、这一笔的薄层、合成

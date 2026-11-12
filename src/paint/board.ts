@@ -71,6 +71,15 @@ export interface BoardStroke {
 function stampOverlayOf(cs: Parameters<StrokeSessionDeps["commitStamps"]>[0]): Parameters<GLBoard["commitBrushStroke"]>[2] {
   return { stamps: cs.stamps, shape: cs.shape, bx: cs.bx, by: cs.by, bw: cs.bw, bh: cs.bh, layerId: cs.layer.id, opacity: cs.opacity, erase: cs.mode === "erase", blendMode: cs.blendMode, lockAlpha: !!(cs.layer as { lockAlpha?: boolean }).lockAlpha, selMask: null };
 }
+/** 两份「变了哪些格」并起来（一份是整张 = 整张）。 */
+function unionCells(a: DirtyCells, b: DirtyCells | null | "all"): Changed {
+  if (b === "all") return "all";
+  if (!b || b.empty) return a;
+  const out = new DirtyCells(a.w, a.h);
+  for (const q of a.runs()) out.mark(q.x, q.y, q.w, q.h);
+  for (const q of b.runs()) out.mark(q.x, q.y, q.w, q.h);
+  return out;
+}
 /** 两片薄层是不是同一片、叠法一样（不看方框）。 */
 function sameOverlay(a: HostOverlayInput, b: HostOverlayInput): boolean {
   return a.tex === b.tex && a.layerId === b.layerId && a.opacity === b.opacity && !!a.erase === !!b.erase && a.blendMode === b.blendMode && !!a.lockAlpha === !!b.lockAlpha && a.selMask === b.selMask;
@@ -187,7 +196,10 @@ export class PaintBoard {
     const deps = this.sessionDeps(leaf, (cs) => {
       { const why = this.locked(); if (why) throw new PaintLockedError("PaintBoard: the document was locked before the stroke landed", why); }   // 第四层：落层
       const ok = this.gpu().commitBrushStroke(cs.layer.id, leaf.pixels, stampOverlayOf(cs), this.width, this.height, (px, x, y, w, h) => leaf.applyRegionDiff(x, y, w, h, px));
-      if (!ok) throw new Error("PaintBoard: the 2D stroke did not land (GPU commit returned false)");   // 没落成 = 响亮（档口取消令牌、整笔回滚），不让这一笔悄悄没了（同三维那一笔的 HOST_COMMIT_FAILED）
+      if (!ok) throw new Error("PaintBoard: the 2D stroke did not land (GPU commit returned false)");
+      const k = Math.max(1, cs.shape.aspect ?? 1, 1 / (cs.shape.aspect ?? 1)), cells = new DirtyCells(this.width, this.height);
+      for (const t of cs.stamps) { const r = (t.size / 2) * k + 2; cells.mark(t.x - r, t.y - r, 2 * r, 2 * r); }   // 落下去的那份笔尖单子每颗的外框（宁大勿小，同 stampsMoved）
+      this.noteLanding(cells);   // 没落成 = 响亮（档口取消令牌、整笔回滚），不让这一笔悄悄没了（同三维那一笔的 HOST_COMMIT_FAILED）
       return ok;
     });
     const engine = new BrushEngine();
@@ -197,7 +209,14 @@ export class PaintBoard {
     try { engine.beginStroke(session.targets[0], brush, at.x, at.y, at.pressure, o.erase ? "erase" : "brush", o.smooth ?? {}, at.t); }
     catch (err) { this.live2d = null; session.cancel(); throw err; }
     this.stampsMoved(live);
-    const done = (): void => { if (this.live2d === live) this.live2d = null; this.overlayVer++; this.pending = "all"; };
+    // 收尾（落层 / 取消 / 落层失败）：这一笔的笔尖单子从合成里拿掉 = 上一下的每颗笔尖的外框都可能变（预览的尾巴可能比最后落下去的长）；落层碰过的格另外由 noteLanding 并上
+    const done = (): void => {
+      if (this.live2d === live) this.live2d = null;
+      const cells = new DirtyCells(this.width, this.height);
+      for (const t of live.prev) { const r = (t.size / 2) * t.k + 2; cells.mark(t.x - r, t.y - r, 2 * r, 2 * r); }
+      live.prev = [];
+      this.overlayChanged(cells);
+    };
     const isOpen = (): boolean => this.live2d === live;
     return {
       get open() { return isOpen(); },
@@ -231,6 +250,15 @@ export class PaintBoard {
     live.prev = cur.map((t) => ({ x: t.x, y: t.y, size: t.size, alpha: t.alpha, k }));
     this.overlayChanged(cells);
   }
+  /**
+   * 落层碰过的格（抬笔后显示那一侧只重拷这些格；2026-11-12 统筹：抬笔后三维这边整张重拷是明摆着的浪费）。记下落层之前的内容键和「只多这一次提交」之后的内容键，
+   * 下一次合成时两头都对上才用（中间夹了撤销 / 装载 / 改大小 = 对不上 = 整张）。内核那一侧照旧整张重合（周账 F-257）。
+   */
+  private noteLanding(cells: DirtyCells): void {
+    const from = this.committedKey(), v = this.wp.commitVersion;
+    this.landHint = { from, to: from.replace(/^\d+\|/, `${v + 1}|`), cells };
+  }
+  private landHint: { readonly from: string; readonly to: string; readonly cells: DirtyCells } | null = null;
   /** 开着的二维笔（同一时间最多一笔）。 */
   private live2d: Live2d | null = null;
   /** 合成时垫进去的东西：三维那一笔的薄层 + 二维笔这一笔的笔尖单子。 */
@@ -253,7 +281,8 @@ export class PaintBoard {
       tokenBeforeImage: (lid) => this.wp.layerTiles.tokenBeforeImage(lid),
       getSelection: () => null,
       commitStamps,
-      invalidate: () => { this.overlayVer++; this.pending = "all"; },
+      // 落层 / 回滚之后的重渲通知：落层成功（记下了碰过的格、提交正好往前一格）= 只让版本往前走，显示那一侧按那些格重拷（compose 里并上）；别的（回滚、失败、区域笔……）= 整张
+      invalidate: () => { this.overlayVer++; if (!(this.landHint && this.landHint.to === this.committedKey())) this.pending = "all"; },
       setShadows: () => {},
       openRegion: () => { throw new Error("PaintBoard: no region strokes on a 3D board"); },
       setRegions: () => {},
@@ -261,6 +290,11 @@ export class PaintBoard {
       setHostOverlays: (list) => {
         const prev = this.hostOverlays;
         if (prev.length === list.length && prev.every((p, i) => sameOverlay(p, list[i]) && p.bx === list[i].bx && p.by === list[i].by && p.bw === list[i].bw && p.bh === list[i].bh)) return;   // 一样 = 不算变
+        if (!list.length && prev.length) {   // 整片拿掉（抬笔落层 / 取消）：薄层的像素只在它自己的外框里 = 报那几个外框（落层碰过的格另由 noteLanding 并上），不按整张
+          const c = new DirtyCells(this.width, this.height);
+          for (const q of prev) c.mark(q.bx, q.by, q.bw, q.bh);
+          this.hostOverlays = []; this.overlayChanged(c); return;
+        }
         const grownOnly = prev.length === list.length && prev.every((p, i) => sameOverlay(p, list[i]) && list[i].bx <= p.bx && list[i].by <= p.by && list[i].bx + list[i].bw >= p.bx + p.bw && list[i].by + list[i].bh >= p.by + p.bh);
         this.hostOverlays = list.slice(); this.overlayVer++;
         if (!grownOnly) this.pending = "all";   // 换了一片 / 叠法变了 / 方框缩了 = 整张；只是方框长大 = 不算变（外面那片是透明的）
@@ -268,6 +302,7 @@ export class PaintBoard {
       commitHost: (ov) => {
         { const why = this.locked(); if (why) throw new PaintLockedError("PaintBoard: the document was locked before the stroke landed", why); }   // 第四层：落层（一笔开着时锁上了 = 抛 → 档口取消令牌、整笔回滚、零痕迹；v0.19.48）
         const ok = this.gpu().commitBrushStroke(ov.layerId, leaf.pixels, ov, this.width, this.height, (px, x, y, w, h) => leaf.applyRegionDiff(x, y, w, h, px));
+        if (ok) { let cells = ov.cells; if (!cells || cells.w !== this.width || cells.h !== this.height) { cells = new DirtyCells(this.width, this.height); cells.mark(ov.bx, ov.by, ov.bw, ov.bh); } this.noteLanding(cells); }   // 这一笔碰过的格（宿主薄层报的；没报 = 整个外框）
         const lb = this.gl.lastBake;   // 1-4d 第 8 条：三维报的格漏了 = 三维这边标格的毛病（内核照旧读了整个方框，画没少）
         if (lb?.path === "box-unreported") this.log(`paint board: stroke cells under-reported — ${lb.strayCells} changed cell(s) outside the reported ${lb.cells}; kernel read the whole box instead`);
         return ok;
@@ -321,7 +356,12 @@ export class PaintBoard {
     const fbo = this.composite(gl, this.liveOverlays());
     if (!fbo) { this.last = null; this.lastCommitted = null; return null; }
     this.last = { fbo, key }; this.shownKey = key;
-    const change: Changed | null = committed !== this.lastCommitted || this.pending === "all" ? "all" : this.pending;
+    // 落定的内容变了：只是这一次落层（版本正好往前一格、别的都没变）= 显示那一侧只报落层碰过的格 ∪ 薄层攒下的；别的（撤销、装载、改大小、换底色、画面恢复……）= 整张
+    const land = this.landHint;
+    this.landHint = null;
+    const change: Changed | null = committed !== this.lastCommitted
+      ? (land && land.from === this.lastCommitted && land.to === committed ? unionCells(land.cells, this.pending) : "all")
+      : this.pending === "all" ? "all" : this.pending;
     this.lastCommitted = committed; this.pending = null;
     this.history.push({ version: ++this.shown, change });
     if (this.history.length > HISTORY) this.history.shift();
@@ -369,15 +409,16 @@ export class PaintBoard {
   }
   /**
    * 显示的那张合成图（带着正在画的那一笔，和 compose 同一张）的一块读回来（画布小窗一笔当中跟着变，施工单二十一第 2 刀）：不给块 = 整张。
-   * 没合成过 / 过期 = 先合成一次（经 gpu()）。读回在准备之外动了显卡 → 叫 touched（渲染器记着的绑定作废）。同步：会等显卡做完。显卡画面丢了 = null。
+   * 没合成过 / 过期 = 先合成一次。经 borrowGpu：睡着的醒来读完睡回去、在准备之外动了显卡 → 叫 touched（渲染器记着的绑定作废）。同步：会等显卡做完。显卡画面丢了 = null。
    * 存盘从不用它（存盘用 composeBytes：不带正在画的那一笔）。
    */
   shownBytes(r?: { readonly x: number; readonly y: number; readonly w: number; readonly h: number }): { readonly px: Uint8Array; readonly version: number } | null {
-    const v = this.compose();
-    if (!v) return null;
-    const x = Math.max(0, r?.x ?? 0), y = Math.max(0, r?.y ?? 0), w = Math.min(this.width - x, r?.w ?? this.width), h = Math.min(this.height - y, r?.h ?? this.height);
-    try { return { px: w > 0 && h > 0 ? this.port.readPixels(v.fbo, x, y, w, h) : new Uint8Array(0), version: v.version }; }
-    finally { this.touched(); }
+    return this.borrowGpu(() => {   // 借一下显卡（统筹 11-12 抽查：公开的读口，睡着的画板被叫 = 醒来读完睡回去，不让「只醒着正在编辑的」悄悄漏；用完叫 touched）
+      const v = this.compose();
+      if (!v) return null;
+      const x = Math.max(0, r?.x ?? 0), y = Math.max(0, r?.y ?? 0), w = Math.min(this.width - x, r?.w ?? this.width), h = Math.min(this.height - y, r?.h ?? this.height);
+      return { px: w > 0 && h > 0 ? this.port.readPixels(v.fbo, x, y, w, h) : new Uint8Array(0), version: v.version };
+    });
   }
   /** 显示的那张合成图上一格的颜色（RGBA 字节，垫着底色、不透明；吸管用，1-7）。出界 / 显卡画面丢了 = null。 */
   pixelAt(x: number, y: number): Uint8Array | null {

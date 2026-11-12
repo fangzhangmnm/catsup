@@ -112,7 +112,14 @@ describe("画板的二维落笔口（施工单二十一第 1 刀）", () => {
       for (const p of rest) { st.move(p[0], p[1], p[2], p[3]); step(); }
       eq(outside, 0, `${s.id}：变了的像素都在报的格里`);
       assert(partial > 0, `${s.id}：真的只报了一部分（${partial} / ${reported} 下没报整张）`);
-      st.end(); b.dispose();
+      // 抬笔：落层之后那一版只报落层碰过的格（不是整张），落层前后变了的像素都在里面
+      const before = prev.version;
+      eq(st.end(), true);
+      const after = b.shownBytes()!, land = b.changedSince(before);
+      assert(land !== "all" && !land.empty && land.fraction() < 1, `${s.id}：抬笔那一版只报落层碰过的格（${land === "all" ? "整张" : `${land.count} 格`}）`);
+      step();
+      eq(outside, 0, `${s.id}：抬笔前后变了的像素都在报的格里`);
+      void after; b.dispose();
     }
   });
   it("③ 经登记处：一笔 = 撤销里的一步；撤销逐位还原、重做回来；cancelOpen 收得掉；名册问得到", () => {
@@ -127,11 +134,13 @@ describe("画板的二维落笔口（施工单二十一第 1 刀）", () => {
     eq(recs.length, 1, "封了一步"); R.h.commitRecords("b", { title: "画一笔" }, recs.map((data) => ({ kind: PAINT_UNDO_KIND, data }))); R.boards.sync(R.cur());
     const after = R.shot(); assert(after !== before, "画上了");
     R.undo(); eq(R.shot(), before, "撤销逐位还原"); R.redo(); eq(R.shot(), after, "重做回来");
-    // 开着一笔时撤销：登记处先取消它（零痕迹），撤的是上一步
+    // 开着一笔时撤销：只取消这一笔（零痕迹）、历史不动（同编辑器的手势、手感账 P-11）；之后照常撤上一步
     const st2 = R.boards.openBrushStroke(tex, br, { x: 20, y: 20, pressure: 1, t: 0 });
     st2.move(40, 30, 1, 20);
-    R.undo(); eq(st2.open, false, "撤销之前那一笔被取消了"); eq(R.shot(), before, "撤的是上一步，正在画的那一笔零痕迹");
+    R.undo(); eq(st2.open, false, "这一笔被取消了"); eq(R.shot(), after, "历史没翻：画 = 这一笔落笔之前");
+    eq(st2.end(), false, "被取消之后抬手 = 没落（不抛）");
     eq(R.boards.anyStrokeOpen(), false); eq(R.boards.takePending().length, 0, "取消的那一笔不封步");
+    R.undo(); eq(R.shot(), before, "再按一次才撤上一步");
     void b;
   });
   it("④ 锁：开一笔问一次（锁着 = 抛、什么都没开）；一笔当中锁上 = 落层时抛、整笔回滚，解锁后下一笔照常", () => {

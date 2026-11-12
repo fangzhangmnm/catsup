@@ -7,6 +7,7 @@
 // ④ 两块画面来回画：模型上一笔、小窗里一笔、撤两下、重做两下——每一步小窗那张图 = 画板落定那张、图层逐字节回到当时
 // ⑤ 模型上画一笔（小窗开着）：一笔当中小窗跟着变、只读回变了的那块（比整张小）
 // ⑥ 锁着：小窗里画不上（图层不动、不长步、提示行说锁）；不在画画工作台（自由建模）：小窗里拖 = 挪，不画
+// ⑦ 小窗里一笔开着时按 Ctrl+Z（统筹 11-12 抽查）：只取消这一笔——历史位置不变、画和落笔之前一样、抬手不出「没能落进画里」、之后照常画下一笔（同模型上的手势、手感账 P-11）
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-canvas-paint.mjs [url]
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -119,6 +120,22 @@ mid5 = await W();
 const reads = mid5.liveReads - w5.liveReads, cells = mid5.liveCells - w5.liveCells;
 check(reads > 0 && cells / reads < 256 * 256, `一笔当中小窗读回 ${reads} 次、平均每次 ${reads ? Math.round(cells / reads) : 0} 格（整张 ${256 * 256}）`, JSON.stringify({ reads, cells }));
 check((await S(() => globalThis.__catsup.canvasWin().probe().workHash()))?.hash === (await boardHashes(tex)).committed, "抬笔后小窗 = 落定那张");
+
+console.log("\n⑦ 小窗里一笔开着按 Ctrl+Z：只取消这一笔");
+{
+  const L7 = await H(tex), p7 = await pos();
+  await S(() => { document.querySelector("#hint").textContent = ""; });
+  await pe("pointerdown", await at(30, 150)); await frames(1);
+  for (let i = 1; i <= 8; i++) { await pe("pointermove", await at(30 + 15 * i, 150)); await frames(1); }
+  const open7 = await S(() => globalThis.__catsup.paint.boards.anyStrokeOpen());
+  await page.keyboard.press("Control+z"); await frames(2);
+  const mid7 = { pos: await pos(), layers: await H(tex), open: await S(() => globalThis.__catsup.paint.boards.anyStrokeOpen()) };
+  await pe("pointermove", await at(170, 150)); await pe("pointerup", await at(170, 150)); await frames(2);
+  const hint7 = await S(() => document.querySelector("#hint")?.textContent ?? "");
+  check(open7 && mid7.pos === p7 && mid7.layers === L7 && !mid7.open && (await H(tex)) === L7 && (await pos()) === p7 && !/没能落进画里/.test(hint7), `一笔开着按 Ctrl+Z：历史位置不变、画 = 落笔之前、抬手不报错（提示行：「${hint7}」）`, JSON.stringify({ open7, mid7, p7, hint7 }));
+  await line(160, 30, 200); await frames(1);
+  check((await pos()) === p7 + 1 && (await H(tex)) !== L7, "之后照常画下一笔（长一步）");
+}
 
 console.log("\n⑥ 锁着：小窗里画不上；不在画画工作台：小窗里拖 = 挪");
 const L6 = await H(tex), p6 = await pos();

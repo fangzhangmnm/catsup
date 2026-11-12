@@ -2,9 +2,9 @@
 // 调试钩子 __catsup.paint.stroke 画（屏幕点 → 1-4a 控制器 → 真显卡薄层 → 档口 → 落层 → 编辑器 commitRecordsStep）；编辑器的 undo / redo（整步事务 + 开着的一笔先取消）。
 // ① 画两笔 → 撤两下 → 重做两下：每张画的像素（内核 exportData）逐字节回到当时；提示行「撤销：画一笔」；文档算改过（编辑器的版本号加了）。
 // ② 画 / 挪点 / 画 交错：撤三下回到最开始，再重做回来。
-// ③ 一笔画到一半（抬笔之前）就按撤销：这一笔取消、不留痕迹，撤掉的是上一笔。
+// ③ 一笔画到一半（抬笔之前）就按撤销：只取消这一笔、不留痕迹，历史不动（施工单二十一起：不管这一笔是不是编辑器的手势都一样，手感账 P-11）。
 // ④ 删掉画着的物件（清理掉定义）再撤销回来：画板歇着没扔，画和它之前的每一步都还能撤。
-// ⑤ 画布上的二维笔（施工单二十一第 1 刀，调试钩子 paint.stroke2d）：和模型上的笔交错画、撤两下重做两下逐字节；二维笔画到一半按撤销 = 这一笔取消、撤的是上一步。
+// ⑤ 画布上的二维笔（施工单二十一第 1 刀，调试钩子 paint.stroke2d）：和模型上的笔交错画、撤两下重做两下逐字节；二维笔画到一半按撤销 = 只取消这一笔、历史不动（同 ③）。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-paint-undo.mjs [地址]（或 PROBE_URL）
 import { createRequire } from "node:module";
 const { chromium } = createRequire(new URL("../../../20260524 WeebPaint/package.json", import.meta.url))("playwright");
@@ -49,8 +49,8 @@ const res = await page.evaluate(async () => {
   // ③ 一笔画到一半就按撤销
   const r0 = px(), pos0 = e.history.position();
   stroke(0.15, { beforeUp: () => { e.undo(); } });
-  out.three = { undidPrevious: px() !== r0, noTrace: e.history.position() === pos0 - 1 || e.history.position() < pos0 };
-  e.redo(); out.three.redoBack = px() === r0;
+  out.three = { onlyCancelled: px() === r0, posSame: e.history.position() === pos0, open: C.paint.boards.anyStrokeOpen() };
+  e.redo(); out.three.redoNoop = px() === r0;
   // ④ 删掉画着的物件再撤销回来
   const before = px(), root = S().root, i0 = [...S().def(root).instances.values()].find((i) => i.def === def);
   e.commitOp({ op: "eraseInstance", def: root, instance: i0.id }); e.commitOp({ op: "purgeDefs", defs: [def] });
@@ -70,8 +70,8 @@ const res = await page.evaluate(async () => {
   e.redo(); out.five.redo1 = px() === f1; e.redo(); out.five.redo2 = px() === f2;
   const pos6 = e.history.position();
   const r6 = s2(0.65, { beforeUp: () => { e.undo(); } });
-  out.five.midUndo = { r: r6, undidPrevious: px() === f1, pos: e.history.position() === pos6 - 1, open: C.paint.boards.anyStrokeOpen() };
-  e.redo(); out.five.redoBack = px() === f2;
+  out.five.midUndo = { r: r6, unchanged: px() === f2, pos: e.history.position() === pos6, open: C.paint.boards.anyStrokeOpen() };
+  const r7 = s2(0.8); out.five.nextOk = r7.landed === true && e.history.position() === pos6 + 1;
   return out;
 });
 await browser.close();
@@ -79,9 +79,9 @@ console.log(JSON.stringify(res, null, 1));
 const checks = {
   "① 画两笔撤两下重做两下逐字节、提示行、算改过": res.one.changed && res.one.dirty && res.one.undo1 && res.one.undo2 && res.one.redo1 && res.one.redo2 && /撤销：画一笔/.test(res.one.hint),
   "② 画 / 挪点 / 画 交错来回": res.two.back && res.two.forward,
-  "③ 一笔画到一半按撤销：这一笔取消、撤的是上一笔": res.three.undidPrevious && res.three.noTrace && res.three.redoBack,
+  "③ 一笔画到一半按撤销：只取消这一笔、历史不动": res.three.onlyCancelled && res.three.posSame && !res.three.open && res.three.redoNoop,
   "④ 删掉画着的物件再撤销回来：画还在、还能撤": res.four.gone && res.four.boardKept && res.four.back && res.four.undoStroke && res.four.redo,
-  "⑤ 画布上的二维笔和模型上的笔交错：一笔一步、撤两下重做两下逐字节；二维笔画到一半按撤销 = 这一笔取消、撤的是上一步": res.five.landed && res.five.changed && res.five.steps === 2 && res.five.undo1 && res.five.undo2 && res.five.redo1 && res.five.redo2 && res.five.midUndo.undidPrevious && res.five.midUndo.pos && !res.five.midUndo.open && res.five.redoBack,
+  "⑤ 画布上的二维笔和模型上的笔交错：一笔一步、撤两下重做两下逐字节；二维笔画到一半按撤销 = 只取消这一笔、历史不动、抬手不报错、之后照常画下一笔": res.five.landed && res.five.changed && res.five.steps === 2 && res.five.undo1 && res.five.undo2 && res.five.redo1 && res.five.redo2 && res.five.midUndo.unchanged && res.five.midUndo.pos && !res.five.midUndo.open && res.five.midUndo.r.landed === false && !res.five.midUndo.r.threw && res.five.nextOk,
 };
 for (const [k, v] of Object.entries(checks)) console.log(`${v ? "✓" : "✗"} ${k}`);
 if (errs.length) console.log("页面错误：", errs);

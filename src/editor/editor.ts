@@ -147,7 +147,7 @@ export type EditorTrace =
 export interface EditorHost {
   hint(text: string | null): void;
   /** 每条指令提交完（收尾之后、这一步还开在栈顶）：画板跟着贴图坐标改大小、内核封的那几步挂进这一步（1-8a）。beforeHistoryMove = 撤销 / 重做之前：开着的那一笔先取消。 */
-  afterCommit?(): void; beforeHistoryMove?(): void;
+  afterCommit?(): void; beforeHistoryMove?(): boolean | void;   // 取消了一笔 = true：这一下撤销 / 重做只取消它、不翻历史（同手势那条；画布小窗的二维笔不是编辑器的手势，施工单二十一）
   /** 跟指针的提示框；measure = 手势中的读数（user 2026-10-25「优先显示长度，参考只是参考」：第一行、最显眼）；scale = B43 尺度参考（拖动时才有；样式归宿主画）。 */
   tip(text: string | null, clientX: number, clientY: number, scale?: ScaleTipView | null, measure?: string): void;
   trace?(entry: EditorTrace): void;
@@ -1318,8 +1318,8 @@ export class Editor {
   lastStep(): { op: Op; brep: BrepSnapshot; pool: PoolRef } | null { return lastStepOf(this.history, this.scene); }
 
   undo(): void {
-    this.last = null; this.host.beforeHistoryMove?.();   // 开着的那一笔先取消（1-8a：不许带着开着的令牌翻）
-    if (this.gestureActive()) { this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }
+    const cut = this.host.beforeHistoryMove?.() === true; this.last = null;   // 开着的那一笔先取消（1-8a：不许带着开着的令牌翻）；取消了 = 这一下只取消它（模型上 / 画布小窗 / 调试钩子一个规矩，手感账 P-11）
+    if (this.gestureActive() || cut) { if (this.gestureActive()) this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }
     if (this.refuse()) return;
     let r: ReturnType<History<Session>["undo"]>; try { r = this.history.undo(); } catch (e) { if (e instanceof StepFlipError) { this.flipRefused("撤销", e); return; } throw e; }   // 整步事务（1-8a）
     if (!r) { const n = this.history.evictedSteps(); this.host.hint(n ? `撤到头了（更早的 ${n} 步超过 128 MB 配额，撤不回去）` : "没有可撤销的"); return; }
@@ -1333,7 +1333,7 @@ export class Editor {
     this.draw();
   }
   redo(): void {
-    this.last = null; this.host.beforeHistoryMove?.();
+    if (this.host.beforeHistoryMove?.() === true) { this.last = null; this.host.hint(null); this.host.changed(); this.draw(); return; } this.last = null;   // 一笔开着时按重做 = 只取消这一笔（同撤销）
     if (this.refuse()) return;
     let r: ReturnType<History<Session>["redo"]>;
     try { r = this.history.redo(this.scene); }

@@ -48,8 +48,8 @@ export function rig(nMesh = 1, opts: { quota?: number; epoch?: () => number; act
     h.commitRecords("b", { title: erase ? "擦一笔" : "画一笔" }, boards.takePending().map((data) => ({ kind: PAINT_UNDO_KIND, data })));
     boards.sync(cur());
   };
-  const undo = (): void => { boards.cancelOpen(); h.undo(); boards.sync(cur()); };
-  const redo = (): void => { boards.cancelOpen(); h.redo(cur()); boards.sync(cur()); };
+  const undo = (): void => { if (boards.cancelOpen() > 0) { boards.sync(cur()); return; } h.undo(); boards.sync(cur()); };   // 同编辑器（施工单二十一）：开着一笔 = 只取消它、不翻历史
+  const redo = (): void => { if (boards.cancelOpen() > 0) { boards.sync(cur()); return; } h.redo(cur()); boards.sync(cur()); };
   /** 模型（含贴图坐标）+ 每张画的大小和像素。 */
   const shot = (): string => {
     const parts = [sceneFingerprint(cur())];
