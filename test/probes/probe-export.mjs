@@ -68,6 +68,12 @@ await page.click('#sheetChoices [data-field="scope"] button[data-value="sel"]');
 await page.click('#sheetChoices [data-field="lines"] button[data-value="none"]'); await page.waitForTimeout(40);
 await page.click("#sheetConfirm"); await page.waitForTimeout(250);
 { const [d] = await takeDownloads(); const j = d ? glbJson(d.bytes) : null; r.sel = d ? { kids: j.nodes[0].children?.length ?? 0, rootMesh: "mesh" in j.nodes[0], meshes: j.meshes.length, lines: j.meshes.some((m) => m.primitives.some((p) => p.mode === 1)), catsup: catsupKeys(j).length } : null; }
+// ⑦ 模型上有画：导出面先说实话、导出完的状态行也说（统筹 11-12：「这一版导出的文件里不带画」；真带上排在施工单十八之后）。没画的时候不提
+step("paint note");
+r.noPaintNote = !/有画/.test(r.sheet.note);
+await page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.sceneRef, inst = [...s.def(s.root).instances.values()][0], g = () => crypto.randomUUID(); e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.runAction("object.toMesh"); e.commitOp({ op: "startPaint", def: inst.def, faces: e.sceneRef.mesh(inst.def).kernel.faces(), uvSet: g(), textureGuid: g(), materialGuid: g(), names: { uvSet: "UV", paint: "画", material: "画" }, color: [0.3, 0.5, 0.7], density: 100 }); });
+await openSheet(); r.sheetPaint = await sheetState(); await page.click("#sheetConfirm"); await page.waitForTimeout(250);
+{ const [d] = await takeDownloads(); r.paintExport = { downloaded: !!d, hint: await toasts() }; }
 // ② 收尾：工程文件开回来是工程（最后做：它会换掉当前模型）
 step("reopen project");
 { const pr = page.evaluate(async (arr) => globalThis.__catsup.session.openLocalBytes(new Uint8Array(arr), "工程.catsup", null), r.projectBytes ?? []);
@@ -86,6 +92,7 @@ const ok = r.hub.some((l) => /导出工程文件/.test(l)) && r.hub.some((l) => 
   && /\.glb$/.test(r.model?.name ?? "") && r.model.catsup.length === 0 && r.model.version === "2.0" && !r.model.thumb && r.model.images === 0 && r.model.roots === 1 && r.model.lines
   && r.reopen.ok === false && /导入/.test(r.reopen.hint)
   && r.sheetSel.scopes.join() === "整个模型,选中的 1 个物件" && r.sel?.kids === 1 && !r.sel.rootMesh && r.sel.meshes === 1 && !r.sel.lines && r.sel.catsup === 0
+  && r.noPaintNote && /这个模型上有画，这一版导出的文件里不带画/.test(r.sheetPaint?.note ?? "") && r.paintExport.downloaded && /这个模型上有画，这一版导出的文件里不带画/.test(r.paintExport.hint)
   && r.projectReopen === true && errs.length === 0;
 console.log(ok ? "probe-export OK" : "probe-export FAIL");
 process.exit(ok ? 0 : 1);

@@ -24,7 +24,7 @@ import { isForeignGlb } from "../format/gltf-import.ts";
 import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
 import { settingsNow } from "../format/migrate/settings.ts";
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
-import { defaultDesk, emptyReferences, type DeskDoc, type PaintDeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
+import { defaultDesk, emptyReferences, paintIn, tiledPaintIn, type DeskDoc, type PaintDeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import { formatNotesSay, lossySay } from "./format-notes.ts";
 import type { Xform } from "../scene/xform.ts";
 import { AUTOSAVE_IDLE_MS, DOC_EXT, DOC_EXTS, defaultDocName, downloadName, hex4, RELOAD_PUSH_WAIT_MS } from "../config.ts";
@@ -42,6 +42,7 @@ import { crashStore, mintLuggageTag, type LuggageTag } from "./crash-store.ts";
 import { shadowFrame, type ShadowSeal } from "./shadow-seal.ts";
 /** 规则书 §1 第 5 条（user 11-03）：加密作品的明文出门，这句话必经。 */
 const PLAIN_NOTE = "这份是明文、没有加密";
+const EXPORT_NO_PAINT = "这个模型上有画，这一版导出的文件里不带画";   // 统筹 11-12 定的字（导出模型说实话；真带上画排在施工单十八之后）
 import { shouldRetryPush } from "./push-retry.ts";
 import type { HandRoster } from "../controller/hand-busy.ts";
 
@@ -1104,13 +1105,15 @@ export class Session {
     const only = opts.only?.filter((o) => ids.includes(o.def)).map((o) => ({ definition: scene.def(o.def).guid, xform: o.xform, ...(o.name !== undefined ? { name: o.name } : {}) }));
     const bytes = writeGltfModel(doc, { textures: opts.textures, lines: opts.lines, ...(only ? { only } : {}) }), name = `${downloadName(this.displayName())}.glb`;
     this.download(bytes, name);
-    this.d.setStatus(`${name} 已下载（给别的软件看的模型，不是工程备份${this.plainExportNote()}）`);
+    this.d.setStatus(`${name} 已下载（给别的软件看的模型，不是工程备份${this.exportPaintNote() ? `；${this.exportPaintNote()}` : ""}${this.plainExportNote()}）`);
     return { name, bytes: bytes.byteLength };
   }
   /** 导出表单的说明行要的数（计划书 §9.2½ ②）：only = 只导这几个定义。 */
   exportSides(only?: readonly number[]): BrepSideCounts { return exportSideCounts(this.d.editor.sceneRef, only); }
   /** 加密件导出的那份是不加密的：说一句（UX 误导 = 数据安全缺陷）。 */
   private plainExportNote(): string { return this.encrypted || this.seal ? `；${PLAIN_NOTE}` : ""; }
+  /** 导出模型（glb）不带画（统筹 11-12：先说实话；真带上排在施工单十八之后）：画的字节要在存盘编码那一步才编出来，导出走的是 documentFromScene，没有。模型上有画 = 有材质的颜色那一槽是画 / 平铺的画（paintIn / tiledPaintIn，全仓唯一的问法）。没画 = 空字符串。 */
+  exportPaintNote(): string { const s = this.d.editor.sceneRef; return s.materials.some((m) => paintIn(s.textures, m) || tiledPaintIn(s.textures, m)) ? EXPORT_NO_PAINT : ""; }
   private download(bytes: Uint8Array | Blob, name: string): void {
     const url = URL.createObjectURL(bytes instanceof Blob ? bytes : new Blob([bytes], { type: "model/gltf-binary" }));
     const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();

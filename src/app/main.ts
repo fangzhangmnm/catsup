@@ -1151,7 +1151,7 @@ async function openExportModel(): Promise<void> {
     { key: "lines", label: "边线", value: last.lines === "none" ? "none" : "with", options: [{ value: "with", label: "带" }, { value: "none", label: "不带" }], hidden: glbOnly },
   ], {
     okLabel: "导出",
-    note: (x) => `给别的软件看的烤好的模型（${x.format === "obj" ? "三角形；OBJ 只导整个模型、不带贴图" : "三角形 + 材质 + 贴图"}）。不是工程备份——备份用「导出工程文件」。${x.format === "obj" ? "" : ` ${sideNote(x.scope ?? "all")}`}`.trimEnd(),
+    note: (x) => `${x.format !== "obj" && session.exportPaintNote() ? `${session.exportPaintNote()}。` : ""}给别的软件看的烤好的模型（${x.format === "obj" ? "三角形；OBJ 只导整个模型、不带贴图" : "三角形 + 材质 + 贴图"}）。不是工程备份——备份用「导出工程文件」。${x.format === "obj" ? "" : ` ${sideNote(x.scope ?? "all")}`}`.trimEnd(),   // 有画先说实话（统筹 11-12）
   });
   if (!v) return;
   session.setExportChoice({ format: v.format, scope: v.scope ?? "all", textures: v.textures ?? "embed", lines: v.lines ?? "with" });
