@@ -11,6 +11,8 @@
   "probe-settings-dirty.mjs": {"state":"green","role":"guard"},
   "probe-doc-revision.mjs": {"state":"green","role":"guard"},
   "probe-mirror-ask.mjs": {"state":"green","role":"guard"},
+  "probe-pp-snap.mjs": {"state":"green","role":"guard"},
+  "probe-vcb-keys.mjs": {"state":"green","role":"guard"},
   "probe-axes-point.mjs": {"state":"green"},
   "probe-axes-to-sel.mjs": {"state":"green"},
   "probe-axis-cross.mjs": {"state":"green"},

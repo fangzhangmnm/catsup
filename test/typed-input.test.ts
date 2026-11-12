@@ -49,4 +49,22 @@ describe("typed-input · 数值小窗（老语法）", () => {
     t.press("3"); t.press("'"); t.press("空格"); t.press("6"); eq(t.text(), "3' 6");
     t.press("⌫"); eq(t.text(), "3' "); t.press("↵"); eq(ev.at(-1)?.kind, "confirm"); t.press("清空"); eq(t.text(), "");
   });
+  it("小键盘多字符的单位键（cm / mm / ft / in）拆开送：数值小窗和手势中都进（user 11-12：厘米键按了没反应）", () => {
+    const a = setup(); a.st.vcb = true;
+    for (const k of ["1", ".", "5", "cm"]) a.t.press(k); eq(a.t.text(), "1.5cm");
+    a.t.press("清空"); for (const k of ["1", "5", "mm"]) a.t.press(k); eq(a.t.text(), "15mm");
+    const b = setup(); b.st.q = { q: "length" } as QuantityTag;
+    for (const k of ["2", ".", "5", "cm"]) b.t.press(k); eq(b.t.text(), "2.5cm");
+    b.t.press("清空"); for (const k of ["3", "in"]) b.t.press(k); eq(b.t.text(), "3in");
+  });
+  it("数值小窗空着时小键盘的「.」= 补 0（.5 打得出来）；实体键盘空着的「.」照旧不收（= 缩放到选区）", () => {
+    const { st, t } = setup(); st.vcb = true;
+    t.press("."); t.press("5"); eq(t.text(), "0.5");
+    t.press("清空"); eq(t.feed("."), false, "实体键盘");
+  });
+  it("全角的数字和符号先换成半角（中文输入法打出来的「。」「１」）", () => {
+    const { st, t } = setup(); st.vcb = true;
+    assert(t.wants("１")); assert(t.feed("１")); assert(t.feed("。")); assert(t.feed("５")); eq(t.text(), "1.5");
+    assert(t.feed("，")); assert(t.feed("２")); eq(t.text(), "1.5,2");
+  });
 });

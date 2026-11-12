@@ -34,22 +34,28 @@ export interface TypedInput {
 const VCB_START = /^[0-9,\-+*/]$/;   // 「.」不能开头：空的时候「.」= 缩放到选区（Blender 小键盘 .）；.5 要打 0.5
 const VCB_CONT = /^[0-9.,\-+*/xsmc°'"ftindeg ]$/i;   // 接着打：单位后缀（m / cm / mm / ft / in / ' / " / ° / deg）、段数 s、阵列 x、英制分数里的空格
 
+/** 全角的数字和符号先换成半角再判（iPad 开着中文输入法打出来的是「。」「１」这种；user 11-12「键盘的小数点都动不了」的嫌疑之一）。 */
+const FULL_WIDTH: Readonly<Record<string, string>> = { "。": ".", "．": ".", "，": ",", "－": "-", "＋": "+", "／": "/", "＊": "*", "　": " " };
+export const normKey = (k: string): string => FULL_WIDTH[k] ?? (/^[０-９]$/.test(k) ? String.fromCharCode(k.charCodeAt(0) - 0xfee0) : k);
+
 export function createTypedInput(d: TypedInputDeps): TypedInput {
   let buf = "", last: TypedTarget | null = null;
   const subs = new Set<(e: TypedEvent) => void>();
   const emit = (kind: TypedEvent["kind"], target: TypedTarget): void => { for (const cb of subs) { try { cb({ kind, target, text: buf }); } catch { /* 订阅者的错不许打断打字 */ } } };
   const target = (): TypedTarget | null => (d.gestureQuantity() ? "gesture" : d.vcbOpen() ? "vcb" : null);
   const sync = (): void => { const t = target(); if (t !== last) { last = t; if (buf) { buf = ""; if (t) emit("change", t); } } };
-  const wants = (key: string, mods?: { ctrl?: boolean; alt?: boolean; meta?: boolean }): boolean => {
+  const wants = (key0: string, mods?: { ctrl?: boolean; alt?: boolean; meta?: boolean }): boolean => {
     if (mods?.ctrl || mods?.alt || mods?.meta) return false;
+    const key = normKey(key0);
     const t = target();
     if (!t) return false;
     if (t === "gesture") return key === "Enter" || key === "Backspace" || quantityKey(d.gestureQuantity()!, buf, key);
     if (key === "Enter" || key === "Escape" || key === "Backspace") return !!buf;
     return VCB_START.test(key) || (!!buf && VCB_CONT.test(key));
   };
-  const feed = (key: string): boolean => {
+  const feed = (key0: string): boolean => {
     sync();
+    const key = normKey(key0);
     const t = target();
     if (!t || !wants(key)) return false;
     if (key === "Enter") { if (t === "vcb" && !buf.trim()) return false; emit("confirm", t); return true; }
@@ -60,7 +66,9 @@ export function createTypedInput(d: TypedInputDeps): TypedInput {
   };
   return {
     target, text: () => buf, wants, feed,
-    press: (g) => { if (g === "⌫") feed("Backspace"); else if (g === "清空") { sync(); const t = target(); buf = ""; if (t) emit("change", t); } else if (g === "↵") feed("Enter"); else feed(g === "空格" ? " " : g); },
+    // 小键盘的键：多字符的（cm / mm / ft / in）拆成一个个字符送进去——以前整个当一个键，两种语法都只认单字符 = 按了没反应（user 11-12「软键盘里的那个厘米…动不了」）；
+    //   数值小窗空着时按「.」= 先补「0」（实体键盘空着的「.」仍是缩放到选区，Blender 的习惯；小键盘上没有那个意思）
+    press: (g) => { if (g === "⌫") feed("Backspace"); else if (g === "清空") { sync(); const t = target(); buf = ""; if (t) emit("change", t); } else if (g === "↵") feed("Enter"); else { const s = g === "空格" ? " " : g; sync(); if (s === "." && !buf && target() === "vcb") feed("0"); for (const ch of s) feed(ch); } },
     clear: () => { sync(); const t = target(); if (buf) { buf = ""; if (t) emit("change", t); } },
     sync,
     subscribe: (cb) => { subs.add(cb); return () => subs.delete(cb); },
