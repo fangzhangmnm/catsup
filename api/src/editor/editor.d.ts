@@ -600,6 +600,8 @@ export declare class Editor {
     private topChild;
     /** 子项在当前视图里的槽键集合（渲染高亮 / 包围盒）。 */
     private slotsOfPick;
+    /** 哪个工作台有这把工具、又管得了正在编辑的这种身体（among 限定；没有 = null）：给明着跨工作台的调用方用（键表的跳转表、步行相机、材质面板），setTool 自己不跨（统筹 11-11）。 */
+    ownerModeOf(t: Tool, among?: readonly ModeId[]): ModeId | null;
     setTool(t: Tool): void;
     /** 键盘 Esc 先问这里：声明了 escFinishes 的工具（刀）在等下一点时 = 收（开小窗），返回 true；再按一次才是原来的取消（W-8）。 */
     escToFinish(): boolean;

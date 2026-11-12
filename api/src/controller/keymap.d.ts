@@ -109,6 +109,14 @@ export declare function keyDocs(toolLabel: (t: Tool) => string): {
 }[];
 /** 同一个键再按一下 = 组里换下一把（user 10-25；app 层 toolKey 做轮换，数据住这里，提示也读它）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
 export declare const TOOL_CYCLES: Readonly<Record<Chord, readonly Tool[]>>;
+/**
+ * 工具键能跨到哪些工作台（统筹 11-11）：在这一行的工作台里按工具键、要的工具不在这里 = 明着换到这一行列出的工作台里有这把工具、又管得了正在编辑的这种身体的那个
+ * （按工作台表的先后），提示行说一句「换到了『X』工作台」，再拿工具。没在表里 = 不跳：编辑器的 setTool 拒收、说这把工具在哪（它自己从不换工作台）。
+ * 内容 = 以前 setTool 悄悄做的那条规则原样（按 B 在哪都拿得到油漆桶，SketchUp 式；user 可能一直在用），只是限定在这张表列出的工作台之间。
+ * 画画工作台不出现在这张表里（守卫 test/workbench-tools.test.ts）：从画画出不去（那里 E 人以为是画画的橡皮，以前一按就被切到自由建模、拿建模的橡皮擦掉了模型）、
+ * 别处也不能靠工具键进画画（进画画要叫醒画板，只能明着进）。新加的工作台默认不在表里，要通才登记。
+ */
+export declare const TOOL_KEY_JUMPS: Readonly<Partial<Record<ModeId, readonly ModeId[]>>>;
 export interface ToolKey {
     readonly chord: Chord;
     readonly how: "pick" | "cycle" | "modal";
