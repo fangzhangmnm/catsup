@@ -179,6 +179,7 @@
   "probe-texture-srgb.mjs": {"state":"green"},
   "probe-textures-table.mjs": {"state":"green"},
   "probe-thumb-square.mjs": {"state":"green"},
+  "probe-tiled-paint.mjs": {"state":"green"},
   "probe-tool-locks.mjs": {"state":"green"},
   "probe-touch-stick.mjs": {"state":"green"},
   "probe-touch.mjs": {"state":"green"},
