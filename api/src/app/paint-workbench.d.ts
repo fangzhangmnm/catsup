@@ -22,7 +22,8 @@ export interface PaintWorkbenchDeps {
 export declare class PaintWorkbench {
     private readonly d;
     private stroke;
-    private t0;
+    /** 这一笔的时钟和压感（施工单二十 1a；规矩在 controller/stroke-clock.ts：一笔里只用一种钟、压感只信笔的）。 */
+    private clock;
     private lastPen;
     private readonly grids;
     private entered;

@@ -72,8 +72,9 @@ export interface ToolPointer {
     altKey?: boolean;
     /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。缺省 = 本帧 distTo（editor.movedSinceDown）。 */
     travel?: number;
-    /** 事件自己发生的时间（ms，PointerEvent.timeStamp）：抬笔结算按它算停了多久（controller/lift-settle.ts）。键盘起手 / 程序造的没有。 */
+    /** 事件自己发生的时间（ms，PointerEvent.timeStamp）：抬笔结算按它算停了多久（controller/lift-settle.ts）；画画的一笔按它算时间（施工单二十 1a）。键盘起手 / 程序造的没有。 */
     at?: number;
+    pressure?: number;
 }
 /** 记账面包屑（调试日志；op 一行一条）。 */
 export type EditorTrace = {

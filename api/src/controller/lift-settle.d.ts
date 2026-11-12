@@ -8,6 +8,8 @@ export interface LiftSample {
     readonly at?: number;
 }
 export type LiftClock = "event" | "handled";
+/** 一个样本的事件时间像不像样（和它被处理的时刻同一个起点）。抬笔结算和画画的一笔（app/paint-workbench.ts）共用这一个判据。 */
+export declare function eventTimeUsable(at: number | undefined, handled: number): at is number;
 /** 这一笔用哪种时钟：每个样本的事件时间都像样 = event；有一个不像样 = 整笔 handled（不混着减）。 */
 export declare function liftClock(samples: readonly LiftSample[]): LiftClock;
 /**
