@@ -39,44 +39,46 @@ export interface BrushRecord {
 }
 /**
  * 内置的笔。id 定了不改、不重用（施工单二十第三节第 1 条）。
- * - pen / eraser：1a 时和 v0.19.54 一模一样的数（压感系数 0、不收尖、不跟手、间距 0.1）；普通笔要不要吃压感是手感，归 user。
- *   size.base / shape.hardness = 画画工作台一直以来的出厂值（笔 12 像素、橡皮 24 像素、硬度 0.8；旋钮总会盖过 shape.hardness，所以不影响画出来的样子）；max = 一直以来滑条的上限 400。
- * - sketch / ink：照画画软件内置笔的数据原样抄（WeebPaint builtin-brushes.json，v0.14.86 那一版）：草稿笔 = default-brush-pencil「铅笔」、勾线笔 = default-brush-ink「勾线」。
+ * - pen（界面上叫「平涂」，id 不动）：v0.19.69 起照画画软件的 default-brush-fill「平涂」原样抄（统筹 11-12 裁定、user「没问题」：和画画软件同名、默认 50、上限 800、
+ *   鼠标不特殊处理——鼠标 / 手指按满压算（controller/stroke-clock.ts），起笔收尖照样有）。之前（1a 到 v0.19.68）是和 v0.19.54 一模一样的数（12 像素、压感不管、buildup、间距 0.1）。
+ *   大小是旋钮、跟文件存：存过这支笔旋钮的老文件照旧是它自己的数，只有没存过的从 50 起。
+ * - eraser：1a 时和 v0.19.54 一模一样的数（压感系数 0、不收尖、不跟手、间距 0.1；24 像素、硬度 0.8，max = 一直以来滑条的上限 400）。
+ * - sketch / ink：照画画软件内置笔的数据原样抄（WeebPaint builtin-brushes.json，v0.14.86 那一版）：草稿笔 = default-brush-pencil「铅笔」、勾线笔 = default-brush-ink「勾线」；pen 同理抄 default-brush-fill。
  *   args 的键 → 这里：size → size.base、sizeBaseMax → size.max、hardness → shape.hardness、spacingValue → spacing、taperIn / taperOut → taper、streamline / stabilization → smooth，其余同名。
  *   画画软件里那两支没写 taperFloor = 内核 resolveBrush 的缺省 0.4，这里写明。size 原样是数：画画软件里是画布像素、这里是屏幕像素（统筹 11-12：数据照抄；像不像归 user 判断，不自己调）。
  */
 export declare const BRUSHES: {
     readonly pen: {
         readonly id: "pen";
-        readonly name: "笔";
+        readonly name: "平涂";
         readonly tool: "brush";
         readonly shape: {
             readonly kind: "round";
             readonly aspect: 1;
             readonly rotation: 0;
-            readonly hardness: 0.8;
+            readonly hardness: 0.9;
         };
         readonly size: {
-            readonly base: 12;
-            readonly max: 400;
+            readonly base: 50;
+            readonly max: 800;
         };
-        readonly spacing: 0.1;
-        readonly compositeMode: "buildup";
+        readonly spacing: 0.06;
+        readonly compositeMode: "wash";
         readonly blendMode: "source-over";
         readonly pixelMode: false;
-        readonly sizeCoeff: 0;
+        readonly sizeCoeff: 1;
         readonly opaCoeff: 0;
         readonly flowCoeff: 0;
-        readonly pressureGamma: 1;
-        readonly pressureLPF: 0;
+        readonly pressureGamma: 1.2;
+        readonly pressureLPF: 50;
         readonly taper: {
-            readonly in: 0;
+            readonly in: 0.5;
             readonly out: 0;
         };
         readonly taperFloor: 0.4;
         readonly smooth: {
-            readonly streamline: 0;
-            readonly stabilization: 0;
+            readonly streamline: 0.1;
+            readonly stabilization: 0.2;
         };
     };
     readonly eraser: {

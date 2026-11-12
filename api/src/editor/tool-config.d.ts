@@ -513,7 +513,7 @@ export declare const TOOL_OPTIONS: {
             readonly label: "笔";
             readonly values: {
                 id: "pen" | "eraser" | "ink" | "sketch";
-                label: "笔" | "橡皮" | "草稿笔" | "勾线笔";
+                label: "平涂" | "橡皮" | "草稿笔" | "勾线笔";
             }[];
             readonly def: "pen";
             readonly scope: "doc";
