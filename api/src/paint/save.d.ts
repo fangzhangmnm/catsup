@@ -27,7 +27,12 @@ export declare class PaintSaver {
     constructor(o: {
         readonly boards: PaintBoardSource;
         readonly wroteWith: string;
+        readonly log?: (msg: string) => void;
     });
+    private readonly log;
+    /** 内核编分层字节时说「有一层没有可用的 id」的次数（画画内核 v0.14.89 起：不写 weebpaint:id、读回来自动编号）。正常路径上永远是 0：不是 0 = 哪个调用的人没给 id（探针 probe-tiled-paint 断言）。 */
+    idWarnings: number;
+    private readonly warn;
     /** 缓存的版本签名（崩溃快照「这一版拍过了」的键里带上它：缓存一新快照就重拍）。 */
     cacheKey(): string;
     /** 换文件：缓存清掉（画板全扔了，旧的缓存指着扔掉的画板）。 */
