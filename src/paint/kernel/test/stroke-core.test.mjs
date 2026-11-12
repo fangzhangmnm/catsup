@@ -158,6 +158,25 @@ describe("一笔的手感不管几维（0-6）", () => {
     assert(b.reads < 4000 && b.reads < 2 * a.reads + 200, `每帧读点数不随这一笔的长度涨：两千颗时 ${a.reads} 次、一万颗时 ${b.reads} 次（路上 ${b.points} 个点）`);
   });
 
+  it("F3 forEachTip 的 from（CatsUp 1-4d 第 9 条）：从第 from 颗开始回调 = 全部回调去掉前 from 颗（每个数一样）；from 只能 ≤ 已经定型的颗数，超了 / 负的 / 不是整数 = 抛", () => {
+    const placer = { dim: 2, unit: 1, place(cx, cy, cp, count, frozenCount) { return { dim: 2, count, frozenCount, coord: (i, k) => (k === 0 ? cx[i] : cy[i]), pressure: (i) => cp[i], breakBefore: () => false }; } };
+    const core = new StrokeCore(B({ size: 10, spacing: 0.2, sizeCoeff: 0.5, taperIn: 0.5 }), 0, 0, 0.5, { tau: 30, deadzone: 1 }, 0, placer);
+    for (let i = 1; i <= 600; i++) core.extend(i * 1.3, Math.sin(i / 30) * 120, 0.5 + 0.3 * Math.sin(i / 11), i * 8);
+    const path = core.path(), all = [];
+    core.forEachTip((...a) => { all.push(a); }, path);
+    const frozen = core.frozenTipCount(path);
+    assert(frozen > 50 && frozen < all.length, `定型了 ${frozen} 颗（一共 ${all.length} 颗）`);
+    for (const from of [0, 1, Math.floor(frozen / 2), frozen]) {
+      const got = []; core.forEachTip((...a) => { got.push(a); }, path, from);
+      eq(got.length, all.length - from, `from ${from}：少了前 ${from} 颗`);
+      eq(JSON.stringify(got), JSON.stringify(all.slice(from)), `from ${from}：每个数一样`);
+    }
+    for (const bad of [frozen + 1, -1, 1.5]) {
+      let thrown = null; try { core.forEachTip(() => {}, path, bad); } catch (e) { thrown = e; }
+      assert(thrown && /from/.test(thrown.message), `from ${bad} 要抛（${thrown?.message}）`);
+    }
+  });
+
   it("E 停顿：落笔后原地停一会儿再走，三维的假落点下前面那段笔尖的大小和「不停直接走」逐颗一样", () => {
     const brush = () => B({ size: 0.05, sizeCoeff: 1, pressureLPF: 50, taperIn: 0.5, pressureGamma: 1.2, spacing: 0.06 });
     const run = (dwellN) => {

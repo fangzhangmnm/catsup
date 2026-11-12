@@ -306,6 +306,12 @@ export class SpaceLayer {
   private changed: DirtyCells;
   /** 这一帧标格花了多少毫秒（量；1-4d 第 6 条判据「算这张图 ≤ 0.2 毫秒」）。 */
   lastMarkMs = 0;
+  /**
+   * 抬笔整笔重画那一次（resetFrozen 起）画进去的 item 的格（1-4d 第 8 条）：交给落层（HostOverlayInput.cells）只读回这些格。
+   * 和画进去的是同一批 item 的方框（update 里标的那几行），不另算范围；内核还会自己核一遍（报的格以外真变了 = 照旧读整个方框）。没在整笔重画 = null。
+   */
+  private strokeCellsMap: DirtyCells | null = null;
+  get strokeCells(): DirtyCells | null { return this.strokeCellsMap; }
   /** 上一帧尾巴画过的方框（这一帧要还原成定型层的样子：再标一遍）。 */
   private prevTail: (readonly [number, number, number, number])[] = [];
   /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）；batches = 一次画最多分了几批（1-4d 第 4 条）。 */
@@ -355,9 +361,10 @@ export class SpaceLayer {
     };
     const k = Math.max(0, Math.min(frozenHere, tips.length)), newFrozen = items(0, k), tail = items(k, tips.length);
     const tm = performance.now(), ch = this.changed, mark = (r: readonly [number, number, number, number]): void => ch.mark(r[0], r[1], r[2], r[3]);
+    const sc = this.strokeCellsMap;   // 抬笔整笔重画时：画进去的 item 另记一份（落层只读这些格）
     for (const r of this.prevTail) mark(r);
-    for (const it of newFrozen) mark(it.rect);
-    for (const it of tail) mark(it.rect);
+    for (const it of newFrozen) { mark(it.rect); sc?.mark(it.rect[0], it.rect[1], it.rect[2], it.rect[3]); }
+    for (const it of tail) { mark(it.rect); sc?.mark(it.rect[0], it.rect[1], it.rect[2], it.rect[3]); }
     this.prevTail = tail.map((it) => it.rect);
     this.lastMarkMs = performance.now() - tm;
     for (const it of newFrozen) this.grow(it.rect);
@@ -380,6 +387,7 @@ export class SpaceLayer {
   resetFrozen(): void {
     const b = this.bounds;   // 定型层清掉重画：这一笔碰过的整块都可能变
     if (b) this.changed.mark(b[0], b[1], b[2] - b[0], b[3] - b[1]);
+    this.strokeCellsMap = new DirtyCells(this.changed.w, this.changed.h);   // 整笔重画开始：接下来画进去的 item 记成这一笔的格
     this.gpu.draw({ program: SPACE_TIP.name, target: this.frozen, clear: true, accum: this.o.accum, instances: new Float32Array(0), count: 0, data: this.fixed, uniforms: { u_size: [this.frozen.w, this.frozen.h], u_first: 0, u_hardness: this.o.hardness, u_color: [...this.o.color], u_job: this.jobId } });
   }
   dispose(): void { jobs.delete(this.jobId); if (this.ownTables) releaseFaceTables(this.gpu, this.ft); if (this.ownCells) this.gpu.release(this.fixed.u_cell); this.gpu.release(this.frozen); this.gpu.release(this.frame); }

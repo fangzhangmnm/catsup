@@ -103,7 +103,9 @@ export class SpaceStroke {
     if (!this.core) return [];
     const path = this.core.path() as SpacePath, out: SpaceTip[] = [];
     if (!path.count) return out;
-    let i = -1, reachMs = 0;
+    // 内核从第 skip 颗定型的笔尖开始回调（1-4d 第 9 条：前面的不再每帧回调一遍）；skip 不能超过内核已经定型的颗数，剩下的照旧在这里跳
+    const skip = Math.min(from, this.core.frozenTipCount(path));
+    let i = skip - 1, reachMs = 0;
     const tw = paintMeter.now();   // 每帧的读数：走步取笔尖 = 整个 forEachTip 减掉找面（1-4d）
     this.core.forEachTip((seg, x, y, z, size, alpha, strokeDist) => {
       if (++i < from) return;
@@ -111,7 +113,7 @@ export class SpaceStroke {
       const tr = paintMeter.now();
       out.push({ x, y, z, size, alpha, strokeDist, seg, reach: tipReach(this.geos, { x, y, z, r: size / 2 }, starts, this.opts.maxAngleDeg !== undefined ? { maxAngleDeg: this.opts.maxAngleDeg } : {}) });
       if (paintMeter.on) reachMs += performance.now() - tr;
-    }, path);
+    }, path, skip);
     if (paintMeter.on) { paintMeter.put("reach", reachMs); paintMeter.put("walk", performance.now() - tw - reachMs); }
     return out;
   }

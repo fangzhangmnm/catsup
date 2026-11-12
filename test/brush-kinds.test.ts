@@ -49,9 +49,16 @@ describe("往脏格子位图里记东西只在真画的那段（统筹 11-11）"
   });
   it("update：标的就是要画的那几个 item（上一帧的尾巴 ∪ 新定型的 ∪ 这一帧的尾巴），画的也正是这几个", () => {
     const upd = methodBody(layer, "update");
-    for (const pat of [/for \(const r of this\.prevTail\) mark\(r\);/, /for \(const it of newFrozen\) mark\(it\.rect\);/, /for \(const it of tail\) mark\(it\.rect\);/, /this\.prevTail = tail\.map\(\(it\) => it\.rect\);/,
+    for (const pat of [/for \(const r of this\.prevTail\) mark\(r\);/, /for \(const it of newFrozen\) \{ mark\(it\.rect\); sc\?\.mark\(it\.rect\[0\], it\.rect\[1\], it\.rect\[2\], it\.rect\[3\]\); \}/, /for \(const it of tail\) \{ mark\(it\.rect\); sc\?\.mark\(it\.rect\[0\], it\.rect\[1\], it\.rect\[2\], it\.rect\[3\]\); \}/, /this\.prevTail = tail\.map\(\(it\) => it\.rect\);/,
       /for \(const it of newFrozen\) this\.grow\(it\.rect\);/, /for \(const it of tail\) this\.grow\(it\.rect\);/, /this\.drawItems\(this\.frozen, newFrozen, tips\);/, /this\.drawItems\(this\.frame, tail, tips\);/])
       assert(pat.test(upd), `space-layer update 的结构变了（${pat}）：标格和画的还是同一批 item 吗？改了就回来改这条守卫`);
+  });
+  it("这一笔碰过的格（交给落层只读回，1-4d 第 8 条）：只在 resetFrozen 里新建、只在 update 里跟画进去的 item 一起标（不另算范围）", () => {
+    const creates = [...layer.matchAll(/this\.strokeCellsMap = new DirtyCells/g)].length;
+    eq(creates, 1, "只在一处新建");
+    assert(/this\.strokeCellsMap = new DirtyCells/.test(methodBody(layer, "resetFrozen")), "新建在 resetFrozen 里（整笔重画开始）");
+    const marks = [...layer.matchAll(/sc\?\.mark\(/g)].length;
+    eq(marks, [...methodBody(layer, "update").matchAll(/sc\?\.mark\(/g)].length, "标这一笔的格只在 update 里");
   });
   it("resetFrozen：定型层清掉重画 = 标这一笔碰过的整块", () => {
     assert(/this\.changed\.mark\(b\[0\], b\[1\], b\[2\] - b\[0\], b\[3\] - b\[1\]\)/.test(methodBody(layer, "resetFrozen")), "resetFrozen 要标整笔的范围");

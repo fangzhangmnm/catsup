@@ -682,6 +682,10 @@ SpaceStroke（paint/space-stroke.ts；目标名单 + 相机两个函数 + 内核
   ③ 合成：每块画板 compose（内核 GLBoard.composite 把档口的薄层垫在那一层上）→ 内容变了 = touched → renderer.resetState()
 → 渲染器问活的图 → 拷进显示图（1-3c）→ three 画一帧
 抬笔：收路 → 定型层清掉、整笔重画一次（收笔渐细这时才知道总长）→ 档口 end（内核落层 = 一步撤销）→ SpaceLayer.dispose（两张离屏图、紧凑表都放掉）
+  落层只读回这一笔碰过的格（v0.19.43 起，内核 v0.14.82–83，1-4d 第 8 条）：整笔重画那一帧 SpaceLayer 把画进去的 item 另记一份（strokeCells，resetFrozen 起），交档口时带上 cells；
+    内核：region-load 取这一层存着的字节 → 一张暂存图（格子 + 核对片）→ 一次读回 → 按段写进图层；核对片（报的格以外合出来的和存着的不一样，前后都全透明不算）有 = 照旧读整个方框、画板记一行日志
+    落层中途出错（哪一段抛都算）= 档口取消令牌、已写的回滚 = 整笔不落；space-paint 收干净、提示行说「这一笔没能落进画里，已经整笔撤掉」
+    取笔尖：内核 forEachTip 从已经定型的那一颗开始回调（from，v0.14.82），不再每帧把定型的全回调一遍
 取消：档口 cancel（零痕迹）→ dispose
 ```
 

@@ -156,13 +156,22 @@ export class SpacePaintStroke {
     const boxCells = runs ? (bx1 - bx0) * (by1 - by0) : 0;   // 量：要是并成一个方框会是多大（和单子并排报）
     const cellsMs = this.layer.lastMarkMs + (performance.now() - tc);   // 这一帧算这张图（标格 + 出行段 + 报）
     const r = this.layer.range();
-    if (r) this.session!.setHostLayers([{ tex: this.ext!, bx: r.x, by: r.y, bw: r.w, bh: r.h, layerId: this.layerId, opacity: 1, erase: !!this.o.erase, blendMode: "source-over" }]);
+    //   抬笔整笔重画那一帧：连这一笔碰过的格一起交（落层只读回这些格，1-4d 第 8 条；内核会自己核一遍）
+    const sc = this.finishing ? this.layer.strokeCells : null;
+    if (r) this.session!.setHostLayers([{ tex: this.ext!, bx: r.x, by: r.y, bw: r.w, bh: r.h, layerId: this.layerId, opacity: 1, erase: !!this.o.erase, blendMode: "source-over", ...(sc ? { cells: sc } : {}) }]);
     this.board.overlayChanged(ch && whole ? undefined : ch);
     this.lastFrame = { fresh: tips.length, frozen: frozenHere, tipsMs: t1 - t0, layerMs: t2 - t1, hostMs: performance.now() - t2, cellsMs, runs, cells, boxCells };
   }
   private finish(): void {
     const landed = !!this.session;
-    if (this.session) this.session.end();   // 内核落层、封一步（经 HostedSteps 交到画板登记处攒着）
+    try {
+      if (this.session) this.session.end();   // 内核落层、封一步（经 HostedSteps 交到画板登记处攒着）
+    } catch (err) {
+      // 落层中途出错（读回分几段写、哪一段抛都算）：档口已经取消令牌、已写的跟着回滚 = 这一笔整笔没落、画和落笔之前一样。收干净、说人话，不让错误冲到外面
+      this.board.overlayChanged(); this.close();
+      this.d.failed?.(Object.assign(new Error(`stroke did not land: ${err instanceof Error ? err.message : String(err)}`), { say: "这一笔没能落进画里，已经整笔撤掉（画和落笔之前一样）" }));
+      return;
+    }
     this.board.overlayChanged();
     this.close();
     if (landed) { this.d.commitStep?.(!!this.o.erase); displayDiag.penUp = true; }   // 读数角标「核对」开着：抬笔之后核对一次   // 攒着的那几步交给三维的撤销栈：一笔 = 一步（1-8a）

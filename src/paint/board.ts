@@ -148,7 +148,12 @@ export class PaintBoard {
         this.hostOverlays = list.slice(); this.overlayVer++;
         if (!grownOnly) this.pending = "all";   // 换了一片 / 叠法变了 / 方框缩了 = 整张；只是方框长大 = 不算变（外面那片是透明的）
       },
-      commitHost: (ov) => this.gl.commitBrushStroke(ov.layerId, leaf.pixels, ov, this.width, this.height, (px, x, y, w, h) => leaf.applyRegionDiff(x, y, w, h, px)),
+      commitHost: (ov) => {
+        const ok = this.gl.commitBrushStroke(ov.layerId, leaf.pixels, ov, this.width, this.height, (px, x, y, w, h) => leaf.applyRegionDiff(x, y, w, h, px));
+        const lb = this.gl.lastBake;   // 1-4d 第 8 条：三维报的格漏了 = 三维这边标格的毛病（内核照旧读了整个方框，画没少）
+        if (lb?.path === "box-unreported") this.log(`paint board: stroke cells under-reported — ${lb.strayCells} changed cell(s) outside the reported ${lb.cells}; kernel read the whole box instead`);
+        return ok;
+      },
     };
     const engine = { extendStroke() {}, endStroke() { return null; }, cancelStroke() {}, flushDirty() { return null; } };
     return new StrokeSession(deps, engine, [leaf as never], { historyType: "stroke", finalize: true }, "host");
@@ -248,6 +253,8 @@ export class PaintBoard {
     const r = this.compose();
     return r ? this.port.readPixels(r.fbo, Math.floor(x), Math.floor(y), 1, 1) : null;
   }
+  /** 最近一次落层怎么读回的（内核 GLBoard.lastBake：box / cells / box-unreported、读了几次、多少字节；探针 / 测试看）。 */
+  get lastBake(): GLBoard["lastBake"] { return this.gl.lastBake; }
   /** 现在的底色（sRGB 0..1，三个数）。 */
   get background(): readonly [number, number, number] { return [this.bg[0], this.bg[1], this.bg[2]]; }
 

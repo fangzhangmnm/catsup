@@ -4,6 +4,7 @@
 // 自动走「只 present」快路径；context-loss 自愈。
 // C1：context 创建翻壳——壳（board.ts）造好 BrowserGl2Port 递入，本类只见 Gl2Port 契约。
 
+import type { BakeReport } from "../backend/gl/bake-cells.ts";
 import type { Gl2Port, PooledFBO } from "../common/gl2-port.ts";
 import { GlRoom } from "../backend/gl/gl-room.ts";
 import { RenderTree } from "../backend/gl/render-tree.ts";
@@ -73,6 +74,8 @@ export class GLBoard {
     if (this._glctx.isLost) return false;
     return this._raster.bakeStamps(leafId, pixels, ov, docW, docH, apply);
   }
+  /** 最近一次 commitBrushStroke 怎么读回的（CatsUp 1-4d 第 8 条）：box / cells / box-unreported + 读了几次、多少字节、报了几格、漏了几格。宿主看 path 自己记日志（内核不认识宿主的日志）。没落成 = null。 */
+  get lastBake(): BakeReport | null { return this._raster.lastBake; }
 
   // 2026-09-19 暖场（手指首笔卡顿案，user「都做」+「启动速度是更重要的」+「预借再还 不会在小内存机器上惹麻烦可以试」）：
   //   ① 全部区域程序（REGION_PROGRAM_IDS，19 个）非阻塞预编译（warmProgram + KHR_parallel_shader_compile 轮询收尾），**分片**：每个空闲片起两个，

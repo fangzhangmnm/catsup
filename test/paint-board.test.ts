@@ -13,6 +13,8 @@ import { IDENTITY } from "../src/scene/xform.ts";
 import { mintGuid } from "../src/format/guid.ts";
 import { sceneBox } from "./format-scenes.ts";
 import type { LiveImage } from "../src/minccino/contract/stream.ts";
+import { DirtyCells } from "../src/paint/kernel/src/common/dirty-rects.ts";
+import { PaintingView } from "../src/paint/kernel/src/backend/workpiece/painting-view.ts";
 
 const pattern = (w: number, h: number, hole = false): Uint8ClampedArray => {
   const px = new Uint8ClampedArray(w * h * 4);
@@ -154,5 +156,55 @@ describe("画板登记处（1-3c）", () => {
     reg.follow(s);
     eq(b.height, row.height + 64, "跟着加高"); assert(reg.sig() !== sig0, "签名变了");
     eq(reg.takePending().length, 1, "加高封了一步，等着挂进三维的栈");
+  });
+});
+
+describe("落层只读回这一笔碰过的格（1-4d 第 8 条，内核 v0.14.82）", () => {
+  /** 一块画板 + 一片薄层：几块分散的墨（方框比墨大很多）；cells = 交给落层的格（null = 不给）；breakAt = 第几次写进图层时抛（模拟写到一半出错）。 */
+  const stroke = (cells: boolean, breakAt = 0) => {
+    // 撤销的步交给一个只数数的收步口（三维里是画板登记处的 HostedSteps）：落成一笔 = 推一步
+    let steps = 0;
+    const sink = { _bindWorkpiece() {}, push() { steps++; }, cursorStepId: () => steps, clear() {} };
+    const W = 600, H = 300, port = new SoftGl2Port(), b = new PaintBoard({ port, width: W, height: H, undo: sink as never });   // 跨好几个图块：落层一个图块写一次，才有「写到第 2 次」
+    b.setBackground([0.3, 0.5, 0.7]);
+    b.load(layer(W, H, pattern(W, H, true)));
+    const thin = new Uint8Array(W * H * 4), ext = b.wrapLayer({ pixels: thin, w: W, h: H, prec: "u8" }), dc = new DirtyCells(W, H);
+    for (const [x, y] of [[3, 4], [60, 30], [300, 80], [520, 270], [20, 270]]) {
+      for (let yy = y; yy < Math.min(H, y + 6); yy++) for (let xx = x; xx < Math.min(W, x + 7); xx++) { const i = (yy * W + xx) * 4; thin[i] = 200; thin[i + 1] = 20; thin[i + 2] = 20; thin[i + 3] = 220; }
+      dc.mark(x, y, 7, 6);
+    }
+    const id = b.wp.layerTree!.view().activeId!, leaf = new PaintingView(b.wp).layers.find((l) => l.id === id) as unknown as { pixels: { getRegion(x: number, y: number, w: number, h: number): Uint8ClampedArray }; applyRegionDiff: (...a: unknown[]) => unknown };
+    const before = leaf.pixels.getRegion(0, 0, W, H), cursor0 = steps;
+    // 第 breakAt 次写进图层时抛：档口每次开笔都从一个新的 PaintingView 拿叶（包装对象每次新建），所以包在叶的原型上、用完放回
+    const proto = Object.getPrototypeOf(leaf) as { applyRegionDiff: (...a: unknown[]) => unknown }, orig = proto.applyRegionDiff;
+    if (breakAt) { let n = 0; proto.applyRegionDiff = function (this: unknown, ...a: unknown[]) { if (++n === breakAt) throw new Error("injected write failure"); return orig.apply(this, a); }; }
+    let thrown: unknown = null;
+    try {
+      const session = b.openStroke(id);
+      session.setHostLayers([{ tex: ext, bx: 3, by: 4, bw: W - 3, bh: H - 4, layerId: id, opacity: 1, erase: false, blendMode: "source-over", ...(cells ? { cells: dc } : {}) }]);
+      try { session.end(); } catch (e) { thrown = e; }
+    } finally { proto.applyRegionDiff = orig; }
+    const after = leaf.pixels.getRegion(0, 0, W, H), cursor1 = steps, bake = b.lastBake;
+    b.dispose();
+    return { before, after, thrown, cursor0, cursor1, bake };
+  };
+  /** 看得见的不一样的像素数：前后都全透明的像素颜色不论（读整个方框那条路合成一遍会把它的颜色归 0）。 */
+  const diff = (a: Uint8ClampedArray, b2: Uint8ClampedArray): number => { let d = 0; for (let i = 0; i < a.length; i += 4) { if (a[i + 3] === 0 && b2[i + 3] === 0) continue; if (a[i] !== b2[i] || a[i + 1] !== b2[i + 1] || a[i + 2] !== b2[i + 2] || a[i + 3] !== b2[i + 3]) d++; } return d; };
+  it("交了碰过的格 = 只读这些格（一次读回、字节比方框少），写进图层的和读整个方框的逐字节一样", () => {
+    const box = stroke(false), cel = stroke(true);
+    assert(!box.thrown && !cel.thrown, "都落成了");
+    eq(box.bake?.path, "box"); eq(cel.bake?.path, "cells");
+    eq(cel.bake?.readCalls, 1, "只读一次");
+    assert((cel.bake?.readBytes ?? 0) < (box.bake?.readBytes ?? 0), `读的字节少了（${cel.bake?.readBytes} < ${box.bake?.readBytes}）`);
+    eq(diff(box.after, cel.after), 0, "图层逐字节一样");
+    eq(cel.cursor1, cel.cursor0 + 1, "落成 = 推了一步");
+    assert(diff(box.before, box.after) > 100, "真画上了");
+  });
+  it("分几段写进图层、第 2 段抛 = 整笔不落：图层逐字节回到落笔之前、撤销栈没多一步、错误照样抛给调用的人（三维那边收成一句人话）", () => {
+    const r = stroke(true, 2);
+    assert(r.thrown instanceof Error && /injected write failure/.test((r.thrown as Error).message), `抛出来了（${String(r.thrown)}）`);
+    let bytes = 0; for (let i = 0; i < r.before.length; i++) if (r.before[i] !== r.after[i]) bytes++;
+    eq(bytes, 0, "图层和落笔之前逐字节一样（连全透明像素的颜色都一样：写了的那一段也回滚了）");
+    eq(r.cursor1, r.cursor0, "撤销栈没多一步");
   });
 });

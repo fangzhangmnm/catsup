@@ -935,6 +935,42 @@ const liquifyWarp: CpuDraw = (c) => {
   });
 };
 
+// ---- bake-pack（镜像 gl/bake-cells.ts BAKE_PACK_FRAG；1-4d 第 8 条，落层只读回报的格）----
+const bakePack: CpuDraw = (c) => {
+  const [sw] = uv2(c, "u_size"), n = u1(c, "u_n"), packRows = u1(c, "u_packRows");
+  const cellsU = c.uniforms.u_cells as number[], boxU = c.uniforms.u_box as number[];
+  const merged = c.tex("u_merged"), base = c.tex("u_base"), list = c.tex("u_list"), mask = c.tex("u_mask");
+  const t = new Float32Array(4), a = new Float32Array(4), b = new Float32Array(4), C = 8, LW = 2048;
+  const listAt = (i: number): number => { list!.fetch(i % LW, Math.floor(i / LW), t); return t[0]; };
+  c.forEachPixel((px, py, out) => {
+    const x = Math.floor(px), y = Math.floor(py);
+    if (y < packRows) {
+      const slot = Math.floor(y / C) * Math.floor(sw / C) + Math.floor(x / C);
+      if (slot >= n) { out.fill(0); return true; }
+      const qx = listAt(2 * slot) * C + (x % C), qy = listAt(2 * slot + 1) * C + (y % C);
+      if (!merged || qx >= merged.w || qy >= merged.h) { out.fill(0); return true; }
+      merged.fetch(qx, qy, out);
+      return true;
+    }
+    const v = (y - packRows) * sw + x, cw = cellsU[2], ch = cellsU[3];
+    if (v >= cw * ch) { out.fill(0); return true; }
+    const gx = v % cw, gy = Math.floor(v / cw);
+    mask!.fetch(gx, gy, t);
+    if (t[0] > 0.5) { out.fill(0); return true; }
+    const cx = cellsU[0] + gx, cy = cellsU[1] + gy;
+    let d = 0;
+    for (let yy = 0; yy < C; yy++) for (let xx = 0; xx < C; xx++) {
+      const qx = cx * C + xx, qy = cy * C + yy;
+      if (qx < boxU[0] || qy < boxU[1] || qx >= boxU[2] || qy >= boxU[3]) continue;
+      merged!.fetch(qx, qy, a); base!.fetch(qx, qy, b);
+      if (a[3] === 0 && b[3] === 0) continue;   // 前后都全透明 = 没变
+      d = Math.max(d, Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]), Math.abs(a[3] - b[3]));
+    }
+    out[0] = out[1] = out[2] = out[3] = d;
+    return true;
+  });
+};
+
 // ---- 注册表 ----
 // GPU-only 显式登记（屏显专属，headless 不需要；SoftGl2Port draw 到这些名字响亮 throw）。
 const GPU_ONLY = new Set<string>(["present-affine", "present-affine-over", "screen-bg"]);
@@ -944,6 +980,7 @@ export function resolveCpuProgram(name: string): CpuDraw | "gpu-only" | null {
   if (GPU_ONLY.has(name)) return "gpu-only";
   if (name === "checker") return checker;
   if (name === "fill") return fill;
+  if (name === "bake-pack") return bakePack;
   if (name === "present") return present;
   if (name === "stamp-accum") return stampAccum;
   if (name === "stamp-color") return stampColor;

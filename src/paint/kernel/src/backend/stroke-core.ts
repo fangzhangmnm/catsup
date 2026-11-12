@@ -252,11 +252,18 @@ export class StrokeCore {
    * path 要给就给这一笔自己的 path()（缓存靠它的前 frozenCount 个点不变）。
    * 二维的 BrushEngine.collectStamps 直接用它拼笔尖对象（不经过中间数组：画画软件每帧都收集一遍）。
    */
-  forEachTip(emit: (seg: number, x: number, y: number, z: number, size: number, alpha: number, strokeDist: number) => void, path: StrokePath = this.path()): void {
+  /**
+   * from（可选，CatsUp 1-4d 第 9 条）：定型的笔尖从第 from 颗开始回调（前面的不再每帧回调一遍；回调里的先后和编号不变，只是少了前面那些）。
+   *   界：0 ≤ from ≤ 已经定型的颗数（frozenTipCount）；超了 = 抛（还会变的尾巴每次都要从头走，不能跳）。不给 = 0 = 和以前一样。
+   */
+  forEachTip(emit: (seg: number, x: number, y: number, z: number, size: number, alpha: number, strokeDist: number) => void, path: StrokePath = this.path(), from = 0): void {
     const c = this._advance(path), t = c.tips;
-    for (let k = 0, o = 0; k < c.tipN; k++, o += TIP_W) emit(t[o], t[o + 1], t[o + 2], t[o + 3], t[o + 4], t[o + 5], t[o + 6]);
+    if (!(Number.isInteger(from) && from >= 0 && from <= c.tipN)) throw new Error(`StrokeCore.forEachTip: from ${from} outside 0..${c.tipN} (frozen tips)`);
+    for (let k = from, o = from * TIP_W; k < c.tipN; k++, o += TIP_W) emit(t[o], t[o + 1], t[o + 2], t[o + 3], t[o + 4], t[o + 5], t[o + 6]);
     this._walkTail(path, c, emit);
   }
+  /** 已经定型的笔尖有几颗（forEachTip 的 from 不能超过它）。 */
+  frozenTipCount(path: StrokePath = this.path()): number { return this._advance(path).tipN; }
 
   /** 收集这一笔到现在的全部笔尖（StrokeTips，含定型的前缀）。 */
   collect(): StrokeTips {

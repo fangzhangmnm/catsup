@@ -8,6 +8,7 @@
 //   - composeSteps 合成机：display 帧与一次性合成走同一条 pass 序（观感零漂移）。
 // RenderTree 私有的仍在 RenderTree（段缓存/display/plan 签名/frameStats）；本类零策略、零帧决策。
 
+import type { DirtyCells } from "../../common/dirty-rects.ts";
 import { GpuTilePool, IndexTexture, GPU_TILE_BYTES } from "./gpu-tile-pool.ts";
 import { CpuGpuTileBridge } from "./tile-bridge.ts";
 import { appTilePool } from "../tiles/app-tile-pool.ts";
@@ -74,6 +75,13 @@ export interface HostOverlayInput {
   bx: number; by: number; bw: number; bh: number;   // 这一笔碰到的范围（画布像素）；落层时只读回这一块
   layerId: number; opacity: number; erase: boolean; blendMode: string; lockAlpha: boolean;
   selMask: { data: Uint8Array; ox: number; oy: number; ow: number; oh: number } | null;
+  /**
+   * 这一笔碰过的格（可选，CatsUp 1-4d 第 8 条）：画布像素上的脏格子位图（8 格见方），宿主抬笔整笔重画那一次标出来的（和画进去的是同一批 item）。
+   * 给了 = 落层时只读回这些格（挤进一张小暂存图、一次读回）；内核不全信：同一次读回里带一片核对——方框里报的格以外，合出来的和这一层原来的
+   *   有没有不一样（任一通道），有 = 照旧读整个方框（绝不少写），GLBoard.lastBake.path = "box-unreported"。
+   * 不给 / 大小和画布对不上 = 照旧读整个方框（画画软件自己不受影响）。
+   */
+  cells?: DirtyCells;
 }
 export type OverlayInput = StampOverlayInput | FillOverlayInput | RegionOverlayInput | HostOverlayInput;
 type OverlayEntry = { tex: Gl2TexSource; layerId: number; opacity: number; erase: boolean; blendMode: string; ox: number; oy: number; ow: number; oh: number; lockAlpha: boolean; selMask: { tex: Gl2Texture; ox: number; oy: number; ow: number; oh: number } | null; replace: boolean };   // region（2026-09-18）：W 当 overlay，replace 合成
