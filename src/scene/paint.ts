@@ -2,7 +2,7 @@
 // 哪些面走画（Scene.facePaint 是那一个问法，这里是它的批量用法）、规矩自检、哪些走画的面还没有位置、「带着画的面现在还搬不了」那个唯一的拒绝判断。
 // 不认识编辑器、不改场景：改场景的只有三条指令（editor/paint-ops.ts）。
 import type { DefId, Material, Scene, UvSetRow } from "./scene.ts";
-import { paintIn, UV_CANVAS_EPS, type TextureDoc } from "../format/document.ts";
+import { paintIn, tiledPaintIn, UV_CANVAS_EPS, type TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
 
 /** 第六节那几种动作碰到走画的面时的原因（拒绝之后场景一个字节不变）。 */
@@ -26,6 +26,18 @@ export function paintPlaceOf(s: Scene, texture: Guid): { def: DefId; uvSet: UvSe
     const d = s.defByGuid(p.definition), row = d && d.body.kind === "mesh" ? d.body.uvSets.get(p.uvSet) : undefined;
     return d && row ? { def: d.id, uvSet: row, material: m } : null;
   }
+  return null;
+}
+/**
+ * 一张画在哪（画板登记处：画板在不在、底色、能不能变热、给渲染器什么图；存盘：底色。施工单二十一第 3 刀）：两种——
+ * uv = 铺在一套贴图坐标上的（就是 paintPlaceOf）；tiled = 平铺的画（CATSUP_textures 1.2：有材质的颜色那一槽指着它、分层 + sizeM、没有 layout）→ sizeM 和指着它的第一个材质。
+ * 平铺的画没有坐标：画布大小写在它自己的分层字节里（新建时就编好空白的，editor/paint-ops.ts addTiledPaint），不跟谁改大小。
+ */
+export type BoardPlace = ({ readonly kind: "uv" } & NonNullable<ReturnType<typeof paintPlaceOf>>) | { readonly kind: "tiled"; readonly sizeM: readonly [number, number]; readonly material: Material };
+export function boardPlaceOf(s: Scene, texture: Guid): BoardPlace | null {
+  const p = paintPlaceOf(s, texture);
+  if (p) return { kind: "uv", ...p };
+  for (const m of s.materials) { const t = tiledPaintIn(s.textures, m); if (t && t.textureDoc.guid === texture) return { kind: "tiled", sizeM: t.sizeM, material: m }; }
   return null;
 }
 

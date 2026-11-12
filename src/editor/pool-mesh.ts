@@ -248,8 +248,8 @@ export type TexSide = "front" | "back" | "double";
 export interface PoolMeshEnv {
   /** 槽号 → 材质（scene.materialOfSlot 绑好 definition）。 */
   matOf(slot: number | undefined): Material | null;
-  /** 这个材质贴哪张图（scene.colorMapOf，那个口）：null = 按底色画。 */
-  mapOf(m: Material): ColorMap | null;
+  /** 这个材质按平铺贴图吗、一张多大（米）：自由的图（scene.colorMapOf）和平铺的画（有图的时候；施工单二十一第 3 刀）都按 sizeM 投影坐标；null = 按底色画。图本身归提供者交给渲染器的材质引用。 */
+  mapOf(m: Material): { readonly sizeM: readonly [number, number] } | null;
   /**
    * 这张面显示画吗（贴图主线 1-3c）：走画（Scene.facePaint）、那张画有画板、角上在那一套坐标里有位置 → 每角两个数（画布像素）+ 画板**实际**宽高 + 那张贴图的 GUID；
    * 差一样 = null（照旧按底色 / 原图那条路）。k = 正在同步的那个内核（预演影子也一样）。只有网格体给。

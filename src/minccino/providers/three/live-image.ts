@@ -48,6 +48,8 @@ void main() {
 
 interface Entry {
   readonly tex: any;                 // THREE.ExternalTexture（仓里 three 的类型是简版）
+  /** 平铺的画（施工单二十一第 3 刀）：显示图重复平铺、过滤跟画风（setTileFilter）。建的时候定，一辈子不变。 */
+  readonly tile: boolean;
   disp: WebGLTexture | null;
   w: number; h: number;
   ver: number;                       // 拷过的版本；−1 = 要重拷
@@ -58,6 +60,8 @@ interface Entry {
 /** 画的合成图（冷的画）那张显示图：位图留着（显卡画面丢了恢复后从它重传）。 */
 interface StaticEntry {
   readonly tex: any;
+  /** 平铺的画的合成图（和 Entry.tile 同一个意思）。 */
+  readonly tile: boolean;
   readonly bmp: ImageBitmap;
   readonly w: number; readonly h: number;
   disp: WebGLTexture | null;
@@ -77,6 +81,18 @@ export class LiveTextures {
   private dsLinear: WebGLUniformLocation | null = null;
   /** 缩小图在哪个空间取平均（画风的 mixSpace；复古 = srgb，写实 = linear）。 */
   mipSpace: "srgb" | "linear" = "srgb";
+  /** 平铺的画的过滤（跟画风，和自由的图同一条规矩：nearest = 放大缩小都最近邻；否则放大线性、缩小三线性）。不是平铺的不受它管。 */
+  tileNearest = false;
+  /** 换画风：平铺的画的过滤跟着换（只改采样设置，不重拷）。返回动没动显卡（调用的人 resetState() 一次）。 */
+  setTileFilter(nearest: boolean): boolean {
+    if (nearest === this.tileNearest) return false;
+    this.tileNearest = nearest;
+    if (this.gl.isContextLost()) return false;
+    let touched = false;
+    for (const e of this.entries.values()) if (e.tile && e.disp) { this.filterOf(e.disp, true); touched = true; }
+    for (const s of this.statics) if (s.tile && s.disp) { this.filterOf(s.disp, true); touched = true; }
+    return touched;
+  }
   /** 换画风：空间变了 = 活的图下一帧整张重拷、冷的合成图缩小图整套重做（一张图里不混两种平均法）。动了显卡：调用的人 resetState() 一次。 */
   setMipSpace(sp: "srgb" | "linear"): boolean {
     if (sp === this.mipSpace) return false;
@@ -123,11 +139,11 @@ export class LiveTextures {
    * 画的合成图（冷的画）的显示图：位图传进第 0 级（字节原样，不翻、不预乘——ImageBitmap 不看那几个 UNPACK 开关，和 three 传它时一样），缩小图走 mips()。
    * 同一张显示图的设置和活的图一样（RGBA8、放大最近邻 / 缩小三线性、夹边）。动了显卡：调用的人 resetState() 一次。
    */
-  fromBitmap(bmp: ImageBitmap): unknown {
+  fromBitmap(bmp: ImageBitmap, tile = false): unknown {
     const tex = new (THREE as any).ExternalTexture(null);
     tex.colorSpace = THREE.NoColorSpace;   // 存的就是 sRGB 的数、不自动解码（颜色空间约定）；用它的着色器自己决定要不要解成线性
     tex.userData = { paint: true };
-    const s: StaticEntry = { tex, bmp, w: bmp.width, h: bmp.height, disp: null };
+    const s: StaticEntry = { tex, tile, bmp, w: bmp.width, h: bmp.height, disp: null };
     this.statics.add(s);
     this.upload(s);
     return tex;
@@ -137,7 +153,7 @@ export class LiveTextures {
     const gl = this.gl;
     if (gl.isContextLost()) return;
     this.ensureProgram();
-    const t = this.makeDisplay(s.w, s.h);
+    const t = this.makeDisplay(s.w, s.h, s.tile);
     gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4); gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0); gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, s.bmp);
@@ -145,16 +161,23 @@ export class LiveTextures {
     this.mips(t, s.w, s.h, "all");
   }
 
-  /** 新建一张显示图（不可变大小 + 全套缩小图），绑在 TEXTURE_2D 上返回。 */
-  private makeDisplay(w: number, h: number): WebGLTexture {
+  /** 新建一张显示图（不可变大小 + 全套缩小图），绑在 TEXTURE_2D 上返回。tile = 平铺的画（重复平铺、过滤跟画风）；否则夹边、放大最近邻 / 缩小三线性。 */
+  private makeDisplay(w: number, h: number, tile: boolean): WebGLTexture {
     const gl = this.gl, t = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texStorage2D(gl.TEXTURE_2D, levelsOf(w, h), gl.RGBA8, w, h);   // 不自动解码（颜色空间约定）
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    this.filterOf(t, tile);
+    const wrap = tile ? gl.REPEAT : gl.CLAMP_TO_EDGE;
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
     return t;
+  }
+  /** 一张显示图的过滤（绑在 TEXTURE_2D 上设）：画 = 放大最近邻、缩小三线性；平铺的画 = 跟画风（tileNearest）。 */
+  private filterOf(t: WebGLTexture, tile: boolean): void {
+    const gl = this.gl, nearest = tile && this.tileNearest;
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, tile && !nearest ? gl.LINEAR : gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, nearest ? gl.NEAREST : gl.LINEAR_MIPMAP_LINEAR);
   }
 
   /** 这张活的图在 three 那边的贴图（同一张图永远是同一个对象）。还没拷过 = 指着空（three 绑 null = 黑；第一帧 update 就拷上）。 */
@@ -163,7 +186,7 @@ export class LiveTextures {
     if (!e) {
       const tex = new (THREE as any).ExternalTexture(null);
       tex.colorSpace = THREE.NoColorSpace;   // 存的就是 sRGB 的数、不自动解码（颜色空间约定）；用它的着色器自己决定要不要解成线性
-      e = { tex, disp: null, w: 0, h: 0, ver: -1, mipsStale: false };
+      e = { tex, tile: !!img.tile, disp: null, w: 0, h: 0, ver: -1, mipsStale: false };
       this.entries.set(img, e);
     }
     return e.tex;
@@ -285,7 +308,7 @@ export class LiveTextures {
     this.ensureProgram();
     if (!e.disp || e.w !== w || e.h !== h) {   // 第一次 / 大小变了：重建显示图（不可变大小 + 全套缩小图）
       if (e.disp) gl.deleteTexture(e.disp);
-      const t = this.makeDisplay(w, h);
+      const t = this.makeDisplay(w, h, e.tile);
       e.disp = t; e.w = w; e.h = h; e.tex.sourceTexture = t;
       ch = "all";
     }

@@ -45,6 +45,15 @@ export class EditorStreamProvider implements StreamProvider {
   /** 一张图 = 一个 TextureRef（渲染器按它解码一次：两个材质用同一张图只解一次）。 */
   private readonly texRefs = new WeakMap<ColorMap, TextureRef>();
   private refOf(m: Material, scene: Scene): MaterialRef {
+    // 平铺的画（施工单二十一第 3 刀）：画板现在的图（热的 = 活的图、冷的 = 合成图；都带平铺标记）+ 白（底色已经合在画里）；画板没有图 = 下面按底色那条
+    const ti = this.tiledImage(scene, m);
+    if (ti) {
+      const th = this.tiledRefs.get(m);
+      if (th && th.image === ti) return th.ref;
+      const ref: MaterialRef = { color: [1, 1, 1], map: ti };
+      this.tiledRefs.set(m, { image: ti, ref });
+      return ref;
+    }
     const map = scene.colorMapOf(m), hit = this.refs.get(m);
     if (hit && hit.map === map) return hit.ref;
     let tr = map ? this.texRefs.get(map) : undefined;
@@ -52,6 +61,13 @@ export class EditorStreamProvider implements StreamProvider {
     const ref: MaterialRef = { color: m.color, ...(tr ? { map: tr } : {}) };
     this.refs.set(m, { map, ref });
     return ref;
+  }
+  /** 平铺的画那几个材质交给渲染器的引用：同一个材质 + 同一张图 = 同一个对象。 */
+  private readonly tiledRefs = new WeakMap<Material, { readonly image: LiveImage | TextureRef; readonly ref: MaterialRef }>();
+  /** 这个材质是平铺的画、而且画板现在有图（热的 / 冷的有合成图）→ 那张图；不是 / 没有图 = null（按底色画）。 */
+  private tiledImage(scene: Scene, m: Material): LiveImage | TextureRef | null {
+    const tp = m === BUILTIN_BACK ? null : scene.tiledPaintOf(m);
+    return tp ? this.paint?.board(tp.textureDoc.guid)?.image ?? null : null;
   }
   /** 世界视图对象 → 小整数（内容键 / 包围球缓存：预演影子每帧是新对象 = 身份变 = 自然失效，和以前 render3 的 kernelId 同构）。 */
   private worldIds = new WeakMap<object, number>(); private nextWorldId = 1;
@@ -164,14 +180,14 @@ export class EditorStreamProvider implements StreamProvider {
     const cullBack = !this.editing || this.styled();   // 演示锁 = 没有正在编辑的那一层
     const body = scene.def(defId).body, paintOn = !!this.paint && body.kind === "mesh" && body.uvSets.size > 0;   // 有画板登记处、而且这个定义有贴图坐标：才问每张面
     const num = (o: object): number => { let u = this.matUids.get(o); if (u === undefined) { u = this.nextMatUid++; this.matUids.set(o, u); } return u; };
-    const uid = (m: Material | undefined): string => { if (!m) return "0"; const map = m === BUILTIN_BACK ? null : scene.colorMapOf(m); return map ? `${num(m)}t${num(map)}` : `${num(m)}`; };   // 材质指的图换了（粘贴「更新」那张贴图）= 签名变 = 重建，块交出新的材质引用
+    const uid = (m: Material | undefined): string => { if (!m) return "0"; const map: object | null = m === BUILTIN_BACK ? null : scene.colorMapOf(m) ?? this.tiledImage(scene, m); return map ? `${num(m)}t${num(map)}` : `${num(m)}`; };   // 平铺的画：画板的图出现 / 换了（冷 → 热）= 签名变 = 重建（顶点色白 / 底色跟着换）   // 材质指的图换了（粘贴「更新」那张贴图）= 签名变 = 重建，块交出新的材质引用
     return {
       matOf: (slot) => scene.materialOfSlot(defId, slot),
-      mapOf: (m) => scene.colorMapOf(m),
+      mapOf: (m) => { const cm = scene.colorMapOf(m); if (cm) return cm; const tp = this.tiledImage(scene, m) ? scene.tiledPaintOf(m) : null; return tp ? { sizeM: tp.sizeM } : null; },   // 平铺的画：照自由的图投影坐标（sizeM），图归 refOf
       slotsSig: (paintOn ? `P[${this.paint!.sig()}]` : "") + scene.def(defId).body.materialSlots.map((i) => uid(i === BUILTIN_BACK_SLOT ? BUILTIN_BACK : scene.materials[i])).join(","),   // 画板的签名放最前面：变了不会是「前缀 = 增量」，整份重建   // 内置默认背面也有自己的号：把一侧从默认正面改成默认背面要重画
       singleSided: scene.kindOf(defId) === "mesh",
       backLook: cullBack ? "cull" : "show",
-      faceColor: (mat) => (mat === BUILTIN_BACK ? (cullBack ? NO_SIDE : BACK_SRGB) : !mat ? FACE_SRGB : scene.colorMapOf(mat) ? [1, 1, 1] : [mat.color[0], mat.color[1], mat.color[2]]),   // 贴图面 = 白（贴图 × 1）；没材质 = 白模灰
+      faceColor: (mat) => (mat === BUILTIN_BACK ? (cullBack ? NO_SIDE : BACK_SRGB) : !mat ? FACE_SRGB : scene.colorMapOf(mat) || this.tiledImage(scene, mat) ? [1, 1, 1] : [mat.color[0], mat.color[1], mat.color[2]]),   // 贴图面 = 白（贴图 × 1）；没材质 = 白模灰
       edgeColor: (loose) => (loose ? EDGE_WIRE : EDGE_FACE),
       thick,
       ...(paintOn ? { paintOf: (k: KernelView, fid: number, m: Material) => this.paintOf(scene, defId, k, fid, m) } : {}),

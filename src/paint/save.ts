@@ -15,7 +15,7 @@ import { encodePngFromBytes } from "./kernel/src/backend/png-codec.ts";
 import type { PaintingData } from "./kernel/src/backend/workpiece/painting-workpiece.ts";
 import type { PaintBoard } from "./board.ts";
 import { paintBytesSum, type CatsupDocument, type PaintComposite, type TextureDoc } from "../format/document.ts";
-import { paintPlaceOf } from "../scene/paint.ts";
+import { boardPlaceOf, paintPlaceOf } from "../scene/paint.ts";
 import type { Scene } from "../scene/scene.ts";
 import type { Guid } from "../format/guid.ts";
 
@@ -74,10 +74,11 @@ export class PaintSaver {
     let stale = false;
     for (const t of textures) {
       if (t.content.kind !== "layered") continue;
-      const place = paintPlaceOf(scene, t.guid), board = this.boards.get(t.guid);
+      const place = paintPlaceOf(scene, t.guid), board = this.boards.get(t.guid);   // place = 铺在坐标上的（裁高、编空白用）；平铺的画 = null：不裁、大小是画板自己的
       if (board) {
         const version = board.wp.commitVersion, hit = this.cache.get(t.guid), fresh = hit && hit.board === board && hit.version === version ? hit : null;
-        const base: readonly [number, number, number] = place ? [place.material.color[0], place.material.color[1], place.material.color[2]] : board.background;
+        const bp = boardPlaceOf(scene, t.guid);   // 底色：两种画都问材质（施工单二十一第 3 刀）
+        const base: readonly [number, number, number] = bp ? [bp.material.color[0], bp.material.color[1], bp.material.color[2]] : board.background;
         if (fresh && (!fresh.composite || sameBase(fresh.composite.base, base))) { pins.set(t.guid, { kind: "ready", ora: fresh.ora, composite: fresh.composite }); continue; }
         if (mode === "snapshot") {
           const old = hit && hit.board === board ? hit : null;

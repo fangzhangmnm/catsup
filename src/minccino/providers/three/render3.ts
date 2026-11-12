@@ -897,7 +897,7 @@ export class Renderer3 implements RenderProvider {
         if (this.texCache.get(key) !== tex) { bmp.close?.(); return; }   // 这张图已经被回收：这份解码作废
         // 画的合成图：显示图归活的图那个模块建（第 0 级原样、缩小图同一份算法）——冷的和解开后热的才逐像素一样（2026-11-11：three 的 generateMipmap 和它对不上）
         let real: any;
-        if (paint) { real = this.liveTextures().fromBitmap(bmp); this.renderer.resetState(); }
+        if (paint) { real = this.liveTextures().fromBitmap(bmp, !!map.paint?.tile); this.renderer.resetState(); }   // 平铺的画的合成图：重复平铺、过滤跟画风（同活的那张）
         else {
           real = new THREE.Texture(bmp);
           real.colorSpace = THREE.NoColorSpace; real.wrapS = real.wrapT = THREE.RepeatWrapping;   // RGBA8：取样拿到 sRGB 的数（颜色空间约定）；缩小图是驱动做的，在 sRGB 的数上平均
@@ -936,7 +936,7 @@ export class Renderer3 implements RenderProvider {
   /** 活的图（画）的专用显示图：第一次用到时建；显卡画面丢了忘掉原始 GL 对象、恢复后重拷。 */
   private live: LiveTextures | null = null;
   private liveTextures(): LiveTextures {
-    if (!this.live) { const lt = new LiveTextures(this.renderer.getContext()); lt.mipSpace = this.preset.material.mixSpace; this.live = lt; this.renderer.domElement.addEventListener?.("webglcontextlost", () => lt.lost()); }
+    if (!this.live) { const lt = new LiveTextures(this.renderer.getContext()); lt.mipSpace = this.preset.material.mixSpace; lt.tileNearest = this.preset.material.texFilter === "nearest"; this.live = lt; this.renderer.domElement.addEventListener?.("webglcontextlost", () => lt.lost()); }
     return this.live;
   }
   /** 画画内核共用的显卡画面（契约 RenderProvider.paintGl）。 */
@@ -979,6 +979,7 @@ export class Renderer3 implements RenderProvider {
     this.preset = p; this.poolKey = "";
     for (const t of this.texCache.values()) this.applyTexFilter(t);
     if (this.live?.setMipSpace(p.material.mixSpace)) this.renderer.resetState();   // 画的显示图：缩小图换平均的空间（复古 sRGB / 写实线性），整套重做
+    if (this.live?.setTileFilter(p.material.texFilter === "nearest")) this.renderer.resetState();   // 平铺的画：过滤跟画风（和自由的图同一条规矩，施工单二十一第 3 刀）
   }
   getPreset(): PresetId { return this.preset.id as PresetId; }
   /** 贴图过滤跟预设走（像素风 = 最近邻；不改资产，只改采样）。 */

@@ -16,7 +16,7 @@ export interface TextureRef {
    * （夹边、放大最近邻、缩小三线性、有缩小图、不跟画风换过滤；第 0 行 = 画布第 0 行，不翻），冷的画显示的就是它、和热起来之后显示的逐像素相同。
    * base = 这个材质的底色（sRGB 0..1）：图还在解的那几帧，占位用它（不用导入贴图那个灰色占位：打开文件时画过的面不许先闪一下灰）。
    */
-  readonly paint?: { readonly base: readonly number[] };
+  readonly paint?: { readonly base: readonly number[]; /** 平铺的画（施工单二十一第 3 刀）：显示图重复平铺、过滤跟画风（和自由的图一样）；缺 = 夹边、过滤固定。 */ readonly tile?: boolean };
 }
 /**
  * 一张活的图（贴图主线 1-3c）：别人（画画内核）已经放在同一个显卡画面里的图。渲染器每帧开画之前问一遍 `current()`（要重新合成的在这时候合成），
@@ -25,6 +25,8 @@ export interface TextureRef {
  */
 export interface LiveImage {
   readonly kind: "live"; readonly width: number; readonly height: number;
+  /** 平铺的画（施工单二十一第 3 刀）：显示图重复平铺、过滤跟画风（和自由的图一样）；缺 = 夹边、放大最近邻 / 缩小三线性。同一张图一辈子不变（建的时候就定）。 */
+  readonly tile?: boolean;
   current(): { readonly gpuImage: unknown; readonly version: number } | null;
   /**
    * 从版本 since 到现在变了哪些格（说不清 = "all"）。不给这个口 = 每次整张（1-4d 第 6 条：渲染器的显示图只拷变了的那些格、缩小图逐级只重做受影响的那些格）。

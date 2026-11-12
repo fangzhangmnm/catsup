@@ -29,7 +29,7 @@ import { createSharedTilePool, type SharedTilePool } from "./kernel/src/backend/
 import { poolCapacityForBudget } from "./kernel/src/backend/gl/gl-room.ts";
 import { HostedSteps } from "./kernel/src/backend/workpiece/hosted-steps.ts";
 import type { UndoComponent } from "../editor/history.ts";
-import { paintPlaceOf } from "../scene/paint.ts";
+import { boardPlaceOf, paintPlaceOf } from "../scene/paint.ts";
 import type { Scene } from "../scene/scene.ts";
 import type { Guid } from "../format/guid.ts";
 
@@ -95,8 +95,8 @@ export class PaintBoards {
     if (row && row.content.kind === "layered" && row.content.ora) throw new ColdPaintError(texture, this.viewOnly.get(texture) ?? null);
     return this.create(texture, place.uvSet.width, place.uvSet.height, place.material.color);
   }
-  /** 建一块画板（宽高由调用的人给：新画 = 那一套坐标的大小；变热 = 分层字节里的大小）。 */
-  private create(texture: Guid, width: number, height: number, base: readonly number[]): PaintBoard {
+  /** 建一块画板（宽高由调用的人给：新画 = 那一套坐标的大小；变热 = 分层字节里的大小）。tile = 平铺的画（活的图带这个标记：渲染器重复平铺、过滤跟画风）。 */
+  private create(texture: Guid, width: number, height: number, base: readonly number[], tile = false): PaintBoard {
     this.port ??= this.o.port();
     this.pool ??= createSharedTilePool(this.port, poolCapacityForBudget(PAINT_GPU_BUDGET_BYTES));
     let born = true;   // 刚建画板时内核要是叫 onReset（空的那一次）：什么都不用做
@@ -111,6 +111,7 @@ export class PaintBoards {
     const entry: Entry = { board, image: null as unknown as LiveImage, prepared: null, steps, dormant: false, open: 0, wanted: false, freshAt: -1 };
     (entry as { image: LiveImage }).image = {
       kind: "live",
+      ...(tile ? { tile: true } : {}),
       get width() { return board.width; },
       get height() { return board.height; },
       current: () => entry.prepared,   // 只读准备好的结果（合成在 prepare 里）
@@ -197,7 +198,7 @@ export class PaintBoards {
     if (changed) this.resig();
     changed = false;
     for (const [g, e] of [...this.entries]) {
-      const place = paintPlaceOf(scene, g);
+      const place = boardPlaceOf(scene, g);   // 铺在坐标上的画和平铺的画（施工单二十一第 3 刀）都算在场景里
       if (!place) { if (!e.dormant) { e.dormant = true; e.prepared = null; changed = true; } continue; }
       if (e.dormant) { e.dormant = false; changed = true; }
       e.board.setBackground(place.material.color);
@@ -326,14 +327,16 @@ export class PaintBoards {
     const seen = new Set<Guid>();
     for (const t of scene.textures.values()) {
       if (t.content.kind !== "layered" || !t.content.ora || this.entries.has(t.guid)) continue;
-      const place = paintPlaceOf(scene, t.guid);
+      const place = boardPlaceOf(scene, t.guid);
       if (!place) continue;
       seen.add(t.guid);
       const base = place.material.color.join(","), hit = this.cold.get(t.guid);
       if (hit && hit.row === t && hit.base === base) continue;
       let shown: { width: number; height: number; image: TextureRef } | null = null;
       const fits = compositeFits(t, place.material.color), dims = t.composite ? pngSize(t.composite.png) : null;
-      if (fits && dims && dims.width === place.uvSet.width && dims.height >= place.uvSet.height) shown = { width: dims.width, height: dims.height, image: { mimeType: "image/png", bytes: t.composite!.png, sizeM: [1, 1], paint: { base: place.material.color } } };
+      // 尺寸：铺在坐标上的 = 宽和坐标一样、高不比坐标矮；平铺的画没有坐标，合成图对得上分层字节（compositeFits）就是它的大小
+      const sizeOk = !!dims && (place.kind === "tiled" || (dims.width === place.uvSet.width && dims.height >= place.uvSet.height));
+      if (fits && dims && sizeOk) shown = { width: dims.width, height: dims.height, image: { mimeType: "image/png", bytes: t.composite!.png, sizeM: [1, 1], paint: { base: place.material.color, ...(place.kind === "tiled" ? { tile: true } : {}) } } };
       this.cold.set(t.guid, { row: t, base, shown });
       changed = true;
       // 合成图本身对得上、只是底色变了：热一次重新合成（统筹 11-11）。没有合成图 / 记号对不上（老文件）：照底色，等它变热时自然就有。
@@ -360,7 +363,7 @@ export class PaintBoards {
     if (this.viewOnly.has(texture)) return Promise.resolve("view-only");
     const going = this.warming.get(texture);
     if (going) return going;
-    const row = scene.textures.get(texture), place = paintPlaceOf(scene, texture), epoch = this.epochSeen;
+    const row = scene.textures.get(texture), place = boardPlaceOf(scene, texture), epoch = this.epochSeen;
     if (!row || row.content.kind !== "layered" || !row.content.ora || !place) return Promise.reject(new Error(`PaintBoards.warm: texture ${texture} is not a cold placed paint`));
     const ora = row.content.ora, name = row.name || "画";
     const run = (async (): Promise<"hot" | "view-only"> => {
@@ -368,9 +371,9 @@ export class PaintBoards {
       try { const d = await decodeOraToPainting(new Blob([ora as BlobPart])); data = (d as { data?: PaintingData }).data ?? (d as unknown as PaintingData); }
       catch (e) { return this.markViewOnly(texture, `「${name}」这张画只能看不能画：分层的字节解不开（${e instanceof Error ? e.message : String(e)}）`); }
       if (this.o.epoch() !== epoch || this.epochSeen !== epoch) return "view-only";   // 解的时候换了文件：作废（不建画板）
-      if (data.width !== place.uvSet.width || data.height < place.uvSet.height) return this.markViewOnly(texture, `「${name}」这张画只能看不能画：分层的大小 ${data.width}×${data.height} 和贴图坐标 ${place.uvSet.width}×${place.uvSet.height} 对不上`);
+      if (place.kind === "uv" && (data.width !== place.uvSet.width || data.height < place.uvSet.height)) return this.markViewOnly(texture, `「${name}」这张画只能看不能画：分层的大小 ${data.width}×${data.height} 和贴图坐标 ${place.uvSet.width}×${place.uvSet.height} 对不上`);
       if (this.entries.has(texture)) return "hot";
-      const b = this.create(texture, data.width, data.height, place.material.color);
+      const b = this.create(texture, data.width, data.height, place.material.color, place.kind === "tiled");
       this.resetWhy = { why: "装载了这张画", tell: false };
       try { b.load(data); } finally { this.resetWhy = null; }
       this.pending = this.pending.filter((p) => p.tex !== texture);   // 装载封的那一步不进三维的栈
