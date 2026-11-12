@@ -373,6 +373,28 @@ describe("平铺的画（CATSUP_textures 1.2，施工单二十一第 3 刀）", 
     }
     assert(refused >= 5 && written === 60, `拒了 ${refused} 次、写了 ${written} 份`);
   });
+  it("新建平铺的画（指令 addTiledPaint）：一步加上贴图行（分层 + sizeM）和指着它的材质；一步撤干净；重做回来 GUID 和字节一样；存盘读回还是平铺的画；坏参数被拒、场景不变", () => {
+    let s = new Scene(sceneBox());
+    const h = new History<null>(s), tex = mintGuid(), mat = mintGuid(), ora = new Uint8Array([80, 75, 3, 4, 9, 9]);
+    s = h.commit(s, { op: "addTiledPaint", textureGuid: tex, materialGuid: mat, name: "瓦片", ora, sizeM: [0.5, 0.25], color: [0.8, 0.7, 0.6] }).scene;
+    const m = s.materials.find((x) => x.guid === mat)!, tp = s.tiledPaintOf(m);
+    assert(tp !== null, "材质是平铺的画"); eq(tp!.textureDoc.guid, tex); eq(JSON.stringify(tp!.sizeM), "[0.5,0.25]");
+    eq(s.colorMapOf(m), null, "不是原图"); eq(m.name, "瓦片"); eq(JSON.stringify(m.color), "[0.8,0.7,0.6]");
+    const back = sceneFromDocument(readCatsup(writeCatsup(documentFromScene(s, "t"))));
+    const bm = back.materials.find((x) => x.guid === mat)!;
+    assert(back.tiledPaintOf(bm) !== null, "存盘读回还是平铺的画");
+    s = h.undo()!.scene;
+    eq(s.textures.size, 0, "撤销：贴图没了"); eq(s.materials.length, 0, "撤销：材质没了");
+    s = h.redo(s)!.scene;
+    const t2 = s.textures.get(tex)!;
+    assert(t2 && t2.content.kind === "layered" && t2.content.ora?.length === ora.length && t2.content.ora.every((v, i) => v === ora[i]), "重做：同一个 GUID、同样的字节");
+    eq(s.materials[0].guid, mat, "重做：材质 GUID 一样");
+    const bad = (o: object, why: string): void => { let err: unknown = null; try { applyOp(s, { op: "addTiledPaint", textureGuid: mintGuid(), materialGuid: mintGuid(), name: "坏", ora, sizeM: [1, 1], color: [1, 1, 1], ...o } as never); } catch (e) { err = e; } assert(err !== null, why); eq(s.textures.size, 1, `${why}：场景不变`); };
+    bad({ ora: new Uint8Array(0) }, "没有字节");
+    bad({ sizeM: [0, 1] }, "sizeM 不是正数");
+    bad({ textureGuid: tex }, "贴图 GUID 已经有了");
+    bad({ materialGuid: mat }, "材质 GUID 已经有了");
+  });
   it("冻的样本 tiledPaint.glb（每个有它的目录）：读出来材质「瓦」是平铺的画、sizeM 对、合成图对得上材质颜色、分层字节在；读 → 写 → 读两次写出的字节一样", () => {
     const dirs = listCorpusDirs().filter((d: string) => existsSync(join(fixtureDir(d), "tiledPaint.glb")));
     assert(dirs.length >= 1, "至少一个目录有这个样本");

@@ -9,7 +9,7 @@
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
 import { mintGuid, type Guid } from "../format/guid.ts";
 import { uniqueCopy } from "../format/scene-store.ts";
-import { COLOR_VALUE, assertSizedImage, paintIn, type ShelfItem, type TextureDoc } from "../format/document.ts";
+import { COLOR_CHANNEL, COLOR_VALUE, assertSizedImage, paintIn, type ShelfItem, type TextureDoc } from "../format/document.ts";
 import { type PaintOutcome, applyMeshLayoutPaint, applyMeshPaintFaces, applyStartPaint } from "./paint-ops.ts";
 import { type PaintMove, paintMoveBlocked } from "../scene/paint.ts";
 import { DEFINITION, TEXTURE, type DefinitionEntry } from "../format/entry-kinds.ts";
@@ -112,6 +112,9 @@ export type Op =
   /** 贴图表加一行原图（2026-11-10 贴图主线 1-0½）：guid 在指令里（同一步后面的 addMaterial 要指它；重放同一个身份）；value = 颜色。
    *  字节 = 运行时 Uint8Array（进复现包 = JSON 里一个键是 0、1、2… 的对象，和以前 addMaterial 的图一样；replay-repro.mjs 转回字节）。 */
   | { op: "addTexture"; guid: Guid; name: string; mimeType: string; bytes: Uint8Array; sizeM: [number, number] }
+  /** 新建一张平铺的画（施工单二十一第 3 刀，CATSUP_textures 1.2）：贴图表一行（分层 = ora：新建时就编好的空白分层字节，画布大小只写在它里面；sizeM = 在模型上一张多大）
+   *  + 一个颜色那一槽指着它的材质（底色 color）。一步撤销。不铺到任何面上（涂到面上是油漆桶的事）。 */
+  | { op: "addTiledPaint"; textureGuid: Guid; materialGuid: Guid; name: string; ora: Uint8Array; sizeM: [number, number]; color: [number, number, number] }
   /** 清理没人用的贴图（用户在资源页点了「清理」才跑）：全家唯一删贴图的地方（守卫 test/textures-table.test.ts）；还有材质指着 / 素材架收着 = 整条拒绝。 */
   | { op: "purgeTextures"; textures: Guid[] }
   /** 边层开关（软化 / 硬化 / 隐藏…）：这些边打上 / 去掉若干层。 */
@@ -667,6 +670,16 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       s.addTexture({ guid: op.guid, name: op.name, value: COLOR_VALUE, content: { kind: "image", mimeType: op.mimeType, bytes: op.bytes }, sizeM: [op.sizeM[0], op.sizeM[1]] });
       return { scene: s, events: [] };
     }
+    case "addTiledPaint": {
+      if (s.texturesFrozen) throw new OpRejected(TEXTURES_FROZEN);
+      if (s.textures.has(op.textureGuid)) throw new OpTargetError(`addTiledPaint: texture ${op.textureGuid} already exists`);
+      if (s.materials.some((m) => m.guid === op.materialGuid)) throw new OpTargetError(`addTiledPaint: material ${op.materialGuid} already exists`);
+      if (!(op.ora instanceof Uint8Array) || !op.ora.length) throw new Error("addTiledPaint: a tiled paint is born with (blank) layered bytes; got none");
+      if (!(op.sizeM.length === 2 && op.sizeM.every((v) => Number.isFinite(v) && v > 0))) throw new Error(`addTiledPaint: sizeM must be two numbers > 0 (got ${op.sizeM.join(", ")})`);
+      s.addTexture({ guid: op.textureGuid, name: op.name, value: COLOR_VALUE, content: { kind: "layered", ora: op.ora }, sizeM: [op.sizeM[0], op.sizeM[1]] });
+      s.addMaterial({ guid: op.materialGuid, name: op.name, color: [op.color[0], op.color[1], op.color[2]], channels: { [COLOR_CHANNEL]: [op.textureGuid] } });
+      return { scene: s, events: [] };
+    }
     case "purgeTextures": {
       if (s.texturesFrozen) throw new OpRejected(TEXTURES_FROZEN);
       if (s.shelfFrozen) throw new OpRejected(SHELF_FROZEN_PURGE);
@@ -1003,6 +1016,7 @@ export function describeOp(op0: Op): string {
     case "copyGroup": return `copyGroup ${op.group}${at}`;
     case "addMaterial": return `addMaterial "${op.name}"${op.channels ? ` channels=${Object.keys(op.channels).join("+")}` : ""}`;
     case "addTexture": return `addTexture "${op.name}" ${op.mimeType} ${op.bytes?.length ?? 0}B ${op.sizeM.join("x")}m`;
+    case "addTiledPaint": return `addTiledPaint "${op.name}" ${op.ora?.length ?? 0}B ${op.sizeM.join("x")}m`;
     case "purgeTextures": return `purgeTextures ${op.textures.length}`;
     case "flipFaceSides": return `flipFaceSides n=${op.faces.length}${at}`;
     case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${op.sides ? ` sides=${op.sides.filter((x) => x === 0).length}+/${op.sides.filter((x) => x === 1).length}-` : ""}${at}`;
