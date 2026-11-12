@@ -3,6 +3,7 @@
 // 每轮 = 图库 → 新建 → 盒子 → 网格体 → 开始画 1024 → 画两笔 → 存。量：新建花多久；画板、活的图、准备的条目、图块池、显卡上活着的图 / 帧缓冲、
 // three 记着的几何、还被引用着的缓冲区（弱引用 + 强制回收：被丢掉、等着回收的不算）。
 // 过关：每次新建都在 5 秒内；第 2 轮之后这些数都回到同一个水平（不随开过几份涨）。
+// 性能档（--perf，底账 perfArgs；2026-11-12 user：2048 是标准低配、必量）：每份开 2048；防漏那几条照判，新建多久只打数。
 // 量出来的那个漏（v0.19.29 前）：每换一次文件，每个槽的「标记粗线」几何没还（three 一直记着它）= 每份文件漏一份。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-ten-files.mjs [url]
 import { createRequire } from "node:module";
@@ -11,6 +12,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const { chromium } = createRequire(path.join(here, "../../../20260524 WeebPaint/package.json"))("playwright");
 const url = process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/";
+const PERF = process.argv.includes("--perf");   // 性能档：每份开 2048（只打数的那几项见下）
 const ROUNDS = 10, FOLDER = "ten-files";
 let pass = 0, failN = 0;
 const check = (ok, what, extra = "") => { if (ok) { pass++; console.log("  ✓", what); } else { failN++; process.exitCode = 1; console.error("  ✗", what, extra ? `  ← ${extra}` : ""); } };
@@ -28,6 +30,7 @@ const GL = () => {   // 给 WebGL 记账：图 / 帧缓冲按建删数；缓冲�
 const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--js-flags=--expose-gc"] });
 const ctx = await browser.newContext({ viewport: { width: 900, height: 700 }, deviceScaleFactor: 1 });
 await ctx.addInitScript(FAKE_FSA, FOLDER); await ctx.addInitScript(GL);
+if (PERF) await ctx.addInitScript(() => { globalThis.__TF_CANVAS = 2048; });   // 性能档：每份开 2048（页面重载也在）
 const page = await ctx.newPage();
 const errs = []; page.on("pageerror", (e) => errs.push(e.message));
 const S = (f, a) => page.evaluate(f, a);
@@ -58,7 +61,7 @@ for (let r = 0; r < ROUNDS; r++) {
     const B = [[0, 0], [1, 0], [1, 1], [0, 1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], 1), P(d[0], d[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); }
     e.commitOp({ op: "addEdges", at: e.activePool(), segs }); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("盒"); e.runAction("object.toMesh");
     const S0 = e.sceneRef, inst = [...S0.def(S0.root).instances.values()][0]; e.exitTo(0); e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected();
-    C.pickWorkbench("paint"); e.runAction("mesh.startPaint", { canvas: 1024, arrange: "patches" }); e.cam.setView("top"); e.zoomExtents(); e.draw();
+    C.pickWorkbench("paint"); e.runAction("mesh.startPaint", { canvas: globalThis.__TF_CANVAS ?? 1024, arrange: "patches" }); e.cam.setView("top"); e.zoomExtents(); e.draw();
     const t = [...e.sceneRef.textures.values()].find((x) => x.content.kind === "layered")?.guid;
     for (const y of [0.4, 0.6]) { const V = e.vp(), pts = []; for (let i = 0; i <= 20; i++) pts.push({ x: V.w * (0.3 + 0.4 * i / 20), y: V.h * y }); C.paint.stroke({ guid: t, points: pts, size: 24, color: [0.8, 0.1, 0.1] }); }
     for (let i = 0; i < 3; i++) { e.draw(); await new Promise((q) => requestAnimationFrame(q)); }
@@ -68,7 +71,8 @@ for (let r = 0; r < ROUNDS; r++) {
   console.log(`    第 ${r + 1} 份：${JSON.stringify(rows[rows.length - 1])}`);
 }
 if (rows.length === ROUNDS) {
-  check(rows.every((x) => x.newS < 5 && x.saved), `${ROUNDS} 次新建都在 5 秒内、都存上了（最慢 ${Math.max(...rows.map((x) => x.newS)).toFixed(2)} 秒）`);
+  if (PERF) { check(rows.every((x) => x.saved), `${ROUNDS} 份（2048）都存上了`); console.log(`    （性能档，只打数）新建最慢 ${Math.max(...rows.map((x) => x.newS)).toFixed(2)} 秒、中位 ${[...rows.map((x) => x.newS)].sort((a, b) => a - b)[rows.length >> 1].toFixed(2)} 秒`); }
+  else check(rows.every((x) => x.newS < 5 && x.saved), `${ROUNDS} 次新建都在 5 秒内、都存上了（最慢 ${Math.max(...rows.map((x) => x.newS)).toFixed(2)} 秒）`);
   const a = rows[1], z = rows[ROUNDS - 1];
   for (const k of ["boards", "live", "prep", "tiles", "tex", "fb", "geos"]) check(String(a[k]) === String(z[k]), `${k}：第 2 份 ${a[k]} = 第 ${ROUNDS} 份 ${z[k]}（不随开过几份涨）`);
   check(z.buf <= a.buf + 12, `还被引用着的缓冲区：第 2 份 ${a.buf}、第 ${ROUNDS} 份 ${z.buf}（不随开过几份涨；差一点 = 上一份还没回收完）`);

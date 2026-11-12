@@ -209,6 +209,21 @@ if (want("M")) {
   }
 }
 
+// ---------- M2（性能档）一个文件里 10 个物件各开 2048（2026-11-12 user：2048 是中等精度角色的标准低配，量画画的性能 2048 必量）：只打数 ----------
+if (perf && want("M")) {
+  console.log("\nM2（性能档）一个文件里 10 个网格体物件，各自开始画（2048）、画一笔：第 1 / 5 / 10 个画完各记一次（只打数、不判）");
+  await newFile();
+  for (let k = 0; k < 10; k++) {
+    const o = await S(([k]) => globalThis.__TO.meshBox((k % 5) * 2, Math.floor(k / 5) * 2, `大${k}`), [k]);
+    if (!o) { check(false, `M2 第 ${k + 1} 个物件没造出来`); break; }
+    await S(([i]) => globalThis.__TO.enter(i), [o.inst]);
+    const t0 = performance.now();
+    await S(([cx, cy]) => globalThis.__TO.paintHere(2048, cx, cy), [(k % 5) * 2 + 0.5, Math.floor(k / 5) * 2 + 0.5]);
+    const ms = Math.round(performance.now() - t0);
+    if (k === 0 || k === 4 || k === 9) { const s = await stat(); say(`第 ${k + 1} 个（开始画 + 画一笔 ${ms} ms）：${JSON.stringify(s)}`); }
+  }
+}
+
 // ---------- T1 同一份文件里换图 ----------
 let texFilePath = null;
 if (want("T")) {

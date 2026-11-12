@@ -174,7 +174,7 @@
   "probe-tape-grid.mjs": {"state":"green"},
   "probe-tape-through.mjs": {"state":"green"},
   "probe-taps.mjs": {"state":"green"},
-  "probe-ten-files.mjs": {"state":"green"},
+  "probe-ten-files.mjs": {"state":"green","perfArgs":["--perf"]},
   "probe-ten-objects.mjs": {"state":"green","perfArgs":["--perf"]},
   "probe-texture-srgb.mjs": {"state":"green"},
   "probe-textures-table.mjs": {"state":"green"},
