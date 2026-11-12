@@ -12,6 +12,7 @@ export declare class PushPullTool implements ToolHandler {
     private stops;
     private h;
     active(): boolean;
+    private say;
     cancel(): void;
     sample(): Record<string, number>;
     scaleGeom(): ScaleGeom | null;

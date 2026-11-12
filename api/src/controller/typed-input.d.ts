@@ -30,4 +30,5 @@ export interface TypedInput {
     sync(): void;
     subscribe(cb: (e: TypedEvent) => void): () => void;
 }
+export declare const normKey: (k: string) => string;
 export declare function createTypedInput(d: TypedInputDeps): TypedInput;
