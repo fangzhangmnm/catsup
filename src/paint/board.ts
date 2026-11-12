@@ -209,8 +209,11 @@ export class PaintBoard {
       cancel: () => { if (this.live2d !== live) return; try { session.cancel(); } finally { done(); } },
     };
   }
-  /** 二维笔动了：引擎有新的笔尖 = 显示那一侧这一版按整张（内核那边笔尖单子本来就整张重合；只重做改到的那一块是第 2 刀要核的）。 */
-  private stampsMoved(session: StrokeSession): void { if (session.flushDirty()) { this.overlayVer++; this.pending = "all"; } }
+  /**
+   * 二维笔动了一下：这一版按变了算、显示那一侧按整张（内核那边笔尖单子本来就整张重合；只重做改到的那一块是第 2 刀要核的）。
+   * 不看引擎报不报脏区：带平滑的笔，平滑器攒着的那段尾巴（笔尖单子里有它）每动一下都变，引擎不一定报脏区——只看脏区 = 合成拿旧图交差（mid-stroke-save V12 抓到的）。
+   */
+  private stampsMoved(session: StrokeSession): void { session.flushDirty(); this.overlayVer++; this.pending = "all"; }
   /** 开着的二维笔（同一时间最多一笔）。 */
   private live2d: { readonly session: StrokeSession } | null = null;
   /** 合成时垫进去的东西：三维那一笔的薄层 + 二维笔这一笔的笔尖单子。 */

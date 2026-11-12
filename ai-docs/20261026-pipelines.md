@@ -896,3 +896,19 @@ layoutFaces(style = patches)：patchesOf（种子按面积、一样大看面心�
 - **跟文件走**（桌面态 1.6）：载入 = `paintBrushes.apply`（每支笔的旋钮 + 每把工具拿的哪支）；换笔 / 改旋钮 = `toDesk` 写回 `brushes` / `active`（从上一份起步：本版没有的笔、别的 tool 原样留着；没碰过的笔不写）。不标脏、不进撤销。1.5 的 `tools` 读成普通笔 / 橡皮的旋钮、不再写。
 - **门**：普通笔 / 橡皮和 v0.19.55 逐字节一样（钉死事件时间和压感的三笔普通笔 + 一笔橡皮，经画画控制器；两边各两次同一个哈希）；同样几笔换草稿笔 / 勾线笔就不一样（墨 21864 → 13299 / 12390 像素），各自两次一样。门的脚本是临时的，没进仓。
 - 调试钩子 `paint.stroke` 带 `kind` = 走笔的表 + 平滑（和画画工作台同一个解析；普通笔 / 橡皮解出来 = 以前的 `hookBrush`），不带 = 照旧 `hookBrush`。`probe-live-region` 按路一组：越叠越浓的笔、橡皮、取最浓的笔（草稿笔代表，勾线笔同一条路）。
+
+## 追记 2026-11-12（施工单二十一第 1 刀，Claude Opus 5.5）：画板的二维落笔口（还没有界面）
+```
+画布上的一笔（第 1 刀只有调试钩子 paint.stroke2dOpen / stroke2d；第 2 刀小窗接上手走同一个口）
+  落笔的门（main.ts paintStrokeGate：锁 / 冷的 / 只能看不能画）
+  → PaintBoards.openBrushStroke(贴图, 笔, 第一个点, {erase, smooth})：登记成开着的一笔（撤销 / 重做 / 扔画板之前 cancelOpen 取消）
+    → PaintBoard.openBrushStroke：问锁 → 档口（StrokeSession，overlay 方式；同一个令牌 wp.begin）+ 内核的 BrushEngine.beginStroke
+  move（画布像素、压感、一笔里的毫秒）→ session.extend → 这一版按变了算（每下都算，见下）
+  每帧准备：compose 把这一笔的笔尖单子（collectStamps）当 overlay 垫进合成（内核对它整张重合）；存盘的 composeBytes 不垫 = 一笔当中存的是落定那一版
+  up → session.end → commitStamps：问锁 → gpu().commitBrushStroke（bakeStamps 写回链，照画画仓后端）；没落成 / 抛 = 档口取消令牌、整笔回滚
+     → 封的步进同一个 HostedSteps → commitRecordsStep（一笔 = 编辑器撤销里的一步，和模型上的笔同一串）
+```
+- 碰多少：一笔当中每帧 = 引擎出笔尖 + 内核整张重合一次（随画布大小涨，不随模型涨）；显示那一侧这一版按整张拷。抬笔 = 一次落层（读回碰过的那块）。「只重做改到的那一块」第 2 刀再量。
+- 带平滑的笔：平滑器攒着的那段尾巴每动一下都变、引擎不一定报脏区，所以每动一下都让版本往前走（只看脏区 = 合成拿旧图交差，mid-stroke-save V12 抓到过）。
+- 名册：「画画的一笔」= 画画工作台按着一笔 ∨ 哪块画板开着一笔（PaintBoards.anyStrokeOpen）。
+- 内核 v0.14.87：档口落笔尖单子那一步抛 = 先取消令牌再抛（以前漏了，令牌一直开着挡住下一笔）。

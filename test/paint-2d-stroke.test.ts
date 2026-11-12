@@ -84,6 +84,14 @@ describe("画板的二维落笔口（施工单二十一第 1 刀）", () => {
     b.sleep(); assert(b.asleep, "收了之后能睡");
     b.dispose();
   });
+  it("②′ 带平滑的笔（勾线笔）每动一下：显示那张 = 整张重合（平滑器攒着的尾巴每下都变、引擎不一定报脏区；只看脏区 = 拿旧图交差，mid-stroke-save V12 抓到过）", () => {
+    const b = new PaintBoard({ port: new SoftGl2Port(), width: W, height: H }), s = STROKES[2], br = brushOf(s), [p0, ...rest] = s.pts;
+    const st = b.openBrushStroke(br, { x: p0[0], y: p0[1], pressure: p0[2], t: p0[3] }, { smooth: strokeSmoothOf(br)! });
+    const diffs: number[] = [];
+    for (const p of rest) { st.move(p[0], p[1], p[2], p[3]); diffs.push(b.verifyFull()?.diff ?? -1); }
+    eq(diffs.filter((d) => d !== 0).length, 0, `每一下都对上（${diffs.join(",")}）`);
+    st.end(); b.dispose();
+  });
   it("③ 经登记处：一笔 = 撤销里的一步；撤销逐位还原、重做回来；cancelOpen 收得掉；名册问得到", () => {
     const R = rig(1), tex = R.startPaint(R.defs[0]), b = R.boards.ensure(R.cur(), tex);
     const before = R.shot();

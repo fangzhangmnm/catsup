@@ -5,6 +5,7 @@
 // ③ 落笔撞上冷的画：这一笔不开始、提示行「这张画还在打开」、同时解开，之后能画；④ 编码正在跑时画一笔、挪一个点：存完仍然算改过，再存才干净；
 // ⑤ 编码中途抛：存盘没成、明说、夹里的文件一个字节不动、仍然算改过；⑥ 十张画的文件：全部显示出来之后画板数 0；⑦ 编码正在跑时落笔要等多久（量）；
 // ⑧ 读进来时丢过东西：自动保存不写、人按保存先问（先不存 / 存）；⑨ 冷的画解图那几帧的占位 = 底色。
+// ③½ 画布上的二维笔（施工单二十一第 1 刀，调试钩子 paint.stroke2d）：画一笔 → 存 → 刷新 → 冷的显示里有它 → 热起来分层逐字节 = 存之前。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-paint-save.mjs [url]
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -110,6 +111,29 @@ check(r1?.refused === "warming" && /还在打开/.test(await S(() => document.qu
 await page.waitForFunction((g) => globalThis.__catsup.paint.state(g) === "hot", tops[0], { timeout: 10000 });
 const r2 = await stroke(tops[0], 0, 0.3);
 check(!r2?.refused && await S(() => globalThis.__catsup.session.dirty()), "热了之后能画、算改过");
+
+console.log("\n③½ 画布上的二维笔：画了存、刷新、读回来逐字节");
+const layersOf = (g) => S((g) => { const b = globalThis.__catsup.paint.boards.get(g); if (!b) return null; const h = (u) => { let x = 2166136261; for (let k = 0; k < u.length; k++) { x ^= u[k]; x = Math.imul(x, 16777619); } return (x >>> 0).toString(16); }; return b.wp.exportData().nodes.map((n) => (n.pixels ? `${n.pixels.rect.x},${n.pixels.rect.y},${n.pixels.rect.w},${n.pixels.rect.h}:${h(new Uint8Array(n.pixels.bytes.buffer, n.pixels.bytes.byteOffset, n.pixels.bytes.byteLength))}` : "空")).join("|"); }, g);
+const L0 = await layersOf(tops[0]);
+const r2d = await S((g) => { const C = globalThis.__catsup, { width: W, height: H } = C.paint.ensure(g), pts = []; for (let k = 0; k <= 30; k++) pts.push({ x: W * (0.1 + 0.8 * k / 30), y: H * 0.8, p: 0.5 + 0.4 * Math.sin(k * 0.3) }); return C.paint.stroke2d({ guid: g, points: pts, kind: "sketch", size: 9, color: [0.9, 0.2, 0.1] }); }, tops[0]);
+const L1 = await layersOf(tops[0]);
+check(r2d?.landed === true && L1 !== L0 && await S(() => globalThis.__catsup.session.dirty()), "二维笔画上了、算改过", JSON.stringify(r2d));
+await frames();
+check(await S(async () => globalThis.__catsup.session.save()) === true && await S(() => !globalThis.__catsup.session.dirty()), "存上了、不脏");
+await reloaded(() => page.reload());
+await S(() => { const e = globalThis.__catsup.editor; e.cam.setView("top"); e.zoomExtents(); });
+await frames(8); await page.waitForTimeout(300); await frames(4);
+check(await S((g) => globalThis.__catsup.paint.state(g), tops[0]) === "cold", "读回来是冷的");
+const cold2 = await region(0);
+check(cold2.colored > 50, "冷的显示里有画（照存下的合成图）", JSON.stringify(cold2));
+await S((g) => globalThis.__catsup.paint.warm(g), tops[0]);
+await page.waitForFunction((g) => globalThis.__catsup.paint.state(g) === "hot", tops[0], { timeout: 10000 }); await frames(6);
+check(await layersOf(tops[0]) === L1, "热起来：分层逐字节 = 存之前");
+check((await region(0)).hash === cold2.hash, "冷热之间显示不变");
+const fresh = { color: [0.2, 0.8, 0.3] };   // ③ 那一笔已经用同一个红画过 0.3 那条线：同色重画不改像素 = 不算改过，所以换一条线、换个颜色
+let r2b = await stroke(tops[0], 0, 0.5, fresh);   // 回到 ③ 结束时的样子（热的、算改过），后面几段照旧
+for (let k = 0; k < 20 && r2b?.refused === "pending"; k++) { await frames(2); r2b = await stroke(tops[0], 0, 0.5, fresh); }   // 刚热起来那一下画画的准备可能还没好（钩子如实说 pending）：等几帧再画
+check(!r2b?.refused && await S(() => globalThis.__catsup.session.dirty()), "接着在模型上画（回到 ③ 结束时：热的、算改过）", JSON.stringify(r2b));
 
 console.log("\n④ 编码正在跑时画一笔、挪一个点");
 await S(() => { const sv = globalThis.__catsup.paint.saver, ok = sv.encodeOra.bind(sv); sv.__ok = ok; sv.encodeOra = async (d, w) => { await new Promise((r) => setTimeout(r, 300)); return ok(d, w); }; });   // 编码慢一点：好在它跑的时候动手

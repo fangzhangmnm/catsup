@@ -2602,6 +2602,36 @@ function paintCheckDetail(): { ok: boolean; kernel: { guid: string; diff: number
 }
 editor.afterRender = () => meterBadge?.frame();
 var paintWb: PaintWorkbench | null = new PaintWorkbench({ editor, boards: paintBoards, strokeDeps: (chain) => paintStrokeDeps(chain), gate: (t) => paintStrokeGate(t), color: paintColor, brushOf: (t) => paintBrushes.current(t)!, prep: paintPrep, flashStart: () => { primary.sync(); primary.flash("paint"); }, hint: (t) => { hintEl.textContent = t; } });
+/** 画布上的二维笔开一笔（施工单二十一第 1 刀；调试钩子 paint.stroke2dOpen / stroke2d 用，第 2 刀小窗接上手时走同一个口）。 */
+type Stroke2dHandle = { readonly guid: string; readonly open: boolean; move(x: number, y: number, p?: number): void; cancel(): void; up(): { guid: string; landed?: boolean; threw?: string } };
+function paintStroke2dOpen(o: { guid?: string; x: number; y: number; p?: number; kind?: BrushKind; size?: number; opacity?: number; hardness?: number; color?: readonly number[] }): { readonly guid: string; readonly refused: string } | Stroke2dHandle {
+  const S = editor.sceneRef, g = o.guid ?? [...S.textures.keys()].find((t) => paintPlaceOf(S, t));
+  if (!g) throw new Error("no placed paint in this scene");
+  const gate = paintStrokeGate(g);
+  if (gate) return { guid: g, refused: gate };
+  paintBoards.ensure(S, g);
+  const k = o.kind ?? "pen", brush = { ...resolvedBrushOf(k, { size: o.size ?? 12, opacity: o.opacity ?? 1, hardness: o.hardness ?? 0.8 }), color: "#" + [0, 1, 2].map((i) => Math.round(Math.min(1, Math.max(0, o.color?.[i] ?? 0.1)) * 255).toString(16).padStart(2, "0")).join("") };
+  const erase = strokeKindOpts(k).erase, smooth = strokeSmoothOf(brush);
+  let st: ReturnType<typeof paintBoards.openBrushStroke>;
+  try { st = paintBoards.openBrushStroke(g, brush, { x: o.x, y: o.y, pressure: o.p ?? 1, t: 0 }, { erase, ...(smooth ? { smooth } : {}) }); }
+  catch (err) { return { guid: g, refused: String((err as { say?: string }).say ?? err) }; }
+  editor.draw();
+  let n = 0;
+  return {
+    guid: g,
+    get open() { return st.open; },
+    move: (x: number, y: number, p?: number) => { st.move(x, y, p ?? 1, ++n * 16); editor.draw(); },
+    cancel: () => { st.cancel(); editor.draw(); },
+    up: () => {
+      let landed = false;
+      try { landed = st.end(); }
+      catch (err) { editor.draw(); return { guid: g, threw: String((err as { say?: string }).say ?? err) }; }
+      editor.commitRecordsStep(erase ? PAINT_STEP_LABELS.erase : PAINT_STEP_LABELS.stroke, paintBoards.takePending().map((data) => ({ kind: PAINT_UNDO_KIND, data })));   // 一笔 = 三维的一步（同画画工作台）
+      editor.draw();
+      return { guid: g, landed };
+    },
+  };
+}
 function paintStrokeGate(texture: string): "locked" | "warming" | "view-only" | null {
   { const why = paintEditLocked(); if (why) { hintEl.textContent = why; return "locked"; } }   // 第二层：落笔的门（画画控制器和调试钩子都过这里；v0.19.48）
   const st = paintBoards.stateOf(editor.sceneRef, texture);
@@ -2673,6 +2703,20 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
       editor.draw();
       if (o.measure) { sync(); paintBoards.measureSync = null; }
       return { guid: g, tips, range, prepMs, peak: st.peak, ...(o.measure ? { frames, buildMs, upMs: performance.now() - u0, up: st.lastUp } : {}) };
+    },
+    /**
+     * 画布上的二维笔（施工单二十一第 1 刀；探针用，界面在第 2 刀）。stroke2dOpen = 开一笔、交回把手（move 一个点 / up 抬笔 / cancel 取消），能跨好几次异步调用按着不放；
+     * stroke2d = 用它一口气画完一整笔。点 = 画布像素；笔 = 笔的表那一行 + 旋钮（和画画工作台同一个解析 + 平滑）；落笔的门同 paint.stroke（锁 / 冷的 / 只能看不能画）；
+     * 一笔 = 编辑器撤销里的一步（同画画工作台的 commitStep）；点和点之间时间 16 毫秒（钉死）。落层抛了（一笔当中锁上了等）= up 返回 threw、不封步。
+     */
+    stroke2dOpen: (o: Parameters<typeof paintStroke2dOpen>[0]) => paintStroke2dOpen(o),
+    stroke2d: (o: { guid?: string; points: readonly { x: number; y: number; p?: number }[]; kind?: BrushKind; size?: number; opacity?: number; hardness?: number; color?: readonly number[]; cancel?: boolean; midway?: () => void; beforeUp?: () => void }) => {
+      const [p0, ...rest] = o.points, h = paintStroke2dOpen({ ...o, x: p0.x, y: p0.y, ...(p0.p !== undefined ? { p: p0.p } : {}) });
+      if ("refused" in h) return h;
+      rest.forEach((p, i) => { h.move(p.x, p.y, p.p); if (i === rest.length >> 1) o.midway?.(); });
+      o.beforeUp?.();
+      if (o.cancel) { h.cancel(); return { guid: h.guid, cancelled: true }; }
+      return h.up();
     },
     /** 画画的准备（1-4c）：ensure = 给这张画的每份摆放建好（返回毫秒）；problem = null / "pending" / 错；stats = 几项、显卡字节、各项建了多久。 */
     prep: {

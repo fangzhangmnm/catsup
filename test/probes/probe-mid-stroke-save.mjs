@@ -10,6 +10,8 @@
 // 现状钉住（统筹 11-11：行为不改）：V8 一笔当中按 Ctrl+Z = 这一笔取消得干净（和建模的手势一样）；V9 / V10（v0.19.47 起）一笔当中按工具键 E、空格 = 画画工作台里不响应、这一笔照常画完。
 // V11（施工单十九第 3 刀，2026-11-12）：两个物件，A 画过、睡着、脏（缓存旧了），B 一笔按到一半时失焦存盘 → A 存出来的 = A 现在的（存盘那一下同步叫醒、整张合、读回、睡回去），
 //   B 的 = 这一笔之前的；之后接着画，每帧核对都对上。A 睡下时临时摘掉「睡前钉进缓存」（不然它在睡下那一刻就编好了，存盘直接用缓存、验不到叫醒那条路）。
+// V12（施工单二十一第 1 刀，2026-11-12）：画布上的二维笔（调试钩子 paint.stroke2dOpen，跨几次调用按着不放）画到一半时失焦存盘 → 存出来的 = 这一笔之前那一版、没有半笔；
+//   名册（「画画的一笔」那个来源，问画板有没有开着一笔）说手上忙着；存完接着画每帧核对对上；抬笔落进画里、文件又脏。
 // 标记 hand-save-check:<名册来源>：名册每个来源都要有一条「没收的时候存盘」的检查（守卫 test/hand-busy.test.ts 扫 test/ 找这个标记，少一个 = 红）。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-mid-stroke-save.mjs [url]
 import { sizeRow } from "./lib/canvas-rows.mjs";
@@ -182,6 +184,29 @@ const waitSaved = (page) => page.waitForFunction(() => { const s = globalThis.__
   check(s3.ok && s3.ofMatches, `关页那一刻存出来的：落定版本 = 笔 B 之前；合成图逐字节 = 笔 B 之前（差 ${s3.diff}）`, JSON.stringify(s3));
   await S(() => { globalThis.__MS.pe("pointerup", 0.6, 0.75); globalThis.__catsup.editor.draw(); });
   check(await S(() => globalThis.__catsup.paint.diag.check()) === true, "关页那一下之后抬笔：核对对上");
+  check(await S(async () => globalThis.__catsup.session.save()) === true, "存上");
+
+  console.log("\nV12 画布上的二维笔画到一半失焦（flushForHide）→ 存出来的 = 这一笔之前那一版、没有半笔；存完接着画，核对每一帧");
+  await S(([y]) => globalThis.__MS.stroke(y), [0.3]);   // 笔 A（模型上）落定、还没编码过
+  const fresh12 = await S((g) => { const C = globalThis.__catsup, b = C.paint.boards.get(g), c = C.paint.saver.cache.get(g); return !!c && c.board === b && c.version === b.wp.commitVersion; }, g);
+  const ref12 = await S((g) => globalThis.__MS.ref(g), g);
+  const mid12 = await S((g) => {
+    const C = globalThis.__catsup, { width: W, height: H } = C.paint.ensure(g), M = globalThis.__MS;
+    const h = C.paint.stroke2dOpen({ guid: g, x: W * 0.1, y: H * 0.42, p: 0.6, kind: "ink", size: 9, color: [0.2, 0.3, 0.9] });
+    if (h.refused) return { refused: h.refused };
+    M.h2d = h; M.W = W; M.H = H;
+    for (let i = 1; i <= 8; i++) h.move(W * (0.1 + 0.04 * i), H * 0.42, 0.5 + 0.3 * Math.sin(i));
+    return { open: h.open, any: C.paint.boards.anyStrokeOpen(), busy: C.hand.busy(), hash: M.paintHash(g) };
+  }, g);
+  check(!fresh12 && mid12.open && mid12.any && mid12.busy && mid12.hash === ref12.hash, "笔 A 落定还没编码过；二维笔按着（名册说手上忙着），落定的像素没被这一笔动过", JSON.stringify({ fresh12, mid12 }));
+  await S(() => window.dispatchEvent(new Event("blur")));
+  await waitSaved(page);
+  const s12 = await S((g) => globalThis.__MS.saved(g), g);
+  check(s12.ok && s12.sameBoard && s12.ofMatches, `存出来的：落定版本 ${s12.cacheVersion} = 二维笔之前 ${s12.refVersion}；合成图和二维笔之前整张合成逐字节一样（差 ${s12.diff}）`, JSON.stringify(s12));
+  const ck12 = await S(() => { const C = globalThis.__catsup, M = globalThis.__MS, out = []; for (let i = 9; i <= 16; i++) { M.h2d.move(M.W * (0.1 + 0.04 * i), M.H * 0.42, 0.7); C.editor.draw(); const d = C.paint.diag.detail(); out.push(d.ok ? true : { k: d.kernel.map((k) => `${k.diff}@${k.box}`).join(), d: d.display.filter((L) => L.diff).map((L) => `L${L.level}:${L.diff}@${L.box}`).slice(0, 3).join() }); } return out; });
+  check(ck12.every((x) => x === true), `存完接着画：后面 ${ck12.length} 帧每帧核对（显示 = 整张重合）都对上`, JSON.stringify(ck12));
+  const up12 = await S((g) => { const M = globalThis.__MS, r = M.h2d.up(); return { r, hash: M.paintHash(g), dirty: globalThis.__catsup.session.dirty(), any: globalThis.__catsup.paint.boards.anyStrokeOpen(), check: globalThis.__catsup.paint.diag.check() }; }, g);
+  check(up12.r.landed === true && up12.hash !== ref12.hash && up12.dirty && !up12.any && up12.check === true, "抬笔：二维笔落进画里、文件又脏、名册空了、核对对上", JSON.stringify(up12));
   check(await S(async () => globalThis.__catsup.session.save()) === true, "存上");
 
   // 人按的保存（Ctrl+S、存钮）：照现在的行为——存落定的那一版，抬笔后文件再变脏（统筹 11-11 定：不推迟、不改）
