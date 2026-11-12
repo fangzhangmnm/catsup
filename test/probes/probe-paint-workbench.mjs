@@ -17,6 +17,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
+const PERF = process.argv.includes("--perf");   // 性能档：绝对时间的判据只在这里判（守卫档只留和时间无关的）
 const { openMemory, bytesSay } = await import(path.join(here, "../../src/paint/open-memory.ts"));
 const { chromium } = createRequire(path.join(here, "../../../20260524 WeebPaint/package.json"))("playwright");
 const url = process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/";
@@ -245,7 +246,7 @@ const m9 = await S(async () => {
   return { enterMs: Math.round(enterMs), warmMs: Math.round(warmMs), prepMs: Math.round(prepMs), readyMs: Math.round(readyMs), problem, strokeMs: Math.round(strokeMs), board: `${b.width}x${b.height}`, threw, steps: e.history.position() - h0, hint: document.querySelector("#hint")?.textContent ?? "", stroking: C.paint.workbench.stroking };
 });
 console.log(`    ${faces} 张面、画布 ${m9.board}：切进画画工作台（含三角格子、发起解开）${m9.enterMs} ms；到画热好 ${m9.warmMs} ms；热了那一帧做画画的准备 ${m9.prepMs} ms（到能落笔共 ${m9.readyMs} ms）；一笔 ${m9.strokeMs} ms、长了 ${m9.steps} 步（无头 swiftshader，只作参考）`);
-check(m9.enterMs < 500, `切进来 ${m9.enterMs} ms < 半秒`);
+if (PERF) check(m9.enterMs < 500, `切进来 ${m9.enterMs} ms < 半秒`); else console.log(`    切进来 ${m9.enterMs} ms（绝对时间只在性能档判：--perf；统筹 11-12：这台机器别的会话一忙就红、红了说明不了什么。旧构建负载 15 时也 505 ms）`);
 check(m9.problem === null, "热了那一帧准备就好了（落笔不用再等）", String(m9.problem));
 check(!m9.threw && !m9.stroking && m9.steps === 1, `${faces} 张面的物件画得上（1-4c 之前这里画不了）`, JSON.stringify({ threw: m9.threw.slice(0, 120), steps: m9.steps, hint: m9.hint }));
 // 面少一点的（6144 张面）：能画，量第一笔

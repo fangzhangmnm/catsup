@@ -69,8 +69,8 @@
     "box-textured": {
       "w": 744,
       "h": 1133,
-      "frozenAt": "2026-11-11",
-      "version": "v0.19.17-20261111"
+      "frozenAt": "2026-11-12",
+      "version": "v0.19.50-2026-11-11"
     },
     "style-pixel-sel": {
       "w": 744,
@@ -129,8 +129,8 @@
     "style-realistic-textured": {
       "w": 744,
       "h": 1133,
-      "frozenAt": "2026-11-04",
-      "version": "v0.18.31-2026-11-04"
+      "frozenAt": "2026-11-12",
+      "version": "v0.19.50-2026-11-11"
     },
     "style-realistic-painted": {
       "w": 744,
