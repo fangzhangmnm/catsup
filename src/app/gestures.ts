@@ -69,7 +69,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
   };
   const tp = (ev: PointerEvent): ToolPointer => {
     const s = local(ev), L = opts.latched?.() ?? { shift: false, ctrl: false, alt: false };   // 锁住的修饰键 = 一直按着（iPad 没键盘）
-    return { x: s.x, y: s.y, clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType, armable: opts.armable ? opts.armable(ev.pointerType) : ev.pointerType === "mouse", shiftKey: ev.shiftKey || L.shift, copy: ev.ctrlKey || ev.altKey || ev.metaKey || L.ctrl || L.alt, altKey: ev.altKey || L.alt };
+    return { x: s.x, y: s.y, clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType, armable: opts.armable ? opts.armable(ev.pointerType) : ev.pointerType === "mouse", shiftKey: ev.shiftKey || L.shift, copy: ev.ctrlKey || ev.altKey || ev.metaKey || L.ctrl || L.alt, altKey: ev.altKey || L.alt, at: ev.timeStamp };   // at = 事件自己的时间：抬笔结算按它算停了多久（不按处理时刻：帧慢不算人停）
   };
   const touches = (): [number, Tracked][] => [...pointers.entries()].filter(([, p]) => p.type === "touch");
   const toolPointerActive = (): boolean => [...pointers.values()].some((p) => p.role === "tool");

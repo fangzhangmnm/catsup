@@ -124,6 +124,8 @@ export interface ToolPointer {
   altKey?: boolean;
   /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。缺省 = 本帧 distTo（editor.movedSinceDown）。 */
   travel?: number;
+  /** 事件自己发生的时间（ms，PointerEvent.timeStamp）：抬笔结算按它算停了多久（controller/lift-settle.ts）。键盘起手 / 程序造的没有。 */
+  at?: number;
 }
 
 /** 选区快照（撤销 / 重做还原用；ctx = 当时的上下文键）。 */
@@ -184,7 +186,8 @@ import { fmtArea, fmtDeg, fmtLen, fmtStep, parseQuantity, setUnitSystem } from "
 import { SEGMENT_TIERS, SEG_MAX, clampSegments, segMin, segmentNote, tierOf, tierSegments } from "./segment-ref.ts";
 export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）
 import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
-import { RELEASE_WINDOW_MS, FINAL_HOLD_MS, MIN_DWELL_MS, HOLD_PX, DWELL_SLIP_PX, CHARGE_DWELL_MS } from "../controller/feel.ts";
+import { CHARGE_DWELL_MS } from "../controller/feel.ts";
+import { settleLift } from "../controller/lift-settle.ts";
 import { lockLines, lockThrough } from "../controller/lock-guide.ts";
 import { stepSelection, type SelSets } from "../mesh/select-grow.ts";
 import { SNAP_BASE, deviceOf, stanceOf } from "../controller/stance.ts";
@@ -220,7 +223,7 @@ type GestureRecord =
   | { kind: "compass"; ops: number; at: PoolRef; center: Pt3; n: Pt3; r: number; sphere: boolean; copies?: number };
 
 /** 样本环的一帧（抬笔结算 A21）：屏幕位置 + 当时的手势量。 */
-interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; snap: Snap3 | null; extra: Record<string, number> }
+interface GestureSample { t: number; at?: number; sx: number; sy: number; cursor3: Pt3 | null; snap: Snap3 | null; extra: Record<string, number> }
 
 /** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
 /** 修复指令 = 注册表里 brep 族一条指令的 id（查法 = commands/registry.ts；修复一族的清单 = repairs/index.ts）。 */
@@ -3968,41 +3971,14 @@ export class Editor {
     this.snapInfo = perf.time("hover.snap", () => this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), xrayPoints: this.poolOrigins(view), hand: this.freshHand(view) }), s.x, s.y));
     this.trackCharge(this.snapInfo, this.snapInfo?.kind === "on-edge" ? this.hoveredEdge(view, s.x, s.y) : null);
   }
-  private recordSample(s: { x: number; y: number }): void {
+  private recordSample(s: { x: number; y: number; at?: number }): void {
     if (!this.gestureActive()) return;
     const t = performance.now();
-    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} });
+    this.samples.push({ t, at: s.at, sx: s.x, sy: s.y, cursor3: this.cursor3, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} });
     while (this.samples.length > 256 || (this.samples.length && t - this.samples[0].t > 2000)) this.samples.shift();
   }
-  /**
-   * 抬笔结算（A21）——按物理过程判：样本按「同一处」（HOLD_PX 内）分成一段段停留。松开处停留 ≥ FINAL_HOLD_MS → 有意，用松开帧；
-   * 否则回看 RELEASE_WINDOW_MS 内结束的停留，取最长的那段（≥ MIN_DWELL_MS 且比松开处停得久）= 用户对齐时停住的地方；都没有 → 松开帧。
-   */
-  private settledSample(): GestureSample | null {
-    const n = this.samples.length;
-    if (!n) return null;
-    const last = this.samples[n - 1];
-    const holdScale = this.fvp().h / 800;
-    const runs: { first: number; lastIdx: number; dur: number }[] = [];
-    for (let i = 0; i < n; i++) {
-      const r = runs[runs.length - 1];
-      if (r && Math.hypot(this.samples[i].sx - this.samples[r.first].sx, this.samples[i].sy - this.samples[r.first].sy) <= HOLD_PX * holdScale) { r.lastIdx = i; continue; }
-      if (r) r.dur = this.samples[i].t - this.samples[r.first].t;
-      runs.push({ first: i, lastIdx: i, dur: 0 });
-    }
-    const fin = runs[runs.length - 1];
-    fin.dur = last.t - this.samples[fin.first].t;
-    if (fin.dur >= FINAL_HOLD_MS) return last;
-    let dwell: typeof fin | null = null;
-    for (let k = runs.length - 2; k >= 0; k--) {
-      const r = runs[k];
-      if (last.t - this.samples[r.lastIdx].t > RELEASE_WINDOW_MS) break;
-      if (r.dur >= MIN_DWELL_MS && r.dur > fin.dur && (!dwell || r.dur > dwell.dur)) dwell = r;
-    }
-    // 停留帧只在「抬笔小滑」范围内顶替最后一帧：滑出 DWELL_SLIP_PX 之外 = 抬笔前又有意挪了地方，按最后一帧（A21 只杀肌肉抖动，不改人的最后决定）
-    if (dwell) { const d = this.samples[dwell.lastIdx]; if (Math.hypot(last.sx - d.sx, last.sy - d.sy) <= DWELL_SLIP_PX * holdScale) return d; }
-    return last;
-  }
+  /** 抬笔结算（A21）：松手那一下用哪个样本当落点（算法和时钟 = controller/lift-settle.ts）。 */
+  private settledSample(): GestureSample | null { const i = settleLift(this.samples, this.fvp().h / 800); return i === null ? null : this.samples[i]; }
 
   /** 意图门开关：屏上拖够 eps.drag 才有意图（intent.ts hasIntent）。 */
   private intentOn(s: { x: number; y: number }, travel?: number): boolean {
