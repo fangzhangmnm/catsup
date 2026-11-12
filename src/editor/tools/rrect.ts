@@ -13,7 +13,7 @@ import { axisAlignAngle } from "../protractor-geom.ts";
 import { applyPt, rotationAbout } from "../../scene/xform.ts";
 import { INCREMENT_DEG, nearestStep } from "../increments.ts";
 import { fmtDeg, fmtLen } from "../units.ts";
-import { SNAP_LABELS, MIN_GESTURE_LEN } from "../gesture-consts.ts";
+import { SNAP_LABELS, gestureMinLen, longEnough } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { Op } from "../ops.ts";
@@ -87,7 +87,7 @@ export class RRectTool implements ToolHandler {
       }
     } else return;
     this.theta = th;
-    this.c = add3(b, scale3(rrectDirAt(a, b, this.plane!.plane.n, th), Math.max(this.len, MIN_GESTURE_LEN)));
+    this.c = add3(b, scale3(rrectDirAt(a, b, this.plane!.plane.n, th), Math.max(this.len, gestureMinLen(ctx, b))));   // 定角度时第二边还没长：预览画一截几个像素长的（以前写死 1 厘米）
     ctx.setCursor(this.c);
     ctx.setSnap(kind ? { p: at ?? this.c, kind, label: label ?? fmtDeg(th) } : null);
     ctx.tip(fmtDeg(th));
@@ -123,7 +123,7 @@ export class RRectTool implements ToolHandler {
     }
     if (this.stage === 1) {
       const q = this.edgeEnd(ctx, ev.x, ev.y);
-      if (!q || dist3(q, this.a!) < MIN_GESTURE_LEN) return;
+      if (!q || !longEnough(ctx, this.a!, dist3(q, this.a!))) return;
       this.b = q; this.c = null; this.theta = 0; this.len = 0;
       this.stage = 2;
       ctx.setAnchor(this.b);
@@ -138,7 +138,7 @@ export class RRectTool implements ToolHandler {
     }
     this.trackLength(ctx, ev.x, ev.y);
     const segs = this.c ? rrectSegments(this.a!, this.b!, this.c) : [];
-    if (!segs.length || Math.abs(this.len) < MIN_GESTURE_LEN) { ctx.hint("旋转矩形：第二边太短，换个点"); return; }
+    if (!segs.length || !longEnough(ctx, this.b!, this.len)) { ctx.hint("旋转矩形：第二边太短，换个点"); return; }
     const n0 = ctx.opCount(), at0 = ctx.activePool(), { a, b, c } = this, plane = this.plane0 ?? this.plane;
     ctx.commitOp(this.opFor(ctx, segs));
     ctx.recordLast({ kind: "rrect", ops: ctx.opCount() - n0, at: at0, plane: plane!, a: a!, b: b!, c: c! });
@@ -155,7 +155,7 @@ export class RRectTool implements ToolHandler {
 
   private opFor(ctx: ToolCtx, segs: readonly (readonly [Pt3, Pt3])[]): Op { return { op: "addEdges", at: ctx.activePool(), segs: segs.map(([u, v]) => [ctx.toLocal(u), ctx.toLocal(v)]), harden: true }; }   // 描过软边 = 变硬
   live(ctx: ToolCtx, preview: PreviewOp): string {
-    if (this.stage === 1 && this.a) { const c = ctx.cursor() ?? this.a; if (dist3(c, this.a) >= MIN_GESTURE_LEN) preview({ op: "addEdges", at: ctx.activePool(), segs: [[ctx.toLocal(this.a), ctx.toLocal(c)]] }); return `第一边 ${fmtLen(dist3(this.a, c))}`; }
+    if (this.stage === 1 && this.a) { const c = ctx.cursor() ?? this.a; if (longEnough(ctx, this.a, dist3(c, this.a))) preview({ op: "addEdges", at: ctx.activePool(), segs: [[ctx.toLocal(this.a), ctx.toLocal(c)]] }); return `第一边 ${fmtLen(dist3(this.a, c))}`; }
     if (this.stage >= 2 && this.a && this.b && this.c) {
       const segs = rrectSegments(this.a, this.b, this.c);
       if (segs.length) preview(this.opFor(ctx, segs));

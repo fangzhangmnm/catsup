@@ -11,7 +11,7 @@ import { rectFirstPlane, type DrawPlane } from "../pick.ts";
 import { arcToolTargets, sweepAngle, unwrapAngle } from "../tools.ts";
 import { type ArcMode, type ArcGesture, arcOp, buildArc } from "../arc-build.ts";
 import { fmtDeg, fmtLen } from "../units.ts";
-import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
+import { longEnough } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
@@ -83,7 +83,7 @@ export class ArcTool implements ToolHandler {
     }
     if (this.stage === 1) {
       const q = this.pointOnPlane(ctx, ev.x, ev.y, this.p1!);
-      if (!q || dist3(q, this.p1!) < MIN_GESTURE_LEN) return;
+      if (!q || !longEnough(ctx, this.p1!, dist3(q, this.p1!))) return;
       this.p2 = q; this.p3 = null; this.sweep = 0;
       this.stage = 2;
       ctx.hint(this.mode === "two" ? "两点弧 ③/③：移动定凸度（半圆有目标），再点一下落定；Esc 取消" : this.mode === "three" ? "三点弧 ③/③：移动定终点，再点一下落定；Esc 取消" : `${this.label()} ③/③：转到角度再点一下落定（Shift = 15° 咬合；可转过 180°）；Esc 取消`);

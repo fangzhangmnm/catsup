@@ -22,7 +22,7 @@ describe("tape: 起点身份 → 产物", () => {
   it("端点起步 → 参考点落在第二点，距离 = 两点距；太近不造", () => {
     const r = tapeResult({ kind: "point", p: P(1, 1, 0) }, P(1, 4, 0));
     assert(r.make === "point"); if (r.make === "point") { assert(near(r.p, P(1, 4, 0))); eq(r.d, 3); }
-    eq(tapeResult({ kind: "point", p: P(1, 1, 0) }, P(1, 1.0001, 0)).make, "measure");
+    eq(tapeResult({ kind: "point", p: P(1, 1, 0) }, P(1, 1.0001, 0), 0.01).make, "measure");   // 门槛由调用方给（工具里 = 这一点的手势门槛）
   });
   it("面上 / 空处起步 → 只量", () => {
     const r = tapeResult({ kind: "measure", p: P(0, 0, 0) }, P(3, 4, 0));
@@ -33,7 +33,7 @@ describe("tape: 起点身份 → 产物", () => {
     eq(classifyStart({ p: P(1, 1, 0), kind: "endpoint" }, null).kind, "point");
     const r = tapeResult({ kind: "through", p: P(1, 1, 0) }, P(1, 3, 0));
     assert(r.make === "through" && Math.abs(r.dir.y - 1) < 1e-12 && r.p.x === 1 && r.p.y === 1, JSON.stringify(r));
-    eq(tapeResult({ kind: "through", p: P(1, 1, 0) }, P(1, 1.001, 0)).make, "measure");
+    eq(tapeResult({ kind: "through", p: P(1, 1, 0) }, P(1, 1.001, 0), 0.01).make, "measure");
   });
   it("classifyStart：栅格把「边上」改写成格点时，调用方给了方向就仍按边起手出平行线；没给方向 = 只量（D23）", () => {
     eq(classifyStart({ p: P(1, 0, 0), kind: "grid-point" }, P(1, 0, 0)).kind, "line");

@@ -10,7 +10,7 @@ import { axisAlignAngle } from "../protractor-geom.ts";
 import { rotationAbout } from "../../scene/xform.ts";
 import { moveTargetsSelection } from "../tools.ts";
 import { fmtDeg } from "../units.ts";
-import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
+import { gestureMinLen, longEnough } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
@@ -55,7 +55,7 @@ export class RotateTool implements ToolHandler {
       const view = ctx.live();
       const sn = ctx.snap(view, ev.x, ev.y, { plane: this.plane!, anchor: this.center!, alignSources: ctx.alignSources(), hand: ctx.hand(view) });
       const q = projectThrough(sn.p, this.center!, this.axis!);
-      if (dist3(q, this.center!) < MIN_GESTURE_LEN) { ctx.hint("参考点离圆心太近"); return; }
+      if (!longEnough(ctx, this.center!, dist3(q, this.center!), sn.kind !== null)) { ctx.hint("参考点离圆心太近"); return; }
       this.ref = q; this.angle = 0;
       this.stage = 2;
       ctx.setCursor(q);
@@ -83,9 +83,9 @@ export class RotateTool implements ToolHandler {
     const freeR = rayPlane(rayR.origin, rayR.dir, ax, dot3(ax, c));
     let q = projectThrough(sn.p, c, ax);
     let kind = sn.kind;
-    if (kind !== null && freeR && len3(sub3(freeR, c)) >= MIN_GESTURE_LEN && ctx.intentOn(s, travel) && !intentAllows1D(angOf(freeR), angOf(q), ANGLE_DEAD)) { q = freeR; kind = null; }
+    if (kind !== null && freeR && len3(sub3(freeR, c)) >= gestureMinLen(ctx, c) && ctx.intentOn(s, travel) && !intentAllows1D(angOf(freeR), angOf(q), ANGLE_DEAD)) { q = freeR; kind = null; }
     const b = sub3(q, c);
-    if (len3(b) < MIN_GESTURE_LEN) return;
+    if (len3(b) < gestureMinLen(ctx, c)) return;   // 光标离圆心不到几个像素：角度没意义（屏幕上的手感，统筹 11-12）
     let ang = angOf(q);
     const step = ANGLE_STEP_DEG * Math.PI / 180, near = Math.round(ang / step) * step;
     // 轴向咬合先于 15° 档（user 2026-10-24「旋转的时候坐标轴方向也有snap」）：参考方向转到与上下文某轴平行时吸住

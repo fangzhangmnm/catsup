@@ -2,6 +2,7 @@
 // 三下：原点 → X 方向（红）→ Y 方向（绿）；Z = X × Y 右手系。预演：候选帧直接当 ViewState.frame 画出来。
 // DT86（2026-10-26 Claude Opus 5.5；user「坐标架同意」）：只搬画图用的坐标架——最外层 / 组里 / 组件里都一样，从不碰几何；
 // 改组件原点 = 选中组件「改组件原点…」开的会话，同一套点击由编辑器改投到组件原点（ctx.setAxes 一个口；提示行由编辑器写）。
+import { gestureMinLen } from "../gesture-consts.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 import { rectFirstPlane, type DrawPlane, type Snap3 } from "../pick.ts";
 import type { ToolPointer } from "../editor.ts";
@@ -20,6 +21,7 @@ export class AxesTool implements ToolHandler {
   private o: Pt3 | null = null;
   private px: Pt3 | null = null;
   private cur: Pt3 | null = null;
+  private minL = 0;   // 这一处「拉开了没有」的门槛：track / down 里按屏幕像素算好（gestureMinLen；统筹 11-12，不再写死 1 厘米）
 
   active(): boolean { return this.stage > 0; }
   cancel(): void { this.stage = 0; this.plane = null; this.o = this.px = this.cur = null; }
@@ -31,8 +33,8 @@ export class AxesTool implements ToolHandler {
   }
   private candidate(): Frame | null {
     if (!this.o || !this.plane) return null;
-    if (this.stage === 1) return this.cur ? frameFrom3(this.o, this.cur, null, this.plane.plane.n) : null;
-    if (this.stage === 2 && this.px) return frameFrom3(this.o, this.px, this.cur, this.plane.plane.n);
+    if (this.stage === 1) return this.cur ? frameFrom3(this.o, this.cur, null, this.plane.plane.n, this.minL || undefined) : null;
+    if (this.stage === 2 && this.px) return frameFrom3(this.o, this.px, this.cur, this.plane.plane.n, this.minL || undefined);
     return null;
   }
 
@@ -53,13 +55,13 @@ export class AxesTool implements ToolHandler {
     }
     const sn = this.snapAt(ctx, ev.x, ev.y, this.stage === 1 ? this.o! : this.o!);
     if (this.stage === 1) {
-      if (!frameFrom3(this.o!, sn.p, null, this.plane!.plane.n)) { ctx.hint("坐标架：X 方向点离原点太近"); return; }
+      if (!frameFrom3(this.o!, sn.p, null, this.plane!.plane.n, sn.kind !== null ? undefined : gestureMinLen(ctx, this.o!))) { ctx.hint("坐标架：X 方向点离原点太近"); return; }
       this.px = sn.p; this.cur = null;
       this.stage = 2;
       ctx.hint("坐标架 ③/③：点 Y 方向（绿）；Z 随右手系");
       return;
     }
-    const f = frameFrom3(this.o!, this.px!, sn.p, this.plane!.plane.n);
+    const f = frameFrom3(this.o!, this.px!, sn.p, this.plane!.plane.n, gestureMinLen(ctx, this.o!));
     if (!f) { ctx.hint("坐标架：Y 方向与 X 共线，换个点"); return; }
     this.cancel();
     ctx.setAxes(f);
@@ -69,7 +71,7 @@ export class AxesTool implements ToolHandler {
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
     if (this.stage === 0 || !this.o) return;
     const sn = this.snapAt(ctx, s.x, s.y, this.o);
-    this.cur = sn.p;
+    this.cur = sn.p; if (this.o) this.minL = sn.kind !== null ? 0 : gestureMinLen(ctx, this.o);   // 吸到的只看几何（frameFrom3 缺省）
     ctx.setSnap(sn); ctx.setCursor(sn.p);
   }
 

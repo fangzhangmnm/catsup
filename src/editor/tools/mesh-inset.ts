@@ -5,6 +5,7 @@
 //   · 选中的边 → 倒边；只选了点 → 倒点：往外拖 = 倒得宽（op meshBevel / meshBevelVerts；松手后马后炮改宽度 / 段数）；
 //   · Ctrl+B（startModal 的 "bevel"）= 选了面也倒它们的边；Ctrl+Shift+B（"bevelVerts"）= 倒选中的点。
 // 提交 = 一条 op（重放确定）。
+import { GEOM_MIN_LEN } from "../gesture-consts.ts";   // 插入宽度的下限 = 几何容差（以前 1 毫米，做毫米零件会卡；统筹 11-12）
 import type { Pt3 } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import { bevelEdges, bevelVerts } from "../../mesh/ops/index.ts";
@@ -162,8 +163,8 @@ export class MeshInsetTool implements ToolHandler {
     };
     if (!go(dL, this.segments)) return;
     const fields = job.kind === "bevel"
-      ? [{ key: "width", def: { kind: "number" as const, label: "宽度", min: 0.001, max: 10000, step: 0.01, quantity: LEN } }, { key: "segments", def: { kind: "number" as const, label: "段数", min: 1, max: 32, step: 1 } }]
-      : [{ key: "width", def: { kind: "number" as const, label: "宽度", min: 0.001, max: 10000, step: 0.01, quantity: LEN } }];
+      ? [{ key: "width", def: { kind: "number" as const, label: "宽度", min: GEOM_MIN_LEN, max: 10000, step: 0.01, quantity: LEN } }, { key: "segments", def: { kind: "number" as const, label: "段数", min: 1, max: 32, step: 1 } }]
+      : [{ key: "width", def: { kind: "number" as const, label: "宽度", min: GEOM_MIN_LEN, max: 10000, step: 0.01, quantity: LEN } }];
     ctx.offerAfterthought("倒角", fields, { width: Math.round(dW * 1000) / 1000, segments: this.segments }, 1, (v) => {
       const seg = Math.max(1, Math.min(32, Math.round(Number(v.segments ?? 1))));
       this.segments = seg;

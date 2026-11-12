@@ -3,6 +3,7 @@
 import type { Pt3 } from "../kernel/geom.ts";
 import type { EpsSet, PointerFrame, Viewport } from "./pointer-frame.ts";
 import { worldPerPx } from "./plane-gizmo.ts";
+import { STICKY_R } from "../kernel/subdivide.ts";
 export const SNAP_LABELS: Record<string, string> = {
   endpoint: "端点", midpoint: "中点", "on-edge": "边上", origin: "原点",
   "axis-x": "X 轴", "axis-y": "Y 轴", "axis-z": "Z 轴",
@@ -24,4 +25,13 @@ export const MIN_GESTURE_LEN = 0.01;
 export function gestureMinLen(ctx: { frame(): PointerFrame; vp(): Viewport; eps(): EpsSet }, p: Pt3): number {
   const w = worldPerPx(ctx.frame(), ctx.vp(), p);
   return w === null ? MIN_GESTURE_LEN : ctx.eps().drag * w;
+}
+/** 几何上成立的最短长度 = 内核的身份分辨率（STICKY_R = 3 µm：再短内核也会把两个点并成一个）。吸到的、取整出来的、键入的数只看它（统筹 11-12）。 */
+export const GEOM_MIN_LEN = STICKY_R;
+/**
+ * 这一下够不够长（统筹 11-12 的规矩，B）：光标这一下有吸附结果（点 / 边 / 格点 / 整格……）= 只要几何上成立；自由拖的 = 不到这一处的手势门槛就当没动。
+ * snapped 不给 = 问 ctx.currentSnap()（工具都把这一下的吸附结果写进 setSnap）。
+ */
+export function longEnough(ctx: { frame(): PointerFrame; vp(): Viewport; eps(): EpsSet; currentSnap(): { kind: string | null } | null }, at: Pt3, len: number, snapped?: boolean): boolean {
+  return Math.abs(len) >= ((snapped ?? !!ctx.currentSnap()?.kind) ? GEOM_MIN_LEN : gestureMinLen(ctx, at));
 }

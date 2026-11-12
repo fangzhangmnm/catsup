@@ -8,7 +8,7 @@ import { intentAllows3D } from "../intent.ts";
 import { GROUND, cameraPlane, grazing, rectFirstPlane, resolveRectPlane, type DrawPlane, type Snap3 } from "../pick.ts";
 import { circleCurveSpec, circleSegmentsOnPlane, rectOpposite, rectSegmentsOnPlane, rectToolTargets, snapDirectionInPlane, rectAxesOf } from "../tools.ts";
 import { fmtLen } from "../units.ts";
-import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
+import { GEOM_MIN_LEN, gestureMinLen, longEnough } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { Op } from "../ops.ts";
@@ -91,7 +91,7 @@ export class LineTool extends DrawTool {
     // 意图门：候选在锚点另一侧（相机平面上与拖动方向点积 < 0）不合法
     const camL = cameraPlane(ctx.frame(), a), rayL = ctx.frame().ray(s.x, s.y, ctx.vp());
     const freeL = rayPlane(rayL.origin, rayL.dir, camL.plane.n, camL.plane.d);
-    if (sn.kind !== null && freeL && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeL, a), sub3(sn.p, a), MIN_GESTURE_LEN)) { sn = { p: this.planeSnap(ctx, s.x, s.y), kind: null }; ctx.dropHysteresis(); }
+    if (sn.kind !== null && freeL && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeL, a), sub3(sn.p, a), gestureMinLen(ctx, a))) { sn = { p: this.planeSnap(ctx, s.x, s.y), kind: null }; ctx.dropHysteresis(); }
     // 15° 整角归格点吸附（user 2026-10-25「15是grid合理」）：求解器在自由落点时咬（有捕捉阈）；Shift = 把格点吸附反过来（DT51），不再单独 = 15°
     sn = ctx.applyLock(sn, s.x, s.y);   // A9 轴锁 / 面锁（没锁 = 原样）
     const snapped = ctx.hysteresis(sn, s.x, s.y);
@@ -105,12 +105,12 @@ export class LineTool extends DrawTool {
   protected preview(ctx: ToolCtx, show: PreviewOp): string {
     const a = this.anchor, b = ctx.cursor();
     if (!a || !b) return "";
-    if (dist3(a, b) >= MIN_GESTURE_LEN) show(this.opFor(ctx, a, b));
+    if (longEnough(ctx, a, dist3(a, b))) show(this.opFor(ctx, a, b));
     return `长 ${fmtLen(dist3(a, b))}`;
   }
   protected commit(ctx: ToolCtx): void {
     const a = this.anchor!, b = ctx.cursor() ?? a;
-    if (dist3(a, b) < MIN_GESTURE_LEN) { this.finish(ctx); return; }
+    if (!longEnough(ctx, a, dist3(a, b))) { this.finish(ctx); return; }
     const n0 = ctx.opCount(), at0 = ctx.activePool();
     const evs = ctx.commitOp(this.opFor(ctx, a, b));
     this.finish(ctx);   // 落定不再自动充能两端（充能只活到下一次按下；锚点的轴线本来就在）
@@ -170,19 +170,19 @@ export class CircleTool extends DrawTool {
   scaleGeom(ctx: ToolCtx): ScaleGeom | null { const b = ctx.cursor(); return this.anchor && b ? { kind: "circle", radius: dist3(this.anchor, b), normal: this.plane.plane.n } : null; }
   private opFor(ctx: ToolCtx, plane: DrawPlane, center: Pt3, rim: Pt3, segments: number): Op | null {
     const segs = circleSegmentsOnPlane(plane.plane, plane.basis, center, rim, segments);
-    return segs.length && dist3(center, rim) >= MIN_GESTURE_LEN ? { op: "addEdges", at: ctx.activePool(), segs: segs.map(([p, q]) => [ctx.toLocal(p), ctx.toLocal(q)]), curve: circleCurveSpec((pt) => ctx.toLocal(pt), center, rim, plane, segments) } : null;
+    return segs.length && dist3(center, rim) >= GEOM_MIN_LEN ? { op: "addEdges", at: ctx.activePool(), segs: segs.map(([p, q]) => [ctx.toLocal(p), ctx.toLocal(q)]), curve: circleCurveSpec((pt) => ctx.toLocal(pt), center, rim, plane, segments) } : null;
   }
   protected preview(ctx: ToolCtx, show: PreviewOp): string {
     const a = this.anchor, b = ctx.cursor();
     if (!a || !b) return "";
-    const op = this.opFor(ctx, this.plane, a, b, ctx.config.get("circle", "segments"));
+    const op = longEnough(ctx, a, dist3(a, b)) ? this.opFor(ctx, this.plane, a, b, ctx.config.get("circle", "segments")) : null;   // 半径：自由拖的看手势门槛、吸到的只看几何（统筹 11-12）
     if (op) show(op);
     return `圆 半径 ${fmtLen(dist3(a, b))}`;
   }
   protected commit(ctx: ToolCtx): void {
     const plane = this.plane, center = this.anchor!, b = ctx.cursor() ?? center;
     const segments = ctx.config.get("circle", "segments");
-    const op = this.opFor(ctx, plane, center, b, segments);
+    const op = longEnough(ctx, center, dist3(center, b)) ? this.opFor(ctx, plane, center, b, segments) : null;
     const n0 = ctx.opCount(), at0 = ctx.activePool();
     this.finish(ctx);
     if (op) { ctx.commitOp(op); ctx.recordLast({ kind: "circle", ops: ctx.opCount() - n0, at: at0, plane, center, rim: b, segments }); }

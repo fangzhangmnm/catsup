@@ -186,14 +186,14 @@ export const CIRCLE_SEGMENTS = TOOL_OPTIONS.circle.segments.def;
 import { fmtArea, fmtDeg, fmtLen, fmtStep, parseQuantity, setUnitSystem } from "./units.ts";
 import { SEGMENT_TIERS, SEG_MAX, clampSegments, segMin, segmentNote, tierOf, tierSegments } from "./segment-ref.ts";
 export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）
-import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
+import { SNAP_LABELS } from "./gesture-consts.ts";
 import { CHARGE_DWELL_MS } from "../controller/feel.ts";
 import { settleLift } from "../controller/lift-settle.ts";
 import { lockLines, lockThrough } from "../controller/lock-guide.ts";
 import { stepSelection, type SelSets } from "../mesh/select-grow.ts";
 import { SNAP_BASE, deviceOf, stanceOf } from "../controller/stance.ts";
 import { createTypedInput, type TypedInput } from "../controller/typed-input.ts";
-export { MIN_GESTURE_LEN, SNAP_LABELS };   // 2026-10-28 搬去 gesture-consts.ts（工具不再运行时 import 编辑器本体 = 工具层能无头跑）；这里转出给老调用方
+export { SNAP_LABELS };   // 2026-10-28 搬去 gesture-consts.ts（工具不再运行时 import 编辑器本体 = 工具层能无头跑）；这里转出给老调用方
 
 /** 子池选区项（相对活动上下文的直接子项）。 */
 export type PoolPick = { kind: "group"; group: number } | { kind: "instance"; instance: InstId };
@@ -3736,7 +3736,7 @@ export class Editor {
       if (H.grammar === "steps" && this.armed && H.active()) {
         // 位移防抖：等下一点时按下的地方离当前锚点在点按容差内 = 「同一处又点了一下」，不取这一子步——声明了 sameSpotEnds 的（画线 = 收笔、刀 = 收刀）= 收，别的工具 = 吞掉这一下。
         // 起因（user 2026-10-25「为什么会在同一个地方点两下会在垂直的方向画线？」）：笔点两下差 6 px，第二点被吸到过锚点的竖直线上 = 7 cm 竖线
-        // （屏上只有 6 px，世界长度却过了 MIN_GESTURE_LEN 1 cm）。根因（锚点附近不该推竖直线）在求解器，归 Fable（总账记了）；这里是手势层的护栏。探针 probe-pen-tap。
+        // （屏上只有 6 px，世界长度却过了当时写死的 1 cm 门槛）。根因（锚点附近不该推竖直线）在求解器，归 Fable（总账记了）；这里是手势层的护栏。探针 probe-pen-tap。
         // 半径 = 吸附半径（点按容差 4 px 拦不住：Pencil「同一处」点两下常差 5–8 px）——这么近本来就该吸回锚点本身，不该另起一段；要画更短的线就放大或输长度。
         if (this.anchor3 && this.frame().distTo(s.x, s.y, this.anchor3, this.fvp()) <= Math.max(this.eps().tap, this.eps().snap)) {
           if (H.sameSpotEnds) this.endChain();

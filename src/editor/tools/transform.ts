@@ -15,7 +15,7 @@ import { moveTargetsSelection, unwrapAngle } from "../tools.ts";
 import { INCREMENT_DEG, nearestStep } from "../increments.ts";
 import { type XformGizmo, type XformGrab, type XformHandle, XG_UNIFORM_OFFSET_PX, axisOf, dragMove, dragRotate, dragScale, grabXform, hitXformGizmo, isPlaneHandle, planeAxes, xformGizmoGeom } from "../transform-gizmo.ts";
 import { fmtDeg, fmtLen } from "../units.ts";
-import { MIN_GESTURE_LEN, SNAP_LABELS } from "../gesture-consts.ts";
+import { longEnough, SNAP_LABELS } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
@@ -292,8 +292,9 @@ export class TransformTool implements ToolHandler {
     const v = { dist: smp?.extra.mt ?? this.dist, angle: smp?.extra.ra ?? this.angle, factor: smp?.extra.sf ?? this.factor };
     const copy = this.copy, pivots = { ...this.pivotsAtGrab }, pivotUsed: PivotMode | "picked" = this.tempPivot ? "picked" : this.pivotMode(ctx);
     this.mode = null; this.grab = null; this.centerG = null; this.dist = 0; this.angle = 0; this.factor = 1; this.copy = false; this.mv = new Set();
+    const snappedNow = !!ctx.currentSnap()?.kind;   // 清吸附之前问：吸到整格 / 点的只看几何
     ctx.setCursor(null); ctx.setSnap(null);
-    const idle = mode === "move" ? Math.abs(v.dist) < MIN_GESTURE_LEN : mode === "rotate" ? Math.abs(v.angle) < 1e-6 : Math.abs(v.factor - 1) < 1e-9;
+    const idle = mode === "move" ? !longEnough(ctx, G.g0.origin, v.dist, snappedNow) : mode === "rotate" ? Math.abs(v.angle) < 1e-6 : Math.abs(v.factor - 1) < 1e-9;
     if (idle) return;
     const sel = ctx.selection(), entities = { faces: [...sel.faces], edges: [...sel.edges] };
     const k0 = ctx.kernel(), vids = moveTargetsSelection(k0, sel), pools = ctx.movablePoolPicks(false);

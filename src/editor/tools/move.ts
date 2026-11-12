@@ -10,7 +10,7 @@ import type { AxName } from "../solver.ts";
 import { moveTargets, moveTargetsSelection } from "../tools.ts";
 import { translation } from "../../scene/xform.ts";
 import { fmtLen } from "../units.ts";
-import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
+import { GEOM_MIN_LEN, gestureMinLen, longEnough } from "../gesture-consts.ts";
 import type { PoolPick, ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
@@ -84,7 +84,7 @@ export class MoveTool implements ToolHandler {
     // 意图门：候选在锚点另一侧（相机平面上与拖动方向点积 < 0）不合法（抬笔那一下滑到反方向的点 = 本案）
     const rayM = ctx.frame().ray(s.x, s.y, ctx.vp());
     const freeM = rayPlane(rayM.origin, rayM.dir, plane.plane.n, plane.plane.d);
-    if (sn.kind !== null && freeM && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeM, anchor), sub3(sn.p, anchor), MIN_GESTURE_LEN)) { sn = { p: freeM, kind: null }; ctx.dropHysteresis(); }
+    if (sn.kind !== null && freeM && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeM, anchor), sub3(sn.p, anchor), gestureMinLen(ctx, anchor))) { sn = { p: freeM, kind: null }; ctx.dropHysteresis(); }
     if (sn.kind === null || sn.kind === "grid-point") {   // 格点是地板（D16）：拖出方向意图时轴向锥先于格点
       const prevKind = ctx.currentSnap()?.kind;
       const keep = prevKind && prevKind.startsWith("axis-") ? { axis: prevKind.slice(5) as AxName, coneDeg: 55 } : undefined;   // 轴锁迟滞：进 30° / 出 55°（D17）
@@ -100,7 +100,7 @@ export class MoveTool implements ToolHandler {
       const lat = (p: Pt3): Pt3 => { const d = sub3(p, F.origin); const c = (ax: Pt3): Pt3 => scale3(ax, Math.round(dot3(d, ax) / step) * step); return add3(F.origin, add3(add3(c(F.x), c(F.y)), c(F.z))); };
       if (snapped.kind && snapped.kind.startsWith("axis-")) {   // 轴锁：沿轴落到绝对格（锚点在格上时 = 整数增量）
         const d = sub3(snapped.p, anchor), L = len3(d);
-        if (L >= MIN_GESTURE_LEN) {
+        if (L >= GEOM_MIN_LEN) {   // 要拿它算方向：几何上成立就行
           const dir = scale3(d, 1 / L), q = lat(snapped.p);   // 格点投回轴线
           const t = dot3(sub3(q, anchor), dir), p2 = add3(anchor, scale3(dir, t));
           if (len3(sub3(p2, snapped.p)) <= step * 0.5 + 1e-9) snapped = { p: p2, kind: "increment", label: `格点 · ${fmtLen(Math.abs(t))}` };
@@ -121,7 +121,7 @@ export class MoveTool implements ToolHandler {
     if (!this.active() || !anchor || !cursor) return "";
     const delta = sub3(cursor, anchor);
     const dims = `${this.copy ? "复制" : "移动"} ${fmtLen(len3(delta))}`;
-    if (len3(delta) >= MIN_GESTURE_LEN) {
+    if (longEnough(ctx, anchor, len3(delta))) {
       if (this.vids.length) {
         if (this.copy) {
           const payload = ctx.copyPayload(ctx.xformToLocal(translation(delta)), this.entities);
@@ -137,14 +137,14 @@ export class MoveTool implements ToolHandler {
     const anchor = ctx.anchor()!, target = ctx.cursor() ?? anchor;
     const delta = sub3(target, anchor);
     const vids = this.vids, pools = this.pools, copy = this.copy, entities = { faces: [...this.entities.faces], edges: [...this.entities.edges] };
-    const X = translation(delta);
+    const X = translation(delta), moved = longEnough(ctx, anchor, len3(delta));   // 清吸附之前问（吸到的只看几何、自由拖的看手势门槛）
     const k0 = ctx.kernel(), froms = vids.filter((id) => k0.graph.hasVertex(id)).map((id) => k0.graph.pt(id));
     const n0 = ctx.opCount(), at0 = ctx.activePool();
     const XL = ctx.xformToLocal(X);
     const payload = copy ? ctx.copyPayload(XL, entities) : null;   // 复制载荷先从落定前的内核算
     this.cancel();
     ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
-    if (len3(delta) < MIN_GESTURE_LEN) return;
+    if (!moved) return;
     if (copy) ctx.commitCopies([{ payload, XL }], pools, at0);
     else ctx.commitXform(X, vids, pools);
     ctx.recordLast({ kind: "move", ops: ctx.opCount() - n0, at: at0, froms, pools, delta, copy, entities });

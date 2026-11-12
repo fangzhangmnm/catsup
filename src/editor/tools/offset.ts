@@ -13,7 +13,7 @@ import { circleOfFace, curveSpecToLocal, offsetCircleSpec } from "../tools.ts";
 import { intentAllows1D } from "../intent.ts";
 import { nearestStep } from "../increments.ts";
 import { fmtLen } from "../units.ts";
-import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
+import { GEOM_MIN_LEN, gestureMinLen, longEnough } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { Op } from "../ops.ts";
@@ -83,7 +83,7 @@ export class OffsetTool implements ToolHandler {
     const dFree = freeO ? dot3(sub3(freeO, anchor), this.inward) : NaN;
     let q = projectThrough(sn.p, anchor, this.plane.plane.n);
     let kind = sn.kind;
-    if (kind !== null && freeO && ctx.intentOn(s, travel) && !intentAllows1D(dFree, dot3(sub3(q, anchor), this.inward), MIN_GESTURE_LEN)) { q = freeO; kind = null; }
+    if (kind !== null && freeO && ctx.intentOn(s, travel) && !intentAllows1D(dFree, dot3(sub3(q, anchor), this.inward), gestureMinLen(ctx, anchor))) { q = freeO; kind = null; }
     let d = dot3(sub3(q, anchor), this.inward);
     let label: string | undefined;
     // 落格：只在没吸到几何（裸落 / 格点 / 整数长度 / 面上）时接管；吸到别的端点 / 中点 / 边照旧（偏移到某个点是正经用法）
@@ -115,13 +115,13 @@ export class OffsetTool implements ToolHandler {
 
   /** 这次偏移的那条 op（预演 / 提交共用）：外环恰是一条闭合圆曲线 → 偏移环登记成同心圆（半径 r − d；0.10）。 */
   private opFor(ctx: ToolCtx, d: number): Op | null {
-    const segs = Math.abs(d) >= MIN_GESTURE_LEN ? this.segs(ctx, d) : [];
+    const segs = Math.abs(d) >= GEOM_MIN_LEN ? this.segs(ctx, d) : [];   // 几何上成立（预演 / 提交 / 数值小窗共用）；手势动没动在 live / commit 里判
     if (!segs.length || this.face === null) return null;
     const circle = circleOfFace(ctx.kernel(), this.face, ctx.ctxXform()), spec = circle ? offsetCircleSpec(circle, d) : null;
     return { op: "addEdges", at: ctx.activePool(), segs: segs.map(([p, q]) => [ctx.toLocal(p), ctx.toLocal(q)]), ...(spec ? { curve: curveSpecToLocal((pt) => ctx.toLocal(pt), spec) } : {}) };
   }
   live(ctx: ToolCtx, preview: PreviewOp): string {
-    if (this.face === null || Math.abs(this.dist) < MIN_GESTURE_LEN) return "";
+    if (this.face === null || !longEnough(ctx, ctx.anchor() ?? ctx.cursor() ?? { x: 0, y: 0, z: 0 }, this.dist)) return "";
     const op = this.opFor(ctx, this.dist);
     if (op) preview(op);
     return `偏移 ${this.dist > 0 ? "向内" : "向外"} ${fmtLen(Math.abs(this.dist))}`;
@@ -131,7 +131,7 @@ export class OffsetTool implements ToolHandler {
   private commit(ctx: ToolCtx): void {
     if (this.face === null || !this.plane) return;
     const d = this.dist;
-    const op = this.opFor(ctx, d);
+    const op = longEnough(ctx, ctx.anchor() ?? ctx.cursor() ?? { x: 0, y: 0, z: 0 }, d) ? this.opFor(ctx, d) : null;   // 自由拖的不到手势门槛 = 没动（以前靠 opFor 里写死的 1 厘米兼管）
     const k = ctx.kernel(), m = ctx.ctxXform();
     const ring = k.faceRings3(this.face)!.outer.map((p) => applyPt(m, p));
     const plane = this.plane, n0 = ctx.opCount(), at0 = ctx.activePool();

@@ -4,6 +4,7 @@
 //   端点 / 中点 / 交点 / 原点 / 参考点 / 参考线交点 → 参考点：落在第二点（VCB 改沿起点→终点方向的距离）
 //   面上 / 空处              → 只量：状态行报长度，不留东西
 // 预演 = 量线 + 候选参考线（viewExtras → render3 tape 层）；VCB：距离（撤销刚才那条、按精确值重做）。落定后回到第一下（SU：卷尺一直在手上）。
+import { gestureMinLen } from "../gesture-consts.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 import { add3, dot3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 import { nearestStep } from "../increments.ts";
@@ -62,6 +63,7 @@ export class TapeTool implements ToolHandler {
   private b: Pt3 | null = null;
 
   active(): boolean { return this.stage > 0; }
+  private minL = 0;   // 这一处「拉开了没有」的门槛：track 里按屏幕像素算好（gestureMinLen；统筹 11-12，不再写死 1 厘米）
   cancel(): void { this.stage = 0; this.plane = null; this.start = this.b = null; }
   sample(): Record<string, number> { return {}; }
   scaleGeom(): ScaleGeom | null { return this.stage === 1 && this.start && this.b ? { kind: "length", vec: sub3(this.b, this.start.p) } : null; }
@@ -80,7 +82,7 @@ export class TapeTool implements ToolHandler {
       return;
     }
     const b = this.b ?? this.start!.p;
-    const res = tapeResult(this.start!, b);
+    const res = tapeResult(this.start!, b, gestureMinLen(ctx, this.start!.p));
     if (ctx.modelLocked()) {   // 演示锁：卷尺照量，不留线（只读工具全部能用，user 11-05）
       ctx.hint(res.make === "through" || !(res.d > 0) ? "锁着，不留参考线" : `距离 ${fmtLen(res.d)} · 锁着，不留参考线`);
     } else if (res.make === "through") {   // 过两点的参考线：没有距离参数，不登记给数值小窗
@@ -113,7 +115,7 @@ export class TapeTool implements ToolHandler {
     const g = ctx.grid(), pl = this.plane!.plane;
     if (g.on && (sn.kind === null || sn.kind === "increment" || sn.kind === "grid-point" || sn.kind === "on-face")) {
       const ray = ctx.frame().ray(s.x, s.y, ctx.vp()), raw = rayPlane(ray.origin, ray.dir, pl.n, pl.d) ?? sn.p;
-      const r = tapeResult(this.start, raw), step = g.snap;
+      const r = tapeResult(this.start, raw, gestureMinLen(ctx, this.start.p)), step = g.snap;
       if (r.make === "line" && r.d > 0 && step > 0) {
         const k = nearestStep(r.d, step);
         if (k > 0) {
@@ -122,21 +124,21 @@ export class TapeTool implements ToolHandler {
         }
       }
     }
-    this.b = sn.p;
+    this.b = sn.p; if (this.start) this.minL = gestureMinLen(ctx, this.start.p);
     ctx.setSnap(sn); ctx.setCursor(sn.p);
   }
 
 
   live(): string {
     if (this.stage !== 1 || !this.start || !this.b) return "";
-    const r = tapeResult(this.start, this.b);
+    const r = tapeResult(this.start, this.b, this.minL || undefined);
     return r.make === "line" ? `偏移 ${fmtLen(r.d)}` : r.make === "through" ? `过两点 · ${fmtLen(r.d)}` : r.make === "point" ? `距 ${fmtLen(r.d)}` : `距离 ${fmtLen(r.d)}`;
   }
 
   /** 量线 + 候选参考线 / 参考点（render3 tape 层）。 */
   viewExtras(): Partial<ViewState> {
     if (this.stage !== 1 || !this.start || !this.b) return {};
-    const r = tapeResult(this.start, this.b);
+    const r = tapeResult(this.start, this.b, this.minL || undefined);
     return { tape: { a: this.start.p, b: this.b, guide: r.make === "line" || r.make === "through" ? { p: r.p, dir: r.dir } : null, point: r.make === "point" ? r.p : null } };
   }
 }

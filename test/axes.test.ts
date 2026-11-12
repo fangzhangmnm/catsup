@@ -21,7 +21,7 @@ describe("axes: 三点定帧", () => {
   it("Y 与 X 共线 → 用手势平面法向定 Z；X 太近 / 全退化 → null", () => {
     const f = frameFrom3(P(0, 0, 0), P(2, 0, 0), P(5, 0, 0), Z)!;
     assert(f && near(f.z, Z) && near(f.y, P(0, 1, 0)), "退回平面法向");
-    eq(frameFrom3(P(0, 0, 0), P(0.001, 0, 0), null, Z), null, "X 太近");
+    eq(frameFrom3(P(0, 0, 0), P(0.001, 0, 0), null, Z, 0.01), null, "X 太近（门槛由调用方给）"); eq(frameFrom3(P(0, 0, 0), P(0.001, 0, 0), null, Z) !== null, true, "缺省只看几何：1 毫米够了");
     eq(frameFrom3(P(0, 0, 0), P(0, 0, 2), null, Z), null, "X 沿 Z 且备用法向也是 Z → 退化");
     const g = frameFrom3(P(0, 0, 0), P(0, 0, 2), null, P(1, 0, 0))!;
     assert(g && near(g.x, Z) && near(g.z, P(1, 0, 0)) && near(g.y, P(0, -1, 0)), "只有 X 点（预演态）：Z 取备用法向、Y = Z × X 补齐（右手系：X × Y = Z）");

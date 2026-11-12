@@ -10,7 +10,7 @@ import { closestOnAxis } from "../camera.ts";
 import { intentAllows1D } from "../intent.ts";
 import { type Xform, applyPt, scalingAbout, scalingAlong } from "../../scene/xform.ts";
 import { moveTargetsSelection } from "../tools.ts";
-import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
+import { gestureMinLen } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
@@ -53,7 +53,7 @@ export class ScaleTool implements ToolHandler {
       [{ x: mid.x, y: max.y, z: mid.z }, { x: mid.x, y: min.y, z: mid.z }, F.y], [{ x: mid.x, y: min.y, z: mid.z }, { x: mid.x, y: max.y, z: mid.z }, scale3(F.y, -1)],
       [{ x: mid.x, y: mid.y, z: max.z }, { x: mid.x, y: mid.y, z: min.z }, F.z], [{ x: mid.x, y: mid.y, z: min.z }, { x: mid.x, y: mid.y, z: max.z }, scale3(F.z, -1)],
     ];
-    for (const [pc, ac, axis] of faces) { const p = W(pc), anchor = W(ac); if (dist3(p, anchor) >= MIN_GESTURE_LEN) out.push({ kind: "face", p, anchor, axis }); }
+    for (const [pc, ac, axis] of faces) { const p = W(pc), anchor = W(ac); if (ctx.frame().distBetween(p, anchor, ctx.vp()) >= ctx.eps().drag) out.push({ kind: "face", p, anchor, axis }); }   // 手柄在屏幕上离锚点只有几个像素就不给（拖一个像素倍数就飞了；统筹 11-12：手感，按屏幕像素）
     return out;
   }
 
@@ -69,7 +69,7 @@ export class ScaleTool implements ToolHandler {
     const dir = normalize3(sub3(h.p, h.anchor));
     const ray = ctx.frame().ray(ev.x, ev.y, ctx.vp());
     const q = closestOnAxis(h.anchor, dir, ray.origin, ray.dir);
-    this.t0 = q ? Math.max(dot3(sub3(q, h.anchor), dir), MIN_GESTURE_LEN) : dist3(h.p, h.anchor);
+    this.t0 = q ? Math.max(dot3(sub3(q, h.anchor), dir), gestureMinLen(ctx, h.anchor)) : dist3(h.p, h.anchor);   // 起始距离至少几个像素（防除以零、防一个像素倍数就飞）
     ctx.setCursor(h.p);
     ctx.hint(h.kind === "corner" ? "等比缩放：沿对角拖" : "单轴缩放：沿轴拖（拖过对面到 −1 = 沿这根轴镜像）；按住 Shift = 等比、锚点还在对面");
   }

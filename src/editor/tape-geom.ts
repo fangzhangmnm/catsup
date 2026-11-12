@@ -3,8 +3,8 @@ import type { Pt3 } from "../kernel/kernel.ts";
 import { dist3, dot3, normalize3, scale3, sub3, add3 } from "../kernel/geom.ts";
 import type { Snap3, SnapKind } from "./solver.ts";
 
-/** 与 editor.ts MIN_GESTURE_LEN 同值（那边 import 这边会把 editor 拖进测试）。 */
-export const TAPE_MIN = 0.01;
+/** 几何上成立的最短（= 内核身份分辨率 3 µm，gesture-consts.ts GEOM_MIN_LEN 同值；这个纯模块不 import 那边）。以前这里写死 1 厘米（统筹 11-12：工具里不许再有写死的世界长度门槛）。 */
+const GEOM_MIN = 3e-6;
 
 /** 起点的身份：决定产物。 */
 /** through = 起手在参考点上：出过两点的参考线、参考点留着（user 2026-10-25「有了点，再拉一次……」「好，不删点」；尺规 2.0 稿 §0）。 */
@@ -13,18 +13,18 @@ export type TapeStart = { kind: "line"; p: Pt3; dir: Pt3 } | { kind: "point"; p:
 export type TapeResult = { make: "line"; p: Pt3; dir: Pt3; d: number } | { make: "point"; p: Pt3; d: number } | { make: "through"; p: Pt3; dir: Pt3; d: number } | { make: "measure"; d: number };
 
 /** 起点 + 第二点 → 产物（纯函数，测试面）。 */
-export function tapeResult(start: TapeStart, b: Pt3): TapeResult {
+export function tapeResult(start: TapeStart, b: Pt3, minLen = GEOM_MIN): TapeResult {   // minLen = 这一处「拉开了没有」的门槛：工具里传这一点的手势门槛（gestureMinLen，按屏幕像素）
   if (start.kind === "line") {
     const v = sub3(b, start.p);
     const w = sub3(v, scale3(start.dir, dot3(v, start.dir)));   // 去掉沿线分量 = 垂直偏移
     const d = Math.hypot(w.x, w.y, w.z);
-    if (d < TAPE_MIN) return { make: "line", p: start.p, dir: start.dir, d: 0 };   // 点一条边、再点它自己（没有垂直偏移）= 沿这条边的共线参考线（user 10-27「卷尺，如果点一下一条边，然后点自己，应该是一个共轴的尺」；SketchUp 双击边同款）
+    if (d < minLen) return { make: "line", p: start.p, dir: start.dir, d: 0 };   // 点一条边、再点它自己（没有垂直偏移）= 沿这条边的共线参考线（user 10-27「卷尺，如果点一下一条边，然后点自己，应该是一个共轴的尺」；SketchUp 双击边同款）
     return { make: "line", p: add3(start.p, w), dir: start.dir, d };
   }
   const d = dist3(start.p, b);
-  if (start.kind === "through") return d < TAPE_MIN ? { make: "measure", d: 0 } : { make: "through", p: start.p, dir: normalize3(sub3(b, start.p)), d };
+  if (start.kind === "through") return d < minLen ? { make: "measure", d: 0 } : { make: "through", p: start.p, dir: normalize3(sub3(b, start.p)), d };
   if (start.kind === "point") {
-    if (d < TAPE_MIN) return { make: "measure", d: 0 };
+    if (d < minLen) return { make: "measure", d: 0 };
     // D25（2026-10-25 Opus；user「卷尺当从线和snap开始拉，还是没有出线，出了点。这样不对」「我应该是在直边上拉的尺」）：
     // 起手吸到边的中点 / 端点（栅格开着时整米边的中点正好也是格点，很容易落上去）——按拖的方向定：垂直成分 ≥ 八成（离边 ≥ 约 53°）= 那条边的平行线
     if (start.lines?.length) {
