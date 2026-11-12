@@ -152,7 +152,8 @@ export interface Gl2Port {
   readonly generation: number;
   // 失效广播（多播）：重建完成（generation 已 ++、program 已重编、FBO 池已清）后通知——
   //   全部驻留/映射作废，backend 惰性从 CPU SSoT 重传。
-  onInvalidated(cb: () => void): void;
+  /** 返回摘掉这个回调的函数（画板退租时摘，不然 Port 一直拉着它）。 */
+  onInvalidated(cb: () => void): () => void;
 
   // ---- shader program（按名注册缓存；restore 后自动重编） ----
   // 确保 name 已注册；首次需给源。（C8 后棒起注册表扩成 { GLSL 源, CPU 等价函数 } 的 GPU/CPU

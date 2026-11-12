@@ -65,12 +65,16 @@ export class RenderTree {
   /** 量 / 测试：上一帧走的哪条路（full 整张 / rects 只合那几块 / same 什么都没变）、几块、占画布多少。 */
   readonly lastPath = { path: "full" as "full" | "rects" | "same", rects: 0, fraction: 1 };
 
+  private readonly _pinsFn: () => { required: Set<number>; preferred: Set<number> };
+  private _unpin: (() => void) | null;
+
   constructor(room: GlRoom) {
     this._room = room;
     // RasterService 落了新像素（bakeStamps）→ 重算树（room 信号，facade 互不知晓）。
     room.onInvalidate(() => { this._dirty = true; });
     // pin 两档：required = live 叶 + 现役段；preferred = 其余已驻留叶 tile（压力下才让位）。
-    room.pool.registerPinProvider(() => {
+    //   登记返回摘掉的口：退租 / 睡下去时摘（不摘 = 池一直拉着这棵树和它的房间放不掉；合用池上尤其要紧）。
+    this._pinsFn = () => {
       const required = new Set<number>();
       const preferred = new Set<number>();
       const live = this._lastPlan?.liveLeaves;
@@ -82,7 +86,8 @@ export class RenderTree {
         if (!this._lastPlan || this._lastPlan.cacheKeys.has(key)) for (const g of seg.byKey.values()) required.add(g);
       }
       return { required, preferred };
-    });
+    };
+    this._unpin = room.pool.registerPinProvider(this._pinsFn);
   }
 
   // ---- 外部信号 ----
@@ -336,7 +341,25 @@ export class RenderTree {
    * 叶记录（room.leaves）归 GlRoom.dispose。之后不可再用（GLBoard 那层拦）。画画软件一辈子一块画板，不调。
    */
   dispose(): void {
+    this._unpin?.(); this._unpin = null;
+    this._releaseGpuHalf();
+  }
+
+  // ---- 睡和醒（CatsUp 施工单十九第 2 刀；GLBoard 那层调，画画软件不调）----
+  /** 睡：摘掉「钉住」的口、显示图和段缓存的帧缓冲还池、段缓存的片让出来；标脏（醒来下一帧整张重合）。 */
+  sleep(): void {
+    this._unpin?.(); this._unpin = null;
+    this._releaseGpuHalf();
+    this._dirty = true;
+  }
+  /** 醒：重新登记「钉住」的口、标脏。显卡那一半下一帧按内存那份重建（和 handleContextRestored 同一条路）。 */
+  wake(): void {
+    if (!this._unpin) this._unpin = this._room.pool.registerPinProvider(this._pinsFn);
+    this._dirty = true;
+  }
+  private _releaseGpuHalf(): void {
     if (this._display) { this._room.glctx.returnFBO(this._display); this._display = null; }
+    for (const seg of this._segCache.values()) for (const g of seg.byKey.values()) this._room.pool.evict(g);   // 合用池里让出来（evict 幂等；池已退 = 片号早作废）
     this._invalidateSegs();
     this._displaySig = null; this._lastPlan = null;
     this._incOk = false; this._lastHost = null;

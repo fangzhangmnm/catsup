@@ -83,8 +83,10 @@ export class PaintBoard {
     this.gl = new GLBoard(o.port, poolCapacityForBudget(BUDGET_BYTES));
     this.port = o.port;
     this.log = o.log ?? (() => {});
-    o.port.onInvalidated(() => { this.last = null; this.restores++; });   // 画面丢了又恢复：内核从内存里的图块重建（GLBoard 自己管），这边只作废缓存、让渲染器重拷
+    this.unInvalidated = o.port.onInvalidated(() => { this.last = null; this.restores++; });   // 画面丢了又恢复：内核从内存里的图块重建（GLBoard 自己管），这边只作废缓存、让渲染器重拷
   }
+  /** 摘掉挂在 Port 上的那个回调（退租时摘；内核 v0.14.85 起 onInvalidated 返回它——不摘 = Port 一直拉着这块画板，换文件换多了放不掉）。 */
+  private unInvalidated: (() => void) | null;
 
   get width(): number { return this.tree().width; }
   get height(): number { return this.tree().height; }
@@ -268,6 +270,7 @@ export class PaintBoard {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true; this.last = null; this.hostOverlays = [];
+    this.unInvalidated?.(); this.unInvalidated = null;
     this.wp.load(BLANK_1x1);
     this.wp.layerTiles.dispose();
     this.gl.dispose();

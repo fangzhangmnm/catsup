@@ -11,6 +11,7 @@
 import type { DirtyCells } from "../../common/dirty-rects.ts";
 import { GpuTilePool, IndexTexture, GPU_TILE_BYTES } from "./gpu-tile-pool.ts";
 import { CpuGpuTileBridge } from "./tile-bridge.ts";
+import { sharedCoreOf, type SharedPoolCore, type SharedTilePool } from "./shared-tile-pool.ts";
 import { appTilePool } from "../tiles/app-tile-pool.ts";
 import { TILE_SIZE, tilesAcross, tilesDown } from "../../common/tile-geometry.ts";
 import { GLCompositor } from "./gl-compositor.ts";
@@ -124,10 +125,15 @@ export class GlRoom {
   // 内容失效信号：RasterService.bakeStamps 落了新像素 → RenderTree 置脏重算树（facade 互不知晓）。
   private _invalidateListeners: (() => void)[] = [];
 
-  constructor(glctx: Gl2Port, maxSlices: number, accumPrec: FBOPrec = "u8") {
+  /** 合用的图块池（CatsUp 施工单十九第 2 刀）：有 = 池和图组是别人的，这里退租 / 睡不还图组、只让出自己的片；null = 自己开的（画画软件照旧）。 */
+  private readonly _shared: SharedPoolCore | null;
+  private _asleep = false;
+
+  constructor(glctx: Gl2Port, maxSlices: number, accumPrec: FBOPrec = "u8", shared?: SharedTilePool) {
     this.glctx = glctx;
-    this.arena = glctx.createTileArena(TILE_SIZE, Math.min(64, maxSlices));
-    this.pool = new GpuTilePool(this.arena, maxSlices);
+    this._shared = shared ? sharedCoreOf(shared) : null;
+    this.arena = this._shared ? this._shared.arena : glctx.createTileArena(TILE_SIZE, Math.min(64, maxSlices));
+    this.pool = this._shared ? this._shared.pool : new GpuTilePool(this.arena, maxSlices);
     this.bridge = new CpuGpuTileBridge(this.pool);
     this.comp = new GLCompositor(glctx, accumPrec);
     this.rasterizer = new GLStampRasterizer(glctx);
@@ -155,15 +161,57 @@ export class GlRoom {
   dispose(): void {
     this.releaseLiveClip();
     this.releaseOverlayFBO();
+    this._giveBackSlices();
     for (const rec of this.leaves.values()) rec.index.dispose();
     this.leaves.clear();
+    this._dropPseudoTextures();
+    this._overlays.clear();
+    this._invalidateListeners = [];
+    if (!this._shared) this.arena.dispose();   // 合用的图组归建它的人（SharedTilePool.dispose）；这里只让出了自己的片
+  }
+
+  // ---- 睡和醒（CatsUp 施工单十九第 2 刀；画画软件不调）----
+  // 睡 = 显卡那一半还回去，内存那一半（图块、图层树、撤销）不碰：自己的片让出来（合用的池里别的房间马上能用；自己开的池停放成 1 片），
+  //   每层的索引小图、选区 / 填色 / 浮层图删掉，借的帧缓冲还池。醒 = 自己开的池重开回起步那么大，其余照「显卡画面丢了」那条路：下一帧从内存那份重建。
+  //   开着一笔（有 overlay：宿主这一帧装了正在画的那一笔）时睡 = 抛——不许悄悄把这一笔的帧缓冲还掉。宿主一笔画完要清掉 overlay（setStampOverlays([])）再睡。
+  //   浮着的一块 / 选区：宿主每帧都把它们递进来（FloatInput / selMask 是内存里的字节），睡了删掉的显卡副本下一帧照原样重建，所以睡不抛。
+  get asleep(): boolean { return this._asleep; }
+  sleep(): void {
+    if (this._asleep) return;
+    if (this.hasOverlay) throw new Error("GlRoom.sleep: a stroke is open (an overlay is set) — finish or cancel it and clear the overlay first");
+    this.releaseLiveClip();
+    this.releaseOverlayFBO();
+    this._giveBackSlices();
+    for (const rec of this.leaves.values()) rec.index.dispose();
+    this.leaves.clear();
+    this.bridge.clear();
+    this._dropPseudoTextures();
+    this._overlays.clear();
+    if (!this._shared) this.pool.park();
+    this._asleep = true;
+  }
+  wake(): void {
+    if (!this._asleep) return;
+    this.assertUsable();
+    if (!this._shared) this.pool.unpark();
+    this._asleep = false;
+    this.invalidateTree();
+  }
+  /** 合用的池先退了、房间还拿来用 = 抛、说清原因（不然是图组那一层的 ARENA_DISPOSED，看不出是谁的顺序错了）。 */
+  assertUsable(): void {
+    if (this._shared?.disposed) throw new Error("GlRoom: its shared tile pool was disposed — dispose the boards before the pool (SharedTilePool.dispose)");
+  }
+  /** 这间房在池里占着的片全部让出来（叶的片 + 桥记着的片；段缓存的片归 RenderTree）。evict 幂等。 */
+  private _giveBackSlices(): void {
+    if (this._shared?.disposed) return;   // 池都没了，片号早作废
+    for (const rec of this.leaves.values()) for (const id of rec.byKey.values()) this.pool.evict(id);
+    for (const id of this.bridge.gpuIds()) this.pool.evict(id);
+  }
+  private _dropPseudoTextures(): void {
     if (this._selTex) { this.glctx.deleteTexture(this._selTex); this._selTex = null; this._selTexSrc = null; }
     if (this._fillTex) { this.glctx.deleteTexture(this._fillTex); this._fillTex = null; this._fillTexColor = -1; }
     for (const e of this._floatTex.values()) this.glctx.deleteTexture(e.tex);
     this._floatTex.clear(); this._floats.clear();
-    this._overlays.clear();
-    this._invalidateListeners = [];
-    this.arena.dispose();
   }
 
   // ---- context-loss：机房侧全量作废（段缓存/display 归 RenderTree 自己清） ----

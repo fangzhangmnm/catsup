@@ -51,9 +51,12 @@ export class GpuTilePool {
   // 统计（HUD/测试）：evictions 含孤儿+压力驱逐；recreations = grow/context-loss 次数。
   readonly stats = { evictions: 0, recreations: 0, uploads: 0, copies: 0 };
 
+  private _initialCapacity: number;   // 起步那么大（睡醒时重开回这么大）
+  private _parked = false;
   constructor(backend: GpuTileBackend, maxSlices: number) {
     this._backend = backend;
     this._maxSlices = Math.max(backend.capacity, maxSlices);
+    this._initialCapacity = backend.capacity;
     this._initSlices(backend.capacity);
   }
 
@@ -72,7 +75,18 @@ export class GpuTilePool {
   get committedBytes(): number { return this._backend.capacity * GPU_TILE_BYTES; }
   get quotaBytes(): number { return this._maxSlices * GPU_TILE_BYTES; }
 
-  registerPinProvider(fn: () => PinSets): void { this._pinProviders.push(fn); }
+  /** 登记「钉住」的一口；返回摘掉它的函数（房间退租 / 睡下去时摘：不摘 = 池一直拉着房间对象放不掉，CatsUp 施工单十九 ⑦）。 */
+  registerPinProvider(fn: () => PinSets): () => void {
+    this._pinProviders.push(fn);
+    return () => { const i = this._pinProviders.indexOf(fn); if (i >= 0) this._pinProviders.splice(i, 1); };
+  }
+  /** 登记着的「钉住」有几口（= 合用这个池、醒着没退租的房间数）。 */
+  get pinProviderCount(): number { return this._pinProviders.length; }
+  /** 停放（自己开的池随房间睡下去）：显存还回去，只留 1 片（显卡的图组不许 0 层）；全部片号作废（generation 变）。幂等。 */
+  park(): void { if (this._parked) return; this._parked = true; this._recreate(1); }
+  /** 停放之后重开回起步那么大（全部片号作废，使用者照代数重传）。没停放 = 不动。 */
+  unpark(): void { if (!this._parked) return; this._parked = false; this._recreate(this._initialCapacity); }
+  get parked(): boolean { return this._parked; }
 
   isAlive(id: number): boolean { return this._slot.has(id); }
 

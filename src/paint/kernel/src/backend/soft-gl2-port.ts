@@ -152,7 +152,9 @@ export class SoftGl2Port implements Gl2Port {
   private _programs = new Map<string, CpuDraw | "gpu-only">();
   private _fboPool: SoftFBO[] = [];
 
-  onInvalidated(cb: () => void): void { this._invalidated.push(cb); }
+  onInvalidated(cb: () => void): () => void { this._invalidated.push(cb); return () => { const i = this._invalidated.indexOf(cb); if (i >= 0) this._invalidated.splice(i, 1); }; }
+  /** 挂着的「画面丢了」回调有几个（测试看退租干不干净）。 */
+  get invalidatedListenerCount(): number { return this._invalidated.length; }
 
   // ---- program：注册即对表核验（CPU 版缺席响亮 throw，ADR-0009 决定 5）----
   warmProgram(name: string, vert: string, frag: string): void { this.program(name, vert, frag); }   // 软域无编译成本：同义

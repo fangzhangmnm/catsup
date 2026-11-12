@@ -225,7 +225,7 @@ export class BrowserGl2Port implements Gl2Port {
   get isLost(): boolean { return this._lost; }
   get generation(): number { return this._gen; }
 
-  onInvalidated(cb: () => void): void { this._invalidated.push(cb); }
+  onInvalidated(cb: () => void): () => void { this._invalidated.push(cb); return () => { const i = this._invalidated.indexOf(cb); if (i >= 0) this._invalidated.splice(i, 1); }; }
 
   /**
    * 共用画面时把本模块依赖、却从不自己设的状态设回默认（自己的 context = 什么都不做）。

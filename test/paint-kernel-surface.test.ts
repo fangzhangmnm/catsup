@@ -20,6 +20,8 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "src/backend/gl/gl-room.ts": ["HostOverlayInput", "poolCapacityForBudget"],   // HostOverlayInput = 合成时垫在那一层上的薄层；poolCapacityForBudget = 额度的口（三维只说字节数，不直接说内核的片数）
   // 只合成（0-5）
   "src/shell/gl-board.ts": ["GLBoard"],   // 只合成、不上屏
+  // 几块画板合用一个图块池（施工单十九第 2 刀，内核 v0.14.85，统筹 11-12 批的形状：宿主只拿到报数和退租，池的内部不露）
+  "src/backend/gl/shared-tile-pool.ts": ["createSharedTilePool", "SharedTilePool"],   // 一份文件一个合用的池（第 3 刀 boards.ts 建、换文件退租）；stats.tileSize 以后给显卡内存清单用（到时候 TILE_SIZE 那一行能删）
   // 只合成改到的那些格（1-4d 第 6 条，内核 v0.14.79，统筹 11-11 点头）
   "src/common/tile-geometry.ts": ["TILE_SIZE"],   // 图块边长：显卡内存清单（open-memory.ts）按它算图块池和索引小图多大（施工单十九第 1 刀）
   "src/common/dirty-rects.ts": ["DirtyCells", "DirtyRect"],   // 脏格子位图：薄层直接标格、画板的变化史存它、渲染器拷显示图和缩小图逐级 half；外来薄层的 markChanged 报它的行段

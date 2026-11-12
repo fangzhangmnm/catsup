@@ -7,6 +7,7 @@
 import type { BakeReport } from "../backend/gl/bake-cells.ts";
 import type { Gl2Port, PooledFBO } from "../common/gl2-port.ts";
 import { GlRoom } from "../backend/gl/gl-room.ts";
+import type { SharedTilePool } from "../backend/gl/shared-tile-pool.ts";
 import { RenderTree } from "../backend/gl/render-tree.ts";
 import { RasterService } from "../backend/gl/raster-service.ts";
 import { RegionStroke, type SelMaskPlane } from "../backend/gl/region-stroke.ts";
@@ -33,15 +34,18 @@ export class GLBoard {
   private _tree: RenderTree;
   private _raster: RasterService;
 
-  constructor(glctx: Gl2Port, maxSlices: number) {
+  /** opts.pool = 几块画板合用的图块池（CatsUp 施工单十九第 2 刀；createSharedTilePool 建）；缺 = 照旧自己开一个（画画软件就是这样）。 */
+  constructor(glctx: Gl2Port, maxSlices: number, opts?: { readonly pool?: SharedTilePool }) {
     this._glctx = glctx;
-    this._room = new GlRoom(this._glctx, maxSlices);
+    this._room = new GlRoom(this._glctx, maxSlices, "u8", opts?.pool);
     this._tree = new RenderTree(this._room);
     this._raster = new RasterService(this._room);
     // context-loss（Port onInvalidated 广播：结构已重建/generation 已 ++）：底层纹理/FBO 全没了
     //   → 机房+执行器全量作废，下帧从 CPU SSoT 重建（CPU 恒驻留）。
-    this._glctx.onInvalidated(() => { if (!this._disposed) this._tree.handleContextRestored(); });
+    this._unInvalidated = this._glctx.onInvalidated(() => { if (!this._disposed) this._tree.handleContextRestored(); });
   }
+  /** 摘掉挂在 Port 上的「画面丢了」回调（退租时摘：不摘 = Port 一直拉着这块画板，换很多次文件之后放不掉）。 */
+  private _unInvalidated: (() => void) | null;
 
   // ---- 退租（CatsUp 0-3a，2026-11-11）：原来只有建、没有拆，因为画画软件一辈子只有一块画板；宿主有很多块、会扔，建和拆要成对。----
   //   拆 = 合成树还掉借的离屏图、删段缓存 → 机房退租（GlRoom.dispose：叶的索引纹理 / 选区 / 填充 / 浮层纹理 / arena / live clip / overlay FBO）。
@@ -51,10 +55,35 @@ export class GLBoard {
   dispose(): void {
     if (this._disposed) return;
     this._disposed = true;
+    this._unInvalidated?.(); this._unInvalidated = null;
     this._tree.dispose();
     this._room.dispose();
   }
-  private _live(): void { if (this._disposed) throw new Error("GLBoard: disposed (a disposed board cannot be used again)"); }
+  private _alive(): void { if (this._disposed) throw new Error("GLBoard: disposed (a disposed board cannot be used again)"); }
+  /** 要用显卡的口：没退租、醒着、合用的池还在。睡着时调 = 抛（先 wake()），不是悄悄画到一块没有显卡那一半的画板上。 */
+  private _live(): void {
+    this._alive();
+    if (this._room.asleep) throw new Error("GLBoard: asleep (call wake() before compositing / painting)");
+    this._room.assertUsable();
+  }
+
+  // ---- 睡和醒（CatsUp 施工单十九第 2 刀：只醒着正在编辑的物件；画画软件不调）----
+  // 睡 = 显卡那一半还回去（片让出来 / 自己的池停放、索引小图删、帧缓冲还池），内存那一半（图块、图层树、撤销）全留着；醒 = 下一帧从内存那份重建
+  //   （和「显卡画面丢了」恢复同一条路）。开着一笔（宿主装了 overlay）时睡 = 抛。睡、醒各调两次没事；睡着时 dispose 不抛。
+  get asleep(): boolean { return this._room.asleep; }
+  sleep(): void {
+    this._alive();
+    if (this._room.asleep) return;
+    if (this._room.hasOverlay) throw new Error("GLBoard.sleep: a stroke is open (an overlay is set) — finish or cancel it and clear the overlay first");   // 先查，什么都还没动
+    this._tree.sleep();   // 先让段缓存的片（池还在原样时让，和退租同一个顺序：树先、房间后）
+    this._room.sleep();
+  }
+  wake(): void {
+    this._alive();
+    if (!this._room.asleep) return;
+    this._room.wake();
+    this._tree.wake();
+  }
 
   get memory() { return this._room.memory; }
   get stats(): { passes: number; floatPasses: number } { return this._room.stats; }
@@ -62,7 +91,7 @@ export class GLBoard {
   get frameStats() { return this._tree.frameStats; }
   // 驻留降级累计（v0.10.8）：syncLeafSafe 吞掉的 GPU_POOL_EXHAUSTED 次数（board 盯涨出声）。
   get syncDrops(): number { return this._room.syncStats.drops; }
-  markContentDirty(): void { this._live(); this._tree.markDirty(); }
+  markContentDirty(): void { this._alive(); this._tree.markDirty(); }   // 只标脏（睡着也行：醒来本来就整张重合）
 
   // S8 brush commit：merge(base⊕stroke) 在 GPU（live 同一 shader）→ tile-diff 落盘 → GPU 收养。
   //   apply = CPU 落盘回调（Layer.applyRegionDiff）。false = GPU 无法保证完整（调用方按未提交处理）。

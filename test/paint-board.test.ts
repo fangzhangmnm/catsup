@@ -70,6 +70,13 @@ describe("画板（1-3c）", () => {
     eq(logs.length, 1, "记了一笔"); assert(/kept 8x20/.test(logs[0]), logs[0]);
     eq(b.follow(8, 19).height, 19, "要砍的那一行（第 19 行）空白：缩到 19");
   });
+  it("退租摘干净：建十块又全退租，Port 上挂的「画面丢了」回调回到原数（以前画板和它的 GLBoard 各挂一个、都不摘，Port 一直拉着它们；内核 v0.14.85）", () => {
+    const port = new SoftGl2Port(), base = port.invalidatedListenerCount;
+    const boards = Array.from({ length: 10 }, () => new PaintBoard({ port, width: 16, height: 8 }));
+    eq(port.invalidatedListenerCount, base + 20, "每块挂两个（画板一个、它的 GLBoard 一个）");
+    for (const b of boards) b.dispose();
+    eq(port.invalidatedListenerCount, base, "全退租之后回到原数");
+  });
 });
 
 /** 一个网格体定义（方盒子）+ 开始画（走 1-3b 的指令）：返回场景、定义、那张画的 GUID。 */

@@ -71,6 +71,8 @@ export class CpuGpuTileBridge {
   }
 
   clear(): void { this._map.clear(); }
+  /** 桥记着的全部显卡片号（房间睡 / 退租时把自己的片让出来用）。 */
+  gpuIds(): IterableIterator<number> { return this._map.values(); }
   get size(): number { return this._map.size; }
 }
 
