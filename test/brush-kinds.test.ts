@@ -84,8 +84,8 @@ describe("往脏格子位图里记东西只在真画的那段（统筹 11-11）"
 });
 
 describe("笔的表（施工单二十 1a：每行是笔的模型里那条记录，起笔经 resolvedBrushOf 解成内核的 ResolvedBrush）", () => {
-  it("两行的数和 v0.19.54 一模一样：解出来的笔 = 以前的 hookBrush + 浓度旋钮，逐项（只有 compositeMode 不同，见下）", () => {
-    for (const k of ["pen", "eraser"] as const) for (const knobs of [{ size: 20, opacity: 1, hardness: 0.5 }, { size: 3, opacity: 0.4, hardness: 0 }, { size: 180, opacity: 0.73, hardness: 1 }]) {
+  it("橡皮的数和 v0.19.54 一模一样：解出来的笔 = 以前的 hookBrush + 浓度旋钮，逐项（只有 compositeMode 不同，见下）；普通笔 v0.19.69 起改抄画画软件的「平涂」（见下一组）", () => {
+    for (const k of ["eraser"] as const) for (const knobs of [{ size: 20, opacity: 1, hardness: 0.5 }, { size: 3, opacity: 0.4, hardness: 0 }, { size: 180, opacity: 0.73, hardness: 1 }]) {
       const a = resolvedBrushOf(k, knobs) as Record<string, unknown>, b = { ...hookBrush({ size: knobs.size, hardness: knobs.hardness }), opacity: knobs.opacity } as Record<string, unknown>;
       const keys = new Set([...Object.keys(a), ...Object.keys(b)]); keys.delete("compositeMode");
       const diff = [...keys].filter((key) => JSON.stringify(a[key]) !== JSON.stringify(b[key])).map((key) => `${key}: ${JSON.stringify(b[key])} → ${JSON.stringify(a[key])}`);
@@ -94,7 +94,7 @@ describe("笔的表（施工单二十 1a：每行是笔的模型里那条记录�
   });
   it("compositeMode 按叠法写（over = buildup）：三维的一笔只拿它算 accum；内核那份 ResolvedBrush.compositeMode 只有二维笔引擎读（三维不经过）", () => {
     for (const k of BRUSH_KIND_IDS) eq(BRUSH_KINDS[k].accum, (BRUSHES[k] as BrushRecord).compositeMode === "wash" ? "max" : "over", `${k} 的 accum 从记录算`);
-    eq([strokeKindOpts("pen").accum, strokeKindOpts("eraser").accum].join(), "over,over", "和 v0.19.54 一样（两支都是越叠越浓）");
+    eq([strokeKindOpts("pen").accum, strokeKindOpts("eraser").accum].join(), "max,over", "平涂取最浓（v0.19.69 起，照画画软件 wash）、橡皮越叠越浓（和 v0.19.54 一样）");
     const users = walk("src").filter((f) => !f.startsWith("src/paint/kernel/") && /\.compositeMode\b/.test(read(f)) && !/brush-(kinds|records)\.ts$/.test(f));
     eq(users.join(), "", "三维这边没有别处读 compositeMode");
   });
@@ -107,9 +107,10 @@ describe("笔的表（施工单二十 1a：每行是笔的模型里那条记录�
 });
 
 describe("笔的表长出草稿笔、勾线笔（施工单二十 1b）", () => {
-  it("草稿笔 = 画画软件的「铅笔」、勾线笔 = 它的「勾线」：数原样抄（builtin-brushes.json，v0.14.86）", () => {
+  it("平涂 = 画画软件的「平涂」、草稿笔 = 它的「铅笔」、勾线笔 = 它的「勾线」：数原样抄（builtin-brushes.json：铅笔 / 勾线 v0.14.86、平涂 default-brush-fill v0.19.69 抄）", () => {
     // 抄的那几个数写在这里再对一次：表里的数被人顺手改了 = 红（像不像归 user 判断，不自己调；要改先问统筹）
     const want: Record<string, Partial<Record<string, unknown>>> = {
+      pen: { name: "平涂", size: { base: 50, max: 800 }, hardness: 0.9, sizeCoeff: 1, opaCoeff: 0, flowCoeff: 0, pressureGamma: 1.2, pressureLPF: 50, compositeMode: "wash", spacing: 0.06, taper: { in: 0.5, out: 0 }, smooth: { streamline: 0.1, stabilization: 0.2 } },
       sketch: { size: { base: 6, max: 80 }, hardness: 0.75, sizeCoeff: 0.5, opaCoeff: 0.35, flowCoeff: 0.3, pressureGamma: 1, pressureLPF: 50, compositeMode: "wash", spacing: 0.06, taper: { in: 0, out: 0 }, smooth: { streamline: 0.1, stabilization: 0.15 } },
       ink: { size: { base: 8, max: 60 }, hardness: 0.5, sizeCoeff: 0.95, opaCoeff: 0, flowCoeff: 0, pressureGamma: 0.5, pressureLPF: 50, compositeMode: "wash", spacing: 0.06, taper: { in: 0.5, out: 0 }, smooth: { streamline: 0.5, stabilization: 0.5 } },
     };
@@ -124,18 +125,17 @@ describe("笔的表长出草稿笔、勾线笔（施工单二十 1b）", () => {
     eq(b.size, 30); eq(b.opacity, 0.6); eq(b.hardness, 0.4, "硬度是旋钮");
     eq(b.sizeCoeff, 0.95); eq(b.pressureGamma, 0.5); eq(b.taperIn, 0.5); eq(b.spacing, 0.06); eq(b.streamline, 0.5); eq(b.stabilization, 0.5); eq(b.compositeMode, "wash");
   });
-  it("平滑：普通笔 / 橡皮不平滑（不递 = 和以前一样）；草稿笔 / 勾线笔 = 内核 resolveSmooth，scale 1", () => {
-    for (const k of ["pen", "eraser"] as const) eq(strokeSmoothOf(resolvedBrushOf(k, { size: 10, opacity: 1, hardness: 0.5 })), undefined, k);
-    for (const k of ["sketch", "ink"] as const) {
+  it("平滑：橡皮不平滑（不递 = 和以前一样）；平涂 / 草稿笔 / 勾线笔 = 内核 resolveSmooth，scale 1", () => {
+    for (const k of ["eraser"] as const) eq(strokeSmoothOf(resolvedBrushOf(k, { size: 10, opacity: 1, hardness: 0.5 })), undefined, k);
+    for (const k of ["pen", "sketch", "ink"] as const) {
       const r = BRUSHES[k] as BrushRecord;
       eq(JSON.stringify(strokeSmoothOf(resolvedBrushOf(k, { size: 10, opacity: 1, hardness: 0.5 }))), JSON.stringify(resolveSmooth(r.smooth.streamline, r.smooth.stabilization, 1)), k);
     }
   });
-  it("路：草稿笔、勾线笔都是 brush + 取最浓 = 同一条新路（和普通笔的越叠越浓不同）；探针按路拿第一支画", () => {
-    eq(BRUSH_KINDS.sketch.path, BRUSH_KINDS.ink.path); eq(BRUSH_KINDS.sketch.accum, "max");
-    assert(BRUSH_KINDS.sketch.path !== BRUSH_KINDS.pen.path, "取最浓和越叠越浓是两条路");
-    eq(Object.keys(BRUSH_PATHS).length, 3, "普通笔 / 橡皮 / 取最浓的笔三条路");
-    eq(BRUSH_PATHS[BRUSH_KINDS.ink.path], "sketch", "同一条路拿表里第一支");
+  it("路：平涂、草稿笔、勾线笔都是 brush + 取最浓 = 同一条路（v0.19.69 平涂改抄画画软件之后，越叠越浓这条路这一版没有内置的笔在用，代码留着）；探针按路拿第一支画", () => {
+    eq(BRUSH_KINDS.sketch.path, BRUSH_KINDS.ink.path); eq(BRUSH_KINDS.pen.path, BRUSH_KINDS.sketch.path); eq(BRUSH_KINDS.sketch.accum, "max");
+    eq(Object.keys(BRUSH_PATHS).length, 2, "取最浓的笔 / 橡皮两条路");
+    eq(BRUSH_PATHS[BRUSH_KINDS.ink.path], "pen", "同一条路拿表里第一支（平涂）");
     eq(pathKeyOf(BRUSHES.pen as BrushRecord), BRUSH_KINDS.pen.path);
   });
   it("每把工具拿的是哪支：挑的是这把工具上的笔 = 它；没挑、这一版没有的、别的工具上的 = 默认那支；吸管 = null", () => {

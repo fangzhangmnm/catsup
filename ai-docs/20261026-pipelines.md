@@ -1006,3 +1006,8 @@ layoutFaces(style = patches)：patchesOf（种子按面积、一样大看面心�
 
 ## 追记 2026-11-12（Claude Opus 5.5；统筹 11-12 定的规矩）：合进 main + 推 = `scripts/ship-main.sh <分支>`
 - 不再手敲「merge + push」命令串（v0.19.67、v0.19.68 两次：快进失败被管道吞掉、照推了）。脚本：任何一步不对就停；main 上有别人的提交 → 只碰文档 / 测试 / 脚本就先接上（rebase）再合，碰了随 app 发出去的东西就停；改了随 app 发出去的东西 → 版本号必须比远端新、升号之后不许再改、index.html 指着的包在树里；github 的 main 比本地新 = 停。`--check` = 只核对不合不推。红线组照旧另跑（`scripts/probe-sweep.mjs --redline --at=<提交>`）。
+
+## 追记 2026-11-12（v0.19.69，Claude Opus 5.5；统筹 11-12 裁定、user「没问题」）：普通笔 = 平涂
+- 笔的表里 `pen` 那一行改抄画画软件的 default-brush-fill「平涂」（工具条下拉里叫「平涂」，id 不动）：50 / 上限 800、硬度 0.9、压感全管大小（gamma 1.2、低通 50）、wash、间距 0.06、起笔收尖 0.5、跟手 0.1 / 稳定 0.2。鼠标 / 手指按满压（`controller/stroke-clock.ts`），不特殊处理。
+- **走的路变了**：平涂是 wash = 「取最浓」那条路（和草稿笔、勾线笔同一条），起笔多了平滑（`strokeSmoothOf` = 内核 resolveSmooth）。「越叠越浓」那条路这一版没有内置的笔在用了（橡皮另一条路），代码留着；`probe-live-region` 的笔组按路一组，草稿笔那组并进平涂那组。
+- 大小是旋钮、跟文件存：存过这支笔旋钮的老文件照旧；没存过的从 50 起。

@@ -2,7 +2,7 @@
 // probe-live-region.mjs —— 显示图只拷变了的那一块、缩小图只重做受影响的那一块（贴图主线 1-4d 第 6 条，三维这一半）。created 2026-11-11 by Claude Opus 5.5
 // 证明：增量拷出来的显示图 = 整张重拷出来的，逐字节相同（第 0 级和几级缩小图）。查的时刻：一长笔画到一半（笔还按着）、抬笔之后、撤销之后、再画一笔之后。
 // 量：同一长笔（2048 见方的画布），每帧拷显示图花多少（前后各读回一格当同步：含显卡真做的时间）、拷了多大一块——三种做法各一遍：只拷一块（现在的）/ 每次整张（改之前的做法，同一个缩小图着色器）/ 画的时候不做缩小图、停了再整套做。
-// 笔的种类 × 极端的笔（统筹 11-11）：BRUSH_MATRIX 按 paint/brush-kinds.ts 的表一条路一组（施工单二十 1b 起按路：只是手感的数不一样的笔走同一条路）；读数角标的「走法」三档和「核对」也在这里验（核对抓得到故意丢掉的报格）。
+// 笔的种类 × 极端的笔（统筹 11-11；v0.19.69 平涂改走取最浓之后 pen 一组就代表取最浓这条路，草稿笔那组去掉）：BRUSH_MATRIX 按 paint/brush-kinds.ts 的表一条路一组（施工单二十 1b 起按路：只是手感的数不一样的笔走同一条路）；读数角标的「走法」三档和「核对」也在这里验（核对抓得到故意丢掉的报格）。
 // 软件显卡上的绝对数只作参考。用法：python3 -m http.server 8765 后 node test/probes/probe-live-region.mjs [url]
 import { sizeRow } from "./lib/canvas-rows.mjs";
 import { createRequire } from "node:module";
@@ -165,7 +165,7 @@ check(regionCells >= 0, "（读到了最近一次拷的块）");
 const BRUSH_MATRIX = {
   pen: [
     { what: "最小的硬笔（1 像素）", size: 1, hardness: 1, path: "across" },
-    { what: "滑条最大的软笔（400 像素、硬度 0）", size: 400, hardness: 0, path: "across" },
+    { what: "滑条最大的软笔（平涂上限 800 像素、硬度 0）", size: 800, hardness: 0, path: "across" },
     { what: "比一张面还大的笔（120 像素，一颗笔尖跨很多碎面）", size: 120, hardness: 0.7, path: "across" },
     { what: "贴着画布边画", size: 10, hardness: 1, path: "canvasEdge" },
     { what: "贴着岛边画（沿方盒子顶面和正面之间的棱）", size: 6, hardness: 1, path: "islandEdge" },
@@ -176,14 +176,6 @@ const BRUSH_MATRIX = {
     { what: "比一张面还大的橡皮（120 像素）", size: 120, hardness: 0.7, path: "across" },
     { what: "橡皮贴着画布边", size: 10, hardness: 1, path: "canvasEdge" },
     { what: "橡皮贴着岛边", size: 6, hardness: 1, path: "islandEdge" },
-  ],
-  // 取最浓的笔（施工单二十 1b：草稿笔、勾线笔都走这条路，拿表里第一支 = 草稿笔；它还带平滑、间距 0.06、压感管粗细）
-  sketch: [
-    { what: "取最浓 · 最小的硬笔（1 像素）", size: 1, hardness: 1, path: "across" },
-    { what: "取最浓 · 滑条最大的软笔（草稿笔上限 80 像素、硬度 0）", size: 80, hardness: 0, path: "across2" },
-    { what: "取最浓 · 比一张面还大的笔（60 像素）", size: 60, hardness: 0.7, path: "across" },
-    { what: "取最浓 · 贴着画布边", size: 10, hardness: 1, path: "canvasEdge" },
-    { what: "取最浓 · 贴着岛边", size: 6, hardness: 1, path: "islandEdge" },
   ],
 };
 
@@ -268,11 +260,6 @@ const CANVAS_MATRIX = {
     { what: "画布上 · 最小的硬橡皮（1 格）", size: 1, hardness: 1, path: "diag" },
     { what: "画布上 · 大的软橡皮（160 格）", size: 160, hardness: 0, path: "diag2" },
     { what: "画布上 · 橡皮贴着画布边", size: 6, hardness: 1, path: "edge" },
-  ],
-  sketch: [
-    { what: "画布上 · 取最浓 · 最小的硬笔（1 格）", size: 1, hardness: 1, path: "diag" },
-    { what: "画布上 · 取最浓 · 上限的软笔（80 格）", size: 80, hardness: 0, path: "diag2" },
-    { what: "画布上 · 取最浓 · 贴着画布边", size: 6, hardness: 1, path: "edge" },
   ],
 };
 console.log("\n画布上的二维笔 × 极端的笔：画到一半和抬笔后，内核合成图 = 强制整张重合、显示图每一级 = 整张重拷（逐字节）；显示那一侧只报了这一笔变了的格");

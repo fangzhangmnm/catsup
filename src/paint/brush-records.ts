@@ -32,17 +32,19 @@ export interface BrushRecord {
 
 /**
  * 内置的笔。id 定了不改、不重用（施工单二十第三节第 1 条）。
- * - pen / eraser：1a 时和 v0.19.54 一模一样的数（压感系数 0、不收尖、不跟手、间距 0.1）；普通笔要不要吃压感是手感，归 user。
- *   size.base / shape.hardness = 画画工作台一直以来的出厂值（笔 12 像素、橡皮 24 像素、硬度 0.8；旋钮总会盖过 shape.hardness，所以不影响画出来的样子）；max = 一直以来滑条的上限 400。
- * - sketch / ink：照画画软件内置笔的数据原样抄（WeebPaint builtin-brushes.json，v0.14.86 那一版）：草稿笔 = default-brush-pencil「铅笔」、勾线笔 = default-brush-ink「勾线」。
+ * - pen（界面上叫「平涂」，id 不动）：v0.19.69 起照画画软件的 default-brush-fill「平涂」原样抄（统筹 11-12 裁定、user「没问题」：和画画软件同名、默认 50、上限 800、
+ *   鼠标不特殊处理——鼠标 / 手指按满压算（controller/stroke-clock.ts），起笔收尖照样有）。之前（1a 到 v0.19.68）是和 v0.19.54 一模一样的数（12 像素、压感不管、buildup、间距 0.1）。
+ *   大小是旋钮、跟文件存：存过这支笔旋钮的老文件照旧是它自己的数，只有没存过的从 50 起。
+ * - eraser：1a 时和 v0.19.54 一模一样的数（压感系数 0、不收尖、不跟手、间距 0.1；24 像素、硬度 0.8，max = 一直以来滑条的上限 400）。
+ * - sketch / ink：照画画软件内置笔的数据原样抄（WeebPaint builtin-brushes.json，v0.14.86 那一版）：草稿笔 = default-brush-pencil「铅笔」、勾线笔 = default-brush-ink「勾线」；pen 同理抄 default-brush-fill。
  *   args 的键 → 这里：size → size.base、sizeBaseMax → size.max、hardness → shape.hardness、spacingValue → spacing、taperIn / taperOut → taper、streamline / stabilization → smooth，其余同名。
  *   画画软件里那两支没写 taperFloor = 内核 resolveBrush 的缺省 0.4，这里写明。size 原样是数：画画软件里是画布像素、这里是屏幕像素（统筹 11-12：数据照抄；像不像归 user 判断，不自己调）。
  */
 export const BRUSHES = {
   pen: {
-    id: "pen", name: "笔", tool: "brush",
-    shape: { kind: "round", aspect: 1, rotation: 0, hardness: 0.8 }, size: { base: 12, max: 400 }, spacing: 0.1, compositeMode: "buildup", blendMode: "source-over", pixelMode: false,
-    sizeCoeff: 0, opaCoeff: 0, flowCoeff: 0, pressureGamma: 1, pressureLPF: 0, taper: { in: 0, out: 0 }, taperFloor: 0.4, smooth: { streamline: 0, stabilization: 0 },
+    id: "pen", name: "平涂", tool: "brush",
+    shape: { kind: "round", aspect: 1, rotation: 0, hardness: 0.9 }, size: { base: 50, max: 800 }, spacing: 0.06, compositeMode: "wash", blendMode: "source-over", pixelMode: false,
+    sizeCoeff: 1, opaCoeff: 0, flowCoeff: 0, pressureGamma: 1.2, pressureLPF: 50, taper: { in: 0.5, out: 0 }, taperFloor: 0.4, smooth: { streamline: 0.1, stabilization: 0.2 },
   },
   eraser: {
     id: "eraser", name: "橡皮", tool: "eraser",
