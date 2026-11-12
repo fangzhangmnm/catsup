@@ -182,7 +182,11 @@ console.log("\n④ 旧设备：浏览器里 3 份（1 份加密）→ 开机问�
   let eqAll = true;
   for (const i of ids) eqAll = eqAll && same(await folderBytes(page, at(i)), bytes[i]);
   check(eqAll, "夹里 3 份字节 = 原来浏览器里的（加密件 = 原容器）");
-  check(Object.keys(files).some((k) => /^\.catsup\/app-state\.json$/.test(k)), "验证器住进了文件夹（.catsup/app-state.json）", JSON.stringify(files));
+  // 验证器真在文件夹的文件里（统筹 11-12：以前只查文件在不在 = 没真查也算绿；查出来文件夹里那份 items 是空的，换一台设备第一件事加密会问「设置图库口令」→ 底账 known-red）
+  const asTxt = Object.keys(files).includes(".catsup/app-state.json") ? new TextDecoder().decode(new Uint8Array(await folderBytes(page, ".catsup/app-state.json"))) : null;
+  const holds = (v) => { if (v && typeof v === "object") { if (JSON.stringify(v) === srcVerifier) return true; return Object.values(v).some(holds); } return false; };
+  let asJson = null; try { asJson = asTxt ? JSON.parse(asTxt) : null; } catch {}
+  check(!!asJson && holds(asJson), "验证器住进了文件夹：.catsup/app-state.json 里真有和以前那个库逐字一样的验证器（换一台设备指到这个文件夹也知道口令）", asTxt ? asTxt.slice(0, 200) : JSON.stringify(files));
   const opened = await page.evaluate(async ([i, pw]) => {
     const c = globalThis.__catsup.crypto; c.lock();
     const asks = []; c.answer(async (o) => { asks.push(o.title); return pw; });
