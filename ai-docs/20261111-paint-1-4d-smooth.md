@@ -124,7 +124,7 @@
 - **证明**：
   - `probe-live-region` 加了跨片的一笔（等轴看，从顶面过棱到正面）：41 / 41 帧内核走增量；内核那张 = 强制整张重合，画到一半和抬笔后都逐字节相同；显示图第 0 / 1 / 3 / 6 / 最后一级 = 整张重拷，逐字节。
   - `paint-board.test.ts`：一笔当中每帧增量 = 整张；存盘的合成图是整张合的、和一块新画板合出来的逐字节一样。
-- **量**（真模型、连成片铺法、跨片长笔，每帧；`probe-paint-scale` J 段，内核 v0.14.80）：
+- **量**（真模型、连成片铺法、跨片长笔，每帧；`probe-paint-scale` J 段——**这一段没进仓**，是临时的测量补丁，原样贴在本页末尾「附：J 段测量补丁」，要重量时打上；内核 v0.14.80）：
 
   | 档 | 脏格总面积（中位 / 第 90 / 最大） | 并成一个方框（中位 / 第 90） | 行段 = 实例（中位 / 第 90 / 最多） | 算这张图（中位 / 最大，毫秒） |
   |---|---|---|---|---|
@@ -316,3 +316,97 @@
 - **偶发 `probe-snap-base`**：`mouseShiftSnaps`（鼠标按住 Shift 拖、松手落在吸附点上）有时 false。v0.19.48 上 10 次红 4 次、v0.19.47 上 10 次红 5 次（上面那条记录写的 7 次红 1 次是当时机器更闲）；墙上钟往回拨查过（0–2 毫秒，不是它）；松手前先等 100 毫秒 = 10 / 10 绿。**读码查清了**：松手时不是直接用松开那一点，而是抬笔结算（A21，`editor.ts settledSample`）——松开处停不到 100 ms，就回看 150 ms 里停过 ≥ 40 ms、离松开处 24 px 以内的那一帧当落点（为了杀笔抬起来那一下的小滑）。它对所有设备都做。探针的真鼠标一步 7–17 px、每步等 16 ms、最后一步完马上松；无头软件显卡一帧慢，Chromium 把真鼠标的移动对齐到帧上发，两帧之间过了 40 ms 就算「停过」→ 落点换成前一步，离目标点出了吸附半径。笔在探针里是页面同步派的事件、不对齐帧，所以不红。修法交统筹：① 探针松手前停 ≥ 100 ms（= A21 的「有意」）；② 应用：鼠标松键时光标不会滑，A21 要不要只管笔 / 手指——这是设计问题（A21 是 user 定的），真机上鼠标快速拖到点上马上松、那一下又刚好卡了一帧，也会吸不上。
   - **结果（v0.19.50，统筹定的修法）**：两个都没选——应用里抬笔结算改按事件自己的时间算（A21 意思不变，修的是真设备上帧慢被当成人停）；拿失败那一次的数据一核，探针那一半的根其实是 Playwright 的节奏（每步在事件时间上也隔 28–49 ms，正好跨 40 ms 线），于是探针的手改成经 CDP 自己报事件时间，另加「帧慢 ≠ 人停」一条（v0.19.49 上红）。连跑 20 次不红，底账那行改绿。细节在总账 A21 那一条。
 - **立了底账和整跑脚本**，规矩见 `ai-docs/20261110-test-tiers.md` 第五节：`test/probes/probe-ledger.json`（每个探针一行，守卫逼着加）+ `scripts/probe-sweep.mjs`（只报新红 / 新绿 / 还红着，红在哪一条自己打出来；比旧版本只用发版提交干净构建的）+ `scripts/probe-why-red.mjs`。现在 `known-red` 零行、`flaky` 一行。
+
+### 附：J 段测量补丁（没进仓；2026-11-12 收工作副本 seam-measure 时贴过来，Catsup小弟）
+
+第 6 条「每帧并起来的那一块占画布多少」那组数是用它量的。`space-layer.ts` 那一行是给测量用的钩子（往 `globalThis.__rectsLog` 记每帧的方框），**不进 src**；要重量时在一个临时副本上打这个补丁（`git apply`），量完扔掉。
+
+```diff
+diff --git a/src/paint/space-layer.ts b/src/paint/space-layer.ts
+index 0abdee1d..d5362bd7 100644
+--- a/src/paint/space-layer.ts
++++ b/src/paint/space-layer.ts
+@@ -360,6 +360,7 @@ export class SpaceLayer {
+     for (const it of tail) tailBox = unionRect(tailBox, it.rect);
+     this.changed = unionBox(unionBox(this.changed, this.prevTail), tailBox);
+     for (const it of newFrozen) this.changed = unionRect(this.changed, it.rect);
++    { const g = globalThis as unknown as { __rectsLog?: number[][][]; __prevTailRects?: number[][] }; if (g.__rectsLog) { const now = [...newFrozen, ...tail].map((it) => [...it.rect]); g.__rectsLog.push([...(g.__prevTailRects ?? []), ...now]); g.__prevTailRects = tail.map((it) => [...it.rect]); } }   // 量（不进仓）
+     this.prevTail = tailBox;
+     this.job.items = [...newFrozen, ...tail];
+     for (const it of this.job.items) this.grow(it.rect);
+diff --git a/test/probes/probe-paint-scale.mjs b/test/probes/probe-paint-scale.mjs
+index e52d8bcd..5c3129fc 100644
+--- a/test/probes/probe-paint-scale.mjs
++++ b/test/probes/probe-paint-scale.mjs
+@@ -13,6 +13,7 @@
+ //   F wip2021.glb（15534 个三角形）：B 的整条，默认密度 + 4194304 格两档。
+ //   G wip2020.glb（4636 个三角形，80 个面积是零）：每块都开始画 → 画一笔 → 存 → 重开 → 冷的照显示、再画一笔（只验不坏）。
+ //   I wip2021：工作台允许的最大的笔（400 像素）快速画，一帧最大的数据表离上限多远。
++//   J 跨片的长笔（wip2021 两档 + 小红帽）：每帧薄层报的那一块占画布多少的分布（统筹 11-11，只量）。
+ //   H littlered.glb（291 个三角形）：用我们自己的铺法、按 256 见方的密度（铺法自己的二分，基准 256）；硬度 1、一格大小的笔点一下 → 屏幕读色对格子（放大到一格十来个像素，
+ //     每一格取它那片像素的中心比）：点到的那格是墨、周围的都不是。它自带的贴图坐标和那张图导入时怎么处理，原样报出来。
+ // 用法：python3 -m http.server 8765 后 node test/probes/probe-paint-scale.mjs [url] [--models=<文件夹>] [--only=A,B,…]
+@@ -388,6 +389,62 @@ if (haveModels && want("H")) await section("H", async () => {
+   }
+ });
+ 
++if (haveModels && want("J")) await section("J", async () => {
++  // 统筹 11-11（1-4d 第 6 条内核那一半之前要的数）：笔在模型上跨过一条缝，这一帧改到的格子可能落在画布上隔得很远的几片里，并成一个方框可能很大。
++  // 真模型、连成片的铺法（开始画的默认），画几笔跨片的长笔，每帧记薄层报的那一块（board.overlayChanged 的参数）占画布多少：中位、第 90 百分位、最大。
++  console.log("\nJ 跨片的长笔：每帧并起来的那一块占画布多少（只量，不判）");
++  for (const [file, dens] of [["wip2021.glb", null], ["wip2021.glb", 4194304], ["littlered.glb", null]]) {
++    await newFile();
++    await importGlb(file);
++    const def = (await S(() => __H.meshDefs()))[0].def;
++    const p = await S(([d, c]) => __H.paint(d, c ? { density: __H.densityForCells(d, c), name: "跨片" } : { name: "跨片" }), [def, dens]);
++    await S(() => __H.view("front"));
++    await S((t) => { globalThis.__catsup.paint.prep.ensure(t); globalThis.__catsup.paint.ensure(t); }, p.tex);
++    const R = await S((d) => __H.rect(d), def);
++    const strokes = [
++      ["从头到脚", await S(([a, b]) => __H.line(a.x, a.y, b.x, b.y, 80), [{ x: R.x0 + R.w / 2, y: R.y0 + 4 }, { x: R.x0 + R.w / 2, y: R.y1 - 4 }])],
++      ["横扫三趟", await S((r) => { const out = []; for (let k = 0; k < 3; k++) { const y = r.y0 + r.h * (0.25 + 0.25 * k); for (let i = 0; i <= 50; i++) { const t = i / 50; out.push({ x: k % 2 ? r.x1 - t * r.w : r.x0 + t * r.w, y }); } } return out; }, R)],
++      ["斜着一笔", await S(([a, b]) => __H.line(a.x, a.y, b.x, b.y, 80), [{ x: R.x0 + 4, y: R.y0 + 4 }, { x: R.x1 - 4, y: R.y1 - 4 }])],
++    ];
++    const all = [];
++    for (const [what, pts] of strokes) {
++      const fr = await S(([t, q]) => {
++        const C = globalThis.__catsup, b = C.paint.boards.get(t), W = b.width * b.height, log = [];
++        const orig = b.overlayChanged;
++        b.overlayChanged = function (r) { if (r && r.w > 0 && r.h > 0) log.push((r.w * r.h) / W); return orig.call(this, r); };
++        globalThis.__rectsLog = []; globalThis.__prevTailRects = [];
++        try { __H.stroke(t, q, { size: 30, hardness: 0.6, measure: false }); } finally { b.overlayChanged = orig; }
++        // 每帧的那几块：先把相交的并起来；再按 K 个上限，贪心并「并了之后面积多出最少」的一对
++        const area = (r) => r[2] * r[3], uni = (a, c) => { const x0 = Math.min(a[0], c[0]), y0 = Math.min(a[1], c[1]); return [x0, y0, Math.max(a[0] + a[2], c[0] + c[2]) - x0, Math.max(a[1] + a[3], c[1] + c[3]) - y0]; };
++        const hit = (a, c) => a[0] < c[0] + c[2] && c[0] < a[0] + a[2] && a[1] < c[1] + c[3] && c[1] < a[1] + a[3];
++        const mergeK = (rs, K) => { let L = rs.map((r) => [...r]); let ch = true; while (ch) { ch = false; for (let i = 0; i < L.length && !ch; i++) for (let j = i + 1; j < L.length && !ch; j++) if (hit(L[i], L[j])) { L[i] = uni(L[i], L[j]); L.splice(j, 1); ch = true; } }
++          while (L.length > K) { let bi = 0, bj = 1, best = Infinity; for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) { const d = area(uni(L[i], L[j])) - area(L[i]) - area(L[j]); if (d < best) { best = d; bi = i; bj = j; } } L[bi] = uni(L[bi], L[bj]); L.splice(bj, 1); ch = true; while (ch) { ch = false; for (let i = 0; i < L.length && !ch; i++) for (let j = i + 1; j < L.length && !ch; j++) if (hit(L[i], L[j])) { L[i] = uni(L[i], L[j]); L.splice(j, 1); ch = true; } } }
++          return L.reduce((s, r) => s + area(r), 0) / W; };
++        // 按固定大小的格子块（T × T）记脏：碰到的块数 × T² 占画布多少；块数 = 一个 pass 要画几个小方块
++        const tiles = (rs, T) => { const set = new Set(); for (const r of rs) for (let ty = Math.floor(r[1] / T); ty <= Math.floor((r[1] + r[3] - 1) / T); ty++) for (let tx = Math.floor(r[0] / T); tx <= Math.floor((r[0] + r[2] - 1) / T); tx++) set.add(ty * 65536 + tx); return set.size; };
++        // 脏格子位图（统筹 11-11 第二个提案）：边长 T 的小格子，方框碰到的标上；每行连着的并成一段（= 实例数）。量面积、段数、算的时间
++        const bm = (rs, T) => { const cols = Math.ceil(b.width / T), rows = Math.ceil(b.height / T), m = new Uint8Array(cols * rows);
++          for (const r of rs) { const c0 = Math.max(0, Math.floor(r[0] / T)), c1 = Math.min(cols - 1, Math.floor((r[0] + r[2] - 1) / T)), r0 = Math.max(0, Math.floor(r[1] / T)), r1 = Math.min(rows - 1, Math.floor((r[1] + r[3] - 1) / T)); for (let y = r0; y <= r1; y++) m.fill(1, y * cols + c0, y * cols + c1 + 1); }
++          let cells = 0, runs = 0; for (let y = 0; y < rows; y++) { let inRun = false; for (let x = 0; x < cols; x++) { const v = m[y * cols + x]; if (v) { cells++; if (!inRun) runs++; } inRun = !!v; } }
++          return { area: cells * T * T / W, runs }; };
++        const timeIt = (f) => { const t0 = performance.now(); const r = f(); return [r, performance.now() - t0]; };
++        const per = (globalThis.__rectsLog ?? []).map((rs) => { const [b8, ms8] = timeIt(() => bm(rs, 8)), [b16, ms16] = timeIt(() => bm(rs, 16)); return { n: rs.length, k1: mergeK(rs, 1), k16: mergeK(rs, 16), kinf: mergeK(rs, 1e9), b8: b8.area, r8: b8.runs, ms8, b16: b16.area, r16: b16.runs, ms16 }; });
++        globalThis.__rectsLog = null;
++        return { log, per };
++      }, [p.tex, pts]);
++      const st = (key) => { const q = fr.per.map((x) => x[key]).sort((a, b) => a - b), at = (k) => q.length ? q[Math.min(q.length - 1, Math.floor(k * q.length))] : 0; return `中位 ${(100 * at(0.5)).toFixed(2)}% / 90 ${(100 * at(0.9)).toFixed(2)}% / 最大 ${(100 * (q[q.length - 1] ?? 0)).toFixed(2)}%`; };
++      const nq = fr.per.map((x) => x.n).sort((a, b) => a - b);
++      const cnt = (key) => { const q = fr.per.map((x) => x[key]).sort((a, b) => a - b); return `中位 ${q[q.length >> 1]}、90 ${q[Math.floor(0.9 * q.length)]}、最多 ${q[q.length - 1]}`; };
++      const msq = (key) => { const q = fr.per.map((x) => x[key]).sort((a, b) => a - b); return `中位 ${q[q.length >> 1]?.toFixed(3)}、最大 ${q[q.length - 1]?.toFixed(3)} 毫秒`; };
++      say(`    原始块数 中位 ${nq[nq.length >> 1]}、最多 ${nq[nq.length - 1]}；一个方框 ${st("k1")}；方框最多 16 块 ${st("k16")}；只并相交的 ${st("kinf")}`);
++      say(`    位图 8：${st("b8")}，段数 ${cnt("r8")}，算 ${msq("ms8")}；位图 16：${st("b16")}，段数 ${cnt("r16")}，算 ${msq("ms16")}`);
++      all.push(...fr.log);
++      const q = [...fr.log].sort((a, b) => a - b), at = (k) => q.length ? q[Math.min(q.length - 1, Math.floor(k * q.length))] : 0;
++      say(`${file}${dens ? "、4194304 格" : "、默认密度"}（画布 ${p.width}×${p.height}）${what}：${fr.log.length} 帧，每帧那一块占画布 中位 ${(100 * at(0.5)).toFixed(2)}%、第 90 百分位 ${(100 * at(0.9)).toFixed(2)}%、最大 ${(100 * (q[q.length - 1] ?? 0)).toFixed(2)}%；超过 10% 的帧 ${q.filter((x) => x > 0.1).length} 个、超过 25% 的 ${q.filter((x) => x > 0.25).length} 个`);
++    }
++    check(all.length > 0, `${file}${dens ? "、4194304 格" : ""}：量到了 ${all.length} 帧`);
++  }
++});
+ if (haveModels && want("I")) await section("I", async () => {
+   console.log("\nI wip2021：工作台允许的最大的笔（400 像素）快速画，一帧最大的数据表离上限多远（统筹 11-11：合 1-7 之前要这个数）");
+   await newFile();
+```
