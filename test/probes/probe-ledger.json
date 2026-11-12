@@ -13,6 +13,7 @@
   "probe-mirror-ask.mjs": {"state":"green","role":"guard"},
   "probe-pp-snap.mjs": {"state":"green","role":"guard"},
   "probe-gesture-px.mjs": {"state":"green","role":"guard"},
+  "probe-autosave-resume-race.mjs": {"state":"known-red","reason":"同步库 2.2.7：自动保存进了库、字节还没落本机时来了 dirty.pushAll（回来续推）→ 推的是盘上旧字节却把待传记号清掉（库仓 dd5b2ba 复现脚本 ①，A / C / D 三种都红）；三维会话的 pushPending 这一层还在（心跳会补推）","since":"v0.19.72（探针 11-12 才写；毛病随 2.2.7 一直在）","fixBy":"Catsup小弟：同步界面一轮第一版收 2.3.6 时变绿（统筹 11-12）"},
   "probe-vcb-keys.mjs": {"state":"green","role":"guard"},
   "probe-axes-point.mjs": {"state":"green"},
   "probe-axes-to-sel.mjs": {"state":"green"},
