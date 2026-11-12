@@ -28,8 +28,8 @@ export interface ImageViewHooks {
 export interface ImageView {
   /** 换图（宽高 = 格数；图的像素和格一一对应）。null = 没有图（画底色）。 */
   setImage(src: CanvasImageSource | null, width: number, height: number): void;
-  /** 线段（每条 4 个数 x0, y0, x1, y1，格）：thin = 细线、thick = 粗线。 */
-  setLines(thin: Float32Array, thick: Float32Array): void;
+  /** 线段（每条 4 个数 x0, y0, x1, y1，格）：thin = 细线、thick = 粗线；accent = 另一组粗线换个颜色画（三维那边用来画接缝；颜色是 CSS 颜色，这里不认识它是什么）。 */
+  setLines(thin: Float32Array, thick: Float32Array, accent?: { readonly lines: Float32Array; readonly color: string }): void;
   /** 按编号取多边形（选中 / 悬停时涂一层用）。 */
   setRings(ring: (id: number) => ArrayLike<number> | undefined): void;
   /** 选中的编号 + 悬停的编号。 */
@@ -54,7 +54,7 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
   host.appendChild(cv);
   const g = cv.getContext("2d")!;
   let img: CanvasImageSource | null = null, W = 1, H = 1;
-  let thin = new Float32Array(0), thick = new Float32Array(0);
+  let thin = new Float32Array(0), thick = new Float32Array(0), accent: { readonly lines: Float32Array; readonly color: string } | null = null;
   let ringOf: (id: number) => ArrayLike<number> | undefined = () => undefined;
   let sel: number[] = [], hov: number | null = null;
   let tip: { x: number; y: number; d: number } | null = null;   // 悬停的笔印（格）
@@ -94,15 +94,16 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
     for (const id of sel) fill(id, "rgba(40,120,255,0.38)");
     if (hov !== null) fill(hov, "rgba(255,150,30,0.45)");
     // 线：先黑底再白芯（什么颜色的画上都看得见）
-    const lines = (a: Float32Array, under: number, over: number): void => {
+    const lines = (a: Float32Array, under: number, over: number, color = "rgba(255,255,255,0.85)"): void => {
       if (!a.length) return;
       g.beginPath();
       for (let i = 0; i < a.length; i += 4) { g.moveTo(a[i] * k + ox, a[i + 1] * k + oy); g.lineTo(a[i + 2] * k + ox, a[i + 3] * k + oy); }
       g.lineCap = "round"; g.strokeStyle = "rgba(0,0,0,0.55)"; g.lineWidth = under; g.stroke();
-      g.strokeStyle = "rgba(255,255,255,0.85)"; g.lineWidth = over; g.stroke();
+      g.strokeStyle = color; g.lineWidth = over; g.stroke();
     };
     lines(thin, 1.6, 0.6);
     lines(thick, 3, 1.4);
+    if (accent) lines(accent.lines, 3.4, 1.8, accent.color);
     // 悬停的笔印：圆（什么颜色的画上都看得见）；放大到看得见格子时，格心落在圆里的格亮出来
     if (tip) {
       const r = tip.d / 2, cx = tip.x * k + ox, cy = tip.y * k + oy;
@@ -200,7 +201,7 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
 
   return {
     setImage(src, width, height) { const changed = width !== W || height !== H; img = src; W = Math.max(1, width); H = Math.max(1, height); if (changed) fitted = false; schedule(); },
-    setLines(a, b) { thin = a; thick = b; schedule(); },
+    setLines(a, b, c) { thin = a; thick = b; accent = c && c.lines.length ? c : null; schedule(); },
     setRings(f) { ringOf = f; schedule(); },
     setMarks(s, h) { sel = [...s]; hov = h; schedule(); },
     fit() { fitted = false; schedule(); },

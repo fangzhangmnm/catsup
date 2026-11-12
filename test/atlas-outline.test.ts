@@ -30,6 +30,13 @@ describe("画布小窗的数据（atlas-outline）", () => {
     eq(o.covered, o.shared, "每个盖住的格子都是两张面"); assert(o.covered > 0, "有盖住的");
     eq(segs(o.thick), 3, "三条边各画一次"); eq(o.facesAt(1, 1).join(","), "0,1");
   });
+  it("接缝（施工单二十二 B）：给了 seamAt、是接缝的边不进细 / 粗，进 seam（片里的、外沿的都算）；不给 = 没有 seam", () => {
+    const m = fake({ 0: { v: [0, 1, 2, 3], uv: [0, 0, 4, 0, 4, 4, 0, 4] }, 1: { v: [1, 4, 5, 2], uv: [4, 0, 8, 0, 8, 4, 4, 4] } });
+    const seam = (a: number, b: number): boolean => (a === 1 && b === 2) || (a === 2 && b === 1) || (a === 0 && b === 1) || (a === 1 && b === 0);
+    const o = atlasOutline(m, "uv", [0, 1], 16, 16, seam);
+    eq(segs(o.seam), 2, "片里那条 + 外沿一条"); eq(segs(o.thin), 0); eq(segs(o.thick), 5); eq(o.patches, 1, "标了接缝还没重新展开 = 片还是连着的");
+    eq(segs(atlasOutline(m, "uv", [0, 1], 16, 16).seam), 0);
+  });
   it("没有坐标的面不算；不在这张 atlas 上的面不传进来就不算", () => {
     const m = fake({ 0: { v: [0, 1, 2, 3], uv: [0, 0, 4, 0, 4, 4, 0, 4] } });
     const o = atlasOutline(m, "uv", [0, 7], 8, 8);

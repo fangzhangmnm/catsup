@@ -155,7 +155,7 @@ export type Op =
   /** 插入（自由建模；面各自往里插一圈，dist 本地长度、超过上限按上限）。mesh/ops/inset.ts insetFaces。 */
   | { op: "meshInset"; def: number; faces: number[]; dist: number }
   /** 手标边（2026-10-28 FM129）：sharp = 棱 / smooth = 平滑且不画线 / none = 清掉交给默认平滑（mesh/edge-smooth.ts markEdges）。 */
-  | { op: "meshEdgeMarks"; def: number; edges: number[]; mark: "sharp" | "smooth" | "none" }
+  | { op: "meshEdgeMarks"; def: number; edges: number[]; /** 手标三档 + 接缝的标 / 清（施工单二十二第 1 刀；mesh/edge-smooth.ts EdgeMark）。 */ mark: "sharp" | "smooth" | "none" | "seam" | "unseam" }
   /** 倒边（2026-10-28 FM152；mesh/ops/bevel.ts bevelEdges）：width = 本地长度、segments ≥ 1（≥ 2 = 圆角）；一条都没倒 = 拒（不提交空步）。 */
   | { op: "meshBevel"; def: number; edges: number[]; width: number; segments: number }
   /** 细分（Catmull-Clark，破坏性；2026-10-28 FM133；mesh/ops/subdivide.ts）：levels 次；有裸线 / 孤立的点 = 拒。 */

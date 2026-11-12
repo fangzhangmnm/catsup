@@ -42,6 +42,7 @@ export class PaintMode implements Mode {
   readonly id = "paint" as const;
   readonly label = "画画";
   readonly kinds = ["mesh"] as const;
+  readonly showsSeams = true;   // 画的时候看得见展开从哪切开（施工单二十二 B）
   readonly tools: readonly Tool[] = ["paintPen", "paintEraser", "eyedrop"];
   readonly defaultTool: Tool = "paintPen";
   readonly whenLocked: Mode["whenLocked"] = { elsewhere: "select" };   // 画画工作台里没有只读的工具：锁上时去有「选择」、管得了这种身体的工作台拿（行为 = v0.19.46）；锁着时也不让进这里

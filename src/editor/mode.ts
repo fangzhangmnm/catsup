@@ -37,6 +37,8 @@ export interface Mode {
    * autofold：挪点把面拉不平时自动折出的折缝 = hard（硬线，看得见；SketchUp 同款；user 2026-10-27「还是折硬边」「披露原则」）/ fold（折线）。缺 = burst / hard；折线亚种随折边退役一起收（Fable 账单）。
    */
   readonly workflow?: { readonly eraseNonCoplanar?: "burst" | "fold"; readonly autofold?: "hard" | "fold" };
+  /** 画不画接缝（施工单二十二 B，统筹 11-12）：自由建模、画画 = 画（标接缝、看展开从哪切开）；别的工作台 = 不画。缺 = 不画。 */
+  readonly showsSeams?: boolean;
   /** 模式自己的叠加层（表面模式：贴图投影预览；物体模式：锁定框…）；底座每帧并进 ViewState。 */
   viewExtras?(): Partial<ViewState>;
 }

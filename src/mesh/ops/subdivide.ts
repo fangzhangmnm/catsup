@@ -7,7 +7,8 @@
 //   折痕 = 手标的棱（F_SHARP）+ 网格边缘（只挨一张面）+ 非流形（三张以上）。「默认平滑」不算折痕（它管的是明暗，硬边多的网格照样细分得圆）。
 //   每张 n 边形 → n 个四边形（绕向不变）；原来一条边对半分开的两段带原来的标记，新长出来的边不带。
 // 裸线 / 孤立的点：不做（细分只认面），调用方说出来。
-import { MeshKernel, F_SHARP, F_WIRE, type FaceOrigin, type FaceShape } from "../mesh-kernel.ts";
+import { MeshKernel, F_WIRE, type FaceOrigin, type FaceShape } from "../mesh-kernel.ts";
+import { CREASE_MARK } from "../edge-mark-rules.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 
 const add = (a: Pt3, b: Pt3): Pt3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
@@ -26,7 +27,7 @@ export function looseBits(m: MeshKernel): number {
 export function catmullClark(m: MeshKernel): number {
   if (looseBits(m)) throw new Error("catmullClark: the mesh has loose edges or vertices");
   const verts = m.verts(), edges = m.edges(), faces = m.faces();
-  const crease = (e: number): boolean => m.eFaces(e).length !== 2 || (m.edgeFlags[e] & F_SHARP) !== 0;
+  const crease = (e: number): boolean => m.eFaces(e).length !== 2 || (m.edgeFlags[e] & CREASE_MARK) !== 0;
   const other = (e: number, v: number): number => (m.edgeA[e] === v ? m.edgeB[e] : m.edgeA[e]);
   // ---- 读：三种新点的位置 ----
   const fp = new Map<number, Pt3>();

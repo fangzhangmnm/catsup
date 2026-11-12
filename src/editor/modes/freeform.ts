@@ -20,6 +20,7 @@ export class FreeformMode implements Mode {
   readonly id = "freeform" as const;
   readonly label = "自由建模";
   readonly kinds = ["mesh"] as const;
+  readonly showsSeams = true;   // 标接缝在这里标（施工单二十二 B）
   readonly tools: readonly Tool[] = ["select", "pp", "move", "rotate", "scale", "knife", "erase", "softErase", "offset", "shrink", "create", "transform", "brushGrab", "brushDraw", "brushSmooth", "brushFlatten"];   // shrink = 沿法线移动（Alt+S / Alt+W；不进左柱）   // user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的」（删 / 插做出来再加）   // 和硬表面同 id 同快捷键（user「不要一个工具在不同模式下面语义和用法差太多」）；差在不推断
   readonly defaultTool: Tool = "select";
   readonly whenLocked: Mode["whenLocked"] = { tool: "select" };   // 锁上时拿它（只读）

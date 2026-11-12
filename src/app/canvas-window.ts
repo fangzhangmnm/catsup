@@ -18,11 +18,16 @@ import { bytesSay, openMemory, paintTargetSize } from "../paint/open-memory.ts";
 import { xformScale } from "../paint/space-target.ts";
 import { buildTexelTable, paintFaces } from "../paint/texel-table.ts";
 import { ID_STRIDE } from "../scene/world-view.ts";
+import { F_SEAM } from "../mesh/mesh-kernel.ts";
+import { PALETTE } from "../minccino/index.ts";
 import { cellSay } from "./canvas-size-picker.ts";
 import { inputGate } from "./input-dom.ts";
 import { mountImageView } from "./ui/image-view.ts";
 import { createBareFloatWin } from "./ui/bare-float-win.ts";
 import type { PopupMenuItem } from "./ui/popup-menu.ts";
+
+/** 接缝在小窗里的颜色 = 三维里接缝线的颜色（施工单二十二 B）。 */
+const SEAM_CSS = `#${PALETTE.seam.toString(16).padStart(6, "0")}`;
 
 export interface CanvasWindowDeps {
   readonly editor: Editor;
@@ -69,7 +74,7 @@ export interface CanvasWindowProbe {
   open: boolean; def: number | null; tex: string | null; width: number; height: number;
   /** 正在显示的平铺的画（施工单二十一第 3 刀）；没有 = null（显示的是这个物件的画）。 */
   tiled: string | null;
-  faces: number[]; thin: number; thick: number; patches: number; covered: number; shared: number;
+  faces: number[]; thin: number; thick: number; seam: number; patches: number; covered: number; shared: number;
   selected: number[]; hover: number | null; debugView: boolean;
   /** 读回了几次 / 线重算了几次 / 冷图解了几次（开着画一笔：笔当中不涨）。 */
   readbacks: number; outlines: number; decodes: number;
@@ -213,8 +218,8 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     if (nk !== key) {
       key = nk; outlines++;
       const on = k.faces().filter((f) => S.facePaint(def!, k.faceMat[f])?.textureDoc.guid === tex);
-      outline = atlasOutline(k, p.uvSet.guid, on, p.uvSet.width, p.uvSet.height);
-      view.setLines(outline.thin, outline.thick);
+      outline = atlasOutline(k, p.uvSet.guid, on, p.uvSet.width, p.uvSet.height, (a, b) => { const e = k.edgeOf(a, b); return e >= 0 && k.hasFlag(e, F_SEAM); });
+      view.setLines(outline.thin, outline.thick, { lines: outline.seam, color: SEAM_CSS });
       view.setRings((id) => outline?.rings.get(id));
       if (hover !== null && !outline.rings.has(hover)) hover = null;
       owner = null; stamp = "";
@@ -349,7 +354,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     },
     probe: () => ({
       open: win.isOpen(), def, tex, tiled, width: tiled !== null ? (boards.get(tiled)?.width ?? 0) : outline?.width ?? 0, height: tiled !== null ? (boards.get(tiled)?.height ?? 0) : outline?.height ?? 0, faces: [...(outline?.faces ?? [])],
-      thin: (outline?.thin.length ?? 0) / 4, thick: (outline?.thick.length ?? 0) / 4, patches: outline?.patches ?? 0, covered: outline?.covered ?? 0, shared: outline?.shared ?? 0,
+      thin: (outline?.thin.length ?? 0) / 4, thick: (outline?.thick.length ?? 0) / 4, seam: (outline?.seam.length ?? 0) / 4, patches: outline?.patches ?? 0, covered: outline?.covered ?? 0, shared: outline?.shared ?? 0,
       selected: editingDef() ? editor.selectedMeshFaces().filter((f) => outline?.rings.has(f)) : [], hover, debugView, showNums, collapsed: win.collapsed(), readbacks, outlines, decodes, liveReads, liveCells, drawing: stroke !== null,
       hoverLine: hoverLine.textContent ?? "", statsLine: statsLine.textContent ?? "",
       workHash: () => { if (!work.width || !work.height || !stamp.startsWith("hot") && !stamp.startsWith("live")) return null; const px = work.getContext("2d")!.getImageData(0, 0, work.width, work.height).data; let h = 2166136261; for (let i = 0; i < px.length; i++) { h ^= px[i]; h = Math.imul(h, 16777619); } return { hash: (h >>> 0).toString(16), w: work.width, h: work.height }; },

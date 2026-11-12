@@ -1,6 +1,7 @@
 // paint/atlas-outline.ts —— 画布小窗要的「一张 atlas 上的面」：每张面在画布上的多边形、哪些边是片里的（细）/ 片的外沿（粗）、第几片、盖住多少格、一个点落在哪几张面上。
 // created 2026-11-11 by Claude Opus 5.5（施工单十六第二节：画布小窗第一版，只看）。纯计算：不碰显卡、不碰页面、不改内核；三维那一半（app/canvas-window.ts）拿它递给小窗。
 // 片 = 在画布上连着的面：两张面共用一条边（同两个点），而且这条边在两张面里的贴图坐标一样（差不到千分之一格）= 同一片；不一样 = 缝（两边各画一条粗线）。
+// 接缝（施工单二十二 B）：给了 seamAt、这条边是接缝 = 不进细 / 粗，进 seam（小窗画成接缝色）——标了还没重新展开的接缝也照样亮，看得见下一次从哪切开。
 // 片的编号按画布上从上到下、从左到右（片的包围盒左上角），人看着顺。盖住 = 格子中心落在某张面里（和统筹量标杆的数法一样）；共用 = 落在两张以上的面里（镜像两半、复制出来的面）。
 import type { PaintMesh } from "./texel-table.ts";
 
@@ -16,6 +17,8 @@ export interface AtlasOutline {
   readonly thin: Float32Array;
   /** 片的外沿（粗线）。 */
   readonly thick: Float32Array;
+  /** 接缝上的边（不管在片里还是外沿；给了 seamAt 才有）。 */
+  readonly seam: Float32Array;
   /** 每张面在第几片（从 1 起，按画布上从上到下、从左到右）。 */
   readonly patchOf: ReadonlyMap<number, number>;
   readonly patches: number;
@@ -27,13 +30,13 @@ export interface AtlasOutline {
 
 const SAME_UV = 1e-3;   // 格：两张面在同一个点上的坐标差不到这么多 = 连着（不是缝）
 
-export function atlasOutline(m: AtlasMesh, uvSet: string, faces: readonly number[], width: number, height: number): AtlasOutline {
+export function atlasOutline(m: AtlasMesh, uvSet: string, faces: readonly number[], width: number, height: number, seamAt?: (a: number, b: number) => boolean): AtlasOutline {
   const fs = [...new Set(faces)].filter((f) => m.cornerValues(f, uvSet)).sort((a, b) => a - b);
   const rings = new Map<number, Float32Array>(), verts = new Map<number, number[]>();
   for (const f of fs) { rings.set(f, Float32Array.from(m.cornerValues(f, uvSet)!)); verts.set(f, m.faceVerts(f)); }
   // 边 → 用它的面（按点编号认）
-  const byEdge = new Map<string, { f: number; i: number }[]>();
-  for (const f of fs) { const vs = verts.get(f)!; for (let i = 0; i < vs.length; i++) { const a = vs[i], b = vs[(i + 1) % vs.length], k = a < b ? `${a},${b}` : `${b},${a}`; const l = byEdge.get(k); if (l) l.push({ f, i }); else byEdge.set(k, [{ f, i }]); } }
+  const byEdge = new Map<string, { f: number; i: number }[]>(), seamEdge = new Set<string>();
+  for (const f of fs) { const vs = verts.get(f)!; for (let i = 0; i < vs.length; i++) { const a = vs[i], b = vs[(i + 1) % vs.length], k = a < b ? `${a},${b}` : `${b},${a}`; const l = byEdge.get(k); if (l) l.push({ f, i }); else { byEdge.set(k, [{ f, i }]); if (seamAt?.(a, b)) seamEdge.add(k); } } }
   /** 第 i 条边在面 f 里两头的坐标，按点编号小的在前。 */
   const ends = (f: number, i: number): [number, number, number, number] => {
     const vs = verts.get(f)!, r = rings.get(f)!, j = (i + 1) % vs.length;
@@ -43,11 +46,11 @@ export function atlasOutline(m: AtlasMesh, uvSet: string, faces: readonly number
   // 并查：片
   const parent = new Map<number, number>(fs.map((f) => [f, f]));
   const find = (x: number): number => { let r = x; while (parent.get(r)! !== r) r = parent.get(r)!; let y = x; while (parent.get(y)! !== r) { const n = parent.get(y)!; parent.set(y, r); y = n; } return r; };
-  const thin: number[] = [], thick: number[] = [], drawnAt = new Set<string>();
+  const thin: number[] = [], thick: number[] = [], seam: number[] = [], drawnAt = new Set<string>();
   /** 一段在画布上的身份（两头的坐标量到千分之一格、小的在前）：镜像两半、复制出来的面点编号不同，坐标一样 = 同一段，只画一次。 */
   const segKey = (s: readonly number[]): string => { const q = s.map((x) => Math.round(x / SAME_UV)); return q[0] < q[2] || (q[0] === q[2] && q[1] <= q[3]) ? q.join(",") : [q[2], q[3], q[0], q[1]].join(","); };
-  for (const users of byEdge.values()) {
-    const seg = users.map((u) => ends(u.f, u.i));
+  for (const [ek, users] of byEdge) {
+    const seg = users.map((u) => ends(u.f, u.i)), onSeam = seamEdge.has(ek);
     // 每个用这条边的面：和别的哪个面在这条边上坐标一样 = 片里的；谁都不一样 = 外沿
     for (let a = 0; a < users.length; a++) {
       let joined = false;
@@ -55,7 +58,7 @@ export function atlasOutline(m: AtlasMesh, uvSet: string, faces: readonly number
       const k = segKey(seg[a]);
       if (drawnAt.has(k)) continue;   // 同一段已经画过（片里的边两张面各报一次、镜像两半叠着的）
       drawnAt.add(k);
-      (joined ? thin : thick).push(...seg[a]);
+      (onSeam ? seam : joined ? thin : thick).push(...seg[a]);
     }
   }
   // 片的编号：按包围盒左上角（上到下、左到右）
@@ -85,7 +88,7 @@ export function atlasOutline(m: AtlasMesh, uvSet: string, faces: readonly number
   }
   let covered = 0, shared = 0;
   for (let i = 0; i < cnt.length; i++) { if (cnt[i] >= 1) covered++; if (cnt[i] >= 2) shared++; }
-  return { width, height, faces: fs, rings, thin: Float32Array.from(thin), thick: Float32Array.from(thick), patchOf, patches: order.length, covered, shared, facesAt };
+  return { width, height, faces: fs, rings, thin: Float32Array.from(thin), thick: Float32Array.from(thick), seam: Float32Array.from(seam), patchOf, patches: order.length, covered, shared, facesAt };
 }
 
 /** 点在多边形里（奇偶规则）。 */

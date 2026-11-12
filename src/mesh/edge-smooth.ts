@@ -5,9 +5,10 @@
 //   · 没手标的边（三位都没）按网格体的「默认平滑」：hard = 全是棱；smooth = 恰好挨两张面就平滑；angle = 恰好挨两张面且两侧面法向的 |cos| ≥ cos(deg) 就平滑（夹角严格小于 deg；
 //     用 |cos| 和 mesh/ops/shade.ts 同：外来文件绕向可能不一致）。平滑的没手标边同时不画线（「线跟着明暗走」，设计稿 §6 第 5 问默认）。
 //   · 只挨一张面 / 三张以上（边界、非流形）= 棱。面法向 = Newell（MeshKernel.faceNormal，环的绕向）。
-import { F_SHARP, F_SMOOTH, F_SOFT, MeshKernel } from "./mesh-kernel.ts";
+import { F_SEAM, F_SHARP, F_SMOOTH, F_SOFT, MeshKernel } from "./mesh-kernel.ts";
+import { HAND_MARKS } from "./edge-mark-rules.ts";
 
-const MARKS = F_SHARP | F_SMOOTH | F_SOFT;
+const MARKS = HAND_MARKS;
 
 /** 没手标的边按「默认平滑」判。 */
 function autoSmooth(m: MeshKernel, e: number): boolean {
@@ -34,9 +35,16 @@ export function edgeSoft(m: MeshKernel, e: number): boolean {
   return autoSmooth(m, e);
 }
 /** 手标：sharp = 棱 / smooth = 平滑且不画线 / none = 清掉，交给「默认平滑」。别的位（接缝 / 隐藏 / 裸线）不动。 */
-export function markEdges(m: MeshKernel, edges: readonly number[], mark: "sharp" | "smooth" | "none"): void {
-  const bits = mark === "sharp" ? F_SHARP : mark === "smooth" ? F_SOFT | F_SMOOTH : 0;
-  for (const e of edges) if (m.hasE(e)) m.setEdgeFlags(e, (m.edgeFlags[e] & ~MARKS) | bits);
+/** 边上标什么（指令 meshEdgeMarks 的 mark）：手标三档（sharp / smooth / none——none = 清掉手标，不碰接缝）+ 接缝的标 / 清（施工单二十二第 1 刀：设位、清位、撤销和手标同一段，统筹 11-12）。 */
+export type EdgeMark = "sharp" | "smooth" | "none" | "seam" | "unseam";
+/** 这一档动哪几位（mask）、设成什么（bits）。手标三档只动手标三位；接缝两档只动接缝那一位。 */
+export function markBits(mark: EdgeMark): { readonly mask: number; readonly bits: number } {
+  if (mark === "seam" || mark === "unseam") return { mask: F_SEAM, bits: mark === "seam" ? F_SEAM : 0 };
+  return { mask: MARKS, bits: mark === "sharp" ? F_SHARP : mark === "smooth" ? F_SOFT | F_SMOOTH : 0 };
+}
+export function markEdges(m: MeshKernel, edges: readonly number[], mark: EdgeMark): void {
+  const { mask, bits } = markBits(mark);
+  for (const e of edges) if (m.hasE(e)) m.setEdgeFlags(e, (m.edgeFlags[e] & ~mask) | bits);
 }
 /**
  * SU 体转过来（scene/kinds.ts brepToMesh）以后保住原来的样子：「默认平滑」设成「按角度 deg」，SU 里本来是硬的、但夹角小于 deg 的边手标成棱

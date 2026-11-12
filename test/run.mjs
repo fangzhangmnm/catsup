@@ -64,6 +64,7 @@ import "./mesh-inset.test.ts";
 import "./step-pass-guard.test.ts";   // 撤销一步的通行证：静态守卫（2026-10-28 Fable）
 import "./mesh-winding.test.ts";   // 网格体三角化保持面的绕向，导出不再一半反面（FM130，2026-10-28 Opus）
 import "./mesh-edge-marks.test.ts";   // 网格体手标 + 默认平滑：指令、继承、自由建模里平滑边点得中（FM129 / FM138，2026-10-28 Opus）
+import "./edge-mark-rules.test.ts";   // 边标记跟着拓扑操作怎么走：两张表 + 每个操作一行 + 不自己列位 + 接缝真跟着走（施工单二十二 A，2026-11-12 Opus）
 import "./marquee-visible.test.ts";   // 框选只框看得见的（X 光关）+ 自由建模框点（FM44 / FM139，2026-10-28 Opus）
 import "./mesh-bevel.test.ts";   // 网格体倒角：倒边 / 倒点，封闭、朝向一致、宽度、夹宽、确定性（FM152，2026-10-28 Opus）
 import "./export-naming.test.ts";   // 导出名带导出时间（WeebPaint 同款，2026-10-28 Opus）

@@ -215,7 +215,7 @@ describe("内置默认背面碰到的地方（§9.2-A）", () => {
     const withBack = p.env(s, s.root, false).slotsSig;
     assert(withBack !== "0" && withBack !== empty, `内置 uid：${withBack}`);
     const k = new Kernel(); k.addEdges(rect()); const f = k.faces()[0].id;
-    const envOf = (cull: boolean): PoolMeshEnv => ({ matOf: (slot) => (slot === 0 ? BUILTIN_BACK : null), mapOf: () => null, slotsSig: "1", faceColor: (m) => (m === BUILTIN_BACK ? (cull ? [-1, -1, -1] : [0.6, 0.7, 0.8]) : [0.8, 0.8, 0.8]), edgeColor: () => [0, 0, 0], thick: false, singleSided: false, backLook: cull ? "cull" : "show" });
+    const envOf = (cull: boolean): PoolMeshEnv => ({ matOf: (slot) => (slot === 0 ? BUILTIN_BACK : null), mapOf: () => null, slotsSig: "1", faceColor: (m) => (m === BUILTIN_BACK ? (cull ? [-1, -1, -1] : [0.6, 0.7, 0.8]) : [0.8, 0.8, 0.8]), seams: false, edgeColor: () => [0, 0, 0], thick: false, singleSided: false, backLook: cull ? "cull" : "show" });
     k.setFaceMaterial([f], 0, [1]);
     const m = new PoolMesh(); m.sync(k, envOf(false));
     const A = m.groups.get("plain")!.store.arrays;

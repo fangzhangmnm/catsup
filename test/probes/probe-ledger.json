@@ -141,6 +141,7 @@
   "probe-save-collision.mjs": {"state":"green"},
   "probe-scale-ref.mjs": {"state":"green"},
   "probe-scene.mjs": {"state":"green"},
+  "probe-seams.mjs": {"state":"green"},
   "probe-second-mode.mjs": {"state":"green"},
   "probe-segments-after.mjs": {"state":"green"},
   "probe-sel-grow.mjs": {"state":"green"},

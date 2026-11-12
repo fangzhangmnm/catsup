@@ -17,7 +17,7 @@ function rig(w: number, h: number) {
   m.setFaceValues(a, "uv", vals);
   const env: PoolMeshEnv = {
     matOf: () => MAT, mapOf: () => null, slotsSig: "1", singleSided: true, backLook: "cull",
-    faceColor: () => [0.5, 0.5, 0.5], edgeColor: () => [0, 0, 0], thick: false,
+    faceColor: () => [0.5, 0.5, 0.5], seams: false, edgeColor: () => [0, 0, 0], thick: false,
     paintOf: (k, fid) => { const v = (k as MeshView).mesh.cornerValues(fid, "uv"); if (!v || [...v].some((x) => !Number.isFinite(x))) return null; return { values: v, w, h, key: "T" }; },
   };
   return { m, a, b, vals, env };

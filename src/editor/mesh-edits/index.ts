@@ -8,7 +8,8 @@ import type { Action, Family, Placement } from "../commands/action.ts";
 import { loopCuts as loopCutsOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits, duplicateGeometry, fillOrBridge, bestFitNormal, flattenMoves } from "../../mesh/ops/index.ts";
 import { add3, scale3, type Pt3 } from "../../kernel/geom.ts";
 import { snapToSymmetry, type MirrorAxis, type SnapSide } from "../../mesh/mirror.ts";
-import { F_SHARP, F_SMOOTH, F_SOFT, type MeshKernel, type SmoothDefaultMode } from "../../mesh/mesh-kernel.ts";
+import { type MeshKernel, type SmoothDefaultMode } from "../../mesh/mesh-kernel.ts";
+import { markBits, type EdgeMark } from "../../mesh/edge-smooth.ts";
 import type { QuantityTag } from "../units.ts";
 /** 长度字段：值存米，显示 / − + / 打字按用户选的单位（units.ts）。 */
 const LEN: QuantityTag = { q: "length" };
@@ -115,16 +116,23 @@ function selEdges(m: MeshKernel, u: MeshUnit): number[] {
   for (const f of u.sel.faces) if (m.hasF(f)) { const r = m.faceVerts(f); for (let i = 0; i < r.length; i++) { const e = m.edgeOf(r[i], r[(i + 1) % r.length]); if (e >= 0) out.add(e); } }
   return [...out].sort((a, b) => a - b);
 }
-type EdgeMark = "sharp" | "smooth" | "none";
-const MARK_BITS: Record<EdgeMark, number> = { sharp: F_SHARP, smooth: F_SOFT | F_SMOOTH, none: 0 };
+/** 选区里接缝要标的边（施工单二十二第 1 刀）：选中的边 + 选中的那片面的外沿（只挨一张选中面的边）——不是选中面的每一条边：那样选的一片会被切成一张一张的面。 */
+function seamEdges(m: MeshKernel, u: MeshUnit): number[] {
+  if (!u.sel) return [];
+  const out = new Set<number>(), faces = new Set([...u.sel.faces].filter((f) => m.hasF(f)));
+  for (const e of u.sel.edges) if (m.hasE(e)) out.add(e);
+  for (const f of faces) { const r = m.faceVerts(f); for (let i = 0; i < r.length; i++) { const e = m.edgeOf(r[i], r[(i + 1) % r.length]); if (e >= 0 && m.eFaces(e).filter((g) => faces.has(g)).length === 1) out.add(e); } }
+  return [...out].sort((a, b) => a - b);
+}
 function markCommand(mark: EdgeMark, id: `mesh.${string}`, title: string, done: string, none: string): Command<MeshUnit> {
+  const { mask, bits } = markBits(mark), pick = mark === "seam" || mark === "unseam" ? seamEdges : selEdges;
   return {
     id, unit: "mesh", title,
     defaults: () => ({}),
     params: () => [],
     plan(env, u) {
-      const m = env.scene.mesh(u.def).kernel, all = F_SHARP | F_SMOOTH | F_SOFT;
-      const es = selEdges(m, u).filter((e) => (m.edgeFlags[e] & all) !== MARK_BITS[mark]);   // 已经是这个标的不算
+      const m = env.scene.mesh(u.def).kernel;
+      const es = pick(m, u).filter((e) => (m.edgeFlags[e] & mask) !== bits);   // 已经是这个标的不算
       return es.length ? { ops: [{ op: "meshEdgeMarks", def: u.def, edges: es, mark }], count: es.length } : { ops: [], count: 0 };
     },
     done: (n) => done.replace("N", String(n)),
@@ -134,6 +142,9 @@ function markCommand(mark: EdgeMark, id: `mesh.${string}`, title: string, done: 
 export const markSharp = markCommand("sharp", "mesh.markSharp", "标成棱", "N 条边标成了棱（不管默认平滑怎么设，这里永远断开、画线）", "标成棱：先选边或面");
 export const markSmooth = markCommand("smooth", "mesh.markSmooth", "标成平滑", "N 条边标成了平滑（明暗连续、不画线）", "标成平滑：先选边或面");
 export const clearMarks = markCommand("none", "mesh.clearMarks", "清掉手标", "N 条边清掉了手标，交给默认平滑", "清掉手标：选中的边没有手标");
+// 接缝（施工单二十二第 1 刀）：和手标同一条指令 meshEdgeMarks、同一段设位 / 清位 / 撤销；「清掉手标」不碰接缝
+export const markSeam = markCommand("seam", "mesh.markSeam", "标成接缝", "N 条边标成了接缝（展开贴图时从这里切开）", "标成接缝：先选边，或者选一片面（标它的外沿）");
+export const clearSeam = markCommand("unseam", "mesh.clearSeam", "清掉接缝", "N 条边清掉了接缝", "清掉接缝：选中的边没有接缝");
 
 // ---------- 倒角（2026-10-28 FM152；算子 mesh/ops/bevel.ts；user「bevel为什么不做？这个没什么歧义吧。」）----------
 // 右键 = 指令（马后炮改宽度 / 段数）；拖着定宽度的手势版 = 插入那一格选了边 / 点（Ctrl+B / Ctrl+Shift+B 键盘起手），同一条 op。
@@ -367,7 +378,7 @@ function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
 export const smoothByAngle = smoothDefaultCommand("angle"), smoothAll = smoothDefaultCommand("smooth"), smoothNone = smoothDefaultCommand("hard");
 
 const commands: readonly Command[] = [startPaint as Command, paintAddFaces as Command, duplicate as Command, fill as Command, flipNormals as Command, loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
-  bevel as Command, bevelPoints as Command, symmetrySnap as Command, mergeCenter as Command, flattenX as Command, flattenY as Command, flattenZ as Command, flattenNormal as Command, flattenMirror as Command, subdivideCmd as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
+  bevel as Command, bevelPoints as Command, symmetrySnap as Command, mergeCenter as Command, flattenX as Command, flattenY as Command, flattenZ as Command, flattenNormal as Command, flattenMirror as Command, subdivideCmd as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, markSeam as Command, clearSeam as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
 /** 图标 = stopgap（剪刀；图标库 TODO 已登记 loop-cut）。 */
 const actions: readonly Action[] = [
   { id: "mesh.startPaint", icon: "pencil", label: (n) => `开始画（${n} 张面）`, commands: { mesh: "mesh.startPaint" } },   // 画画工作台（1-7）
@@ -392,6 +403,8 @@ const actions: readonly Action[] = [
   { id: "mesh.markSharp", icon: "line", label: (n) => `标成棱（${n} 条边）`, commands: { mesh: "mesh.markSharp" } },
   { id: "mesh.markSmooth", icon: "line", label: (n) => `标成平滑（${n} 条边）`, commands: { mesh: "mesh.markSmooth" } },
   { id: "mesh.clearMarks", icon: "line", label: (n) => `清掉手标（${n} 条边）`, commands: { mesh: "mesh.clearMarks" } },
+  { id: "mesh.markSeam", icon: "line", label: (n) => `标成接缝（${n} 条边）`, commands: { mesh: "mesh.markSeam" } },
+  { id: "mesh.clearSeam", icon: "line", label: (n) => `清掉接缝（${n} 条边）`, commands: { mesh: "mesh.clearSeam" } },
   { id: "mesh.smooth.angle", icon: "circle", label: () => "默认平滑：按角度…", commands: { mesh: "mesh.smooth.angle" } },
   { id: "mesh.smooth.smooth", icon: "circle", label: () => "默认平滑：全部平滑", commands: { mesh: "mesh.smooth.smooth" } },
   { id: "mesh.smooth.hard", icon: "circle", label: () => "默认平滑：全部是棱", commands: { mesh: "mesh.smooth.hard" } },
@@ -411,6 +424,8 @@ const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "cont
   { action: "mesh.markSharp", where: "contextBar", order: 40, modes: ["freeform"], submenu: { label: "手标", item: "标成棱" } },
   { action: "mesh.markSmooth", where: "contextBar", order: 41, modes: ["freeform"], submenu: { label: "手标", item: "标成平滑" } },
   { action: "mesh.clearMarks", where: "contextBar", order: 42, modes: ["freeform"], submenu: { label: "手标", item: "清掉手标（交给默认平滑）" } },
+  { action: "mesh.markSeam", where: "contextBar", order: 43, modes: ["freeform"], submenu: { label: "接缝", item: "标成接缝" } },
+  { action: "mesh.clearSeam", where: "contextBar", order: 44, modes: ["freeform"], submenu: { label: "接缝", item: "清掉接缝" } },
   { action: "mesh.smooth.angle", where: "objectWindow", order: 45, submenu: { label: "默认平滑", item: "按角度…" } },
   { action: "mesh.smooth.smooth", where: "objectWindow", order: 46, submenu: { label: "默认平滑", item: "全部平滑" } },
   { action: "mesh.smooth.hard", where: "objectWindow", order: 47, submenu: { label: "默认平滑", item: "全部是棱" } }];

@@ -1,12 +1,13 @@
 // mesh/ops/extrude.ts —— 长：挤出一组面（区域的顶点复制一份、面改指向新点、区域边界每条边长一张四边形侧面；内部边不长）。不挪：挪归工具。
 // created 2026-10-27 by Claude Fable 5.1
-import { MeshKernel, F_WIRE, F_SHARP, F_SMOOTH, F_SOFT } from "../mesh-kernel.ts";
+import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
+import { MOVING_MARKS } from "../edge-mark-rules.ts";
 import { GROWN } from "../corner-columns.ts";
 import type { Pt3 } from "../../kernel/geom.ts";
 
 export interface ExtrudeResult { newVerts: Map<number, number>; sides: number[]; }
 
-const MARKS = F_SHARP | F_SMOOTH | F_SOFT;
+const MARKS = MOVING_MARKS;   // 帽上的边带原来那条的标记（棱带到哪接缝带到哪；不带隐藏：edge-mark-rules.ts）
 
 /**
  * inheritMarks（2026-10-28 Claude Opus 5.5；硬软边设计稿 §3）：挤出来的那块是原来那几张面的复制，所以它的边（帽子那一圈 + 区域里面的边）带上原来那些边的手标；

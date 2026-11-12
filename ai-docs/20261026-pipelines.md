@@ -958,3 +958,11 @@ layoutFaces(style = patches)：patchesOf（种子按面积、一样大看面心�
 - 碰多少：显示那一侧和别的画一样（只拷变了的格）；平铺的画没有轮廓、没有面表，小窗里不算线。
 - 顺带修的两个老毛病（从 1-8b 起）：存盘器编的空白分层字节那一层没 id（再打开画不上）；合成图底色按完全相等比（白底的画每次打开都被解开）。
 - 已知缺口：导出给别的软件（glb / OBJ）时，平铺的画只出底色（写盘烘焙只认原图）；「在模型上一张多大」只有几个档，没有自由输入。
+
+## 追记 2026-11-12（v0.19.63，Claude Opus 5.5；施工单二十二第 1 刀 A / B）：边标记跟着拓扑操作走 + 接缝的显示
+
+- **拓扑操作对边标记怎么走，只查一处** `src/mesh/edge-mark-rules.ts`：一起搬家的那组（`MOVING_MARKS` = 棱 / 平滑 / 软 + 接缝；倒角另有带隐藏的 `MOVING_MARKS_WITH_HIDDEN`）、并边按位怎么合（`JOIN` 表 → `joinFlags`：手标两条都有才留、接缝 / 隐藏有一条就留）、每个 `src/mesh/ops/*.ts` 一行说明（`OPS` 表）。拓扑操作里不再自己列位。**新加一位边标记 = `JOIN`、`MOVE` 各填一格；新加一个拓扑操作 = `OPS` 加一行**，不填守卫红（`test/edge-mark-rules.test.ts`）。行为上唯一的变化：挤出的帽现在也带接缝（以前只带三位，接缝丢）。
+- **标 / 清接缝**：右键「接缝 ›」（自由建模）= 注册表 mesh 族指令 `mesh.markSeam` / `mesh.clearSeam` → 和「手标 ›」同一条 op `meshEdgeMarks`（`mark: "seam" | "unseam"`），设位走 `edge-smooth.ts markBits` 一段代码、撤销走网格体那条记录。选面 = 标这片面的外沿（`mesh-edits/index.ts seamEdges`）。「清掉手标」只清手标三位，不碰接缝。文件格式不变（`edgeFlags` 本来就有接缝这一位）。
+- **⑦ 渲染多一个开关**：画不画接缝 = 工作台声明的 `Mode.showsSeams`（自由建模、画画 = 画）∧ 有正在编辑的那一层（演示锁里不画）∧ 这个定义是网格体。编辑器把它递给流提供者（`EditorStreamProvider` 第三个参数）→ `PoolMeshEnv.seams` → `buildEdgeRec(k, eid, seams)`：画的时候接缝进线批、不加 `CONTOUR_ONLY`（软边上的接缝也一直画）、带 `seam` → `edgeColor(loose, seam)` 换成 `PALETTE.seam`。**开关变了 = 那个池网格全量重建**（和 `backLook` 同一种：换工作台 / 锁上解锁才变，次数少）；内容键带 `:seam`，引擎重新拉。只标 / 清几条接缝 = 内核 `setEdgeFlags` 记了改动日志 = 增量，只重建那几条边。
+- **画布小窗**：`atlasOutline(…, seamAt)` 把接缝上的边单独放进 `seam`（不进细 / 粗），小窗用同一种红画（`image-view.ts setLines` 的 `accent`；小窗那一半仍然不认识三维）。一条接缝在画布上出现几次（两边各在一片上）就几段。
+- 量：没测性能（只在换工作台时多一次全量重建，标接缝是增量）。截图基线 28 个场景和主目录 v0.19.62 的构建对照：线稿 / 网格体 / 硬表面的 23 个逐像素数一样，另 5 个带影子 / 辉光的画风场景两边都在浮动（老的不确定）。

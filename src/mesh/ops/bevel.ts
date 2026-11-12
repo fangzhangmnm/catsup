@@ -9,7 +9,8 @@
 //   · v 周围剩下的洞：两条以上的倒边 = 补一张面（三条倒边的角 = 三角补片）；只有一条倒边 = 洞是空的（度 3：截面点进那张端面）或并进倒角带（度 ≥ 4、1 段）。
 //   · 宽度太宽会穿过别的边：按每个滑点 / 交点最多走到所在边的 49% 夹住，夹了就报（clamped）。
 // 手标：不倒的边被换成新边时带上原来的标记；段数 > 1 时倒角带中间那几条纵向边标平滑（圆角看起来是圆的）。
-import { MeshKernel, F_SHARP, F_SMOOTH, F_SOFT, F_WIRE } from "../mesh-kernel.ts";
+import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
+import { HAND_MARKS, MOVING_MARKS_WITH_HIDDEN, SMOOTH_MARK } from "../edge-mark-rules.ts";
 import { GROWN } from "../corner-columns.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
@@ -24,7 +25,6 @@ export interface BevelResult {
   skipped: number;
 }
 
-const MARKS = F_SHARP | F_SMOOTH | F_SOFT;
 /** 一个点在一张面里的角：环里 x→v→y，ea = (x, v)、eb = (v, y)。 */
 interface Corner { f: number; ea: number; eb: number; }
 
@@ -237,7 +237,7 @@ export function bevelEdges(k: MeshKernel, edges: readonly number[], width: numbe
       if (ring.length >= 3 && new Set(ring).size === ring.length) { const f = k.addFace(ring, k.faceMat[f1], GROWN); ids.push(f); out.push(f); }   // 倒角带 = 新长出来的
     }
     stripOf.set(e, ids);
-    if (s > 1) for (let j = 1; j < s && j < pa.length - 1 && j < pb.length - 1; j++) { const le = k.edgeOf(pa[j], pb[j]); if (le >= 0) k.setEdgeFlags(le, (k.edgeFlags[le] & ~MARKS) | F_SOFT | F_SMOOTH); }
+    if (s > 1) for (let j = 1; j < s && j < pa.length - 1 && j < pb.length - 1; j++) { const le = k.edgeOf(pa[j], pb[j]); if (le >= 0) k.setEdgeFlags(le, (k.edgeFlags[le] & ~HAND_MARKS) | SMOOTH_MARK); }
   }
 
   // ---- 角上的洞 ----
@@ -265,7 +265,7 @@ export function bevelEdges(k: MeshKernel, edges: readonly number[], width: numbe
     const a2 = fans.has(a) ? sv(a, e) : a, b2 = fans.has(b) ? sv(b, e) : b;
     if (a2 === a && b2 === b) continue;   // 两头都没滑：还是原来那条边
     const ne = k.edgeOf(a2, b2);
-    if (ne >= 0) k.setEdgeFlags(ne, (k.edgeFlags[ne] & F_WIRE) | (fl & ~F_WIRE));
+    if (ne >= 0) k.setEdgeFlags(ne, (k.edgeFlags[ne] & F_WIRE) | (fl & MOVING_MARKS_WITH_HIDDEN));
   }
   for (const v of vs) if (k.hasV(v) && k.vEdges(v).length === 0) k.removeVertex(v);
   return { faces: out, width: w, clamped, skipped };
@@ -304,7 +304,7 @@ export function bevelVerts(k: MeshKernel, verts: readonly number[], width: numbe
   // 标记：原来那条边 (a, b) 现在是 (a 那头的切点或 a, b 那头的切点或 b)
   for (const [e, { a, b, fl }] of carry) {
     const a2 = fans.has(a) ? cut.get(`${a}|${e}`)! : a, b2 = fans.has(b) ? cut.get(`${b}|${e}`)! : b, ne = k.edgeOf(a2, b2);
-    if (ne >= 0) k.setEdgeFlags(ne, (k.edgeFlags[ne] & F_WIRE) | (fl & ~F_WIRE));
+    if (ne >= 0) k.setEdgeFlags(ne, (k.edgeFlags[ne] & F_WIRE) | (fl & MOVING_MARKS_WITH_HIDDEN));
   }
   for (const v of vs) if (k.hasV(v) && k.vEdges(v).length === 0) k.removeVertex(v);
   return { faces: out, width: w, clamped, skipped };

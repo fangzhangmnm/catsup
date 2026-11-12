@@ -225,21 +225,23 @@ export function buildFaceRec(k: KernelView, fid: FaceId, matOf: (slot: number | 
   return { pos, nor, mF: matOf(k.faceMaterialOf(fid, 0)), mB: matOf(k.faceMaterialOf(fid, 1)), ...faceTexBases(n), corner };
 }
 
-export interface EdgeRec { readonly a: Pt3; readonly b: Pt3; readonly loose: boolean; readonly w1: Pt3; readonly w2: Pt3; readonly flag: number; }
+export interface EdgeRec { readonly a: Pt3; readonly b: Pt3; readonly loose: boolean; readonly seam: boolean; readonly w1: Pt3; readonly w2: Pt3; readonly flag: number; }
 /**
  * 看得见的边一条记录；粗线轮廓要两侧面各自往面里走的方向 + 面数（profile-edges.ts）。隐藏的边不画。
  * 软边 / 折线：进线批、旗 + CONTOUR_ONLY = 只在转成外轮廓时画（I12，user 10-30「软边没有变成外轮廓」，拍了「沿软边画折线、不画交线」= SketchUp 同款）。
  * 粗线那条路着色器 = profile-line-shader.ts（v0.18.7），1 像素那条路 = contour-line-material.ts（v0.18.8）。
+ * seams = 这一帧画不画接缝（工作台说了算，PoolMeshEnv.seams）：画的时候接缝一律画出来（软边上的接缝也画，不只在外轮廓时）、带 seam 旗 → 颜色换接缝色；藏起来的边照样不画。
  */
-export function buildEdgeRec(k: KernelView, eid: EdgeId): EdgeRec | null {
+export function buildEdgeRec(k: KernelView, eid: EdgeId, seams = false): EdgeRec | null {
   const g = k.graph;
   if (!g.hasEdge(eid) || k.isEdgeHidden(eid)) return null;
-  const quiet = k.isSoft(eid) || k.isFold(eid);
+  const seam = seams && k.isSeam?.(eid) === true;
+  const quiet = !seam && (k.isSoft(eid) || k.isFold(eid));
   const e = g.edge(eid), a = g.pt(e.a), b = g.pt(e.b);
   const inward = (fid: FaceId | undefined): Pt3 => (fid === undefined ? { x: 0, y: 0, z: 0 } : inwardAcrossEdge(k, fid, eid, a, b));
   const fl = e.faceLinks.length > 1 ? [...e.faceLinks].sort((x, y) => x - y) : e.faceLinks;   // 按 id 取两张：画面不随链接顺序变
   const w1 = inward(fl[0]), w2 = fl[1] !== undefined ? inward(fl[1]) : w1;
-  return { a, b, loose: e.faceLinks.length === 0, w1, w2, flag: Math.min(e.faceLinks.length, 3) + (quiet ? CONTOUR_ONLY : 0) };
+  return { a, b, loose: e.faceLinks.length === 0, seam, w1, w2, flag: Math.min(e.faceLinks.length, 3) + (quiet ? CONTOUR_ONLY : 0) };
 }
 
 // ---------------------------------------------------------------- 池网格
@@ -259,7 +261,9 @@ export interface PoolMeshEnv {
   slotsSig: string;
   /** 面 / 边烤进顶点的颜色（提供者按调色板算；淡出 / 选中不在这里 = 标记）。 */
   faceColor(mat: Material | null): readonly [number, number, number];
-  edgeColor(loose: boolean): readonly [number, number, number];
+  edgeColor(loose: boolean, seam: boolean): readonly [number, number, number];
+  /** 画不画接缝（自由建模、画画工作台画；只看的时候不画 = 施工单二十二 B）：变了 = 全量重建。 */
+  seams: boolean;
   /** 粗线（LineSegments2 实例）还是像素线。 */
   thick: boolean;
   /** 单面的身体（mesh）：渲染剔背面（render3 换 FrontSide 材质）。 */
@@ -297,6 +301,7 @@ export class PoolMesh {
   /** 现在反映的池是不是单面（渲染器据此挑剔背面的材质）。 */
   singleSided = false;
   private backLook = "";
+  private seams = false;
   /**
    * 缓存反映的每张面当时的环边（画不画都记——隐藏的面没有画的记录）：面被删 / 被改的时候，靠这里知道它当时挨着哪些边，
    * 那些边的面链接变了、边两头的法线扇也可能变（日志只记了面）。只记边编号：顶点从边的两头来（边被删了 = 日志里有那条边 + 它两侧的面）。
@@ -317,7 +322,7 @@ export class PoolMesh {
     // 材质槽表：一边是另一边的前缀（加了槽 / 撤销了加槽）= 共同那段槽号 → 材质不变，用了多出来那段槽号的面都在差里（换槽号 = 改面层，日志记着）
     const pre = (x: string, y: string): boolean => x === "" || y === x || y.startsWith(x + ",");
     const sigOk = this.src !== null && (pre(this.sig, env.slotsSig) || pre(env.slotsSig, this.sig));
-    const d = sigOk && env.thick === this.thick && env.singleSided === this.singleSided && env.backLook === this.backLook ? this.diffTo(T) : null;
+    const d = sigOk && env.thick === this.thick && env.singleSided === this.singleSided && env.backLook === this.backLook && env.seams === this.seams ? this.diffTo(T) : null;
     this.sig = env.slotsSig;
     if (!d) return this.last = this.full(T, env);
     const F = new Set(d.faces), E = new Set(d.edges), V = new Set(d.verts);
@@ -334,7 +339,7 @@ export class PoolMesh {
       for (const eid of T.graph.vertex(v).edges) { E.add(eid); for (const fid of T.graph.edge(eid).faceLinks) F.add(fid); }
     }
     for (const fid of F) { this.noteFace(T, fid); this.writeFace(fid, buildFaceRec(T, fid, (s) => env.matOf(s)), env, T); }
-    for (const eid of E) this.writeEdge(eid, buildEdgeRec(T, eid), env);
+    for (const eid of E) this.writeEdge(eid, buildEdgeRec(T, eid, env.seams), env);
     this.src = T; this.srcSeq = T.changes.seq; this.srcLin = T.changes.lineage();
     return this.last = { full: false, faces: F.size, edges: E.size };
   }
@@ -367,10 +372,10 @@ export class PoolMesh {
 
   private full(T: KernelView, env: PoolMeshEnv): { full: boolean; faces: number; edges: number } {
     this.faceTopo.clear(); this.faceGroups.clear(); this.groups.clear(); this.matIds.clear();
-    this.thick = env.thick; this.singleSided = env.singleSided; this.backLook = env.backLook;
+    this.thick = env.thick; this.singleSided = env.singleSided; this.backLook = env.backLook; this.seams = env.seams;
     this.lines = new DenseStore(env.thick ? THICK_SPECS : PIXEL_SPECS, env.thick ? 1 : 2);
     for (const f of T.faces()) { this.noteFace(T, f.id); this.writeFace(f.id, buildFaceRec(T, f.id, (s) => env.matOf(s)), env, T); }
-    for (const e of T.edges()) this.writeEdge(e.id, buildEdgeRec(T, e.id), env);
+    for (const e of T.edges()) this.writeEdge(e.id, buildEdgeRec(T, e.id, env.seams), env);
     for (const g of this.groups.values()) g.store.trim();
     this.lines.trim();
     this.src = T; this.srcSeq = T.changes.seq; this.srcLin = T.changes.lineage();
@@ -460,7 +465,7 @@ export class PoolMesh {
 
   private writeEdge(eid: EdgeId, rec: EdgeRec | null, env: PoolMeshEnv): void {
     if (!rec) { this.lines.remove(eid); return; }
-    const c = env.edgeColor(rec.loose);
+    const c = env.edgeColor(rec.loose, rec.seam);
     if (this.thick) {
       this.lines.put(eid, (a, off) => {
         const s6 = off * 6;

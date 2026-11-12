@@ -16,7 +16,7 @@ import type { MarkLayout } from "./highlight.ts";
 
 const srgb = (hex: number): readonly [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 /** 烤进顶点的颜色（= 以前后端 chunkStyle 给的同一套数：面 sRGB 浮点、线线性）。 */
-const FACE_SRGB = srgb(PALETTE.face), BACK_SRGB = srgb(PALETTE.faceBack), NO_SIDE: readonly [number, number, number] = [-1, -1, -1], EDGE_FACE = hexToLinear(PALETTE.edge), EDGE_WIRE = hexToLinear(PALETTE.edgeWire);
+const FACE_SRGB = srgb(PALETTE.face), BACK_SRGB = srgb(PALETTE.faceBack), NO_SIDE: readonly [number, number, number] = [-1, -1, -1], EDGE_FACE = hexToLinear(PALETTE.edge), EDGE_WIRE = hexToLinear(PALETTE.edgeWire), EDGE_SEAM = hexToLinear(PALETTE.seam);
 
 /**
  * 画板登记处在编辑器这边看到的样子（贴图主线 1-3c；实现 = src/paint/boards.ts，编辑器不认识画画内核）。只读：改大小、合成都在每帧开画之前的「准备」里（1-4b 统筹 B）。
@@ -92,7 +92,10 @@ export class EditorStreamProvider implements StreamProvider {
   /** styled = 正在看风格预览（线稿之外的画风）：默认背面按引擎所见不画（计划书 §9.2-E；编辑时画灰蓝 = 披露你在看背面）。 */
   private readonly thick: () => boolean;
   private readonly styled: () => boolean;
-  constructor(thick: () => boolean, styled: () => boolean = () => false) { this.thick = thick; this.styled = styled; }
+  /** 这个工作台画不画接缝（Mode.showsSeams）；演示锁里（没有正在编辑的那一层）一律不画。 */
+  private readonly seamsWanted: () => boolean;
+  constructor(thick: () => boolean, styled: () => boolean = () => false, seams: () => boolean = () => false) { this.thick = thick; this.styled = styled; this.seamsWanted = seams; }
+  private seamsOn(): boolean { return this.editing && this.seamsWanted(); }
 
   /** 这一帧画哪个世界（活的那份，含预演影子）+ checkpoint 代数（内容键的一部分）。编辑器每次画之前调。淡出是标记（视图侧），不在这里。 */
   /** editing = 有「正在编辑的那一层」（演示锁里没有：活动槽也按普通槽放，结构线跟画风走；ai-docs/20261029-edge-display-scenarios.md 场景 6）。 */
@@ -100,7 +103,7 @@ export class EditorStreamProvider implements StreamProvider {
   private editing = true;
   private worldId(w: WorldView): number { let id = this.worldIds.get(w); if (id === undefined) { id = this.nextWorldId++; this.worldIds.set(w, id); } return id; }
   /** 内容键（引擎契约）：世界身份 + 版本；没变 = 引擎不重新拉（= 以前 render3 的 poolKey 那半）。 */
-  contentKey(): string { return this.world ? `${this.worldId(this.world)}:${this.revision}${this.editing ? "" : ":view"}${this.paint ? `|${this.paint.sig()}` : ""}` : "none"; }
+  contentKey(): string { return this.world ? `${this.worldId(this.world)}:${this.revision}${this.editing ? "" : ":view"}${this.seamsOn() ? ":seam" : ""}${this.paint ? `|${this.paint.sig()}` : ""}` : "none"; }   // 换工作台（画 / 不画接缝）= 内容变了
   /**
    * 内容此刻还持有的图和材质引用（引擎契约 retained，施工单十九第 1 刀规矩 2）：文档材质表里每个材质 → 交给渲染器的那个材质引用和它的图；
    * 画（颜色那一槽是分层的贴图）→ 画板现在的图（热的 = 活的图、冷的 = 合成图）和那一组材质引用。可见不可见都算。
@@ -188,7 +191,8 @@ export class EditorStreamProvider implements StreamProvider {
       singleSided: scene.kindOf(defId) === "mesh",
       backLook: cullBack ? "cull" : "show",
       faceColor: (mat) => (mat === BUILTIN_BACK ? (cullBack ? NO_SIDE : BACK_SRGB) : !mat ? FACE_SRGB : scene.colorMapOf(mat) || this.tiledImage(scene, mat) ? [1, 1, 1] : [mat.color[0], mat.color[1], mat.color[2]]),   // 贴图面 = 白（贴图 × 1）；没材质 = 白模灰
-      edgeColor: (loose) => (loose ? EDGE_WIRE : EDGE_FACE),
+      edgeColor: (loose, seam) => (seam ? EDGE_SEAM : loose ? EDGE_WIRE : EDGE_FACE),
+      seams: this.seamsOn() && scene.kindOf(defId) === "mesh",   // 硬表面体没有接缝：换工作台不让它整份重建
       thick,
       ...(paintOn ? { paintOf: (k: KernelView, fid: number, m: Material) => this.paintOf(scene, defId, k, fid, m) } : {}),
     };

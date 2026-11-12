@@ -503,7 +503,7 @@ export class Editor {
 
   constructor(private canvas: HTMLCanvasElement, private host: EditorHost, r3: RenderProvider) {
     this.config = new ToolConfig(TOOL_OPTIONS, host.optionKv);   // 字段初始化先于构造体（es2022）：config 在这里建，toolCtx 用 getter 取
-    this.r3 = r3; this.provider = new EditorStreamProvider(() => this.r3.lineStyleInUse() === "thick", () => this.r3.getPreset() !== "white"); this.r3.setProvider(this.provider);
+    this.r3 = r3; this.provider = new EditorStreamProvider(() => this.r3.lineStyleInUse() === "thick", () => this.r3.getPreset() !== "white", () => this.mode.showsSeams === true); this.r3.setProvider(this.provider);
     this.cam.pitch = 0.61;
     this.cam.projection = "persp";
   }

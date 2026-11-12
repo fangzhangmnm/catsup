@@ -14,6 +14,7 @@ export const PALETTE = {
   edgeSelected: 0x2b6cb0,
   edgeHot: 0xcc3333,      // 刮擦/悬停将删
   edgeWarn: 0xd97706,     // 修复面板「检查」：微折软边
+  seam: 0xf0440f,         // 接缝（施工单二十二 B，统筹 11-12 的默认、user 还没看过）：橘红，和选中蓝 / 悬停将删红 / X 轴红分得开
   grid: 0xd9d6cf,
   /** 网格正片叠底的系数色（× 背景 ≈ 原 grid 灰）：主线 / 细线；压在深色材质上只暗 ~10% / ~5%。 */
   gridMajor: 0xe3e1dc, gridMinor: 0xf0eeea,

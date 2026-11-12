@@ -10,7 +10,7 @@ import type { Ring } from "../kernel/facefind.ts";
 import type { Curve } from "../kernel/curves.ts";
 import type { ChangeLog } from "../kernel/change-log.ts";
 import { COPLANAR_TOL_DEFAULT, planeBasis, projectToPlane } from "../kernel/geom.ts";
-import { MeshKernel, F_HIDDEN, FF_HIDDEN } from "./mesh-kernel.ts";
+import { MeshKernel, F_HIDDEN, F_SEAM, FF_HIDDEN } from "./mesh-kernel.ts";
 import { edgeSmooth, edgeSoft } from "./edge-smooth.ts";
 
 interface Tables { rev: number; verts: Map<VertexId, Vertex>; edges: Map<EdgeId, Edge>; faces: Map<FaceId, Face>; planes: Map<FaceId, PlaneRec>; soft: Set<EdgeId>; smooth: Set<EdgeId>; hidden: Set<EdgeId>; }
@@ -77,6 +77,7 @@ export class MeshView implements KernelView {
   /** mesh 没有折线：面内的折痕就是一条软 + 平滑的边。 */
   isFold(): boolean { return false; }
   isEdgeHidden(id: EdgeId): boolean { return this.mesh.hasFlag(id, F_HIDDEN); }
+  isSeam(id: EdgeId): boolean { return this.mesh.hasFlag(id, F_SEAM); }
   isFaceHidden(id: FaceId): boolean { return this.mesh.hasF(id) && (this.mesh.faceFlags[id] & FF_HIDDEN) !== 0; }
   /** 单面：背面没有材质（渲染剔掉背面，user 10-27「enforce backface culling」）。 */
   faceMaterialOf(id: FaceId, side: 0 | 1 = 0): number | undefined {
