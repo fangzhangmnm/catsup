@@ -56,6 +56,8 @@ export type Changed = DirtyCells | "all";
 const HISTORY = 32;
 /** 合成时垫进去的一片（三维那一笔的薄层 / 二维笔的笔尖单子）：内核 composite 吃的那种。 */
 type LiveOverlay = NonNullable<Parameters<GLBoard["composite"]>[3]>[number];
+/** 开着的二维笔：档口 + 上一下的笔尖单子（比出这一下变了哪些格）。 */
+type Live2d = { readonly session: StrokeSession; prev: { x: number; y: number; size: number; alpha: number; k: number }[] };
 /** 一笔要的那一层（档口和落层用到的几个口）。 */
 type StrokeLeaf = { id: number; pixels: LayerPixels; lockAlpha?: boolean; applyRegionDiff(x: number, y: number, w: number, h: number, px: Uint8ClampedArray): { tx: number; ty: number }[] };
 /** 二维笔的一笔（PaintBoard.openBrushStroke 交出来的）：move = 一个点（画布像素、压感、一笔里的毫秒）；end = 抬笔落层（落了 = true；没碰到任何像素 = false、不封步）；cancel = 零痕迹。 */
@@ -190,16 +192,16 @@ export class PaintBoard {
     });
     const engine = new BrushEngine();
     const session = new StrokeSession(deps, engine, [leaf as never], { historyType: "stroke", finalize: true }, "overlay");   // 构造 = 开令牌（锁 / 单令牌墙在这里抛）
-    const live = { session };
+    const live: Live2d = { session, prev: [] };
     this.live2d = live;
     try { engine.beginStroke(session.targets[0], brush, at.x, at.y, at.pressure, o.erase ? "erase" : "brush", o.smooth ?? {}, at.t); }
     catch (err) { this.live2d = null; session.cancel(); throw err; }
-    this.stampsMoved(session);
+    this.stampsMoved(live);
     const done = (): void => { if (this.live2d === live) this.live2d = null; this.overlayVer++; this.pending = "all"; };
     const isOpen = (): boolean => this.live2d === live;
     return {
       get open() { return isOpen(); },
-      move: (x, y, pressure, t) => { if (this.live2d !== live) throw new Error("BoardStroke.move: this stroke is closed"); session.extend(x, y, pressure, t); this.stampsMoved(session); },
+      move: (x, y, pressure, t) => { if (this.live2d !== live) throw new Error("BoardStroke.move: this stroke is closed"); session.extend(x, y, pressure, t); this.stampsMoved(live); },
       end: () => {
         if (this.live2d !== live) return false;
         const v0 = this.wp.commitVersion;
@@ -210,12 +212,27 @@ export class PaintBoard {
     };
   }
   /**
-   * 二维笔动了一下：这一版按变了算、显示那一侧按整张（内核那边笔尖单子本来就整张重合；只重做改到的那一块是第 2 刀要核的）。
-   * 不看引擎报不报脏区：带平滑的笔，平滑器攒着的那段尾巴（笔尖单子里有它）每动一下都变，引擎不一定报脏区——只看脏区 = 合成拿旧图交差（mid-stroke-save V12 抓到的）。
+   * 二维笔动了一下：显示那一侧只报真变了的格（2026-11-12 统筹：每一下整张重拷是明摆着的浪费）。
+   * 比这一下和上一下的笔尖单子（位置、大小、浓淡）：前面定型的那段一样（同一个前缀），从第一颗不一样的往后——上一下的尾巴和这一下的尾巴——每颗笔尖的外框都标格。
+   * 外框宁大勿小：半径 × 椭圆的长短比 + 2 格（内核自己算外框是半径 + 1）。只看引擎报的脏区不行：带平滑的笔，平滑器攒着的那段尾巴每一下都变、引擎不一定报（mid-stroke-save V12 那次）。
+   * 什么都没变 = 不让版本往前走。内核那一侧对笔尖单子照旧整张重合（周账 F-257 那件），报格只省显示那一侧；对不对由核对开关每帧「增量 = 整张重拷」逐字节比（probe-live-region 二维笔那几组）。
    */
-  private stampsMoved(session: StrokeSession): void { session.flushDirty(); this.overlayVer++; this.pending = "all"; }
+  private stampsMoved(live: Live2d): void {
+    live.session.flushDirty();
+    const cs = live.session.collectStamps(), cur = cs ? cs.stamps : [], prev = live.prev;
+    const k = cs ? Math.max(1, cs.shape.aspect ?? 1, 1 / (cs.shape.aspect ?? 1)) : 1;
+    let i = 0;
+    while (i < prev.length && i < cur.length && prev[i].x === cur[i].x && prev[i].y === cur[i].y && prev[i].size === cur[i].size && prev[i].alpha === cur[i].alpha) i++;
+    if (i === prev.length && i === cur.length) return;   // 一颗都没变
+    const cells = new DirtyCells(this.width, this.height);
+    const mark = (t: { x: number; y: number; size: number; k: number }): void => { const r = (t.size / 2) * t.k + 2; cells.mark(t.x - r, t.y - r, 2 * r, 2 * r); };
+    for (let j = i; j < prev.length; j++) mark(prev[j]);
+    for (let j = i; j < cur.length; j++) mark({ x: cur[j].x, y: cur[j].y, size: cur[j].size, k });
+    live.prev = cur.map((t) => ({ x: t.x, y: t.y, size: t.size, alpha: t.alpha, k }));
+    this.overlayChanged(cells);
+  }
   /** 开着的二维笔（同一时间最多一笔）。 */
-  private live2d: { readonly session: StrokeSession } | null = null;
+  private live2d: Live2d | null = null;
   /** 合成时垫进去的东西：三维那一笔的薄层 + 二维笔这一笔的笔尖单子。 */
   private liveOverlays(): readonly LiveOverlay[] {
     const cs = this.live2d?.session.collectStamps();

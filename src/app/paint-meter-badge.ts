@@ -18,10 +18,12 @@ export interface PaintMeterBadge {
   /** 探针（1-4d 第 10 条，连续画 300 帧）：record(true) 开始逐帧记（每一帧各段 + 合计 + 是不是核对那一帧 + 这一帧画完的时刻 t），record(false) 停、交回记下的。读数要开着才有数。 */
   record(on: boolean): (MeterFrame & { total: number; checked: boolean; t: number })[] | null;
   /** 探针：最近一秒的读数。 */
-  snapshot(): { frames: number; avg: Record<string, number>; max: Record<string, number>; gapMs: number; dropped: number; checks: number; mismatches: number; skipped: number };
+  snapshot(): { frames: number; avg: Record<string, number>; max: Record<string, number>; gapMs: number; dropped: number; checks: number; mismatches: number; skipped: number; lastLift: LastLift | null };
 }
 
 const GAP_CUT = 250, PAINT_EVERY = 250;
+/** 最近一次抬笔那一帧（带着「抬笔落层」的那一帧：合计 + 各段）和它后面那一帧的合计（有没有把活推到下一帧；2026-11-12 统筹：抬笔那一帧单独拎出来，真设备上直接看得见）。 */
+export interface LastLift { readonly total: number; readonly f: MeterFrame; next: number | null }
 
 export function mountPaintMeterBadge(o: { sceneMs(): number; copyMs(): number; mipsMs(): number; pathLabel(): string; check(): boolean }): PaintMeterBadge {
   const el = document.createElement("div"); el.className = "meter-badge"; el.hidden = true; el.setAttribute("aria-live", "off");
@@ -29,6 +31,7 @@ export function mountPaintMeterBadge(o: { sceneMs(): number; copyMs(): number; m
   const hist: { t: number; f: MeterFrame; total: number; checked: boolean }[] = [];
   let lastPaint = 0, shown = false, sinceCheck = 0, checks = 0, mismatches = 0, skipNext = false, alertUntil = 0;
   let rec: (MeterFrame & { total: number; checked: boolean; t: number })[] | null = null;
+  let lastLift: LastLift | null = null;
   const stats = (now: number): ReturnType<PaintMeterBadge["snapshot"]> => {
     const all = hist.filter((h) => now - h.t <= 1000), win = all.filter((h) => !h.checked), avg: Record<string, number> = {}, max: Record<string, number> = {};
     for (const k of [...METER_SEGS, "total"] as const) { let s = 0, m = 0; for (const h of win) { const v = k === "total" ? h.total : h.f[k]; s += v; m = Math.max(m, v); } avg[k] = win.length ? s / win.length : 0; max[k] = m; }
@@ -37,7 +40,7 @@ export function mountPaintMeterBadge(o: { sceneMs(): number; copyMs(): number; m
     const base = gaps.length ? Math.max(4, Math.min(...gaps)) : 1000 / 60;
     let dropped = 0, gs = 0, gn = 0;
     for (let i = 1; i < all.length; i++) { if (all[i].checked) continue; const g = all[i].t - all[i - 1].t; if (g >= GAP_CUT) continue; gs += g; gn++; dropped += Math.max(0, Math.round(g / base) - 1); }   // 核对那一帧前面的间隔不算
-    return { frames: win.length, avg, max, gapMs: gn ? gs / gn : 0, dropped, checks, mismatches, skipped: all.length - win.length };
+    return { frames: win.length, avg, max, gapMs: gn ? gs / gn : 0, dropped, checks, mismatches, skipped: all.length - win.length, lastLift };
   };
   const ms = (v: number): string => (v >= 10 ? v.toFixed(0) : v.toFixed(1));
   const paint = (now: number): void => {
@@ -45,6 +48,7 @@ export function mountPaintMeterBadge(o: { sceneMs(): number; copyMs(): number; m
     el.innerHTML = `<b>每帧读数</b><span class="meter-head">最近一秒（毫秒）</span><span>平均</span><span>最慢</span>`
       + METER_SEGS.map((k) => row(METER_LABELS[k], k)).join("") + row("这一帧合计", "total")
       + `<span>两帧之间</span><span>${ms(s.gapMs)}</span><span></span><span class="meter-foot">最近一秒画了 ${s.frames} 帧、掉了 ${s.dropped} 帧</span>`
+      + (lastLift ? `<span class="meter-foot">上一次抬笔那一帧 ${ms(lastLift.total)}（落层 ${ms(lastLift.f.land)} · 内核合成 ${ms(lastLift.f.compose)} · 拷到显示图 ${ms(lastLift.f.copy)} · 做缩小图 ${ms(lastLift.f.mips)} · 三维画场景 ${ms(lastLift.f.scene)}）· 后一帧 ${lastLift.next === null ? "—" : ms(lastLift.next)}</span>` : "")
       + `<span class="meter-foot">走法：${o.pathLabel()}</span>`
       + (displayDiag.path === "measure" ? `<span class="meter-foot meter-note">测量用：远看的颜色可能和没画过的画差一点</span>` : "")
       + (displayDiag.check ? `<span class="meter-foot">核对 ${checks} 次、对不上 ${mismatches} 次${s.skipped ? `（最近一秒有 ${s.skipped} 帧在核对，不算进读数）` : ""}</span>` : "");
@@ -56,6 +60,7 @@ export function mountPaintMeterBadge(o: { sceneMs(): number; copyMs(): number; m
       paintMeter.put("scene", o.sceneMs()); paintMeter.put("copy", o.copyMs()); paintMeter.put("mips", o.mipsMs());
       const f = paintMeter.endFrame(), now = performance.now();
       hist.push({ t: now, f, total: METER_SEGS.reduce((a, k) => a + f[k], 0), checked: skipNext });
+      { const h = hist[hist.length - 1]; if (f.land > 0) lastLift = { total: h.total, f, next: null }; else if (lastLift && lastLift.next === null) lastLift.next = h.total; }   // 抬笔那一帧 + 后一帧
       if (rec) rec.push({ ...f, total: hist[hist.length - 1].total, checked: skipNext, t: now });
       skipNext = false;
       while (hist.length && now - hist[0].t > 2000) hist.shift();
@@ -67,7 +72,7 @@ export function mountPaintMeterBadge(o: { sceneMs(): number; copyMs(): number; m
       if (shown && now - lastPaint >= PAINT_EVERY) { lastPaint = now; paint(now); }
     },
     sync(visible) { shown = paintMeter.on && visible; el.hidden = !shown; if (shown) paint(performance.now()); },
-    toggle() { paintMeter.on = !paintMeter.on; paintMeter.endFrame(); hist.length = 0; sinceCheck = 0; checks = 0; mismatches = 0; skipNext = false; return paintMeter.on; },
+    toggle() { paintMeter.on = !paintMeter.on; paintMeter.endFrame(); hist.length = 0; lastLift = null; sinceCheck = 0; checks = 0; mismatches = 0; skipNext = false; return paintMeter.on; },
     snapshot: () => stats(performance.now()),
     record(on) { if (on) { rec = []; return null; } const r = rec; rec = null; return r; },
   };

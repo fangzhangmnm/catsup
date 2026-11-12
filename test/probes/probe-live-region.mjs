@@ -256,6 +256,57 @@ for (const kind of Object.keys(BRUSH_MATRIX)) {
   }
 }
 
+// 画布上的二维笔（施工单二十一，2026-11-12 统筹：二维笔每一下只把真变了的那一块报给显示那一侧）：同样按路一组，路径在画布上（格坐标）。
+//   每一组画到一半和抬笔后：内核合成图 = 强制整张重合、显示图每一级 增量 = 整张重拷（逐字节）；另外记这一笔一共报了多少格（比整张小 = 真的只报了一块）。
+const CANVAS_MATRIX = {
+  pen: [
+    { what: "画布上 · 最小的硬笔（1 格）", size: 1, hardness: 1, path: "diag" },
+    { what: "画布上 · 大的软笔（120 格、硬度 0）", size: 120, hardness: 0, path: "diag2" },
+    { what: "画布上 · 贴着画布边（左边那一列）", size: 6, hardness: 1, path: "edge" },
+  ],
+  eraser: [
+    { what: "画布上 · 最小的硬橡皮（1 格）", size: 1, hardness: 1, path: "diag" },
+    { what: "画布上 · 大的软橡皮（160 格）", size: 160, hardness: 0, path: "diag2" },
+    { what: "画布上 · 橡皮贴着画布边", size: 6, hardness: 1, path: "edge" },
+  ],
+  sketch: [
+    { what: "画布上 · 取最浓 · 最小的硬笔（1 格）", size: 1, hardness: 1, path: "diag" },
+    { what: "画布上 · 取最浓 · 上限的软笔（80 格）", size: 80, hardness: 0, path: "diag2" },
+    { what: "画布上 · 取最浓 · 贴着画布边", size: 6, hardness: 1, path: "edge" },
+  ],
+};
+console.log("\n画布上的二维笔 × 极端的笔：画到一半和抬笔后，内核合成图 = 强制整张重合、显示图每一级 = 整张重拷（逐字节）；显示那一侧只报了这一笔变了的格");
+const canvasPaths = await S2(() => Object.keys(globalThis.__catsup.paint.brushPaths)), canvasMatrixPaths = await S2((ks) => ks.map((k) => globalThis.__catsup.paint.brushPathOf(k)), Object.keys(CANVAS_MATRIX));
+check(canvasPaths.every((p) => canvasMatrixPaths.includes(p)), `二维笔也按路一组（${canvasPaths.length} 条路）`, JSON.stringify({ canvasPaths, canvasMatrixPaths }));
+const canvasPts = (kind) => { const W0 = scene2.W, H0 = scene2.H, out = [], n = 40; for (let i = 0; i <= n; i++) { const t = i / n; if (kind === "diag") out.push({ x: W0 * (0.1 + 0.8 * t), y: H0 * (0.15 + 0.7 * t), p: 0.5 + 0.4 * Math.sin(t * 7) }); else if (kind === "diag2") out.push({ x: W0 * (0.85 - 0.7 * t), y: H0 * (0.2 + 0.6 * t + 0.08 * Math.sin(t * 9)), p: 0.8 }); else out.push({ x: 1.5, y: H0 * (0.1 + 0.8 * t), p: 1 }); } return out; };
+const stroke2dAndCheck = (pts, v, kind) => S2(async ([pts, v, kind, g]) => {
+  const C = globalThis.__catsup, lt = C.editor.renderer3.live, ent = () => [...lt.entries.values()][0], lv0 = () => { const e = ent(); return e?.disp ? lt.readLevels(e.disp, e.w, e.h)[0].px : null; };
+  const sum = (d) => ({ ok: d.ok, kernel: d.kernel.reduce((n, k) => n + k.diff, 0), display: d.display.reduce((n, L) => n + L.diff, 0), levels: d.display.length, bad: [...d.kernel.filter((k) => k.diff).map((k) => `内核 ${k.diff}@${k.box}`), ...d.display.filter((L) => L.diff).map((L) => `第${L.level}级 ${L.diff}@${L.box}`)].slice(0, 4) });
+  const b0 = lv0(); let mid = null;
+  const r = C.paint.stroke2d({ guid: g, points: pts, kind, size: v.size, hardness: v.hardness, color: [0.2, 0.6, 0.9], midway: () => { mid = sum(C.paint.diag.detail()); } });
+  C.editor.draw(); await new Promise((res) => requestAnimationFrame(res)); C.editor.draw();
+  const end = sum(C.paint.diag.detail()), b1 = lv0();
+  let changed = 0; if (b0 && b1) for (let i = 0; i < b0.length; i += 4) if (b0[i] !== b1[i] || b0[i + 1] !== b1[i + 1] || b0[i + 2] !== b1[i + 2] || b0[i + 3] !== b1[i + 3]) changed++;
+  return { landed: r.landed ?? null, refused: r.refused ?? null, threw: r.threw ?? null, mid, end, changed };
+}, [pts, v, kind, scene2.tex]);
+for (const kind of Object.keys(CANVAS_MATRIX)) {
+  if (kind === "eraser") { await stroke2dAndCheck(canvasPts("diag"), { size: 200, hardness: 0.5 }, "pen"); await stroke2dAndCheck(canvasPts("diag2"), { size: 200, hardness: 0.5 }, "pen"); await frames2(2); }
+  for (const v of CANVAS_MATRIX[kind]) {
+    const r = await stroke2dAndCheck(canvasPts(v.path), v, kind);
+    check(r.landed && r.changed > 0 && r.mid?.ok && r.end.ok, `${kind} · ${v.what}：画到一半 ${fmt(r.mid)}、抬笔后 ${fmt(r.end)}；显示图改了 ${r.changed} 像素`, JSON.stringify(r));
+  }
+}
+// 二维笔一笔当中显示那一侧报了多少：每一下的变化比整张小（真的只报了一块）
+const partial2d = await S2(async (g) => {
+  const C = globalThis.__catsup, b = C.paint.boards.get(g), W0 = b.width, H0 = b.height;
+  const h = C.paint.stroke2dOpen({ guid: g, x: W0 * 0.2, y: H0 * 0.5, kind: "ink", size: 8, color: [0.9, 0.9, 0.1] });
+  let v = b.compose().version, whole = 0, part = 0, cells = 0;
+  for (let i = 1; i <= 30; i++) { h.move(W0 * (0.2 + 0.02 * i), H0 * (0.5 + 0.1 * Math.sin(i / 4)), 0.7); const v2 = b.compose().version, ch = b.changedSince(v); v = v2; if (ch === "all") whole++; else { part++; cells += ch.count; } }
+  h.up();
+  return { whole, part, avgCells: part ? Math.round(cells / part) : 0, totalCells: Math.ceil(W0 / 8) * Math.ceil(H0 / 8) };
+}, scene2.tex);
+check(partial2d.whole === 0 && partial2d.part > 0 && partial2d.avgCells < partial2d.totalCells / 4, `勾线笔一笔当中显示那一侧每一下只报变了的格：平均 ${partial2d.avgCells} 格（整张 ${partial2d.totalCells} 格，8×8 一格），按整张报的 ${partial2d.whole} 下`, JSON.stringify(partial2d));
+
 console.log("\n同一笔在「自动」和「强制整张」下：显示图每一级逐字节一样（测量用那一档不比，只查它自己核对得上）");
 const levelsHash = () => S2(() => { const lt = globalThis.__catsup.editor.renderer3.live, e = [...lt.entries.values()][0], out = []; for (const L of lt.readLevels(e.disp, e.w, e.h)) { let s = 2166136261; for (let k = 0; k < L.px.length; k++) { s ^= L.px[k]; s = Math.imul(s, 16777619); } out.push((s >>> 0).toString(16)); } globalThis.__catsup.editor.renderer3.resetPaintState(); return out; });
 const samePts = await pathOf("across2"), runPath = async (mode) => {

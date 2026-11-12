@@ -92,6 +92,29 @@ describe("画板的二维落笔口（施工单二十一第 1 刀）", () => {
     eq(diffs.filter((d) => d !== 0).length, 0, `每一下都对上（${diffs.join(",")}）`);
     st.end(); b.dispose();
   });
+  it("②″ 显示那一侧只报真变了的格：每动一下，前后两张显示图（带着这一笔）真变了的每个像素都在这一下报的格里；没变的那一下不报（四支笔、带平滑的、橡皮）", () => {
+    for (const s of STROKES) {
+      const b = new PaintBoard({ port: new SoftGl2Port(), width: W, height: H });
+      if (s.erase) draw(b, STROKES[0]);
+      const br = brushOf(s), [p0, ...rest] = s.pts, sm = strokeSmoothOf(br);
+      let prev = b.shownBytes()!;
+      const st = b.openBrushStroke(br, { x: p0[0], y: p0[1], pressure: p0[2], t: p0[3] }, { erase: !!s.erase, ...(sm ? { smooth: sm } : {}) });
+      let outside = 0, reported = 0, partial = 0;
+      const step = (): void => {
+        const cur = b.shownBytes()!, ch = b.changedSince(prev.version);
+        if (ch === "all") return;   // 说不清 = 显示那一侧整张重拷（不会错）
+        const inRun = (x: number, y: number): boolean => { for (const q of ch.runs()) if (x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h) return true; return false; };
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const o = (y * W + x) * 4; if (cur.px[o] !== prev.px[o] || cur.px[o + 1] !== prev.px[o + 1] || cur.px[o + 2] !== prev.px[o + 2] || cur.px[o + 3] !== prev.px[o + 3]) { if (!inRun(x, y)) outside++; } }
+        if (!ch.empty) { reported++; if (ch.fraction() < 1) partial++; }
+        prev = cur;
+      };
+      step();
+      for (const p of rest) { st.move(p[0], p[1], p[2], p[3]); step(); }
+      eq(outside, 0, `${s.id}：变了的像素都在报的格里`);
+      assert(partial > 0, `${s.id}：真的只报了一部分（${partial} / ${reported} 下没报整张）`);
+      st.end(); b.dispose();
+    }
+  });
   it("③ 经登记处：一笔 = 撤销里的一步；撤销逐位还原、重做回来；cancelOpen 收得掉；名册问得到", () => {
     const R = rig(1), tex = R.startPaint(R.defs[0]), b = R.boards.ensure(R.cur(), tex);
     const before = R.shot();

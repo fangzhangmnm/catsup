@@ -41,6 +41,10 @@ describe("笔的种类表（统筹 11-11）", () => {
     for (const k of BRUSH_KIND_IDS) assert(covered.has(BRUSH_KINDS[k].path), `笔 ${k} 走的路 ${BRUSH_KINDS[k].path} 在 probe-live-region 的 BRUSH_MATRIX 里没有一组`);
     eq(new Set(keys.map((k) => BRUSH_KINDS[k as keyof typeof BRUSH_KINDS].path)).size, keys.length, "一条路只一组（同路的第二组 = 白跑）");
     assert(/brushPaths/.test(pr), "探针运行时要再核一遍页面上的路（C.paint.brushPaths）");
+    const c = pr.match(/const CANVAS_MATRIX = \{([\s\S]*?)\n\};/);   // 画布上的二维笔（施工单二十一）：同样按路一组
+    assert(!!c, "probe-live-region 里找不到 const CANVAS_MATRIX = { … };");
+    const ck = [...c![1].matchAll(/^\s{2}(\w+): \[/gm)].map((x) => x[1]), cpaths = new Set(ck.filter((k) => k in BRUSH_KINDS).map((k) => BRUSH_KINDS[k as keyof typeof BRUSH_KINDS].path));
+    for (const k of BRUSH_KIND_IDS) assert(cpaths.has(BRUSH_KINDS[k].path), `笔 ${k} 走的路 ${BRUSH_KINDS[k].path} 在 CANVAS_MATRIX 里没有一组`);
   });
 });
 

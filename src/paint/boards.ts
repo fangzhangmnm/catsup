@@ -247,8 +247,8 @@ export class PaintBoards {
     let untrack = (): void => {};
     const out: BoardStroke = {
       get open() { return s.open; },
-      move: (x, y, p, t) => s.move(x, y, p, t),
-      end: () => { try { return s.end(); } finally { untrack(); } },
+      move: (x, y, p, t) => { const tm = paintMeter.now(); s.move(x, y, p, t); paintMeter.add("canvas", tm); },   // 读数：画布上的笔每一下
+      end: () => { const tm = paintMeter.now(); try { return s.end(); } finally { untrack(); paintMeter.add("land", tm); } },   // 读数：落层记在抬笔那一帧头上
       cancel: () => { try { s.cancel(); } finally { untrack(); } },
     };
     untrack = this.trackOpen(texture, () => out.cancel());   // 撤销 / 重做之前取消的是这一层（连登记一起摘），不是画板那一层（那样登记留着 = 撤销以为还有一笔没画完）

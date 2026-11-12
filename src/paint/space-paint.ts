@@ -100,6 +100,7 @@ export class SpacePaintStroke {
     const t2 = performance.now();
     this.finish();
     this.lastUp = { pathMs: t1 - t0, redrawMs: t2 - t1, ...this.lastFrame, endMs: performance.now() - t2 };
+    paintMeter.put("land", this.lastUp.pathMs + this.lastUp.endMs);   // 读数：抬笔那一下记在抬笔那一帧头上 = 收路 + 落层（整笔重画薄层那一段 prepare 自己报进了画薄层、走步那几段，不重复算）
   }
   /** 抬笔那一下各段（量；毫秒）：收路 / 整笔重画（含取笔尖、画薄层、交档口）/ 落层（档口 end = 内核写回）。 */
   lastUp: Record<string, number> = {};
