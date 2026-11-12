@@ -146,7 +146,7 @@ export type EditorTrace =
   | { kind: "fail"; where: string; op: Op | null; message: string; brep?: BrepSnapshot; pool?: PoolRef; preview?: Record<string, unknown> };
 
 export interface EditorHost {
-  hint(text: string | null): void;
+  hint(text: string | null): void; /** 一步被拒（护栏 / 锁，不是出错）收尾时说一次原因：宿主另外闪一条瞬态提示（user 11-13「非抢占的弹窗…不要用error」）；普通的提示只走 hint。 */ refused?(why: string): void;
   /** 每条指令提交完（收尾之后、这一步还开在栈顶）：画板跟着贴图坐标改大小、内核封的那几步挂进这一步（1-8a）。beforeHistoryMove = 撤销 / 重做之前：开着的那一笔先取消。 */
   afterCommit?(): void; beforeHistoryMove?(): boolean | void;   // 取消了一笔 = true：这一下撤销 / 重做只取消它、不翻历史（同手势那条；画布小窗的二维笔不是编辑器的手势，施工单二十一）
   /** 跟指针的提示框；measure = 手势中的读数（user 2026-10-25「优先显示长度，参考只是参考」：第一行、最显眼）；scale = B43 尺度参考（拖动时才有；样式归宿主画）。 */
@@ -352,7 +352,7 @@ export class Editor {
   private stepHasOp = false;
   /** 这一步已提交了几条 / 有没有失败过（一步 = 原子：中途有一条失败 → 这一步已提交的全部回滚、剩下的不再执行；2026-10-26）。 */
   private stepOps = 0;
-  private stepFailed = false; private stepReason: string | null = null; private stepBumped = false; private _docRevision = 0;   // 一步全有或全无（统筹 11-13）：reason = 第一次被拒 / 出错的原因，收尾时写回状态栏；bumped = 这一步里换过场景，成功收尾时 docRevision 才加
+  private stepFailed = false; private stepReason: { text: string; refused: boolean } | null = null; private stepBumped = false; private _docRevision = 0;   // 一步全有或全无（统筹 11-13）：reason = 第一次被拒 / 出错的原因，收尾时写回状态栏；bumped = 这一步里换过场景，成功收尾时 docRevision 才加
   private stepTouched = false;                   // 这一步里会话（选区 / 上下文）被写过（写口 clearSel / setCtx / afterSelect 标）
   private stepBefore: Session | null = null;     // 这一步开始前的会话（手势按下时点选的那份延后到落定那一步）
   private stepLabel: StepLabel | undefined;      // 这一步的标签（提示行「撤销：建组」）
@@ -1038,7 +1038,7 @@ export class Editor {
     this.typing.sync();   // 打的数一次手势一份 / 一步一份：去向变了就清（typed-input.ts）
     const before = this.stepBefore ?? this.sessionSnap(), label = this.stepLabel, touched = this.stepTouched, hadOp = this.stepHasOp && !this.stepFailed, failed = this.stepFailed, ops = this.stepOps, reason = this.stepReason, bumped = this.stepBumped, doc0 = this._docRevision;
     this.stepBefore = null; this.stepLabel = undefined; this.stepTouched = false; this.stepReason = null; this.stepBumped = false;
-    if (failed) { this.deferredBefore = null; this.sessionRestore(before); this._docRevision = doc0; this.host.changed(); if (reason) this.host.hint(reason); return; }   // 失败的步 = 没这一步：会话退回、文档不算改过（退回会话那一下也不算），状态栏最后说的是原因（谁写过成功都不作数；a12b 那句假的「建了组件」）
+    if (failed) { this.deferredBefore = null; this.sessionRestore(before); this._docRevision = doc0; this.host.changed(); if (reason) { this.host.hint(reason.text); if (reason.refused) this.host.refused?.(reason.text); } return; }   // 失败的步 = 没这一步：会话退回、文档不算改过（退回会话那一下也不算），状态栏最后说的是原因（谁写过成功都不作数；a12b 那句假的「建了组件」）
     this.history.discardParkedRedo(); if (bumped) { this._docRevision++; this.host.changed(); }   // 成功：停着的重做尾巴真丢；文档算改过一次（一步之内 session 看不到半截）
     if (hadOp) {
       this.deferredBefore = null;
@@ -1242,7 +1242,7 @@ export class Editor {
       let preBrep: BrepSnapshot | undefined;
       try { preBrep = this.scene.kernelOf(pool).toBrep(); } catch { /* 池在这一步里才建出来 */ }   // 复现包要「失败那条之前」——回滚整步之前先留
       this.rollbackStep();   // 一步 = 原子：这一步前面已提交的也撤掉，重做队列里不留半截
-      if (cause instanceof OpRejected) { this.stepReason ??= cause.message; this.host.trace?.({ kind: "fail", where: "commit", op, message: cause.message }); this.host.hint(cause.message); this.host.changed(); this.draw(); return []; }   // 护栏拒绝：不是崩溃，不弹错误胶囊
+      if (cause instanceof OpRejected) { this.stepReason ??= { text: cause.message, refused: true }; this.host.trace?.({ kind: "fail", where: "commit", op, message: cause.message }); this.host.hint(cause.message); this.host.changed(); this.draw(); return []; }   // 护栏拒绝：不是崩溃，不弹错误胶囊
       this.host.trace?.({ kind: "fail", where: "commit", op, message: cause instanceof Error ? cause.message : String(cause), ...(preBrep ? { brep: preBrep } : {}), pool });
       this.fail("commit", cause);
       return [];
@@ -1261,7 +1261,7 @@ export class Editor {
     return r.events;
   }
   /** 锁着（演示锁 / 物件锁）拒了这一条：和护栏拒绝一样，这一步整个不算——已提交的回滚、后面的不再做、原因收尾时写回状态栏（以前只跳过这一条，一步里有好几条时会落半步）。 */
-  private refuseStep(op: Op, why: string, message: string): FaceEvent[] { this.host.trace?.({ kind: "fail", where: "commit", op, message }); this.rollbackStep(); this.stepReason ??= why; this.host.hint(why); this.host.changed(); this.draw(); return []; }
+  private refuseStep(op: Op, why: string, message: string): FaceEvent[] { this.host.trace?.({ kind: "fail", where: "commit", op, message }); this.rollbackStep(); this.stepReason ??= { text: why, refused: true }; this.host.hint(why); this.host.changed(); this.draw(); return []; }
   /** 一步中途失败：把这一步已经提交的 op 撤掉（回到这一步之前，连会话），丢掉重做队列，这一步剩下的提交一律不执行。 */
   private rollbackStep(): void {
     if (this.stepDepth === 0) return;
@@ -1309,7 +1309,7 @@ export class Editor {
   private fail(where: string, err: unknown): void {
     const msg = err instanceof Error ? err.message : String(err), text = `操作失败（${where === "commit" ? "提交" : "预演"}）：${msg}`;
     this.host.error?.(err, where);
-    this.host.hint(text); if (where === "commit" && this.stepDepth > 0) this.stepReason ??= text;
+    this.host.hint(text); if (where === "commit" && this.stepDepth > 0) this.stepReason ??= { text, refused: false };
   }
 
   // —— 外加的撤销成分（画，1-8a；施工单 ai-docs/20261111-paint-workorders-12.md）：登记（换文件新建的栈也带上）/ 在栈顶那一步挂记录 / 一步只有记录（文档算改过）/ 摘记录 ——

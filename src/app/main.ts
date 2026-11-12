@@ -253,6 +253,7 @@ const editor = new Editor(canvas, {
   editHold: () => inputGate.held(),   // 编辑器的口问这里；理由在 session 建好之后登记
   optionKv: { get: (k) => deviceKvGet(k), set: (k, v) => deviceKvSet(k, v) },   // 工具选项 device 持久化（surface 组：user「锐角阈值和模式的持久化不同工具共享」）
   hint: (t) => { hintEl.textContent = t ?? hintDefault(); },
+  refused: (why) => funnel(why, "info"),   // 一步被拒的原因：状态栏之外再闪一条瞬态提示（漏斗 info 档 = 和写歌 / 画画软件同一套、进日志；不是 error / warning，user 11-13）
   confirm: (title, message, okLabel) => openConfirmSheet(title, message, { warning: true, okLabel, cancelLabel: "不做" }),   // 慢的修复先问（user「宁愿弹警告问yes no」）
   resolvePaste: resolvePasteConflict,   // 粘贴撞上两边内容不一样（设计书 §8）
   tip: (t, cx, cy, scale, measure) => {
