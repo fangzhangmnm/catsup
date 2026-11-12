@@ -174,6 +174,20 @@ export declare class PaintBoard {
         diff: number;
         box: readonly [number, number, number, number] | null;
     } | null;
+    /**
+     * 显示的那张合成图（带着正在画的那一笔，和 compose 同一张）的一块读回来（画布小窗一笔当中跟着变，施工单二十一第 2 刀）：不给块 = 整张。
+     * 没合成过 / 过期 = 先合成一次（经 gpu()）。读回在准备之外动了显卡 → 叫 touched（渲染器记着的绑定作废）。同步：会等显卡做完。显卡画面丢了 = null。
+     * 存盘从不用它（存盘用 composeBytes：不带正在画的那一笔）。
+     */
+    shownBytes(r?: {
+        readonly x: number;
+        readonly y: number;
+        readonly w: number;
+        readonly h: number;
+    }): {
+        readonly px: Uint8Array;
+        readonly version: number;
+    } | null;
     /** 显示的那张合成图上一格的颜色（RGBA 字节，垫着底色、不透明；吸管用，1-7）。出界 / 显卡画面丢了 = null。 */
     pixelAt(x: number, y: number): Uint8Array | null;
     /** 最近一次落层怎么读回的（内核 GLBoard.lastBake：box / cells / box-unreported、读了几次、多少字节；探针 / 测试看）。 */

@@ -220,5 +220,7 @@ export interface HostCaps {
 }
 /** 三维模型上的画（有表面的宿主）。这一张里所有的笔都能用（施工单二十第三节第 7 条）。按格的笔（第 2 刀）来了再把 "cell" 和 pixelMode 加上。 */
 export declare const SURFACE_HOST: HostCaps;
+/** 画布上（画布小窗里画，施工单二十一第 2 刀）：大小按画布像素（只有画布的宿主的习惯）。这一张里的笔都能用；按格的笔来了把 "cell" 和 pixelMode 加上。 */
+export declare const CANVAS_HOST: HostCaps;
 /** 这支笔在这个宿主里能不能用：能 = null；不能 = 一句说清哪一样不认得（家规：不静默——带着不认得的取值的笔是灰的、说原因，记录原样带着）。 */
 export declare function brushUnusableWhy(r: BrushRecord, host: HostCaps): string | null;

@@ -10,6 +10,31 @@ export interface CanvasWindowDeps {
         readonly ora: number;
         readonly png: number;
     } | null;
+    /** 在画布上画（施工单二十一第 2 刀；main.ts 递进来）。缺 = 只看（单测 / 老入口）。 */
+    readonly paint?: CanvasPaintPort;
+}
+/** 画布上落笔的口（宿主的）：工具、开一笔、吸色、笔印多大。坐标 = 画布格（可以带小数）。 */
+export interface CanvasPaintPort {
+    /** 手上能在画布上用的那把（笔 / 橡皮 / 吸管）；别的 = null。 */
+    tool(): "paintPen" | "paintEraser" | "eyedrop" | null;
+    /** 开一笔：落笔的门不让（锁 / 冷的……）= null（门自己说了）。 */
+    open(texture: string, p: CanvasPointer): CanvasStroke | null;
+    /** 吸管：取这一格显示的颜色。 */
+    eyedrop(texture: string, x: number, y: number): void;
+    /** 手上那支笔的大小（画布格；悬停笔印）；不是笔 = null。 */
+    brushSize(): number | null;
+}
+export interface CanvasPointer {
+    readonly x: number;
+    readonly y: number;
+    readonly pressure: number;
+    readonly pointerType: string;
+    readonly at: number;
+}
+export interface CanvasStroke {
+    move(p: CanvasPointer): void;
+    up(): void;
+    cancel(): void;
 }
 export interface CanvasWindow {
     toggle(anchor: HTMLElement): void;
@@ -44,6 +69,16 @@ export interface CanvasWindowProbe {
     readbacks: number;
     outlines: number;
     decodes: number;
+    /** 一笔开着时跟着变：读回了几次、一共读了多少格；这里正在画一笔吗。 */
+    liveReads: number;
+    liveCells: number;
+    drawing: boolean;
+    /** 小窗里那张图（热的画读回来的那张）的字节哈希 + 宽高（探针拿它和画板的显示那张 / 落定那张逐字节比）；不是读回来的图 = null。 */
+    workHash(): {
+        hash: string;
+        w: number;
+        h: number;
+    } | null;
     hoverLine: string;
     statsLine: string;
     showNums: boolean;

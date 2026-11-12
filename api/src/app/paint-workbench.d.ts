@@ -28,6 +28,8 @@ export declare class PaintWorkbench {
     /** 这一笔的时钟和压感（施工单二十 1a；规矩在 controller/stroke-clock.ts：一笔里只用一种钟、压感只信笔的）。 */
     private clock;
     private lastPen;
+    /** 上一把笔（笔 / 橡皮）：吸管取完色回到它（模型上和画布小窗里的吸管同一个，施工单二十一第 2 刀）。 */
+    get pen(): "paintPen" | "paintEraser";
     private readonly grids;
     private entered;
     constructor(d: PaintWorkbenchDeps);

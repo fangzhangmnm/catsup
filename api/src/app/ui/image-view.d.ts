@@ -5,6 +5,22 @@ export interface ImageViewHooks {
     hover?(id: number | null): void;
     /** 点了一下（没拖）：点中的编号，点空处 = null。 */
     click?(id: number | null): void;
+    /**
+     * 落笔（可选；施工单二十一第 2 刀）：按下那一下要不要当成画——宿主看手上的工具定（笔 / 鼠标左键）；手指永远是看（挪、缩），不来问。
+     * 要 = 这一下之后的移动 / 抬起都交给 down / move / up（格坐标，可以带小数），不平移、不点选；画着时别的指针不理（一笔当中不挪不缩）。
+     */
+    stroke?: {
+        wants(e: {
+            readonly pointerType: string;
+            readonly button: number;
+        }): boolean;
+        down(x: number, y: number, e: PointerEvent): void;
+        move(x: number, y: number, e: PointerEvent): void;
+        /** cancelled = pointercancel（系统收走了这个指针）。 */
+        up(x: number, y: number, e: PointerEvent, cancelled: boolean): void;
+    };
+    /** 悬停时亮出来的笔印：这一点上手上的笔有多大（直径，格）；不画 = null。放大到看得见格子时，格心落在这个圆里的格也亮出来。 */
+    brushAt?(x: number, y: number): number | null;
 }
 export interface ImageView {
     /** 换图（宽高 = 格数；图的像素和格一一对应）。null = 没有图（画底色）。 */
