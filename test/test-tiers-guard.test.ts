@@ -60,13 +60,12 @@ describe("测试分档守卫", () => {
     if (reds.length < 5) bad.push(`红线那一小组只有 ${reds.length} 个（锁、存盘、撤销、文件格式、崩溃快照至少各一个）`);
     eq(bad.join("；"), "");
   });
-  it("test/、scripts/ 里用墙上钟（Date.now）的每一行都写明为什么；量时长、判超时一律 performance.now（统筹 11-11：这台 WSL 的墙上钟约每 32 秒往回拨 1.8 秒）", () => {
+  it("test/、scripts/、src/app/session.ts 里用墙上钟（Date.now）的每一行都写明为什么；量时长、判超时一律 performance.now（统筹 11-11：这台 WSL 的墙上钟约每 32 秒往回拨 1.8 秒）", () => {
     const rd = fs as unknown as { readdirSync(p: string, o: { recursive: true }): string[] };
     const bad: string[] = [];
-    for (const dir of ["test", "scripts"]) for (const f of rd.readdirSync(dir, { recursive: true })) {
-      if (!/\.(m?[jt]s|mts)$/.test(f) || f.startsWith("fixtures")) continue;
-      fs.readFileSync(`${dir}/${f}`, "utf8").split("\n").forEach((line, i) => { if (/Date\.now\(\)/.test(line) && !line.includes("墙上钟：")) bad.push(`${dir}/${f}:${i + 1}`); });
-    }
+    const files = ["test", "scripts"].flatMap((dir) => rd.readdirSync(dir, { recursive: true }).filter((f) => /\.(m?[jt]s|mts)$/.test(f) && !f.startsWith("fixtures")).map((f) => `${dir}/${f}`));
+    files.push("src/app/session.ts");   // 存盘那条路的计时（自动保存 / 崩溃快照的空闲、重载前等推送）只用只往前走的钟（统筹 11-11，v0.19.52）；剩下的墙上钟也得写明为什么
+    for (const f of files) fs.readFileSync(f, "utf8").split("\n").forEach((line, i) => { if (/Date\.now\(\)/.test(line) && !line.includes("墙上钟：")) bad.push(`${f}:${i + 1}`); });
     eq(bad.join("、"), "", "用墙上钟的行要在同一行写「// 墙上钟：为什么」，量时长换 performance.now()");
   });
   it("探针不把地址写死：page.goto 的地址能从命令行或环境变量 PROBE_URL 改（分支构建要在别的端口上跑）", () => {

@@ -73,6 +73,8 @@ export interface RefsPort {
 
 export interface SessionDeps {
   editor: Editor;
+  /** 量时长的钟（ms，只往前走）：自动保存 / 崩溃快照的空闲计时、重载前等推送的时限。缺 = performance.now；测试里换成模拟的（统筹 11-11）。 */
+  clock?: () => number;
   /** 手上还有没有一下没收（controller/hand-busy.ts 的名册：编辑器的手势、画画的一笔……）。自动保存 / 崩溃快照 / 重推只问它，不点具体来源（统筹 11-11；守卫 test/hand-busy.test.ts）。 */
   hand: Pick<HandRoster, "busy">;
   /** 这份从没传过、人还没答应传：隐式保存只落本机（规则书第 15 条 (a)）。缺 = 不压。 */
@@ -181,7 +183,13 @@ export class Session {
   /** 参考窗牌组的修订号（加删卡；视图态不算）：存过的 / 看到过的。dirty = 几何改了 ∨ 牌组改了。 */
   private savedRefRev = 0;
   private lastSeenRefRev = 0;
-  private lastEditAt = 0;
+  /**
+   * 上次改动的时刻（只往前走的钟，SessionDeps.clock）。空闲满 AUTOSAVE_IDLE_MS = 自动保存 / 崩溃快照（统筹 11-11：以前用墙上钟，系统把钟往回校一大截，
+   * 「空闲满 30 秒」要等墙上钟追回来才成立，没存盘的时间被拉长）。−∞ = 还没改过（开机领养的脏模型照旧马上能存，和以前「墙上钟 − 0」一样）。
+   */
+  private lastEditAt = -Infinity;
+  /** 量时长的钟（只往前走；缺 = performance.now）。墙上钟只留给「什么时候」（崩溃快照的 at 这类）。 */
+  private readonly now: () => number;
   private loaded: CatsupDocument | null = null;   // 打开的文档（含 round-trip 携带的未知内容）；保存时以它为底
   private timer: number;
   /** T-crash 行李牌（file / transient 家才有；gallery 家 = null）+ 上次快照的 revision。 */
@@ -227,6 +235,7 @@ export class Session {
   /** 正拦着（探针 / 状态用）。 */
   get heldForLoss(): boolean { return this.lossyHold !== null; }
   constructor(private d: SessionDeps) {
+    this.now = d.clock ?? (() => performance.now());
     this.savedRevision = this.lastSeenRevision = d.editor.revision;
     this.savedRefRev = this.lastSeenRefRev = this.refRev();
     this.mintLuggage();   // 开机的初始 transient 也要有牌（否则开机就画的模型没影子）
@@ -293,7 +302,7 @@ export class Session {
     if (online && !this.wasOnline) this.lastPushTryAt = 0;   // 刚回线：不等节奏，这一拍就补
     this.wasOnline = online;
     const rev = this.d.editor.revision, rr = this.refRev();
-    if (rev !== this.lastSeenRevision || rr !== this.lastSeenRefRev) { this.lastSeenRevision = rev; this.lastSeenRefRev = rr; this.lastEditAt = Date.now(); this.d.onHomeChanged(); }
+    if (rev !== this.lastSeenRevision || rr !== this.lastSeenRefRev) { this.lastSeenRevision = rev; this.lastSeenRefRev = rr; this.lastEditAt = this.now(); this.d.onHomeChanged(); }
     if (this.lazy && this.home.kind === "gallery" && this.hasContent() && (this.forkBaseRev === null || rev !== this.forkBaseRev)) {
       this.forkBaseRev = null;
       this.lazy = false;   // 同步翻旗：同一 tick 内第二次 changed 不会重复安家
@@ -306,19 +315,19 @@ export class Session {
     if (online && !this.wasOnline) this.lastPushTryAt = 0;   // 刚回线：不等节奏，这一拍就补
     this.wasOnline = online;
     const rev = this.d.editor.revision, rr = this.refRev();
-    if (rev !== this.lastSeenRevision || rr !== this.lastSeenRefRev) { this.lastSeenRevision = rev; this.lastSeenRefRev = rr; this.lastEditAt = Date.now(); this.d.onHomeChanged(); }
+    if (rev !== this.lastSeenRevision || rr !== this.lastSeenRefRev) { this.lastSeenRevision = rev; this.lastSeenRefRev = rr; this.lastEditAt = this.now(); this.d.onHomeChanged(); }
     // T-crash / 自动保存（图库家）：空闲 30 s 且脏且手上没有一下没收（编辑器的手势、画画的一笔……都算，统筹 11-11）→ 落本地（在线且登录则一并推云）
     const handBusy = this.d.hand.busy();
-    const idle = !this.saving && !handBusy && Date.now() - this.lastEditAt >= AUTOSAVE_IDLE_MS;
+    const idle = !this.saving && !handBusy && this.now() - this.lastEditAt >= AUTOSAVE_IDLE_MS;
     if (this.home.kind === "gallery" && !this.lazy && this.dirty() && idle) {
       void this.save({ implicit: true });
     } else if (this.localHomeKind() && this.luggage && this.dirty() && this.snapDue() && idle) {
       void this.refreshThenSnapshot();   // file / transient 家：画的缓存旧了先编（跟自动保存同一个节奏，1-8b），再盲快照进 crash-store（附加层，best-effort）
     } else if (this.home.kind === "gallery" && !this.lazy && !this.dirty() && shouldRetryPush({
       pushPending: this.pushPending, attention: !!this.attention, saving: this.saving, gesture: handBusy,
-      visible: document.visibilityState === "visible", online: isFolderHome() ? folderHomeOnline() : online, signedIn: isFolderHome() || auth.isSignedIn(), lastTryAt: this.lastPushTryAt, now: Date.now(), held: this.d.pushHeld?.(this.home.path) ?? false,
+      visible: document.visibilityState === "visible", online: isFolderHome() ? folderHomeOnline() : online, signedIn: isFolderHome() || auth.isSignedIn(), lastTryAt: this.lastPushTryAt, now: Date.now(), held: this.d.pushHeld?.(this.home.path) ?? false,   // 墙上钟：推送重试的节奏（同步那一头；统筹 11-11 记账、没改，改之前要 user 点头）
     })) {
-      this.lastPushTryAt = Date.now();
+      this.lastPushTryAt = Date.now();   // 墙上钟：推送重试的节奏（同步那一头；统筹 11-11 记账、没改，改之前要 user 点头）
       void this.save({ implicit: true });   // 工单 C3 D：上次没推成（切走时没网 / 网络失败）的这一份，再推一次；撞上云端 = 不弹面，横幅接手
     }
   }
@@ -349,7 +358,7 @@ export class Session {
       const frame = await shadowFrame(bytes, seal, this.sealPorts());
       if (!frame) { this.snapRevision = rev; this.snapRefRev = rr; this.snapPaintKey = pk; this.noteShadowSkipped(); return false; }   // 记过这一版：下次改动才再试（tick 一秒一次，别刷屏）
       if (this.luggage !== tag || this.seal !== seal) return false;   // 封口间隙换了家 / 口令被忘
-      await crashStore.put(tag, frame, { state, name: this.displayName(), at: Date.now(), homeKind: kind, ...(frozen.stale ? { paintStale: true } : {}) });
+      await crashStore.put(tag, frame, { state, name: this.displayName(), at: Date.now(), homeKind: kind, ...(frozen.stale ? { paintStale: true } : {}) });   // 墙上钟：快照记的是「什么时候」，不是量时长
       this.snapRevision = rev; this.snapRefRev = rr; this.snapPaintKey = pk;
       return true;
     } catch (e) { reportError(new Error("[t-crash] snapshot failed (best-effort, load-bearing layers unaffected): " + String(e)), "log"); return false; }
@@ -404,13 +413,13 @@ export class Session {
    *  **干净的模型什么都不做**：以前这里无条件 save，干净的也重新编码写本地、标脏，刷新后就弹「没同步好」——这是「一更新就有」的直接触发点。 */
   async flushBeforeReload(): Promise<void> {
     if (isAnyFaceUp()) await whenFacesClosed();   // 人正在被问（工单 C4，照 MoonSinger H2）：面开着不计时、不刷
-    const deadline = Date.now() + RELOAD_PUSH_WAIT_MS;
-    while (this.saving && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));   // 自动保存正在路上：等它
+    const deadline = this.now() + RELOAD_PUSH_WAIT_MS;   // 只往前走的钟：墙上钟往回拨（对时 / 手动改）不会把这段等待拉长
+    while (this.saving && this.now() < deadline) await new Promise((r) => setTimeout(r, 50));   // 自动保存正在路上：等它
     if (this.home.kind !== "gallery") return;   // 文件家 / 临时模型 implicit 本来就不写，靠 beforeunload 挽留兜
     if (this.dirty()) await this.save({ implicit: true, localOnly: true });
     if (!this.pushPending || this.attention || this.lazy || !canPushNow()) return;
     const push = this.save({ implicit: true });
-    let seen = faceGeneration(), waitMs = Math.max(0, deadline - Date.now());
+    let seen = faceGeneration(), waitMs = Math.max(0, deadline - this.now());
     for (;;) {
       await Promise.race([push, new Promise((r) => setTimeout(r, waitMs))]);
       if (isAnyFaceUp()) { await whenFacesClosed(); seen = faceGeneration(); waitMs = RELOAD_PUSH_WAIT_MS; continue; }   // 面关了再给 ≤ 5 s：选了的那一步不拦腰刷掉
@@ -977,7 +986,7 @@ export class Session {
       this.createPending = false;
       this.savedRevision = revAtStart; this.savedRefRev = refRevAtStart;
       this.pushPending = !r.pushed;
-      if (tryPush) this.lastPushTryAt = r.pushed ? 0 : Date.now();   // 只有试了没成才进重试节奏；成了清零，之后断网再回线第一拍就补
+      if (tryPush) this.lastPushTryAt = r.pushed ? 0 : Date.now();   // 只有试了没成才进重试节奏；成了清零，之后断网再回线第一拍就补   // 墙上钟：推送重试的节奏（同步那一头；统筹 11-11 记账、没改，改之前要 user 点头）
       if (r.pushed) this.attention = null;   // 推上去了 = 和云端对上了（2.2.1 起谱系丢了也会先问云端再推，没人动过就直接成）
       if (!opts.implicit) this.d.setStatus(r.pushed ? `已保存并同步 ${bareName(home.path)}` : `已保存到本机 ${bareName(home.path)}${auth.isSignedIn() ? "（稍后同步）" : ""}`);
       return true;
