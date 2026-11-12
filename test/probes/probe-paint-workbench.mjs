@@ -179,7 +179,10 @@ check(await px() !== p6, "接着画能画");
 // ⑥½ 换笔（施工单二十 1b）：工具条的「笔」下拉（带文字）→ 草稿笔；旋钮按笔记（换回来各是各的）、大小上限跟着笔；草稿笔画得上；存了重开拿的还是草稿笔
 const pickBrush = async (label) => {
   await page.click('.strip-select.select-field[aria-label="笔"]'); await page.waitForTimeout(80);
-  await page.locator(".choice-layer button", { hasText: label }).first().click(); await page.waitForTimeout(60);
+  // 下拉弹出来的是 popup-menu；「笔」是「草稿笔」「勾线笔」的一部分 = 按整项的字精确找
+  const ok = await page.evaluate((label) => { const it = [...document.querySelectorAll(".popup-menu .menu-item")].find((x) => [...x.querySelectorAll("*"), x].some((n) => n.childElementCount === 0 && (n.textContent ?? "").trim() === label)); if (!it) return false; it.dispatchEvent(new MouseEvent("click", { bubbles: true })); return true; }, label);
+  if (!ok) throw new Error(`下拉里找不到「${label}」：${await page.evaluate(() => [...document.querySelectorAll(".popup-menu .menu-item")].map((x) => x.textContent.trim()).join(" | "))}`);
+  await page.waitForTimeout(60);
 };
 const brushNow = () => S(() => { const C = globalThis.__catsup, c = C.editor.config; return { cur: C.paint.brushes.current("paintPen"), knobs: ["size", "opacity", "hardness"].map((k) => c.get("paintPen", k)).join(" / "), max: C.paint.brushes.sizeMax("paintPen"), field: document.querySelector('.strip-select.select-field[aria-label="笔"]')?.dataset.value ?? null, label: document.querySelector('.strip-select.select-field[aria-label="笔"] .select-field-label')?.textContent ?? null }; });
 await S(() => { globalThis.__catsup.editor.setTool("paintPen"); }); await frames(1);

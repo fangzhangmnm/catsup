@@ -235,7 +235,7 @@ const strokeAndCheck = (pts, v, kind) => S2(async ([pts, v, kind]) => {
   const C = globalThis.__catsup, lt = C.editor.renderer3.live, ent = () => [...lt.entries.values()][0], lv0 = () => { const e = ent(); return e?.disp ? lt.readLevels(e.disp, e.w, e.h)[0].px : null; };
   const sum = (d) => ({ ok: d.ok, kernel: d.kernel.reduce((n, k) => n + k.diff, 0), display: d.display.reduce((n, L) => n + L.diff, 0), levels: d.display.length, bad: [...d.kernel.filter((k) => k.diff).map((k) => `内核 ${k.diff}@${k.box}`), ...d.display.filter((L) => L.diff).map((L) => `第${L.level}级 ${L.diff}@${L.box}`)].slice(0, 4) });
   const b0 = lv0(); let mid = null;
-  const r = C.paint.stroke({ points: pts, size: v.size, hardness: v.hardness, kind, color: [0.9, 0.2, 0.1], midway: () => { mid = sum(C.paint.diag.detail()); } });
+  const r = C.paint.stroke({ points: pts, size: v.size, hardness: v.hardness, kind, color: v.color ?? [0.9, 0.2, 0.1], midway: () => { mid = sum(C.paint.diag.detail()); } });
   C.editor.draw(); await new Promise((res) => requestAnimationFrame(res)); C.editor.draw();
   const end = sum(C.paint.diag.detail()), b1 = lv0();
   let changed = 0; if (b0 && b1) for (let i = 0; i < b0.length; i += 4) if (b0[i] !== b1[i] || b0[i + 1] !== b1[i + 1] || b0[i + 2] !== b1[i + 2] || b0[i + 3] !== b1[i + 3]) changed++;
@@ -275,7 +275,9 @@ await S2(() => {
   const C = globalThis.__catsup, B = C.paint.boards.get(C.paint.boards.guids()[0]), orig = B.wrapLayer.bind(B);
   B.wrapLayer = (src) => { const ext = orig(src), m = ext.markChanged.bind(ext); let n = 0; ext.markChanged = (...a) => { if (++n % 3 === 0) return; return m(...a); }; return ext; };
 });
-const lossy = await strokeAndCheck(await pathOf("across"), { size: 30, hardness: 1 }, "pen");
+// 这一笔换一个前面没用过的颜色：前面的笔都是同一个红，那条路上已经涂满了同样的红时，同色再画一笔不改任何像素、丢不丢报格都看不出来（施工单二十 1b 加了「取最浓」那一组之后撞上的）
+const lossy = await strokeAndCheck(await pathOf("across"), { size: 30, hardness: 1, color: [0.1, 0.8, 0.3] }, "pen");
+check(lossy.changed > 0, `丢报格那一笔真的改了像素（${lossy.changed} 像素；改不了就测不出核对抓不抓得到）`, JSON.stringify(lossy));
 check(lossy.mid && !lossy.mid.ok && lossy.mid.kernel > 0 && lossy.mid.display > 0, `丢了报格：画到一半核对说对不上，内核和显示图都说（${fmt(lossy.mid)}）`, JSON.stringify(lossy.mid));
 check(lossy.end.ok, `抬笔落层之后整张重合，又对上了（${fmt(lossy.end)}）`);
 
