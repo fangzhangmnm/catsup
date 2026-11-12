@@ -11,7 +11,7 @@ import { ppStopsOf } from "../pp-stops.ts";
 import { faceKey, type FaceKey, type Op } from "../ops.ts";
 import { IDENTITY, applyNormal } from "../../scene/xform.ts";
 import { fmtLen } from "../units.ts";
-import { MIN_GESTURE_LEN, SNAP_LABELS } from "../gesture-consts.ts";
+import { SNAP_LABELS, gestureMinLen } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
@@ -28,6 +28,7 @@ export class PushPullTool implements ToolHandler {
   private h = 0;                             // 世界系高度
 
   active(): boolean { return this.face !== null; }
+  private say = "";
   cancel(): void { this.face = null; this.normal = null; this.plane = null; this.shell = new Set(); this.stops = []; this.h = 0; }
   sample(): Record<string, number> { return { h: this.h }; }
   scaleGeom(): ScaleGeom | null { return this.face !== null && this.normal ? { kind: "length", vec: scale3(this.normal, this.h) } : null; }
@@ -83,7 +84,11 @@ export class PushPullTool implements ToolHandler {
     const active = wk.activeSlot();
     const shell = this.shell;
     const hand: AlignHand = { has: (gid) => wk.slotOf(gid) === active && shell.has(wk.local(gid).id), opaque: true };
-    const sn = ctx.hysteresis(ctx.snap(wk, s.x, s.y, { plane: this.plane, anchor: anc, lines: false, hand }), s.x, s.y);
+    let sn = ctx.hysteresis(ctx.snap(wk, s.x, s.y, { plane: this.plane, anchor: anc, lines: false, hand }), s.x, s.y);
+    // 求解器在被推拉的那张面自己的平面上给的格点 / 整数长度：高度一律是 0，从源头就不当推拉的目标（统筹 11-12；意图门是第二层）。高度的整格由下面「开着吸附一律取整」管
+    if (sn.kind === "grid-point" || sn.kind === "increment") { sn = { p: sn.p, kind: null }; ctx.dropHysteresis(); }
+    const minL = gestureMinLen(ctx, anc);   // 这一处手势最短算多长（屏幕像素换成世界长度；统筹 11-12：不再写死 1 厘米）
+    let fromSnap = true;   // 高度是吸到的 / 取整出来的（只要不是 0 就收）；false = 自由拖的（不到 minL 当没动）
     let ref = "";
     let stuck = false;
     const ppGlobal = wk.global(this.face);
@@ -93,7 +98,7 @@ export class PushPullTool implements ToolHandler {
     const qFree = closestOnAxis(anc, n, ray1.origin, ray1.dir);
     const hFree = qFree ? dot3(sub3(qFree, anc), n) : NaN;
     const moved = ctx.moved(s, travel);
-    const allowed = (h: number): boolean => !hasIntent(moved, ctx.eps().drag) || intentAllows1D(hFree, h, MIN_GESTURE_LEN);
+    const allowed = (h: number): boolean => !hasIntent(moved, ctx.eps().drag) || intentAllows1D(hFree, h, minL);
     const hSnap = sn.kind !== null ? dot3(sub3(sn.p, anc), n) : NaN;
     if (sn.kind !== null && allowed(hSnap)) {
       ctx.setSnap(sn);
@@ -113,40 +118,43 @@ export class PushPullTool implements ToolHandler {
       else {
         if (qFree) this.h = hFree;
         else stuck = true;
+        fromSnap = false;
         const pxPerUnit = Math.max(ctx.frame().distBetween(anc, add3(anc, n), ctx.vp()), 0.5);
         const epsH = ctx.eps().edge / pxPerUnit;
         let best: number | null = null;
         for (const st of this.stops) if (allowed(st) && Math.abs(st - this.h) <= epsH && (best === null || Math.abs(st - this.h) < Math.abs(best - this.h))) best = st;
         const grid = ctx.grid();
         if (best !== null) {
-          this.h = best;
+          this.h = best; fromSnap = true;
           ref = `｜高度咬合 ${fmtLen(best)}`;
           ctx.setSnap({ p: add3(anc, scale3(n, this.h)), kind: "h-stop" });
-        } else if (grid.on) {   // 整数长度（0.11 ⑤；与格点同一开关，按住 Shift 反过来 = ctx.grid() 已是有效值）：没停靠点时高度离整格近才咬
-          const step = grid.snap, r = Math.round(this.h / step) * step;
-          if (Math.abs(r) >= MIN_GESTURE_LEN && allowed(r) && Math.abs(r - this.h) <= epsH) {
-            this.h = r;
-            ref = `｜整数长度 ${fmtLen(r)}`;
-            ctx.setSnap({ p: add3(anc, scale3(n, this.h)), kind: "increment", label: `整数长度 ${fmtLen(r)}` });
-          }
+        // 吸附的两种不许混（统筹 11-12，user「但吸附只在整厘米附近几个像素才咬 这里数学确实应该完全错了」）：吸到具体的东西（上面的停靠点、别的面的高度）= 孤立的目标，按光标离它几个屏幕像素判；
+        //   吸到整格 = 目标铺满整条线，正确的运算是取整 h := s · round(h / s)，对任何 h 都做、没有「够不够近」、结果不随缩放变。两种都在时光标正指着的东西优先（上面先判），否则取整。
+        } else if (grid.on && grid.snap > 0) {   // 开着吸附 = 一律取吸附长度的整数倍（统筹 11-12，做小零件：以前离整格近才咬，放大看时中间一大段停在哪就是哪）；Shift 反过来 = ctx.grid() 已是有效值；键入的数不走这里
+          const step = grid.snap, r = Math.round(this.h / step) * step || 0;   // || 0：-0 当 0
+          this.h = r; fromSnap = true;
+          if (r !== 0) { ref = `｜整数长度 ${fmtLen(r)}`; ctx.setSnap({ p: add3(anc, scale3(n, this.h)), kind: "increment", label: `整数长度 ${fmtLen(r)}` }); }
+          else ref = `｜不到半格（${fmtLen(step / 2)}），再拖远一点`;   // 取整是 0：不长东西、松手不提交（统筹 11-12 定的表现）
         }
       }
     }
+    if (!fromSnap && Math.abs(this.h) < minL) this.h = 0;   // 自由拖的、不到这一处手势最短长度 = 没动
     ctx.setCursor(add3(anc, scale3(n, this.h)));
     const facing = Math.abs(dot3(n, ctx.frame().viewDir(anc)));
-    if (moved > ctx.eps().drag && Math.abs(this.h) < MIN_GESTURE_LEN && (stuck || facing > 0.9)) {
+    if (moved > ctx.eps().drag && this.h === 0 && (stuck || facing > 0.9)) {
       ctx.hint("推拉没动：正对着这张面看，法向和视线平行，拖不出高度——环绕一下换个角度再拉（Esc 取消）");
       return;
     }
+    this.say = `推拉 ${fmtLen(this.h)}${ref}`;   // 预演那一行由编辑器拼（live 的返回值 = 那一段）：以前 live 交空串，「整数长度 …」一预演就被「预览：诞生 面…」盖掉（user 11-12 截图）
     ctx.hint(`推拉 h = ${fmtLen(this.h)}${ref}（松手/再点落定；Esc 取消）`);
   }
 
   private opFor(ctx: ToolCtx, face: FaceKey, hl: number): Op { const keepRing = this.keepRing(ctx); return { op: "pushpull", at: ctx.activePool(), face, dist: hl, ...(keepRing ? { keepRing } : {}) }; }
   live(ctx: ToolCtx, preview: PreviewOp): string {
-    if (this.face === null || Math.abs(this.h) < MIN_GESTURE_LEN) return "";
+    if (this.face === null || this.h === 0) return "";   // h 在 track 里已经按「动没动 / 吸到 / 取整」定好：0 = 不长东西
     const k = ctx.kernel();
     if (k.face(this.face)) preview(this.opFor(ctx, faceKey(k, this.face), this.localH(ctx, this.h)));
-    return "";
+    return this.say;
   }
 
   /** 加边（不自愈）：工具选项「加边」或按住 Ctrl（SketchUp Push/Pull + Ctrl）。 */
@@ -157,7 +165,7 @@ export class PushPullTool implements ToolHandler {
     this.cancel();
     ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
     const k = ctx.kernel();
-    if (Math.abs(h) >= MIN_GESTURE_LEN && k.face(fid)) {
+    if (h !== 0 && k.face(fid)) {
       const n0 = ctx.opCount(), at0 = ctx.activePool(), face = faceKey(k, fid);
       const keepRing = this.keepRing(ctx);
       ctx.commitOp(this.opFor(ctx, face, hl));
