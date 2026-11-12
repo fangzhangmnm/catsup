@@ -14,7 +14,7 @@ import { OrbitCamera } from "../src/editor/camera.ts";
 import { pickEntity } from "../src/editor/pick.ts";
 import { sceneBox } from "./format-scenes.ts";
 import { IDENTITY } from "../src/scene/xform.ts";
-import { markSharp, markSmooth, clearMarks, markSeam, clearSeam, smoothAll, smoothNone, smoothByAngle } from "../src/editor/mesh-edits/index.ts";
+import { markSharp, markSmooth, clearMarks, markSeam, clearSeam, autoSeamsCmd, smoothAll, smoothNone, smoothByAngle } from "../src/editor/mesh-edits/index.ts";
 import { kernelFromMeshDoc, meshDocFromKernel } from "../src/mesh/mesh-doc.ts";
 import { buildEdgeRec } from "../src/editor/pool-mesh.ts";
 import { meshViewOf } from "../src/mesh/mesh-view.ts";
@@ -185,6 +185,22 @@ describe("接缝（施工单二十二 A / B，2026-11-12 Opus）", () => {
     assert(!(r.ops[0] as { edges: number[] }).edges.includes(inner), "两张面中间那条不标");
     const lone = m.edges().find((e) => !m.eFaces(e).includes(top) && !m.eFaces(e).includes(side))!;
     eq(markSeam.plan(env, unit(def, [lone], [top]), {}).count, 5, "一张面的 4 条 + 单独选的 1 条");
+  });
+  it("自动标接缝（指令）：没选区 = 整个网格体；op = meshEdgeMarks seam、只列新补的；做完选中补的那几条；提示带理由和片数；一步撤销；选了面 = 只管那几张", () => {
+    const { s, def, m } = meshScene((k) => addBox(k, P(0, 0, 0), P(1, 1, 1)));
+    const env = { scene: s } as unknown as CommandEnv, h = new History(s);
+    m.setFlags(m.edges()[0], F_SEAM, true);
+    const before = Array.from(m.edgeFlags).join(",");
+    const plan = autoSeamsCmd.plan(env, { kind: "mesh", def, sel: null, xf: IDENTITY }, autoSeamsCmd.defaults(env));
+    eq(plan.count, 11, "12 条棱减去已经标的那条"); eq(plan.ops[0].op, "meshEdgeMarks"); eq((plan.ops[0] as { mark: string }).mark, "seam");
+    eq(JSON.stringify(plan.select?.edges), JSON.stringify((plan.ops[0] as { edges: number[] }).edges), "做完选中补的那几条");
+    assert(/折痕 11/.test(plan.notes?.[0] ?? "") && /6 片/.test(plan.notes?.[0] ?? ""), plan.notes?.[0] ?? "");
+    h.commit(s, plan.ops[0]);
+    eq(m.edges().filter((e) => m.edgeFlags[e] & F_SEAM).length, 12);
+    eq(autoSeamsCmd.plan(env, { kind: "mesh", def, sel: null, xf: IDENTITY }, { deg: 60 }).count, 0, "再做一次：不用补");
+    h.undo(); eq(Array.from(m.edgeFlags).join(","), before, "一步撤回去");
+    const top = m.faces().find((f) => m.faceVerts(f).every((v) => m.pt(v).z === 1))!;
+    eq(autoSeamsCmd.plan(env, unit(def, [], [top]), { deg: 60 }).count, 0, "只选顶面：本来就是一张盘");
   });
   it("接缝存进文件、读回来还在（edgeFlags 本来就有这一位，格式不变）", () => {
     const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1));

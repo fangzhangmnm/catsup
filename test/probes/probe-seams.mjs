@@ -5,7 +5,8 @@
 // ③ 换到表面工作台（不画接缝）→ 没有；回自由建模 → 又有；画画工作台 → 有
 // ④ 锁上（演示锁 = 只看）→ 没有；解锁 → 又有
 // ⑤ 开始画 → 画布小窗里接缝那组线有这条边（在画布上出现几次就几段），没标的照旧粗 / 细
-// ⑥ 撤销到标接缝之前 → 位没了、画面上没有接缝色 ⑦ 没有页面错误
+// ⑥ 撤销到标接缝之前 → 位没了、画面上没有接缝色
+// ⑦ 什么都不选，物件菜单（工作台下拉左边的「物件」钮）「接缝 ›」→「自动标接缝…」：盒子的 12 条棱补上、补的选中、一步、提示行说理由和片数、撤销回去 ⑧ 没有页面错误
 // 接缝色按画布像素数（gl.readPixels 紧跟 editor.draw()，和截图基线同一个读法）：PALETTE.edgeAccent = #f0440f，判 r > 215、40 ≤ g ≤ 110、b < 40（X 轴 / 悬停红 #cc3333 的 b = 51，不算）。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-seams.mjs [url]
 import { createRequire } from "node:module";
@@ -113,6 +114,29 @@ const un = await S(([def, edge]) => {
 }, [setup.def, setup.edge]);
 const px2 = await seamPx();
 check(un.flag === 0 && px2 === 0, `撤回去了：位 ${un.flag}、接缝色 ${px2}`, JSON.stringify(un));
+
+console.log("\n⑦ 什么都不选，物件菜单「接缝 ›」→「自动标接缝…」：盒子的 12 条棱补上、补的那几条选中、一步、提示行说理由和片数；撤销回去");
+const auto = await S(async (def) => {
+  const C = globalThis.__catsup, e = C.editor, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), k = () => e.sceneRef.mesh(def).kernel;
+  C.pickWorkbench("freeform"); e.deselectAll(); e.draw();
+  const p0 = e.history.position();
+  document.querySelector(".gizmo-object")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(80);   // 工作台下拉左边的「物件」钮 = 这一层的物件菜单（弹出菜单）
+  const body = document.querySelector(".popup-menu:not(.choice-layer)"), row = body?.querySelector('[data-menu-id="submenu:接缝"]');
+  if (!row) return { noRow: true, items: [...(body?.querySelectorAll("[data-menu-id]") ?? [])].map((x) => x.getAttribute("data-menu-id")) };
+  row.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40);
+  const it = document.querySelector('.popup-menu.choice-layer [data-choice-id="action:mesh.autoSeams"]');
+  if (!it) return { noItem: true, items: [...document.querySelectorAll(".popup-menu.choice-layer [data-choice-id]")].map((x) => x.getAttribute("data-choice-id")) };
+  it.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(80);
+  document.querySelectorAll(".popup-menu").forEach((m) => m.remove());
+  const seams = k().edges().filter((x) => k().edgeFlags[x] & 4), sel = [...e.selection.edges].sort((a, b) => a - b);
+  const out = { seams: seams.length, sel: sel.join(","), seamIds: seams.join(","), steps: e.history.position() - p0, hint: document.getElementById("hint")?.textContent ?? "" };
+  e.undo(); out.afterUndo = k().edges().filter((x) => k().edgeFlags[x] & 4).length;
+  return out;
+}, setup.def);
+check(!auto.noRow && !auto.noItem, "物件菜单里有「接缝 ›」→「自动标接缝…」（管整个网格体）", JSON.stringify(auto));
+check(auto.seams === 12 && auto.sel === auto.seamIds && auto.steps === 1, "12 条棱都补上、补的那几条选中、一步", JSON.stringify(auto));
+check(/补了 12 条接缝/.test(auto.hint) && /6 片/.test(auto.hint), `提示行（${auto.hint}）`);
+check(auto.afterUndo === 0, "撤销 = 一条都没了");
 check(errs.length === 0, "没有页面错误", errs.slice(0, 2).join(" | "));
 console.log(`\nprobe-seams ${failN ? "FAIL" : "OK"}（${pass} ✓ / ${failN} ✗）`);
 await browser.close();
