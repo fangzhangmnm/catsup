@@ -6,13 +6,14 @@ export declare const F_SOFT = 1, F_SMOOTH = 2, F_SEAM = 4, F_HIDDEN = 8, F_WIRE 
 /** 手标硬边（2026-10-28 Claude Opus 5.5；纪元账本 FM129 / FM131）：压过网格体的「默认平滑」，这条边永远是棱（画线、明暗断开）。和 F_SOFT / F_SMOOTH 互斥（标的时候清掉另两位）。 */
 export declare const F_SHARP = 32;
 /** 网格体的「默认平滑」（几何属性，不是画法——user 10-28「不要叫明暗方式，我们的语义就是几何，和representation没关系。默认平滑之类的？」；每个网格体一个；mesh/edge-smooth.ts 按它判没手标的边）：angle = 两侧面夹角小于 deg 算平滑（硬表面）/ smooth = 全平滑（软角色）/ hard = 全是棱（低多边形；
- *  也是老文件的语义——没这个键的文件 = 只看手标，和以前逐字一样）。 */
+ *  新建的网格体默认这一档；文件里缺这一项怎么办归读的门口 format/migrate/mesh.ts）。 */
 export type SmoothDefaultMode = "angle" | "smooth" | "hard";
 export interface SmoothDefault {
     readonly mode: SmoothDefaultMode;
     readonly deg: number;
 }
-export declare const SMOOTH_DEFAULT_LEGACY: SmoothDefault;
+/** 新建的网格体的默认平滑：全是棱（只看手标）。老文件缺这一项怎么办归读的门口（format/migrate/mesh.ts smoothDefaultOf；2026-11-12 起内核不认「老文件」）。 */
+export declare const SMOOTH_DEFAULT_NEW: SmoothDefault;
 /** 面标记：隐藏（user 10-27「show and hide faces」；点 / 边的显隐从面推导，游离的才自己带 F_HIDDEN）。 */
 export declare const FF_HIDDEN = 1;
 export interface MeshSnapshot {

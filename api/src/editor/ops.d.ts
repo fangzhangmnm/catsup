@@ -690,7 +690,7 @@ export declare class ShearRejected extends OpRejected {
 /** 拍平结算出破面：算法没想到的情况（user「如果有，说明我们算法可能想错了」）→ 整步撤回、弹错误（要复现包）。 */
 export declare class PlanarBurst extends Error {
 }
-export declare function applyOp(s: Scene, op0: Op): ApplyResult;
-export declare function describeOp(op0: Op): string;
+export declare function applyOp(s: Scene, op: Op): ApplyResult;
+export declare function describeOp(op: Op): string;
 /** 身体里没自己的几何（只摆着子物件）：跨种类炸开 / 合并不用转。 */
 export declare function bodyEmpty(b: SceneBody): boolean;

@@ -1,4 +1,5 @@
 import type { DocumentSettings } from "../format/document.ts";
+import { type SettingsNow } from "../format/migrate/settings.ts";
 import type { Frame } from "../scene/xform.ts";
 /** 网格住哪个坐标面（user 2026-10-24「grid可以配置成xy yz xz，这样方便我吸附画立面」）：xy = 地面；yz / xz = 立面。 */
 export type GridPlane = "xy" | "yz" | "xz";
@@ -53,13 +54,7 @@ export declare const DEFAULT_GRID: GridSettings;
 export declare const NEW_DOC_GRID: GridSettings;
 /** 网格帧：把上下文帧的轴换到网格面上（右手系；网格画在帧的 XY、法向 = 帧的 Z）。xy = 原样；yz：x←y, y←z, z←x；xz：x←x, y←z, z←−y。 */
 export declare function gridFrame(F: Frame, plane: GridPlane): Frame;
-/**
- * 文档 settings → 网格状态（缺 / 坏值回默认）。CATSUP_document 3.4 起 unitSystem + snapIncrement 是主的；老文件没有 unitSystem → 按老键猜
- * （制式 D&D = D&D；建筑英尺英寸制式 / 显示单位英尺英寸或英寸 = 英制；否则公制），吸附 = snapIncrement（老文件里它一直 = 格距 ÷ 细分，写入时算的）。
- */
-export declare function gridFromSettings(s: DocumentSettings): GridSettings;
-/**
- * 网格状态 → 文档 settings。主的：unitSystem / snapIncrement；给老读者照写的：displayUnit（公制 m、英制 / D&D ft-in）、gridPreset、gridStep = 吸附长度、gridSubdiv = 1
- * （3.3 读者吸附逐字一样；3.2 以前的读者认不出细分 1 → 退回 1/5，minor 提示一次）。
- */
+/** 文档 settings（已经过了读的门口，format/migrate/settings.ts settingsNow：老键在那里换成现在的形状）→ 网格状态。这里不认任何旧键。 */
+export declare function gridFromSettings(s: SettingsNow): GridSettings;
+/** 网格状态 → 文档 settings（写的门口 format/migrate/settings.ts settingsForFile：给老读者照写的那几个旧键在那里）。 */
 export declare function settingsFromGrid(s: DocumentSettings, g: GridSettings): DocumentSettings;

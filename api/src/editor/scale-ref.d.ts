@@ -1,4 +1,5 @@
 import type { Pt3 } from "../kernel/kernel.ts";
+import type { SettingsNow } from "../format/migrate/settings.ts";
 /** 交货的身份：和 scripts/pull-size-ladder.mjs 钉的同一个（test/scale-ref.test.ts 核三处一致）。 */
 export declare const LADDER_SHA256 = "e161c8835a16024192b6206fe0ca977aa8b472f7f7981039ca15a11e6b5f278f";
 export declare const LADDER_URL = "vendor/size-ladder/ladder-v3.json";
@@ -93,12 +94,9 @@ export declare function frozenLadder(L: Ladder, subs: readonly string[], lang?: 
 export declare function scaleTipView(L: Ladder, subs: readonly string[], q: ScaleQuery, lang?: Lang): ScaleTipView | null;
 /** 新文件 / 没存过这项的旧文件默认勾哪几项（user「默认室内加室外」）。 */
 export declare const DEFAULT_SCALE_REFS: readonly string[];
-/** 文件 settings：`scaleRefs`（数组；[] = 不显示）；没写 = 默认。v0.13.52–56 单选时写的 `scaleRef`（字符串，"none" = 不显示）照样读。认不出的 id 原样留着（不显示）。 */
-export declare function scaleRefsFromSettings(s: {
-    scaleRefs?: unknown;
-    scaleRef?: unknown;
-}): string[];
-/** 写回：默认不写键（默认文档字节不变，同 gridPreset）；旧的单选键 scaleRef 不再写。 */
+/** 文件 settings（已经过了读的门口 format/migrate/settings.ts settingsNow：旧的单选键、改过名的 id 在那里换好）→ 勾了哪几项；没写 = 默认。认不出的 id 原样留着（不显示）。 */
+export declare function scaleRefsFromSettings(s: SettingsNow): string[];
+/** 写回：默认不写键（默认文档字节不变，同 gridPreset）。旧的单选键归写的门口（format/migrate/settings.ts settingsForFile 去掉它）。 */
 export declare function scaleRefsToSettings<T extends object>(s: T, refs: readonly string[]): T & {
     scaleRefs?: string[];
 };
