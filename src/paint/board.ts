@@ -292,7 +292,10 @@ export class PaintBoard {
         if (prev.length === list.length && prev.every((p, i) => sameOverlay(p, list[i]) && p.bx === list[i].bx && p.by === list[i].by && p.bw === list[i].bw && p.bh === list[i].bh)) return;   // 一样 = 不算变
         if (!list.length && prev.length) {   // 整片拿掉（抬笔落层 / 取消）：薄层的像素只在它自己的外框里 = 报那几个外框（落层碰过的格另由 noteLanding 并上），不按整张
           const c = new DirtyCells(this.width, this.height);
-          for (const q of prev) c.mark(q.bx, q.by, q.bw, q.bh);
+          for (const q of prev) {   // 薄层报了这一笔碰过的格 = 它的内容只在这些格里（内核落层也只读这些格、带核对片查漏报）；没报 = 整个外框
+            if (q.cells && q.cells.w === this.width && q.cells.h === this.height) { for (const r of q.cells.runs()) c.mark(r.x, r.y, r.w, r.h); }
+            else c.mark(q.bx, q.by, q.bw, q.bh);
+          }
           this.hostOverlays = []; this.overlayChanged(c); return;
         }
         const grownOnly = prev.length === list.length && prev.every((p, i) => sameOverlay(p, list[i]) && list[i].bx <= p.bx && list[i].by <= p.by && list[i].bx + list[i].bw >= p.bx + p.bw && list[i].by + list[i].bh >= p.by + p.bh);
