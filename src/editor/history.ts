@@ -325,15 +325,18 @@ export class History<M = unknown> {
   }
 
   /** 撤销一步（这一步的全部 op）：自反交换倒着走。返回场景 + 这一步之前的会话 + 标签；没得撤 → null。「之后」的会话由 sealStep 在步结束时封，这里不再补记。 */
-  undo(): { scene: Scene; before: M | undefined; label: StepLabel | undefined } | null {
+  /** 这几条（[start, end)）动没动文档（统筹 11-12：文档改动号变 ⟺ 写出去的文件会变）：有一条不是空 batch 的指令、或者带了撤销记录 = 动了；只改选区 / 进出组件的步（commitSession：一条空 batch、没有记录）= 没动。 */
+  private touchesDoc(start: number, end: number): boolean { const empty = (o: Op): boolean => o.op === "batch" && o.ops.every(empty); for (let i = start; i < end; i++) if (this.entries[i].length || !empty(this.ops[i])) return true; return false; }
+  undo(): { scene: Scene; before: M | undefined; label: StepLabel | undefined; doc: boolean } | null {
     this.checkParked("undo");
     if (this.cursor <= this.evicted) return null;
     const end = this.cursor;
     let start = end;
     do start--; while (start > this.evicted && this.joins[start]);
+    const doc = this.touchesDoc(start, end);
     this.flipStep(start, end, "undo", this.labels[start]);   // 整步事务：没做成 = 抛 StepFlipError，什么都没动
     this.cursor = start;
-    return { scene: this.current, before: this.sessions[start]?.before, label: this.labels[start] };
+    return { scene: this.current, before: this.sessions[start]?.before, label: this.labels[start], doc };
   }
   /** 只撤一条 op（编辑器内部按新值重做那一步 / 一步中途失败回滚用；用户的撤销走 undo）。撤到一步的开头时带回那一步之前的会话。 */
   undoOp(): { scene: Scene; before: M | undefined } | null {
@@ -343,15 +346,16 @@ export class History<M = unknown> {
     return { scene: this.current, before: this.sessions[this.cursor]?.before };
   }
   /** 重做一步：自反交换正着走；带回这一步之后的会话。events 为空（重做不重跑动词）。 */
-  redo(_s: Scene): (ApplyResult & { after: M | undefined; label: StepLabel | undefined }) | null {
+  redo(_s: Scene): (ApplyResult & { after: M | undefined; label: StepLabel | undefined; doc: boolean }) | null {
     this.checkParked("redo");
     if (this.cursor >= this.ops.length) return null;
     const c0 = this.cursor;
     let end = c0;
     do end++; while (end < this.ops.length && this.joins[end]);
+    const doc = this.touchesDoc(c0, end);
     this.flipStep(c0, end, "redo", this.labels[c0]);   // 整步事务：没做成 = 抛 StepFlipError，什么都没动
     this.cursor = end;
-    return { scene: this.current, events: [], after: this.sessions[c0]?.after, label: this.labels[c0] };
+    return { scene: this.current, events: [], after: this.sessions[c0]?.after, label: this.labels[c0], doc };
   }
   /** 已做的步数（游标之前；不是 op 数；重做尾巴不算）。fuzz 的「一个动作最多长一步」用。 */
   steps(): number { let n = 0; for (let i = 0; i < this.cursor; i++) if (!this.joins[i]) n++; return n; }

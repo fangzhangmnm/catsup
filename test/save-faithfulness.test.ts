@@ -41,6 +41,21 @@ describe("① 住在文件设置里的那几样：改了算改过", () => {
   });
 });
 
+describe("①½ 文档改动号变 ⟺ 写出去的文件会变（统筹 11-12：rev() 拆成两个明着的入口）", () => {
+  it("编辑器里没有 rev() 了；只让画面缓存作废（viewChanged）的就这四处：换上下文的会话还原、撤销 / 重做纯选区（bump(false)）、进组件、出组件——新加一处 = 红，回来审（往少算改是危险的一侧）", () => {
+    const src = read("src/editor/editor.ts");
+    assert(!/this\.rev\(\)/.test(src), "还有 this.rev()");
+    eq((src.match(/this\.viewChanged\(\)/g) ?? []).length, 4, "viewChanged 的调用处");
+    assert(/if \(doc\) this\.docChanged\(\); else this\.viewChanged\(\);/.test(src), "bump 按参数选");
+    assert(/this\.installScene\(r\.scene, r\.before, r\.doc\)/.test(src) && /this\.installScene\(r\.scene, r\.after, r\.doc\)/.test(src), "只有撤销 / 重做按 History 报的选");
+    eq((src.match(/this\.installScene\([^)]*\)/g) ?? []).filter((x) => x.split(",").length >= 3).length, 2, "别的 installScene 都走缺省 = 文档变了");
+  });
+  it("History 报「这一步动没动文档」：有一条不是空 batch 的指令、或者带了撤销记录 = 动了", async () => {
+    const h = read("src/editor/history.ts");
+    assert(/private touchesDoc\(start: number, end: number\): boolean/.test(h) && /this\.entries\[i\]\.length \|\| !empty\(this\.ops\[i\]\)/.test(h), "touchesDoc 的判据");
+  });
+});
+
 describe("② 读的时候悄悄修的悬空引用：记一笔、打开时说", () => {
   it("读完挂不挂 readNotes 按值判，不靠手写的键名单（以前新键没补进名单 = 记了等于没记）", () => {
     assert(/Object\.values\(notes\)\.some\(/.test(read("src/format/read.ts")), "read.ts 挂 readNotes 回到了手写名单");

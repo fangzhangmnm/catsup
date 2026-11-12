@@ -570,7 +570,7 @@ export class Editor {
   get renderer3(): RenderProvider { return this.r3; }
   get revision(): number { return this._revision; }
   /** 文档的改动号（「有没有改动」/ 自动保存只看它，session）：跟 revision 一起加，但一步之内的先记着、成功收尾才算一次，失败的步不算（失败的一步什么都没改）。 */ get docRevision(): number { return this._docRevision + this._settingsRev; }   // + 住在文件设置里、不进撤销的那几样（网格 / 单位制 / 尺度参考）改了几次：失败的步退不回它们，也不该退（统筹 11-12，存盘忠实度清点第五节）
-  private rev(): void { this._revision++; if (this.stepDepth > 0) this.stepBumped = true; else this._docRevision++; }
+  /** 两个明着的入口（统筹 11-12，rev() 拆开）：文档变了 = 场景改动号 + 文档改动号（一步之内的先记着）；只是换看法（进出组件、撤销 / 重做纯选区）= 只让画面缓存作废。规矩：文档改动号变 ⟺ 写出去的文件会变（不算桌面态、缩略图、版本串）。拿不准用 docChanged（多算安全、少算丢东西）。 */ private docChanged(): void { this._revision++; if (this.stepDepth > 0) this.stepBumped = true; else this._docRevision++; } private viewChanged(): void { this._revision++; }
   canUndo(): boolean { return this.history.canUndo(); }
   canRedo(): boolean { return this.history.canRedo(); }
   /** 有任何选中（含参考几何）= 删除 / 取消选择 / 反选 / Esc 问这个；有工具能动的选中（点 / 边 / 面 / 组 / 组件）= 移动 / 旋转 / 缩放 / 建组 / 拷贝 / 镜像问这个。 */
@@ -994,7 +994,7 @@ export class Editor {
    */
   private sessionSnap(): Session { return { ctx: { chain: [...this.ctx.chain], group: this.ctx.group }, sel: this.selSnap() }; }
   private sessionRestore(s: Session | undefined): void {
-    if (s) { const c = this.validCtx(s.ctx); if (this.ctxKeyOf(c) !== this.ctxKey()) { this.ctx = c; if (c.chain.length === 0 && c.group === null) this._isolate = false; this.rev(); } }
+    if (s) { const c = this.validCtx(s.ctx); if (this.ctxKeyOf(c) !== this.ctxKey()) { this.ctx = c; if (c.chain.length === 0 && c.group === null) this._isolate = false; this.viewChanged(); } }
     this.syncModeToKind();
     this.selRestore(s?.sel);
   }
@@ -1273,8 +1273,8 @@ export class Editor {
     this.stepOps = 0; this.stepHasOp = false;
     if (sc) this.installScene(sc, before);
   }
-  private bump(): void {
-    this.rev();
+  private bump(doc = true): void {
+    if (doc) this.docChanged(); else this.viewChanged();
     // 上下文可能已不存在（撤掉了建组 / 建组件 / 复制）→ 退到还在的最深一层
     const c = this.validCtx(this.ctx);
     if (this.ctxKeyOf(c) !== this.ctxKey()) { this.ctx = c; if (c.chain.length === 0 && c.group === null) this._isolate = false; }
@@ -1286,9 +1286,9 @@ export class Editor {
    * **这里不通知界面**——调用方在这之后才关参数小窗、刷新 HUD。以前撤销先关小窗（会刷新界面、读「当前在哪个组件」）后校正：
    * 在组件里一路撤、撤过「建出 / 复制出这个组件」那一步就抛错，撤到一半停住（历史已退、场景已换、人卡在不存在的组件里）。
    */
-  private installScene(s: Scene, session?: Session): void {
+  private installScene(s: Scene, session?: Session, doc = true): void {   // doc = 这个场景和装之前的比，写出去的文件变没变（只有撤销 / 重做按 History 报的给 false）
     this.scene = s;
-    this.bump();
+    this.bump(doc);
     if (session) this.sessionRestore(session);
     this.syncModeToKind();
     this.revalidateCharged();
@@ -1316,7 +1316,7 @@ export class Editor {
   private undoExtras: UndoComponent[] = [];
   registerUndoComponent<R>(c: UndoComponent<R>): void { this.undoExtras.push(c as UndoComponent); this.history.registerComponent(c as UndoComponent); }
   recordUndo(kind: string, data: unknown): void { this.history.record(kind, data); }
-  commitRecordsStep(label: StepLabel, records: readonly { readonly kind: string; readonly data: unknown }[]): void { if (!records.length) return; this.history.commitRecords(this.sessionSnap(), label, records); this.rev(); this.host.changed(); }
+  commitRecordsStep(label: StepLabel, records: readonly { readonly kind: string; readonly data: unknown }[]): void { if (!records.length) return; this.history.commitRecords(this.sessionSnap(), label, records); this.docChanged(); this.host.changed(); }
   dropUndoRecords(kind: string, pred: (d: unknown) => boolean): number { const n = this.history.dropRecords(kind, pred); this.host.changed(); return n; }
   /** 撤销 / 重做没做成（整步事务：什么都没动）：提示行说原因（翻回去也失败、已作废的那几样一起说）。 */
   private flipRefused(what: "撤销" | "重做", e: StepFlipError): void { this.host.hint(`${what}没做成：${e.message}${e.untrusted.length ? `；${e.untrusted.join("；")}` : ""}`); this.host.trace?.({ kind: "fail", where: what === "撤销" ? "undo" : "redo", op: null, message: e.message }); this.host.changed(); this.draw(); }
@@ -1330,7 +1330,7 @@ export class Editor {
     let r: ReturnType<History<Session>["undo"]>; try { r = this.history.undo(); } catch (e) { if (e instanceof StepFlipError) { this.flipRefused("撤销", e); return; } throw e; }   // 整步事务（1-8a）
     if (!r) { const n = this.history.evictedSteps(); this.host.hint(n ? `撤到头了（更早的 ${n} 步超过 128 MB 配额，撤不回去）` : "没有可撤销的"); return; }
     this.deferredBefore = null;
-    this.installScene(r.scene, r.before);   // 撤销 = 回到这一步之前：场景 + 在哪个组件里 + 选区一起（先装好，再碰界面）
+    this.installScene(r.scene, r.before, r.doc);   // 撤销 = 回到这一步之前：场景 + 在哪个组件里 + 选区一起（先装好，再碰界面）
     this.openParamSession(null);   // 马后炮 / 马前炮跟着那一步走：撤了就关（不然再改值会撤错一步）
     this.cancelGesture();
     this.host.trace?.({ kind: "undo", position: this.history.position(), depth: this.history.depth() });
@@ -1354,7 +1354,7 @@ export class Editor {
     }
     if (!r) { this.host.hint("没有可重做的"); return; }
     this.deferredBefore = null;
-    this.installScene(r.scene, r.after);   // 重做 = 回到这一步之后（步结束时封的那份）：场景 + 在哪个组件里 + 选区一起
+    this.installScene(r.scene, r.after, r.doc);   // 重做 = 回到这一步之后（步结束时封的那份）：场景 + 在哪个组件里 + 选区一起
     this.openParamSession(null);
     this.host.hint(`重做：${labelText(r.label)}`);
     this.cancelGesture();
@@ -1372,7 +1372,7 @@ export class Editor {
     this.scene = s;
     this.ctx = ROOT_CONTEXT;   // 装场景：不经写口
     this.history.checkParked("load"); this.history = new History<Session>(s, { onLeak: (w) => this.host?.trace?.({ kind: "fail", where: "history", op: null, message: `停放的重做尾巴漏到了「${w}」（已丢掉）` }) }); for (const c of this.undoExtras) this.history.registerComponent(c);   // 外加的撤销成分（画）换文件也带上
-    this.rev();
+    this.docChanged();   // 换了一份文档（装载）
     this.selection = this.blankSelection(); this.selectedPools.clear(); this.selectedGuides.clear();   // 装场景：不经写口
     this.clearCharged();
     this.syncModeToKind();   // 人回到根上：工作台跟着根的身体种类走（2026-10-28 user 黑匣子「definition 1 body is "brep", not mesh」= 在网格体里重开模型，工作台还停在自由建模）
@@ -2506,7 +2506,7 @@ export class Editor {
     this.clearSel(pass);
     this.setCtx(pass, p.kind === "group" ? { chain: this.ctx.chain, group: p.group } : { chain: [...this.ctx.chain, p.instance], group: null });
     this.selection = this.blankSelection();   // 上下文定了再造（选区的 id 空间 = 活动池的种类；写口已标过）；工作台在 setCtx 里已经跟上
-    this.rev();
+    this.viewChanged();   // 进组件 = 只换看法，文件不变（统筹 11-12）
     this.host.changed(); this.draw();
     });
   }
@@ -2538,7 +2538,7 @@ export class Editor {
     }
     this.selection = this.blankSelection();   // 退到的那层可能是另一种身体（从网格体退回硬表面体；写口已标过；工作台在 setCtx 里已经跟上）
     if (reselect) this.selectedPools.set(this.pickKey(reselect), reselect);
-    this.rev();
+    this.viewChanged();   // 出组件 = 只换看法，文件不变（统筹 11-12）
     this.host.changed(); this.draw();
     return true;
     });
