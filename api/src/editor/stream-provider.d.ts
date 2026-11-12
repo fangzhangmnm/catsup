@@ -49,7 +49,10 @@ export declare class EditorStreamProvider implements StreamProvider {
     /** styled = 正在看风格预览（线稿之外的画风）：默认背面按引擎所见不画（计划书 §9.2-E；编辑时画灰蓝 = 披露你在看背面）。 */
     private readonly thick;
     private readonly styled;
-    constructor(thick: () => boolean, styled?: () => boolean);
+    /** 这个工作台画不画接缝（Mode.showsSeams）；演示锁里（没有正在编辑的那一层）一律不画。 */
+    private readonly seamsWanted;
+    constructor(thick: () => boolean, styled?: () => boolean, seams?: () => boolean);
+    private seamsOn;
     /** 这一帧画哪个世界（活的那份，含预演影子）+ checkpoint 代数（内容键的一部分）。编辑器每次画之前调。淡出是标记（视图侧），不在这里。 */
     /** editing = 有「正在编辑的那一层」（演示锁里没有：活动槽也按普通槽放，结构线跟画风走；ai-docs/20261029-edge-display-scenarios.md 场景 6）。 */
     setWorld(world: WorldView, revision?: number, editing?: boolean): void;

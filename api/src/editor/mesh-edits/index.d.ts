@@ -17,6 +17,8 @@ export declare const originToSelection: Command<MeshUnit>;
 export declare const markSharp: Command<MeshUnit>;
 export declare const markSmooth: Command<MeshUnit>;
 export declare const clearMarks: Command<MeshUnit>;
+export declare const markSeam: Command<MeshUnit>;
+export declare const clearSeam: Command<MeshUnit>;
 export declare const bevel: Command<MeshUnit>;
 export declare const bevelPoints: Command<MeshUnit>;
 export declare const mergeCenter: Command<MeshUnit>;

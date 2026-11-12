@@ -12,6 +12,8 @@ export interface AtlasOutline {
     readonly thin: Float32Array;
     /** 片的外沿（粗线）。 */
     readonly thick: Float32Array;
+    /** 接缝上的边（不管在片里还是外沿；给了 seamAt 才有）。 */
+    readonly seam: Float32Array;
     /** 每张面在第几片（从 1 起，按画布上从上到下、从左到右）。 */
     readonly patchOf: ReadonlyMap<number, number>;
     readonly patches: number;
@@ -21,4 +23,4 @@ export interface AtlasOutline {
     /** 这一点（格坐标）落在哪几张面里（升序）。 */
     facesAt(x: number, y: number): number[];
 }
-export declare function atlasOutline(m: AtlasMesh, uvSet: string, faces: readonly number[], width: number, height: number): AtlasOutline;
+export declare function atlasOutline(m: AtlasMesh, uvSet: string, faces: readonly number[], width: number, height: number, seamAt?: (a: number, b: number) => boolean): AtlasOutline;

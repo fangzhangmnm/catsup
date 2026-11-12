@@ -11,6 +11,7 @@ export declare const PALETTE: {
     readonly edgeSelected: 2845872;
     readonly edgeHot: 13382451;
     readonly edgeWarn: 14251782;
+    readonly edgeAccent: 15746063;
     readonly grid: 14276303;
     /** 网格正片叠底的系数色（× 背景 ≈ 原 grid 灰）：主线 / 细线；压在深色材质上只暗 ~10% / ~5%。 */
     readonly gridMajor: 14934492;

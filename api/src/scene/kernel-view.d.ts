@@ -28,6 +28,8 @@ export interface KernelView {
     isSmooth(id: EdgeId): boolean;
     isFold(id: EdgeId): boolean;
     isEdgeHidden(id: EdgeId): boolean;
+    /** 接缝（展开时从这里切开；施工单二十二）：只有网格体有，硬表面没有这个概念 = 不给。 */
+    isSeam?(id: EdgeId): boolean;
     isFaceHidden(id: FaceId): boolean;
     /** 面的材质槽（side 0 正面 / 1 背面；undefined = 默认）。单面的身体（mesh）背面永远 undefined，渲染剔掉背面。 */
     faceMaterialOf(id: FaceId, side?: 0 | 1): number | undefined;

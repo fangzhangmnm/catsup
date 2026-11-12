@@ -105,6 +105,7 @@ export interface EdgeRec {
     readonly a: Pt3;
     readonly b: Pt3;
     readonly loose: boolean;
+    readonly seam: boolean;
     readonly w1: Pt3;
     readonly w2: Pt3;
     readonly flag: number;
@@ -113,8 +114,9 @@ export interface EdgeRec {
  * 看得见的边一条记录；粗线轮廓要两侧面各自往面里走的方向 + 面数（profile-edges.ts）。隐藏的边不画。
  * 软边 / 折线：进线批、旗 + CONTOUR_ONLY = 只在转成外轮廓时画（I12，user 10-30「软边没有变成外轮廓」，拍了「沿软边画折线、不画交线」= SketchUp 同款）。
  * 粗线那条路着色器 = profile-line-shader.ts（v0.18.7），1 像素那条路 = contour-line-material.ts（v0.18.8）。
+ * seams = 这一帧画不画接缝（工作台说了算，PoolMeshEnv.seams）：画的时候接缝一律画出来（软边上的接缝也画，不只在外轮廓时）、带 seam 旗 → 颜色换接缝色；藏起来的边照样不画。
  */
-export declare function buildEdgeRec(k: KernelView, eid: EdgeId): EdgeRec | null;
+export declare function buildEdgeRec(k: KernelView, eid: EdgeId, seams?: boolean): EdgeRec | null;
 export type TexSide = "front" | "back" | "double";
 export interface PoolMeshEnv {
     /** 槽号 → 材质（scene.materialOfSlot 绑好 definition）。 */
@@ -137,7 +139,9 @@ export interface PoolMeshEnv {
     slotsSig: string;
     /** 面 / 边烤进顶点的颜色（提供者按调色板算；淡出 / 选中不在这里 = 标记）。 */
     faceColor(mat: Material | null): readonly [number, number, number];
-    edgeColor(loose: boolean): readonly [number, number, number];
+    edgeColor(loose: boolean, seam: boolean): readonly [number, number, number];
+    /** 画不画接缝（自由建模、画画工作台画；只看的时候不画 = 施工单二十二 B）：变了 = 全量重建。 */
+    seams: boolean;
     /** 粗线（LineSegments2 实例）还是像素线。 */
     thick: boolean;
     /** 单面的身体（mesh）：渲染剔背面（render3 换 FrontSide 材质）。 */
@@ -162,6 +166,7 @@ export declare class PoolMesh {
     /** 现在反映的池是不是单面（渲染器据此挑剔背面的材质）。 */
     singleSided: boolean;
     private backLook;
+    private seams;
     /**
      * 缓存反映的每张面当时的环边（画不画都记——隐藏的面没有画的记录）：面被删 / 被改的时候，靠这里知道它当时挨着哪些边，
      * 那些边的面链接变了、边两头的法线扇也可能变（日志只记了面）。只记边编号：顶点从边的两头来（边被删了 = 日志里有那条边 + 它两侧的面）。

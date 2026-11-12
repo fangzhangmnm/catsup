@@ -31,6 +31,7 @@ export declare class MeshView implements KernelView {
     /** mesh 没有折线：面内的折痕就是一条软 + 平滑的边。 */
     isFold(): boolean;
     isEdgeHidden(id: EdgeId): boolean;
+    isSeam(id: EdgeId): boolean;
     isFaceHidden(id: FaceId): boolean;
     /** 单面：背面没有材质（渲染剔掉背面，user 10-27「enforce backface culling」）。 */
     faceMaterialOf(id: FaceId, side?: 0 | 1): number | undefined;

@@ -5,6 +5,7 @@ export declare class FreeformMode implements Mode {
     readonly id: "freeform";
     readonly label = "\u81EA\u7531\u5EFA\u6A21";
     readonly kinds: readonly ["mesh"];
+    readonly showsSeams = true;
     readonly tools: readonly Tool[];
     readonly defaultTool: Tool;
     readonly whenLocked: Mode["whenLocked"];

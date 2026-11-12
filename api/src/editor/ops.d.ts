@@ -382,8 +382,8 @@ export type Op =
  | {
     op: "meshEdgeMarks";
     def: number;
-    edges: number[];
-    mark: "sharp" | "smooth" | "none";
+    edges: number[]; /** 手标三档 + 接缝的标 / 清（施工单二十二第 1 刀；mesh/edge-smooth.ts EdgeMark）。 */
+    mark: "sharp" | "smooth" | "none" | "seam" | "unseam";
 }
 /** 倒边（2026-10-28 FM152；mesh/ops/bevel.ts bevelEdges）：width = 本地长度、segments ≥ 1（≥ 2 = 圆角）；一条都没倒 = 拒（不提交空步）。 */
  | {

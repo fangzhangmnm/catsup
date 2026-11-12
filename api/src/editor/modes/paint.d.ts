@@ -5,6 +5,7 @@ export declare class PaintMode implements Mode {
     readonly id: "paint";
     readonly label = "\u753B\u753B";
     readonly kinds: readonly ["mesh"];
+    readonly showsSeams = true;
     readonly tools: readonly Tool[];
     readonly defaultTool: Tool;
     readonly whenLocked: Mode["whenLocked"];

@@ -65,6 +65,7 @@ export interface CanvasWindowProbe {
     faces: number[];
     thin: number;
     thick: number;
+    seam: number;
     patches: number;
     covered: number;
     shared: number;

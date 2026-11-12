@@ -36,6 +36,8 @@ export interface Mode {
         readonly eraseNonCoplanar?: "burst" | "fold";
         readonly autofold?: "hard" | "fold";
     };
+    /** 画不画接缝（施工单二十二 B，统筹 11-12）：自由建模、画画 = 画（标接缝、看展开从哪切开）；别的工作台 = 不画。缺 = 不画。 */
+    readonly showsSeams?: boolean;
     /** 模式自己的叠加层（表面模式：贴图投影预览；物体模式：锁定框…）；底座每帧并进 ViewState。 */
     viewExtras?(): Partial<ViewState>;
 }

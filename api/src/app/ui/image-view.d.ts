@@ -25,8 +25,11 @@ export interface ImageViewHooks {
 export interface ImageView {
     /** 换图（宽高 = 格数；图的像素和格一一对应）。null = 没有图（画底色）。 */
     setImage(src: CanvasImageSource | null, width: number, height: number): void;
-    /** 线段（每条 4 个数 x0, y0, x1, y1，格）：thin = 细线、thick = 粗线。 */
-    setLines(thin: Float32Array, thick: Float32Array): void;
+    /** 线段（每条 4 个数 x0, y0, x1, y1，格）：thin = 细线、thick = 粗线；accent = 另一组粗线换个颜色画（三维那边用来画接缝；颜色是 CSS 颜色，这里不认识它是什么）。 */
+    setLines(thin: Float32Array, thick: Float32Array, accent?: {
+        readonly lines: Float32Array;
+        readonly color: string;
+    }): void;
     /** 按编号取多边形（选中 / 悬停时涂一层用）。 */
     setRings(ring: (id: number) => ArrayLike<number> | undefined): void;
     /** 选中的编号 + 悬停的编号。 */
