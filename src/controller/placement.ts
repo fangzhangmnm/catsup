@@ -88,6 +88,7 @@ export const MENU_ROWS: readonly MenuRow[] = [
   { id: "unitPlane", tab: "units" },        // 栅格面（关 = 网格和三色轴都不画）
   { id: "scaleRef", tab: "units", section: "尺度参考" },   // 一行：看哪些 ▾ · 最多几条 ▾ · 适用范围与出处（user 10-30「放在尺度参考同一行……label也去掉」）
   { id: "finger", tab: "settings" },
+  { id: "lang", tab: "settings" },
   { id: "lefthand", tab: "settings", section: "VR" },   // 支持 VR 的设备才出（视图窗口只管画风以后挪来，user 10-30）
   { id: "pwLock", tab: "settings", section: "口令" },     // 锁定（忘掉口令）；解锁着才出
   { id: "pwForget", tab: "settings", section: "口令" },   // 忘记这台设备记着的口令（X 到期）；记着才出

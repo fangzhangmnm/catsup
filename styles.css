@@ -142,6 +142,7 @@ body.doc-locked .walk-btn[data-edits] { opacity: .45; }
 .walk-btn.flash { animation: walk-btn-flash 0.4s ease-in-out 3; }
 @keyframes walk-btn-flash { 50% { transform: scale(1.12); box-shadow: 0 0 0 6px var(--accent-soft, rgba(80, 120, 255, .3)); } }
 .hud-topleft .tb-btn { width: 40px; height: 40px; background: var(--glass); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }   /* 左上 ☰ / 保存 / 层级 / 物件：毛玻璃底，和工作台下拉、右上那几颗统一（user 10-30「汉堡系的几个没有背景的按钮也改成带背景的吧」） */
+.lang-glyph { font-size: 13px; font-weight: 600; letter-spacing: -0.5px; }   /* 文A = the universal "translate" glyph; text, so no icon-sprite entry needed */
 .hud-topleft .tb-btn:hover { background: var(--hover); }
 .hud-topleft .tb-btn:active, .hud-topleft .tb-btn.is-open { background: var(--accent-soft); color: var(--accent); }
 .hud-crumbs { gap: 4px; padding: 4px 10px; font-size: 13px; flex-wrap: wrap; }   /* 住进 .hud-topstack 第三排 */
