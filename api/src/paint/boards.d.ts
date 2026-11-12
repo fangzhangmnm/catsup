@@ -20,6 +20,8 @@ export interface PaintBoardsOpts {
     readonly active?: (on: boolean) => void;
     /** 给用户的一句话（1-8b：这张画只能看不能画、为什么）。 */
     readonly say?: (text: string) => void;
+    /** 文件锁着吗（锁着 = 输入闸上那条锁的理由，能改 = null）：递给每块画板（开一笔、落层问它），整份换内容（load）也问（v0.19.48）。必填：漏传 = 悄悄当没锁。 */
+    readonly editLocked: () => string | null;
 }
 /** 「画」这种撤销记录：哪张贴图 + 内核封的那一步（内核的对象，三维不看里面）。 */
 export interface PaintRec {
@@ -116,7 +118,7 @@ export declare class PaintBoards {
     private resig;
 }
 /** 浏览器里：内核的显卡接口建在渲染器的画面上（整个程序一个）。 */
-export declare function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void, touched?: () => void, undoReset?: (texture: Guid, why: string, tell: boolean) => void, active?: (on: boolean) => void, say?: (text: string) => void): PaintBoards;
+export declare function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, editLocked: () => string | null, log?: (msg: string) => void, touched?: () => void, undoReset?: (texture: Guid, why: string, tell: boolean) => void, active?: (on: boolean) => void, say?: (text: string) => void): PaintBoards;
 /** 落笔撞上冷的画（1-8b）：画板登记处不给它建空白画板。why = 只能看不能画的原因（有的话）。 */
 export declare class ColdPaintError extends Error {
     /** 哪张贴图（字段不叫 texture：守卫 textures-table 不许「点 texture」）。 */

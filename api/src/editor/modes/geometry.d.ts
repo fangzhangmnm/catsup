@@ -7,5 +7,6 @@ export declare class GeometryMode implements Mode {
     readonly kinds: readonly ["brep"];
     readonly tools: readonly Tool[];
     readonly defaultTool: Tool;
+    readonly whenLocked: Mode["whenLocked"];
     readonly handlers: Partial<Record<Tool, ToolHandler>>;
 }

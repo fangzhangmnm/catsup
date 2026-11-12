@@ -10,7 +10,7 @@ export interface PaintWorkbenchDeps {
     /** 一笔要的那些口（main.ts 和调试钩子同一份）；chain = 落点只认这一份摆放（正在编辑的那一份）。 */
     strokeDeps(chain: readonly number[]): SpacePaintDeps;
     /** 落笔之前问的门（main.ts paintStrokeGate：冷的 = 不开始 + 解开；只能看不能画 = 说为什么）。能画 = null。 */
-    gate(texture: string): "warming" | "view-only" | null;
+    gate(texture: string): "locked" | "warming" | "view-only" | null;
     readonly color: PaintColor;
     /** 画画的准备（main.ts paintPrep；和调试钩子同一个）。 */
     readonly prep: SpacePrep;

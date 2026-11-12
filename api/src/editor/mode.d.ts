@@ -12,6 +12,16 @@ export interface Mode {
     /** 这个模式有哪些工具（别的模式的工具在这里不存在）。 */
     readonly tools: readonly Tool[];
     readonly defaultTool: Tool;
+    /**
+     * 锁上时手上拿什么（统筹 11-11，v0.19.48；守卫 test/workbench-tools.test.ts：每个工作台都要写、写的必须是只读工具）：
+     * { tool } = 这个工作台自己的只读工具；{ elsewhere } = 这里没有只读工具，去「有这把工具、又管得了这种身体」的工作台拿它（明着换工作台），锁着时也不让进这里。
+     * 起因：v0.19.47 起 setTool 不替人换工作台，锁上时「放下改模型的工具」在画画工作台里放不下（拿着笔、停在画画里）。
+     */
+    readonly whenLocked: {
+        readonly tool: Tool;
+    } | {
+        readonly elsewhere: Tool;
+    };
     /** 工具 → 手势模块（没有模块的工具暂由 Editor 内建 switch 处理——刀 ② 逐个搬进来）。 */
     readonly handlers: Partial<Record<Tool, ToolHandler>>;
     /** 切进来 / 切出去（清模式专属状态；选区能保留就保留）。 */

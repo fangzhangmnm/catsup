@@ -13,6 +13,8 @@ export interface PaintBoardOpts {
     readonly undo?: StepSink;
     /** 有内容的行 / 列不砍时记一笔（调试日志）。 */
     readonly log?: (msg: string) => void;
+    /** 文件锁着吗（锁着 = 交出给人看的那句理由，能改 = null）。开一笔、落层都问它（v0.19.48）。缺 = 当没锁（单测）；app 里由 PaintBoards 递进来，守卫 test/paint-pixel-writes.test.ts。画板不认识编辑器。 */
+    readonly locked?: () => string | null;
 }
 /** 画布上一块（格子；[x, x + w) × [y, y + h)）。 */
 export interface ChangedRect {
@@ -28,6 +30,7 @@ export declare class PaintBoard {
     private readonly gl;
     private readonly port;
     private readonly log;
+    private readonly locked;
     private bg;
     /** 合成出来的那张图（内核的，下一次合成之前有效）+ 合成它时的内容键。 */
     private last;
