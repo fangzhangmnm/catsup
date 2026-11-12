@@ -10,7 +10,8 @@ const { join } = (await import("node:path" as string)) as { join(...p: string[])
 
 const files = (() => { const out: string[] = []; const walk = (d: string): void => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) { if (p !== join("src", "paint", "kernel")) walk(p); } else if (/\.ts$/.test(n)) out.push(p); } }; walk("src"); return out.sort(); })();
 const code = (f: string): string => readFileSync(f, "utf8").split("\n").map((l: string) => l.replace(/(^|[^:"'`])\/\/.*$/, "$1")).join("\n");
-const hitsOf = (re: RegExp): string[] => files.flatMap((f) => ((code(f).match(re) ?? []).length ? [f] : []));
+const hitsOf = (re: RegExp): string[] => files.filter((f) => !f.startsWith(join("src", "i18n") + "/")).flatMap(   // src/i18n/ = translation tables keyed by the zh source text, not code that implements it
+  (f) => ((code(f).match(re) ?? []).length ? [f] : []));
 /** ops.ts 里某一条 case 的正文（截到下一条 case）。 */
 const caseBody = (src: string, name: string): string => { const i = src.indexOf(`case "${name}":`); assert(i >= 0, `ops.ts 里有 case "${name}"`); const j = src.indexOf("\n    case \"", i + 10); return src.slice(i, j < 0 ? undefined : j); };
 

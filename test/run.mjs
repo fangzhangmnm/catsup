@@ -2,6 +2,7 @@
 // 加新测试文件：在下面 import 一行即可。这里是唯一的登记处：并行运行器 test/par.mjs（npm test）也从这些 import 行读名单。
 import "./smoke.test.ts";
 import "./page-title.test.ts";   // 网页标题只是 CatsUp（user 2026-10-14）
+import "./i18n.test.ts";   // UI translation layer (src/i18n)
 import "./no-symlinks.test.ts";   // 仓里不许有符号链接（2026-11-11：工作副本的 node_modules 链接被收进仓、主目录的真文件夹被换掉过）
 import "./moved-notice.test.ts";   // 旧地址的搬家一行（2026-11-03）
 import "./subdivide.test.ts";
