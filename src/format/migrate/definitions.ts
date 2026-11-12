@@ -44,7 +44,7 @@ export function definitionsV6toV7(j: Record<string, unknown>, ctx?: MigrationCtx
     const instances = instsIn
       ? instsIn.rows.map((i) => { const { id: _id, ...rest } = i; void _id; return { ...rest, guid: instsIn.guidOf.get(instsIn.idOf(i))!, definition: defRef(i.definition), parent: groupRef(i.parent) }; })
       : rawDef.instances;
-    const materialSlots = (Array.isArray(rawDef.materialSlots) ? rawDef.materialSlots : []).map((m: unknown) => { const g = typeof m === "number" ? (ctx.materialGuids[m] ?? null) : null; if (g === null && m !== null && m !== undefined) ctx.dangling?.("materialSlot"); return g; });
+    const materialSlots = (Array.isArray(rawDef.materialSlots) ? rawDef.materialSlots : []).map((m: unknown) => { const g = typeof m === "number" ? (ctx.materialGuids[m] ?? null) : null; if (g === null && m !== null && m !== undefined && !(typeof m === "number" && m < 0)) ctx.dangling?.("materialSlot"); return g; });   // 当年运行时「没有材质」= −1、写盘原样写出去（7e67d318~1 scene-doc.ts）：负数是正常写法、不报；≥ 0 却找不到才是悬空（和写的那头同一个口径）
     return { ...rawDef, guid: defGuids[di], groups, instances, materialSlots };
   });
   return { ...j, version: 7, root: defRef(j.root), list: out };

@@ -81,6 +81,11 @@ describe("② 读的时候悄悄修的悬空引用：记一笔、打开时说", 
     const bad = tamper(bytesOf(hit!.dir, hit!.f), (j) => { const d = j.extensions.CATSUP_definitions.list.find((x: Json) => (x.materialSlots ?? []).length && (x.instances ?? []).length); d.materialSlots[0] = 999; d.instances[0].parent = 999; });
     const n = readCatsup(bad).readNotes!;
     eq(n.danglingMaterialSlots, 1); eq(n.danglingParents, 1);
+    // 当年运行时「没有材质」= −1、写盘原样写出去：老文件里的负数是正常写法，不报、读成没有材质（统筹 11-12 要的这一条；冻样本里没有「第 6 版 + 空槽」的）
+    const none = tamper(bytesOf(hit!.dir, hit!.f), (j) => { const d = j.extensions.CATSUP_definitions.list.find((x: Json) => (x.materialSlots ?? []).length && (x.instances ?? []).length); d.materialSlots[0] = -1; });
+    const dn = readCatsup(none);
+    eq(dn.readNotes?.danglingMaterialSlots, undefined, "−1 不报");
+    assert(dn.definitions.some((d) => d.materialSlots[0] === null), "读成没有材质");
   });
 });
 
