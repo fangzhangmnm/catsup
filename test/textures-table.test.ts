@@ -6,7 +6,7 @@ const { readdirSync, readFileSync, statSync, existsSync } = (await import("node:
 const join = (...p: string[]): string => p.join("/");
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, writeGltfModel, decodeGlb } from "../src/format/index.ts";
 import { encodeGlb } from "../src/format/glb.ts";
-import { COLOR_VALUE, newDocument, type CatsupDocument, type TextureDoc } from "../src/format/document.ts";
+import { COLOR_VALUE, colorMapIn, compositeFits, newDocument, paintIn, tiledPaintIn, type CatsupDocument, type TextureDoc } from "../src/format/document.ts";
 import { mintGuid } from "../src/format/guid.ts";
 import { ROOT_CONTEXT, Scene } from "../src/scene/scene.ts";
 import { applyOp, OpRejected, faceKey } from "../src/editor/ops.ts";
@@ -274,6 +274,48 @@ describe("贴图表：守卫", () => {
     const hits: string[] = [];
     for (const f of files) if (!allowed.has(f)) for (const line of readFileSync(f, "utf8").split("\n")) if (/channels\??\.(color|\[COLOR_CHANNEL\])\??\[/.test(line) || /channels\??\.\[COLOR_CHANNEL\]\??\[/.test(line)) hits.push(`${f}: ${line.trim().slice(0, 70)}`);
     eq(hits.length, 0, hits.join(" | "));
+  });
+});
+
+describe("平铺的画（CATSUP_textures 1.2，施工单二十一第 3 刀）", () => {
+  it("颜色那一槽的三个问法互斥：原图 + sizeM = colorMapIn；分层 + layout = paintIn；分层 + sizeM（没有 layout）= tiledPaintIn；不认识的种类 = 三个都没有", () => {
+    const g = () => mintGuid(), ora = new Uint8Array([80, 75, 3, 4]);
+    const rows: [string, TextureDoc][] = [
+      ["image", { guid: g(), name: "图", value: COLOR_VALUE, content: { kind: "image", mimeType: "image/png", bytes: TINY_PNG }, sizeM: [1, 1] }],
+      ["paint", { guid: g(), name: "画", value: COLOR_VALUE, content: { kind: "layered", ora }, layout: { definition: g(), uvSet: g() } }],
+      ["tiled", { guid: g(), name: "瓦", value: COLOR_VALUE, content: { kind: "layered", ora }, sizeM: [0.5, 0.25] }],
+      ["tiledNew", { guid: g(), name: "新建还没存", value: COLOR_VALUE, content: { kind: "layered", ora: null }, sizeM: [1, 1] }],
+      ["other", { guid: g(), name: "更新版的", value: COLOR_VALUE, content: { kind: "other", raw: { json: { kind: "voxel" }, views: new Map() } }, sizeM: [1, 1] }],
+      ["badLayout", { guid: g(), name: "layout 形状不认识", value: COLOR_VALUE, content: { kind: "layered", ora }, layout: 7 }],
+    ];
+    const table = new Map(rows.map(([, t]) => [t.guid, t]));
+    const want: Record<string, string> = { image: "color", paint: "paint", tiled: "tiled", tiledNew: "tiled", other: "", badLayout: "" };
+    for (const [name, t] of rows) {
+      const m = { channels: { color: [t.guid] } };
+      const got = [colorMapIn(table, m) ? "color" : "", paintIn(table, m) ? "paint" : "", tiledPaintIn(table, m) ? "tiled" : ""].filter(Boolean);
+      assert(got.length <= 1, `${name}：三个问法里有 ${got.length} 个答是（${got.join("、")}）`);
+      eq(got[0] ?? "", want[name], name);
+    }
+    eq(JSON.stringify(tiledPaintIn(table, { channels: { color: [rows[2][1].guid] } })!.sizeM), "[0.5,0.25]", "带出 sizeM");
+    eq(tiledPaintIn(table, {}), null, "没有颜色那一槽");
+  });
+  it("冻的样本 tiledPaint.glb（每个有它的目录）：读出来材质「瓦」是平铺的画、sizeM 对、合成图对得上材质颜色、分层字节在；读 → 写 → 读两次写出的字节一样", () => {
+    const dirs = listCorpusDirs().filter((d: string) => existsSync(join(fixtureDir(d), "tiledPaint.glb")));
+    assert(dirs.length >= 1, "至少一个目录有这个样本");
+    for (const d of dirs) {
+      const bytes = readFileSync(join(fixtureDir(d), "tiledPaint.glb"));
+      const s = sceneFromDocument(readCatsup(bytes));
+      const m = s.materials.find((x) => x.name === "瓦")!;
+      const tp = s.tiledPaintOf(m);
+      assert(tp !== null, `${d}：材质「瓦」是平铺的画`);
+      eq(s.colorMapOf(m), null, `${d}：不是原图`);
+      eq(JSON.stringify(tp!.sizeM), "[0.5,0.125]", `${d}：sizeM`);
+      assert(tp!.textureDoc.content.kind === "layered" && (tp!.textureDoc.content.ora?.length ?? 0) > 0, `${d}：分层字节在`);
+      assert(compositeFits(tp!.textureDoc, m.color), `${d}：合成图对得上材质颜色`);
+      const w1 = writeCatsup(documentFromScene(s, "tiledPaint")), w2 = writeCatsup(documentFromScene(sceneFromDocument(readCatsup(w1)), "tiledPaint"));
+      eq(w1.length, w2.length, `${d}：两次写出一样长`);
+      assert(w1.every((v, i) => v === w2[i]), `${d}：两次写出逐字节一样`);
+    }
   });
 });
 

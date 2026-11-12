@@ -146,7 +146,10 @@ export interface TextureDoc {
   guid: Guid; name?: string;
   value: TextureValue;
   content: TextureContent;
-  /** 自由的图：真实尺寸（米）。老规矩：每张图必须带长度尺度。照着贴图坐标画的图不写这个键（尺寸跟那一套坐标走）。 */
+  /** 自由的图：真实尺寸（米）。老规矩：每张图必须带长度尺度。照着贴图坐标画的图不写这个键（尺寸跟那一套坐标走）。
+   *  CATSUP_textures 1.2（2026-11-12，施工单二十一第 3 刀，Claude Opus 5.5）：content 是分层的、带 sizeM、没有 layout = 平铺的画——贴着它的面按 sizeM 平铺显示它的合成图，
+   *  和自由的图同一种铺法；只在画布小窗里画（一格对着模型上很多个地方）。形状没变（1.0 起就允许这个组合，只是以前没有意思）；问它只经 tiledPaintIn（和 colorMapIn、paintIn 三个互斥）。
+   *  1.1 的读者（v0.19.60 及以前）：colorMapIn 要原图、paintIn 要 layout，两个都答不是 = 按底色显示，行原样带回（拿 v0.19.60 的真代码验过，scripts/old-reader-check.mjs）。 */
   sizeM?: [number, number];
   /** 单品的画：硬绑定到哪个定义的哪一套贴图坐标。有 layout 就没有 sizeM，反之亦然；两个都有或都没有 = 文件坏了。 */
   layout?: { definition: Guid; uvSet: Guid };

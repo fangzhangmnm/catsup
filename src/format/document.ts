@@ -50,7 +50,7 @@ export interface TextureDoc {
   /** 这张图表示什么（开放的普通 JSON，原样带；这一版只写 { kind: "color" }）。 */
   readonly value: unknown;
   readonly content: TextureContent;
-  /** 自由的图：物理尺寸 米（两个数都 > 0）。和 layout 正好有一个。 */
+  /** 物理尺寸 米（两个数都 > 0）：原图 = 自由的图；分层的 = 平铺的画（1.2，tiledPaintIn）。和 layout 正好有一个。 */
   readonly sizeM?: readonly [number, number];
   /** 单品的画：{ definition, uvSet }（两个 GUID 字符串；形状不认识的原样带，当它不是画）。读它只经 paintIn。 */
   readonly layout?: unknown;
@@ -98,7 +98,7 @@ export function colorMapIn(table: ReadonlyMap<Guid, TextureDoc>, m: { readonly c
 /** 画：颜色那一槽指着的那张分层的贴图，和它铺在哪个定义的哪一套贴图坐标上（两个 GUID）。 */
 export interface PaintRef { /** 那张分层的贴图（贴图表里那一行；字段不叫 texture：守卫 textures-table 不许「点 texture」这种读法，免得和旧的「材质里装着图」混）。 */ readonly textureDoc: TextureDoc; readonly definition: Guid; readonly uvSet: Guid }
 /**
- * 「这个材质是不是画」全仓唯一的问法（贴图主线 1-3b；紧挨着 colorMapIn，两个加在一起是问「颜色那一槽是什么」的全部入口）：颜色那一槽的第一张，内容是分层的，
+ * 「这个材质是不是画」全仓唯一的问法（贴图主线 1-3b；紧挨着 colorMapIn，和 colorMapIn、tiledPaintIn 三个加在一起是问「颜色那一槽是什么」的全部入口）：颜色那一槽的第一张，内容是分层的，
  * 而且 layout 是 { definition, uvSet } 两个 GUID 字符串 → 那张图和两个 GUID；别的情况 = null。layout 形状不认识的照旧原样带，当它不是画。
  * src/ 里读贴图的 layout 只有这里（守卫 test/paint-start-guard.test.ts；读写文件的 texture-table.ts 只是原样搬运）。
  */
@@ -109,6 +109,19 @@ export function paintIn(table: ReadonlyMap<Guid, TextureDoc>, m: { readonly chan
   const l = t.layout as { definition?: unknown; uvSet?: unknown } | null | undefined;
   if (!l || typeof l !== "object" || typeof l.definition !== "string" || typeof l.uvSet !== "string") return null;
   return { textureDoc: t, definition: l.definition, uvSet: l.uvSet };
+}
+/** 平铺的画：颜色那一槽指着的那张分层的贴图，和它在模型上多大（米）。 */
+export interface TiledPaintRef { readonly textureDoc: TextureDoc; readonly sizeM: readonly [number, number] }
+/**
+ * 「这个材质是不是平铺的画」全仓唯一的问法（CATSUP_textures 1.2，施工单二十一第 3 刀；和 colorMapIn、paintIn 三个加在一起是问「颜色那一槽是什么」的全部入口，三个互斥）：
+ * 颜色那一槽的第一张，内容是分层的、带 sizeM、没有 layout → 那张图和 sizeM；别的情况 = null。
+ * 贴着它的面按 sizeM 平铺显示它的合成图（和自由的图同一种铺法）；只在画布小窗里画（一格对着模型上很多个地方，在模型上画没有意义）。
+ * 1.1 的读者（v0.19.60 及以前）不认识这个组合：colorMapIn 要原图、paintIn 要 layout，两个都给 null = 按底色显示，行原样带回。
+ */
+export function tiledPaintIn(table: ReadonlyMap<Guid, TextureDoc>, m: { readonly channels?: Channels }): TiledPaintRef | null {
+  const g = m.channels?.[COLOR_CHANNEL]?.[0];
+  const t = g === undefined ? undefined : table.get(g);
+  return t && t.content.kind === "layered" && t.sizeM && t.layout === undefined ? { textureDoc: t, sizeM: t.sizeM } : null;
 }
 /** 材质（= glTF core material）：颜色 sRGB 0..1 + channels（通道名 → 一摞贴图 GUID；这一版只用 color、一摞只放一张；不认识的名字原样带）。 */
 export interface MaterialDoc { /** 身份（CATSUP_material 1.2）；名字只是显示、可重名。 */ guid: Guid; name: string; color: [number, number, number]; channels?: Channels; /** CATSUP_material 里本版不认识的键（更新版写的），连同它们引用的字节原样带回（2026-11-10 起，Fable 审 1-0½）。 */ extra?: CarriedJson; }

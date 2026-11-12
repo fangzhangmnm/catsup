@@ -273,7 +273,20 @@ export function sceneUvTwoSets(): Scene {
   s = applyOp(s, { op: "purgeTextures", textures: [texB] }).scene;
   return s;
 }
-export const SCENE_DOCS: Record<string, () => Scene> = { uvDensityFit: sceneUvDensityFit, uvPaintedComposite: sceneUvPaintedComposite, uvPaintedTall: sceneUvPaintedTall, uvPainted: sceneUvPainted, uvTwoSets: sceneUvTwoSets, sharedTextures: sceneSharedTextures, sided: sceneSided, grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
+/** 平铺的画（CATSUP_textures 1.2，施工单二十一第 3 刀）：分层内容 + sizeM、没有 layout；材质「瓦」的颜色那一槽指它，盒子两张面涂了它、其中一张做成组件；带合成图（底色 = 材质颜色，对得上）。
+ *  像素大小格式上不限（界面给 16–256），这里借现成那份真的两层画（1024 × 256），sizeM 照它的长宽比。 */
+export function sceneTiledPaint(): Scene {
+  let s = new Scene(sceneBox(1, 1));
+  const tex = mintGuid();
+  s.addTexture({ guid: tex, name: "瓦片", value: { kind: "color" }, content: { kind: "layered", ora: ORA_TWO_LAYERS_1024x256 }, sizeM: [0.5, 0.125], composite: { png: COMPOSITE_TWO_LAYERS_PNG, of: { bytes: ORA_TWO_LAYERS_1024x256.length, sum: paintBytesSum(ORA_TWO_LAYERS_1024x256) }, base: [0.9, 0.85, 0.7] } });
+  s = applyOp(s, { op: "addMaterial", name: "瓦", color: [0.9, 0.85, 0.7], channels: { color: [tex] } }).scene;
+  const k = rootK(s), [f0, f1] = k.faces();
+  s = applyOp(s, { op: "paintFaces", at: { def: s.root, group: null }, faces: [faceKey(k, f0.id), faceKey(k, f1.id)], material: 0 }).scene;
+  const k2 = rootK(s), g1 = k2.faces().find((f) => k2.faceMaterialOf(f.id, 0) !== null)!;   // 涂了「瓦」的一张面做成组件：组件的槽表里也指着平铺的画
+  s = applyOp(s, { op: "makeComponent", at: { def: s.root, group: null }, faces: [faceKey(k2, g1.id)], edges: [], name: "瓦面" }).scene;
+  return s;
+}
+export const SCENE_DOCS: Record<string, () => Scene> = { tiledPaint: sceneTiledPaint, uvDensityFit: sceneUvDensityFit, uvPaintedComposite: sceneUvPaintedComposite, uvPaintedTall: sceneUvPaintedTall, uvPainted: sceneUvPainted, uvTwoSets: sceneUvTwoSets, sharedTextures: sceneSharedTextures, sided: sceneSided, grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
 /** 参考窗牌组（CATSUP_references 1.0 + desk 1.1 refPanel；2026-10-25 Opus）：清单字节 = @internal/reference-window 0.5.0 encodeDeck 的真实输出
  *  （一张图、一张文字、一张只放内存的视频——后者只在清单里记大小、没有字节），窗开着。format 层不懂清单：这里只钉「目录原样进出」。 */
 export const REF_MANIFEST = '{"version":1,"minor":1,"patch":0,"index":1,"items":[{"kind":"image","src":".catsup/references/r0.png","vp":null,"name":"格子.png"},{"kind":"text","src":".catsup/references/r1.txt","vp":null,"name":"尺寸"},{"kind":"video","vp":null,"name":"walk.webm","mime":"video/webm","ram":{"bytes":10}}]}';

@@ -19,7 +19,7 @@ import type { MirrorSetting } from "../mesh/mirror.ts";
 import type { KernelView } from "./kernel-view.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
 import type { CurveParams } from "../kernel/curves.ts";
-import { type CarriedJson, type Channels, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc, colorMapIn, paintIn, defaultLayers, emptyShelf } from "../format/document.ts";
+import { type CarriedJson, type Channels, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc, type TiledPaintRef, colorMapIn, paintIn, tiledPaintIn, defaultLayers, emptyShelf } from "../format/document.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
 import type { Stamp } from "../format/migrate/index.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "./builtin-materials.ts";
@@ -183,6 +183,8 @@ export class Scene {
   }
   /** 「这个材质用哪张图」（那个口；全仓问这个，不读材质里的字段）：颜色那一槽的第一张、而且是带尺寸的原图；不是 = null（按底色画）。查表，每张面都会问。 */
   colorMapOf(m: Material): ColorMap | null { return colorMapIn(this.textures, m); }
+  /** 「这个材质是不是平铺的画」（那个口，CATSUP_textures 1.2）：颜色那一槽的第一张是分层的、带 sizeM、没有 layout → 那张图和 sizeM；不是 = null。 */
+  tiledPaintOf(m: Material): TiledPaintRef | null { return tiledPaintIn(this.textures, m); }
 
   // ---------- 查 ----------
   def(id: DefId): Definition {
