@@ -39,6 +39,8 @@ export interface RefsPort {
 }
 export interface SessionDeps {
     editor: Editor;
+    /** 量时长的钟（ms，只往前走）：自动保存 / 崩溃快照的空闲计时、重载前等推送的时限。缺 = performance.now；测试里换成模拟的（统筹 11-11）。 */
+    clock?: () => number;
     /** 手上还有没有一下没收（controller/hand-busy.ts 的名册：编辑器的手势、画画的一笔……）。自动保存 / 崩溃快照 / 重推只问它，不点具体来源（统筹 11-11；守卫 test/hand-busy.test.ts）。 */
     hand: Pick<HandRoster, "busy">;
     /** 这份从没传过、人还没答应传：隐式保存只落本机（规则书第 15 条 (a)）。缺 = 不压。 */
@@ -140,7 +142,14 @@ export declare class Session {
     /** 参考窗牌组的修订号（加删卡；视图态不算）：存过的 / 看到过的。dirty = 几何改了 ∨ 牌组改了。 */
     private savedRefRev;
     private lastSeenRefRev;
+    /**
+     * 上次改动的时刻（只往前走的钟，SessionDeps.clock）。空闲满 AUTOSAVE_IDLE_MS = 自动保存 / 崩溃快照（统筹 11-11：以前用墙上钟，系统把钟往回校一大截，
+     * 「空闲满 30 秒」要等墙上钟追回来才成立，没存盘的时间被拉长）。−∞ = 还没改过（开机领养的脏模型照旧马上能存，和以前「墙上钟 − 0」一样）。
+     * 这种钟在设备睡着的时候可能不走：醒来之后最多要再等满 30 秒才自动保存——不是毛病，别改回墙上钟：睡之前切后台那一下本来就会存（崩溃安全 flush），不构成没存盘的窗口（统筹 11-12）。
+     */
     private lastEditAt;
+    /** 量时长的钟（只往前走；缺 = performance.now）。墙上钟只留给「什么时候」（崩溃快照的 at 这类）。 */
+    private readonly now;
     private loaded;
     private timer;
     /** T-crash 行李牌（file / transient 家才有；gallery 家 = null）+ 上次快照的 revision。 */
