@@ -53,6 +53,8 @@ export declare class PaintBoard {
     /** 上一次合成时落定内容的键（变了 = 整张）。 */
     private lastCommitted;
     constructor(o: PaintBoardOpts);
+    /** 摘掉挂在 Port 上的那个回调（退租时摘；内核 v0.14.85 起 onInvalidated 返回它——不摘 = Port 一直拉着这块画板，换文件换多了放不掉）。 */
+    private unInvalidated;
     get width(): number;
     get height(): number;
     /** 内容键：作品的提交版本（画、撤销、改大小都算）+ 大小 + 底色 + 恢复次数。变了 = 下一次合成出新图。 */
