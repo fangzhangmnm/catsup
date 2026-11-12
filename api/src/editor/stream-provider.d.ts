@@ -53,6 +53,15 @@ export declare class EditorStreamProvider implements StreamProvider {
     private worldId;
     /** 内容键（引擎契约）：世界身份 + 版本；没变 = 引擎不重新拉（= 以前 render3 的 poolKey 那半）。 */
     contentKey(): string;
+    /**
+     * 内容此刻还持有的图和材质引用（引擎契约 retained，施工单十九第 1 刀规矩 2）：文档材质表里每个材质 → 交给渲染器的那个材质引用和它的图；
+     * 画（颜色那一槽是分层的贴图）→ 画板现在的图（热的 = 活的图、冷的 = 合成图）和那一组材质引用。可见不可见都算。
+     * 不在这里的 = 文档里没有了（撤销掉的、换掉的文件、冷热换过的旧图），渲染器放掉。按需现算：材质表的长度量级，渲染器只在内容变了时问。
+     */
+    retained(): {
+        readonly images: ReadonlySet<object>;
+        readonly materials: ReadonlySet<object>;
+    };
     /** 场景包围球（引擎契约）：远平面 / 正交深度窗口 / 无限长线按它定（user 10-26「不应该写死特征长度」）。按世界身份 + 版本缓存。 */
     bounds(): {
         c: Vec3;

@@ -185,6 +185,11 @@ export declare class Renderer3 implements RenderProvider {
      * soft（不画线）与 smooth（插值法向）是两个独立的边层（SU 的 Soft / Smooth），推拉侧棱两者都给、软化工具默认两者都给。
      */
     private textureFor;
+    /**
+     * 缓存的命跟着内容（施工单十九第 1 刀规矩 2）：提供者说内容不再持有的图 / 材质引用，解码缓存、贴图 uniform、贴图材质、风格材质里一并放掉。
+     * 先摘账再释放：还在解的那一份解完看见缓存里不是自己了，自己作废（textureFor）。换文件 / 新建 = 旧的全不在持有里 = 全清。
+     */
+    private releaseUnretained;
     /** 贴图的 uniform 对象（风格的材质共用：解码完换贴图时在同一个对象里换值）。 */
     private texU;
     private texUniform;

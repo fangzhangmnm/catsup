@@ -50,6 +50,8 @@ export declare class LiveTextures {
     textureFor(img: LiveImage): unknown;
     /** 画的时候：挨个问 current()（只读准备好的），版本变了的拷进显示图。返回 true = 拷过（调用的人 resetState 一次）。一张都没有 = 什么都不做。 */
     update(): boolean;
+    /** fromBitmap 建的那张（冷的画的合成图）不要了：放掉显示图和位图（施工单十九第 1 刀：以前只加不删）。 */
+    dropStatic(tex: unknown): void;
     /** 不再用的图：放掉显示图。 */
     drop(img: LiveImage): void;
     /** 现在登记着的图（render3 按「这一帧还有没有块用它」回收）。 */

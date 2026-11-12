@@ -1,6 +1,7 @@
 import type { Editor } from "../editor/editor.ts";
+import { type PaintTargetSize } from "../paint/open-memory.ts";
 /** 打开这张画时显卡上固定占多少 + 画的时候再多多少。 */
-export declare function memSay(n: number, h?: number): string;
+export declare function memSay(n: number, h?: number, target?: PaintTargetSize): string;
 /** 一格多大（米）念出来：米制下不到 1 厘米念毫米、否则念厘米；英制念英寸。 */
 export declare function cellSay(m: number): string;
 /** 这份文件里最近建的那张画的画布边长（贴图表里最后一张分层的画走的那一套坐标的宽）；没有 = null。 */

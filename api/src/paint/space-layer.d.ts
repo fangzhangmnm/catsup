@@ -21,6 +21,7 @@ export declare const MAX_DATA: number;
  * 取样点最多伸出格子 32767 / 1024 格（每格的表的偏移范围），所以 边长 − 1 + 0.5 + 32 < 2^14 → 边长 ≤ 2^14 − 32。有的电脑显卡每边能到 32768，所以单独卡。
  */
 export declare const MAX_CANVAS_SIDE: number;
+export declare const TRI_STRIDE = 15;
 /** 一个三角形的公式（世界里、减去落笔点）+ 反解用的 G⁻¹（G = [du·du du·dv; du·dv dv·dv]）+ smin = √(G 的小特征值) = 贴图上走一格在世界里最少走多远。 */
 interface TriInv {
     readonly ox: number;
