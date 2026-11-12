@@ -303,6 +303,8 @@ const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => e
   (on) => { paintTileJobs.driver.setActive(on); if (!on) paintSaver.clear(); },   // 有画板才跑空闲压缩（0-3a）；画板全扔了（换文件）= 画的存盘缓存也清（1-8b）
   (text) => { note("paint", text); notify({ text, level: "warning" }); });   // 这张画只能看不能画：明说为什么（1-8b）
 const paintSaver = new PaintSaver({ boards: paintBoards, wroteWith: `catsup ${APP_VERSION}` });   // 画存进文件（1-8b）：钉点同步、编码异步
+// 画板要睡之前（施工单十九第 3 刀）：趁醒着把这张画钉进存盘缓存（同步合成读回、后台编码），之后存盘碰到这块睡着的画板直接用缓存、不用叫醒
+paintBoards.beforeSleep = (g) => { paintSaver.prime(editor.sceneRef, g)?.catch((e) => note("paint", `prime before sleep failed for ${g}: ${e instanceof Error ? e.message : String(e)}`)); };
 editor.registerUndoComponent(paintBoards.undoComponent());
 paintAfterCommit = () => { paintBoards.follow(editor.sceneRef); for (const r of paintBoards.takePending()) editor.recordUndo(PAINT_UNDO_KIND, r); };
 paintBeforeHistoryMove = () => paintBoards.cancelOpen();

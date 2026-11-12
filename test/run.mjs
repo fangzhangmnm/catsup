@@ -229,6 +229,8 @@ import "./paint-space-limits.test.ts";   // 1-4c：画画路径上的容量上�
 import "./paint-space-prep.test.ts";   // 1-4c：画画的准备（整份几何 + 每格的表）缓存、过期、放（2026-11-11 Opus）
 import "./paint-workbench-say.test.ts";   // 1-7：画画工作台一笔开不了时说的话（准备没好 / 容量上限 / 别的）（2026-11-11 Opus）
 import "./paint-board.test.ts";
+import "./paint-board-sleep.test.ts";   // 施工单十九第 3 刀：只醒着正在编辑的物件（四条不丢东西：存盘 / 崩溃快照 / 跨画板连撤十步 / 显示）
+import "./paint-board-sleep-guard.test.ts";   // 同上的结构守卫：只经 gpu() 碰内核画板、名单标 gpu 的真经 gpu()、一份文件一个池
 import "./paint-lock.test.ts"; // 画画这一层自己问锁：开一笔、落层（v0.19.48）
 import "./paint-pixel-writes.test.ts"; // 画画这一层每个公开的口对改像素表态 + 锁递到底（v0.19.48）
 import "./paint-display-uv.test.ts";

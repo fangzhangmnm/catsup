@@ -74,9 +74,10 @@ export class PaintWorkbench {
    */
   tick(): void {
     const e = this.d.editor;
-    if (!isPaintTool(e.tool)) { if (this.entered !== null) { this.entered = null; this.d.prep.release(); } return; }   // 手上不是画画的工具 = 不在画画工作台（那三把只在这里有）
+    if (!isPaintTool(e.tool)) { this.d.boards.setEditing([]); if (this.entered !== null) { this.entered = null; this.d.prep.release(); } return; }   // 手上不是画画的工具 = 不在画画工作台（那三把只在这里有）；画板都可以睡
     const S = e.sceneRef, def = S.defOfContext(e.context), key = `${e.docEpoch}:${def}`, body = S.def(def).body;
-    if (body.kind !== "mesh") { this.entered = key; return; }
+    if (body.kind !== "mesh") { this.d.boards.setEditing([]); this.entered = key; return; }
+    this.d.boards.setEditing(this.paintsOn(def));   // 只醒着正在编辑的这个物件上的画（施工单十九第 3 刀）；换了物件 = 上一个的画在这一帧准备的末尾睡下
     if (key !== this.entered) {
       this.entered = key;
       this.grid(body.kernel);   // 三角格子先算好

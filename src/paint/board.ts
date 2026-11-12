@@ -8,6 +8,7 @@ import { PaintLockedError } from "./paint-limit.ts";
 import { PaintingWorkpiece, type PaintingData } from "./kernel/src/backend/workpiece/painting-workpiece.ts";
 import { isGroupNode, type TreeNode } from "./kernel/src/backend/workpiece/layer-tree.ts";
 import { GLBoard } from "./kernel/src/shell/gl-board.ts";
+import type { SharedTilePool } from "./kernel/src/backend/gl/shared-tile-pool.ts";
 import { poolCapacityForBudget } from "./kernel/src/backend/gl/gl-room.ts";
 import { diffBox } from "../minccino/contract/pixel-diff.ts";
 import type { DocNode } from "./kernel/src/backend/gl/gl-doc-bridge.ts";
@@ -21,8 +22,9 @@ import type { LayerPixels } from "./kernel/src/backend/tiles/tile-layer.ts";
 /** 扔画板时换进去的空根（1×1、一个空层）：现在的内容随旧根还池。 */
 const BLANK_1x1: PaintingData = { width: 1, height: 1, nodes: [{ name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: null }] };
 
-/** 显存预算（和画画软件的后端同一个数）：图块池按需长，长到这个顶。 */
-const BUDGET_BYTES = 256 * 1024 * 1024;
+/** 显存预算（和画画软件的后端同一个数）：图块池按需长，长到这个顶。施工单十九第 3 刀起是一份文件合用的那个池的顶（PaintBoards 建池时用；只有正在编辑的画板醒着占片）。 */
+export const PAINT_GPU_BUDGET_BYTES = 256 * 1024 * 1024;
+const BUDGET_BYTES = PAINT_GPU_BUDGET_BYTES;
 
 export interface PaintBoardOpts {
   /** 内核的显卡接口（整个程序一个，建在渲染器的画面上）。 */
@@ -35,6 +37,8 @@ export interface PaintBoardOpts {
   readonly log?: (msg: string) => void;
   /** 文件锁着吗（锁着 = 交出给人看的那句理由，能改 = null）。开一笔、落层都问它（v0.19.48）。缺 = 当没锁（单测）；app 里由 PaintBoards 递进来，守卫 test/paint-pixel-writes.test.ts。画板不认识编辑器。 */
   readonly locked?: () => string | null;
+  /** 几块画板合用的显卡图块池（施工单十九第 3 刀：一份文件一个，PaintBoards 建、换文件退租）。缺 = 自己开一个（单测）。 */
+  readonly pool?: SharedTilePool;
 }
 
 /** 画布上一块（格子；[x, x + w) × [y, y + h)）。 */
@@ -50,6 +54,7 @@ function sameOverlay(a: HostOverlayInput, b: HostOverlayInput): boolean {
 
 export class PaintBoard {
   readonly wp: PaintingWorkpiece;
+  /** 内核的画板。**只经 gpu() 拿**（睡着就先叫醒；守卫 test/paint-board-sleep.test.ts 查这个文件里别处不碰它），睡 / 退租除外。 */
   private readonly gl: GLBoard;
   private readonly port: Gl2Port;
   private readonly log: (msg: string) => void;
@@ -80,7 +85,7 @@ export class PaintBoard {
     this.locked = o.locked ?? ((): string | null => null);
     if (!(o.width >= 1 && o.height >= 1)) throw new Error(`PaintBoard: bad size ${o.width}x${o.height}`);
     this.wp = new PaintingWorkpiece({ tree: { width: o.width, height: o.height }, ...(o.undo ? { undo: o.undo } : {}) });
-    this.gl = new GLBoard(o.port, poolCapacityForBudget(BUDGET_BYTES));
+    this.gl = new GLBoard(o.port, poolCapacityForBudget(BUDGET_BYTES), o.pool ? { pool: o.pool } : undefined);
     this.port = o.port;
     this.log = o.log ?? (() => {});
     this.unInvalidated = o.port.onInvalidated(() => { this.last = null; this.restores++; });   // 画面丢了又恢复：内核从内存里的图块重建（GLBoard 自己管），这边只作废缓存、让渲染器重拷
@@ -158,7 +163,7 @@ export class PaintBoard {
       },
       commitHost: (ov) => {
         { const why = this.locked(); if (why) throw new PaintLockedError("PaintBoard: the document was locked before the stroke landed", why); }   // 第四层：落层（一笔开着时锁上了 = 抛 → 档口取消令牌、整笔回滚、零痕迹；v0.19.48）
-        const ok = this.gl.commitBrushStroke(ov.layerId, leaf.pixels, ov, this.width, this.height, (px, x, y, w, h) => leaf.applyRegionDiff(x, y, w, h, px));
+        const ok = this.gpu().commitBrushStroke(ov.layerId, leaf.pixels, ov, this.width, this.height, (px, x, y, w, h) => leaf.applyRegionDiff(x, y, w, h, px));
         const lb = this.gl.lastBake;   // 1-4d 第 8 条：三维报的格漏了 = 三维这边标格的毛病（内核照旧读了整个方框，画没少）
         if (lb?.path === "box-unreported") this.log(`paint board: stroke cells under-reported — ${lb.strayCells} changed cell(s) outside the reported ${lb.cells}; kernel read the whole box instead`);
         return ok;
@@ -209,10 +214,11 @@ export class PaintBoard {
     if (this.last && this.last.key === key) return { fbo: this.last.fbo, version: this.shown };
     // 落定的内容变了（抬笔落层、撤销、装载、改大小、换底色、画面恢复）= 告诉内核整张作废；只是薄层变了 = 不作废，薄层自己 markChanged 报了哪些格，内核只重合那些（内核 v0.14.79）
     const committed = this.committedKey();
-    if (committed !== this.lastCommitted) this.gl.markContentDirty();
-    const fbo = this.gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg, [], this.hostOverlays);
+    const gl = this.gpu();
+    if (committed !== this.lastCommitted) gl.markContentDirty();
+    const fbo = this.composite(gl, this.hostOverlays);
     if (!fbo) { this.last = null; this.lastCommitted = null; return null; }
-    this.last = { fbo, key };
+    this.last = { fbo, key }; this.shownKey = key;
     const change: Changed | null = committed !== this.lastCommitted || this.pending === "all" ? "all" : this.pending;
     this.lastCommitted = committed; this.pending = null;
     this.history.push({ version: ++this.shown, change });
@@ -233,12 +239,14 @@ export class PaintBoard {
    */
   composeBytes(rows = this.height): Uint8ClampedArray | null {
     if (this.disposed) return null;
-    this.gl.markContentDirty();
-    const fbo = this.gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg, [], []);
-    this.last = null; this.lastCommitted = null;   // 显示用的那张被这一次占过：下一帧重合（带薄层，整张：内核那张已经是不带薄层的了）
-    if (!fbo) return null;
-    const px = this.port.readPixels(fbo, 0, 0, this.width, Math.min(rows, this.height));
-    return new Uint8ClampedArray(px.buffer, px.byteOffset, px.byteLength);
+    return this.borrowGpu((gl) => {   // 睡着的（施工单十九第 3 刀）：同步叫醒、合、读回、再睡回去
+      gl.markContentDirty();
+      const fbo = this.composite(gl, []);
+      this.last = null; this.lastCommitted = null;   // 显示用的那张被这一次占过：下一帧重合（带薄层，整张：内核那张已经是不带薄层的了）
+      if (!fbo) return null;
+      const px = this.port.readPixels(fbo, 0, 0, this.width, Math.min(rows, this.height));
+      return new Uint8ClampedArray(px.buffer, px.byteOffset, px.byteLength);
+    });
   }
   /**
    * 核对（读数角标「核对」开着时；统筹 11-11）：现在显示的那张合成图（可能是只合了脏格的）读回 → 强制整张重合（同样的内容、同样垫着薄层）→ 再读回，逐字节比。
@@ -248,10 +256,11 @@ export class PaintBoard {
     const r = this.compose();
     if (!r) return null;
     const a = this.port.readPixels(r.fbo, 0, 0, this.width, this.height);
-    this.gl.markContentDirty();
-    const fbo = this.gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg, [], this.hostOverlays);
+    const gl = this.gpu();
+    gl.markContentDirty();
+    const fbo = this.composite(gl, this.hostOverlays);
     if (!fbo) { this.last = null; this.lastCommitted = null; return null; }
-    this.last = { fbo, key: this.key() };
+    this.last = { fbo, key: this.key() }; this.shownKey = this.last.key;
     const d = diffBox(this.port.readPixels(fbo, 0, 0, this.width, this.height), a, this.width);
     if (d.diff) { this.history.push({ version: ++this.shown, change: "all" }); if (this.history.length > HISTORY) this.history.shift(); }
     return d;
@@ -259,8 +268,7 @@ export class PaintBoard {
   /** 显示的那张合成图上一格的颜色（RGBA 字节，垫着底色、不透明；吸管用，1-7）。出界 / 显卡画面丢了 = null。 */
   pixelAt(x: number, y: number): Uint8Array | null {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return null;
-    const r = this.compose();
-    return r ? this.port.readPixels(r.fbo, Math.floor(x), Math.floor(y), 1, 1) : null;
+    return this.borrowGpu(() => { const r = this.compose(); return r ? this.port.readPixels(r.fbo, Math.floor(x), Math.floor(y), 1, 1) : null; });   // 睡着的：借一下、用完睡回去
   }
   /** 最近一次落层怎么读回的（内核 GLBoard.lastBake：box / cells / box-unreported、读了几次、多少字节；探针 / 测试看）。 */
   get lastBake(): GLBoard["lastBake"] { return this.gl.lastBake; }
@@ -275,6 +283,47 @@ export class PaintBoard {
     this.wp.layerTiles.dispose();
     this.gl.dispose();
   }
+
+  // ---------------------------------------------------------------- 睡和醒（施工单十九第 3 刀）
+  // 睡 = 内核把显卡那一半还回去（合用池里的片让出来、索引小图删、合成目标还池），内存那一半（图块、图层树、撤销的步）不碰。
+  // 醒没有单独的口：要用显卡的口（合成 / 落层 / 存盘读回 / 核对 / 吸色）都经 gpu()，睡着就先叫醒——谁调都一样，不靠调的人记得。
+  // 什么时候睡由登记处定（PaintBoards.prepare 的末尾：不在编辑的、没开着一笔的、显示的那版渲染器已经拷过的）；「借一下」的口（存盘读回、吸色）用完自己睡回去。
+
+  /** 显卡那一半睡着吗。 */
+  get asleep(): boolean { return this.gl.asleep; }
+  /** 一笔正开着（薄层还垫着）：不许睡。 */
+  get strokeOpen(): boolean { return this.hostOverlays.length > 0; }
+  /** 显示的那一版过期了（内容 / 底色 / 薄层在上一次交出去之后变过）：要合成一次才对。睡着的画板靠它决定要不要醒来合一次（撤销、跟大小、装载都只动内存）。 */
+  get displayStale(): boolean { return this.key() !== this.shownKey; }
+  /** 叫醒了几次（量；探针看来回切物件时醒睡的次数）。 */
+  wakes = 0;
+  /** 睡。一笔开着 = 抛（宿主先收笔 / 取消）。睡两次没事。 */
+  sleep(): void {
+    if (this.disposed || this.gl.asleep) return;
+    if (this.strokeOpen) throw new Error("PaintBoard.sleep: a stroke is open (host overlays are set) — finish or cancel it first");
+    // 内核那边还垫着上一次合成时交的薄层（一笔收了以后还没再合成过，比如歇着的画板）：先合一张不带薄层的，内核才肯睡（它那边「有薄层 = 一笔开着」）
+    if (this.glHasOverlay) this.composite(this.gl, []);
+    this.last = null; this.lastCommitted = null;   // 合成目标随睡还池：醒来第一次合成整张（变化史记「整张」，渲染器整张重拷）
+    this.gl.sleep();
+  }
+  /** 要用显卡：睡着就先叫醒。 */
+  private gpu(): GLBoard {
+    if (this.gl.asleep) { this.gl.wake(); this.wakes++; }
+    return this.gl;
+  }
+  /** 借一下显卡（存盘读回、吸色）：原来睡着的，用完睡回去（一笔开着时不会是睡着的）。 */
+  private borrowGpu<T>(f: (gl: GLBoard) => T): T {
+    const was = this.gl.asleep;
+    try { return f(this.gpu()); } finally { if (was && !this.disposed) this.sleep(); }
+  }
+  /** 合成一次（三个口共用）；记下这一次给内核的薄层有没有（睡之前要清）。 */
+  private composite(gl: GLBoard, overlays: readonly HostOverlayInput[]): PooledFBO | null {
+    this.glHasOverlay = overlays.length > 0;
+    return gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg, [], overlays);
+  }
+  private glHasOverlay = false;
+  /** 最近一次交给显示那一侧的那一版的内容键（compose / verifyFull 交出时记；存盘读回不算：它不换显示的那一版）。 */
+  private shownKey: string | null = null;
 
   // ---------------------------------------------------------------- 内部
 

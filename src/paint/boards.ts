@@ -11,6 +11,11 @@
 //   同一个贴图身份号回来了接着用这一块），一直留到关文件；歇着那块的内存靠图块池接上压缩之后自己压（tile-jobs.ts）。画的记录被额度挤掉 = 只告诉内核丢那几步，画板的内容不动。
 //   以后要再省（编好字节、变冷）等 1-8b 有了编码缓存：先有一份字节挂在所有还回得去的地方，才许放画板。
 // · 整个程序只有一个内核的显卡接口：第一次要用时建在渲染器的画面上（BrowserGl2Port.fromContext），以后所有画板共用。
+// · 只醒着正在编辑的（施工单十九第 3 刀，2026-11-12）：一份文件一个合用的显卡图块池（内核 createSharedTilePool，第一块画板建时建、换文件时画板全扔了再退）；
+//   画画工作台每帧说一次「正在编辑哪几张」（setEditing）。每帧准备：正在编辑的照常合成；别的睡着——显示的那一版还对（渲染器手里有拷贝）就不碰，
+//   内容变过（撤销、跟大小、装载、画面恢复）或渲染器说手里没有（LiveImage.want：回收过 / 换了缩小图做法）= 合成一次（合成自己会叫醒），
+//   渲染器拷走之后（下一帧）再睡回去。睡之前先让存盘那边趁醒着钉一份（beforeSleep → PaintSaver.prime：同步合成读回，后台编码进缓存），
+//   之后存盘碰到这块睡着的画板直接用缓存。睡着时显示的是渲染器自己那份拷贝（不灰、不闪）。
 import { BrowserGl2Port } from "./kernel/src/shell/browser-gl2-port.ts";
 import { PaintLockedError } from "./paint-limit.ts";
 import { paintMeter } from "./frame-meter.ts";
@@ -19,7 +24,9 @@ import type { LiveImage, TextureRef } from "../minccino/contract/stream.ts";
 import { decodeOraToPainting } from "./kernel/src/backend/ora.ts";
 import type { PaintingData } from "./kernel/src/backend/workpiece/painting-workpiece.ts";
 import { compositeFits, type TextureDoc } from "../format/document.ts";
-import { PaintBoard } from "./board.ts";
+import { PaintBoard, PAINT_GPU_BUDGET_BYTES } from "./board.ts";
+import { createSharedTilePool, type SharedTilePool } from "./kernel/src/backend/gl/shared-tile-pool.ts";
+import { poolCapacityForBudget } from "./kernel/src/backend/gl/gl-room.ts";
 import { HostedSteps } from "./kernel/src/backend/workpiece/hosted-steps.ts";
 import type { UndoComponent } from "../editor/history.ts";
 import { paintPlaceOf } from "../scene/paint.ts";
@@ -48,11 +55,25 @@ export interface PaintBoardsOpts {
 export interface PaintRec { /** 哪张贴图（GUID；字段不叫 texture：守卫 textures-table 不许「点 texture」）。 */ readonly tex: Guid; readonly step: Parameters<HostedSteps["flip"]>[0] }
 export const PAINT_UNDO_KIND = "paint";
 
-interface Entry { readonly board: PaintBoard; readonly image: LiveImage; prepared: { gpuImage: unknown; version: number } | null; readonly steps: HostedSteps; dormant: boolean; open: number }
+interface Entry {
+  readonly board: PaintBoard; readonly image: LiveImage; prepared: { gpuImage: unknown; version: number } | null; readonly steps: HostedSteps; dormant: boolean; open: number;
+  /** 渲染器说它手里没有这张的拷贝（LiveImage.want）：下一次准备合成一次。 */
+  wanted: boolean;
+  /** 哪一次准备交出了新版本（那一帧渲染器还没拷：不睡）。 */
+  freshAt: number;
+}
 
 export class PaintBoards {
   private readonly entries = new Map<Guid, Entry>();
   private port: Gl2Port | null = null;
+  /** 这份文件合用的显卡图块池（第一块画板建时建；换文件时画板全扔了再退）。 */
+  private pool: SharedTilePool | null = null;
+  /** 正在编辑的那几张（画画工作台每帧说；空 = 都不在编辑）。 */
+  private editing = new Set<Guid>();
+  /** 第几次准备（醒睡按它判「这一帧刚交出新版本」）。 */
+  private frame = 0;
+  /** 画板要睡之前（存盘那边趁醒着钉一份：main.ts 接 PaintSaver.prime）。 */
+  beforeSleep: ((texture: Guid) => void) | null = null;
   private epochSeen: number;
   private sigCache = "";
   private readonly o: PaintBoardsOpts;
@@ -77,22 +98,24 @@ export class PaintBoards {
   /** 建一块画板（宽高由调用的人给：新画 = 那一套坐标的大小；变热 = 分层字节里的大小）。 */
   private create(texture: Guid, width: number, height: number, base: readonly number[]): PaintBoard {
     this.port ??= this.o.port();
+    this.pool ??= createSharedTilePool(this.port, poolCapacityForBudget(PAINT_GPU_BUDGET_BYTES));
     let born = true;   // 刚建画板时内核要是叫 onReset（空的那一次）：什么都不用做
     const steps = new HostedSteps({
       onStep: (step) => { this.pending.push({ tex: texture, step }); },
       onReset: () => { this.pending = this.pending.filter((p) => p.tex !== texture); if (!born && !this.disposing) this.o.undoReset?.(texture, this.resetWhy?.why ?? "画画内核说这张画的状态不可信", this.resetWhy?.tell ?? true); },   // 扔画板（只在换文件时）内核清栈也会叫它：那时整个栈已经换了，不用去摘
     });
-    const board = new PaintBoard({ port: this.port, width, height, log: this.o.log, undo: steps, locked: this.o.editLocked });
+    const board = new PaintBoard({ port: this.port, width, height, log: this.o.log, undo: steps, locked: this.o.editLocked, pool: this.pool });
     born = false;
     this.pending = this.pending.filter((p) => p.tex !== texture);   // 建画板时内核要是封过步（空画布的那一步）：不进三维的栈
     board.setBackground(base);
-    const entry: Entry = { board, image: null as unknown as LiveImage, prepared: null, steps, dormant: false, open: 0 };
+    const entry: Entry = { board, image: null as unknown as LiveImage, prepared: null, steps, dormant: false, open: 0, wanted: false, freshAt: -1 };
     (entry as { image: LiveImage }).image = {
       kind: "live",
       get width() { return board.width; },
       get height() { return board.height; },
       current: () => entry.prepared,   // 只读准备好的结果（合成在 prepare 里）
       changedSince: (since) => board.changedSince(since),   // 合成图的变化史（board.ts）：显示那一侧只拷变了的那一块（1-4d 第 6 条）
+      want: () => { entry.wanted = true; },   // 渲染器手里没有拷贝（睡着时 current() 是空的）：下一次准备合成一次
     };
     this.entries.set(texture, entry);
     if (this.entries.size === 1) this.o.active?.(true);
@@ -114,13 +137,18 @@ export class PaintBoards {
     this.measureSync?.();
     const t1 = performance.now();
     let touched = false;
-    for (const e of this.entries.values()) {
+    const frame = ++this.frame;
+    for (const [g, e] of this.entries) {
       if (e.dormant) { e.prepared = null; continue; }   // 歇着：不合成
-      const r = e.board.compose();
+      // 睡着、显示的那一版还对、渲染器手里有：不碰（不叫醒）
+      if (e.board.asleep && !e.board.displayStale && !e.wanted && !this.awake(g, e)) continue;
+      e.wanted = false;
+      const r = e.board.compose();   // 睡着的在这里被叫醒
       if (!r) { e.prepared = null; continue; }
-      if (!e.prepared || e.prepared.version !== r.version) touched = true;
+      if (!e.prepared || e.prepared.version !== r.version) { touched = true; e.freshAt = frame; }
       e.prepared = { gpuImage: gpuImageOf(this.port!, r.fbo), version: r.version };
     }
+    this.sleepIdle(frame);
     this.measureSync?.();
     this.lastPrepare = { jobsMs: t1 - t0, composeMs: performance.now() - t1 };
     paintMeter.put("compose", this.lastPrepare.composeMs);   // 每帧的读数（1-4d；关着不做事）
@@ -133,9 +161,29 @@ export class PaintBoards {
   verifyFull(texture: Guid): { diff: number; box: readonly [number, number, number, number] | null } | null {
     const e = this.entries.get(texture);
     if (!e || e.dormant) return null;
-    const d = e.board.verifyFull(), r = e.board.compose();
+    const d = e.board.verifyFull(), r = e.board.compose();   // 睡着的照样核：合成经 gpu() 叫醒它（施工单十九第 3 刀），下一次准备的末尾睡回去
+    if (r && (!e.prepared || e.prepared.version !== r.version)) e.freshAt = this.frame + 1;   // 换了一版（对不上 = 整张那张）：下一次准备不睡，等渲染器拷走
     e.prepared = r ? { gpuImage: gpuImageOf(this.port!, r.fbo), version: r.version } : null;
     return d;
+  }
+  /** 该醒着：正在编辑、或者一笔开着。 */
+  private awake(g: Guid, e: Entry): boolean { return this.editing.has(g) || e.open > 0 || e.board.strokeOpen; }
+  /** 准备的末尾：不该醒着的睡回去（这一帧刚交出新版本的等渲染器拷完、下一帧再睡）。睡之前存盘那边钉一份。 */
+  private sleepIdle(frame: number): void {
+    for (const [g, e] of this.entries) {
+      if (e.board.asleep || this.awake(g, e) || (!e.dormant && e.freshAt === frame)) continue;
+      try { this.beforeSleep?.(g); } catch (err) { this.o.log?.(`paint boards: before-sleep hook failed for ${g}: ${err instanceof Error ? err.message : String(err)}`); }
+      e.board.sleep();
+      e.prepared = null;   // 合成目标随睡还池：渲染器不许再从它拷（current() 空 = 渲染器接着显示它自己那份）
+    }
+  }
+  /** 正在编辑哪几张（画画工作台每帧说；不在画画工作台 = 空）。不在里面的、没开着一笔的，下一次准备的末尾睡下。 */
+  setEditing(textures: Iterable<Guid>): void { this.editing = new Set(textures); }
+  /** 量（探针 / 读数）：合用池的报数 + 醒着几块、睡着几块、一共叫醒过几次。 */
+  gpuStats(): { pool: SharedTilePool["stats"] | null; awake: number; asleep: number; wakes: number } {
+    let awake = 0, asleep = 0, wakes = 0;
+    for (const e of this.entries.values()) { if (e.board.asleep) asleep++; else awake++; wakes += e.board.wakes; }
+    return { pool: this.pool && !this.pool.disposed ? this.pool.stats : null, awake, asleep, wakes };
   }
   /** 上一次「准备」两段（量；毫秒）：这一帧的准备活（薄层）/ 内核合成（含缩小图）。 */
   lastPrepare = { jobsMs: 0, composeMs: 0 };
@@ -322,6 +370,7 @@ export class PaintBoards {
     const all = [...this.entries.values()];
     this.entries.clear(); this.pending = []; this.opens.clear(); this.cold.clear(); this.viewOnly.clear(); this.warming.clear();
     for (const e of all) this.kill(e.board);
+    if (this.pool) { this.pool.dispose(); this.pool = null; }   // 画板全扔了再退池（先退池画板还在用 = 内核抛）
     if (all.length) { this.port?.clearPool(); this.o.active?.(false); }   // 一块画板都不剩了：内核显卡接口池子里空着的离屏图也删掉（池是几块画板共用的，只有它们用；扔光了才清）；空闲压缩停
     this.resig();
   }

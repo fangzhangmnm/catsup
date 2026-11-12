@@ -125,6 +125,18 @@ export class PaintSaver {
     await this.freeze({ textures: rows } as unknown as CatsupDocument, scene, "save").finish();
   }
 
+  /**
+   * 画板要睡了（施工单十九第 3 刀，PaintBoards.beforeSleep）：它比缓存新 = 趁醒着同步钉一份（分层的冻结拷贝 + 整张合成读回，和存盘同一个钉点），
+   * 后台编进缓存；之后存盘碰到这块睡着的画板直接用缓存、不用叫醒。缓存已经是新的 / 不是画 = null（什么都不做）。
+   * 编码失败只回一个失败的 Promise（调的人记日志）：存盘时照常当场钉（叫醒、合、读回、再睡），不会因此丢东西。
+   */
+  prime(scene: Scene, texture: Guid): Promise<void> | null {
+    const t = scene.textures.get(texture), b = this.boards.get(texture), c = this.cache.get(texture);
+    if (!t || t.content.kind !== "layered" || !b || (c && c.board === b && c.version === b.wp.commitVersion)) return null;
+    try { return this.freeze({ textures: [t] } as unknown as CatsupDocument, scene, "save").finish().then(() => {}); }
+    catch (e) { return Promise.reject(e); }   // 同步那一段抛的（zip 没加载）也走失败的 Promise
+  }
+
   /** 一张画钉下来的东西变成字节；编了的进缓存（只在比缓存里的新时替换）。 */
   private async realize(g: Guid, pin: Pin): Promise<{ ora: Uint8Array; composite: PaintComposite | null }> {
     if (pin.kind === "ready") return { ora: pin.ora, composite: pin.composite };

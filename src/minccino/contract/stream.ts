@@ -31,6 +31,11 @@ export interface LiveImage {
    * 给的人自己负责说真话：只在确切知道「别的地方一个像素都没变」时给格子（画画这边由变化史回答，见 paint/board.ts changedSince）。
    */
   changedSince?(since: number): ChangedCells | "all";
+  /**
+   * 渲染器手里没有这张的拷贝（第一次、显卡画面丢过、回收过、换了缩小图做法）而 current() 是空的：叫一声，给的人下一帧交一版（施工单十九第 3 刀）。
+   * 画画这边睡着的画板 current() 是空的（合成目标随睡还池），渲染器接着显示自己那份拷贝；手里没有拷贝才叫它。不给这个口 = 不叫。
+   */
+  want?(): void;
 }
 /**
  * 一张图上变了的那些格（画画这边 = 内核的脏格子位图 DirtyCells，结构上满足；引擎不 import 它）：runs = 每行连着的脏格并成的段，两两不相交；

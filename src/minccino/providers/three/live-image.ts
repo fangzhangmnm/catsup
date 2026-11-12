@@ -177,7 +177,7 @@ export class LiveTextures {
     for (const s of this.statics) if (!s.disp && !this.gl.isContextLost()) { this.upload(s); touched = true; }   // 显卡画面丢过：从位图重传
     for (const [img, e] of this.entries) {
       const cur = img.current();   // 只读准备好的结果（合成在编辑器的「准备」里，1-4b）
-      if (!cur) continue;
+      if (!cur) { if (!e.disp || e.ver < 0) img.want?.(); continue; }   // 空 = 给的人这一帧没交（画画：画板睡着），接着显示自己那份；手里没有 / 作废了才叫一声（施工单十九第 3 刀）
       if (cur.version === e.ver && e.disp && e.w === img.width && e.h === img.height) {
         if (e.mipsStale) { this.mips(e.disp, e.w, e.h, "all"); e.mipsStale = false; touched = true; }   // defer：不再变了，整套补上
         continue;

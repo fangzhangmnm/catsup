@@ -4,7 +4,9 @@
 //   显卡上的图（张数 + 字节：给 WebGL 的建图 / 删图 / 上传记账，按每张图各级的宽 × 高 × 每像素字节）、帧缓冲、JS 堆。看总数是不是跟着物件个数涨。
 // T1 同一份文件里换图：导入图片 → 油漆桶涂同一张面，连换 6 张不同的图（每次 = 一张新贴图 + 一个新材质，和材质面板「导入图片」一样）；每一轮记解码缓存条数和显卡上的图；之后全撤回去再记。
 // T2 同一份带图的文件（一张导入的图 + 一张画过的画）开了关、关了开 6 次（图库里打开）：每一轮记解码缓存条数和显卡上的图。
-// 只量、不判（不涨 / 涨多少写进流畅页第 14 条）。用法：python3 -m http.server 8765 后 node test/probes/probe-ten-objects.mjs [url]
+// 只量、不判（不涨 / 涨多少写进流畅页第 14 条）。
+// 施工单十九第 3 刀（2026-11-12）起 M 段加判：只醒着正在编辑的那一块（每帧都 ≤ 1 块醒着）；每多一个画过的物件显卡只多它那张显示图（≤ 1 张、< 2 MB）、帧缓冲不涨；
+//   回到第 1 个物件：它醒来之后图层的像素和渲染器的显示图都和睡之前逐位相同（显示图真的重拷过）。另加 W 段：两个物件来回切着画四轮，记合用池的收走 / 重建 / 重传（只量）。用法：python3 -m http.server 8765 后 node test/probes/probe-ten-objects.mjs [url]
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,6 +91,22 @@ await S(() => {
     for (let i = 0; i < 3; i++) { e.draw(); await new Promise((q) => requestAnimationFrame(q)); }
     return { guid: g, tips: r?.tips ?? 0, refused: r?.refused ?? null };
   };
+  /** 醒睡（施工单十九第 3 刀）：醒着几块、睡着几块、一共叫醒几次。 */
+  H.gpu = () => C().paint.boards.gpuStats();
+  /** 合用的图块池的内部计数（探针才这么戳：收走 / 重建 / 上传、现在多少片）。 */
+  H.poolInner = () => { const b = C().paint.boards.get(C().paint.boards.guids()[0]); const pool = b?.gl?._room?.pool; return pool ? { ...pool.stats, capacity: pool.capacity } : null; };
+  const fnv = (u) => { let h = 2166136261; for (let i = 0; i < u.length; i++) { h ^= u[i]; h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
+  /** 这张画：每层像素的哈希（内存那份）+ 渲染器显示图第 0 级的哈希 + 显示图拷的是第几版。 */
+  H.look = (g) => {
+    const c = C(), b = c.paint.boards.get(g), d = b.wp.exportData();
+    const data = d.nodes.map((n) => (n.pixels ? `${n.pixels.rect.x},${n.pixels.rect.y},${n.pixels.rect.w},${n.pixels.rect.h}:${fnv(n.pixels.bytes)}` : "-")).join("|");
+    const lt = c.editor.renderer3.live, e = lt.entries.get(c.paint.boards.board(g).image);
+    let disp = null;
+    if (e?.disp) { const gl = lt.gl, fb = gl.createFramebuffer(), px = new Uint8Array(e.w * e.h * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, e.disp, 0); gl.readPixels(0, 0, e.w, e.h, gl.RGBA, gl.UNSIGNED_BYTE, px); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(fb); c.editor.renderer3.resetPaintState(); disp = fnv(px); }
+    return { data, disp, ver: e?.ver ?? null, asleep: b.asleep };
+  };
+  /** 跑几帧（每帧 = 准备 + 画；醒睡在准备的末尾定）。 */
+  H.frames = async (n = 4) => { for (let i = 0; i < n; i++) { C().editor.draw(); await new Promise((q) => requestAnimationFrame(q)); } };
   H.stat = async () => {
     for (let i = 0; i < 3; i++) { globalThis.gc?.(); await sleep(60); }
     const c = C(), t = c.paint.tiles(), p = c.paint.prep.stats(), live = c.paint.stats(), r3 = c.editor.renderer3;
@@ -106,6 +124,7 @@ if (want("M")) {
   const base = await stat();
   say(`空文件：${JSON.stringify(base)}`);
   const rows = [], objs = [];
+  let firstRef = null, firstGuid = null;
   for (let k = 0; k < 10; k++) {
     const o = await S(([k]) => globalThis.__TO.meshBox((k % 5) * 2, Math.floor(k / 5) * 2, `物${k}`), [k]);
     if (!o) { check(false, `第 ${k + 1} 个物件没造出来`); break; }
@@ -113,7 +132,11 @@ if (want("M")) {
     await S(([i]) => globalThis.__TO.enter(i), [o.inst]);
     const p = await S(([cx, cy]) => globalThis.__TO.paintHere(512, cx, cy), [(k % 5) * 2 + 0.5, Math.floor(k / 5) * 2 + 0.5]);
     const s = await stat();
+    await S(() => globalThis.__TO.frames(4));
+    const g = await S(() => globalThis.__TO.gpu());
+    s.awake = g.awake; s.pool = g.pool;
     rows.push(s);
+    if (k === 0) firstRef = await S((t) => globalThis.__TO.look(t), p.guid), firstGuid = p.guid;
     say(`第 ${k + 1} 个（${p.refused ? "没画上：" + p.refused : p.tips + " 颗笔尖"}）：${JSON.stringify(s)}`);
   }
   const shape = await S(() => { const S0 = globalThis.__catsup.editor.sceneRef, insts = [...S0.def(S0.root).instances.values()]; return { rootInstances: insts.length, defs: new Set(insts.map((i) => i.def)).size, layered: [...S0.textures.values()].filter((t) => t.content.kind === "layered").length }; });
@@ -123,11 +146,42 @@ if (want("M")) {
     say(`第 1 个 → 第 10 个：画板 ${rows[0].boards} → ${rows[9].boards}、活的图 ${rows[0].live} → ${rows[9].live}、准备 ${rows[0].prep} 条 ${rows[0].prepMB} MB → ${rows[9].prep} 条 ${rows[9].prepMB} MB、CPU 图块 ${rows[0].tiles} → ${rows[9].tiles}（${rows[0].tilesRawMB} → ${rows[9].tilesRawMB} MB 没压缩）、显卡上的图 ${rows[0].tex} 张 ${rows[0].texMB} MB → ${rows[9].tex} 张 ${rows[9].texMB} MB、帧缓冲 ${rows[0].fb} → ${rows[9].fb}、JS 堆 ${rows[0].heapMB} → ${rows[9].heapMB} MB`);
     say(`每多一个画过的物件平均多：画板 ${per("boards")}、活的图 ${per("live")}、显卡上的图 ${per("tex")} 张 ${per("texMB")} MB、帧缓冲 ${per("fb")}、CPU 图块 ${per("tiles")}、JS 堆 ${per("heapMB")} MB（合计多 ${d("texMB")} MB 显卡）`);
   }
-  // 回去再画第 1 个：只醒着正在编辑的那个吗？
+  if (rows.length === 10) {   // 施工单十九第 3 刀
+    check(rows.every((r) => r.awake <= 1), `每画完一个、跑几帧之后醒着的画板 ≤ 1 块（${rows.map((r) => r.awake).join(" ")}）`);
+    const perTex = (rows[9].tex - rows[0].tex) / 9, perMB = (rows[9].texMB - rows[0].texMB) / 9;
+    check(perTex <= 1 && perMB < 2 && rows[9].fb <= rows[0].fb, `每多一个画过的物件显卡只多它那张显示图：平均 ${perTex.toFixed(2)} 张 ${perMB.toFixed(2)} MB、帧缓冲 ${rows[0].fb} → ${rows[9].fb}（第 3 刀之前每个 5 张 18.3 MB、帧缓冲 +1）`);
+    check(rows[9].pool && rows[9].pool.users <= 1 && rows[9].pool.committedBytes === rows[1].pool.committedBytes, `一份文件一个池：醒着的使用者 ${rows[9].pool?.users}、池的显存第 2 个 → 第 10 个 ${rows[1].pool?.committedBytes} → ${rows[9].pool?.committedBytes} 字节（不跟物件个数涨）`);
+  }
+  // 回去再画第 1 个：只醒着正在编辑的那个吗？醒来之后和睡之前逐位相同吗？
+  const asleepBefore = firstGuid ? await S((t) => globalThis.__TO.look(t), firstGuid) : null;
+  const w0 = (await S(() => globalThis.__TO.gpu())).wakes;
   await S(([i]) => globalThis.__TO.enter(i), [objs[0].inst]);
   await S(() => globalThis.__catsup.pickWorkbench("paint"));
-  const back = await stat();
-  say(`回到第 1 个物件的画画工作台：${JSON.stringify(back)}`);
+  await S(() => globalThis.__TO.frames(6));
+  const back = await stat(), g1 = await S(() => globalThis.__TO.gpu());
+  say(`回到第 1 个物件的画画工作台：${JSON.stringify(back)}；醒着 ${g1.awake}、睡着 ${g1.asleep}、一共叫醒 ${g1.wakes} 次`);
+  if (firstRef && asleepBefore) {
+    const now = await S((t) => globalThis.__TO.look(t), firstGuid);
+    check(asleepBefore.asleep && !now.asleep && g1.awake === 1 && g1.wakes > w0, `第 1 个物件的画：画别的物件时睡着，回来醒了（醒着 ${g1.awake} 块、叫醒 ${w0} → ${g1.wakes} 次）`, JSON.stringify({ before: asleepBefore.asleep, now: now.asleep }));
+    check(now.data === firstRef.data, "醒来之后每层的像素 = 睡之前（内存那份逐位相同）");
+    check(now.disp === firstRef.disp && asleepBefore.disp === firstRef.disp, `渲染器的显示图：睡着时一直是那张（${asleepBefore.disp}）、醒来重拷之后还是逐位相同（${now.disp}）`);
+    check(now.ver !== asleepBefore.ver, `醒来之后显示图真的重拷过（拷的版本 ${asleepBefore.ver} → ${now.ver}；不然上一条白比）`);
+  }
+  // W 两个物件来回切着画四轮：合用池挤不挤（只量；挤得厉害——来回切每次都整张重传——再说要不要按房间分额度，提案第五节）
+  if (objs.length >= 2) {
+    console.log("\nW 第 1、2 个物件来回切着画四轮：每轮记合用池的收走 / 重建 / 上传（只量）");
+    let prev = await S(() => globalThis.__TO.poolInner());
+    for (let k = 0; k < 4; k++) {
+      const o = objs[k % 2];
+      await S(([i]) => globalThis.__TO.enter(i), [o.inst]);
+      await S(([cx, cy]) => globalThis.__TO.paintHere(512, cx, cy), [(k % 2) * 2 + 0.5, 0.5]);
+      await S(() => globalThis.__TO.frames(4));
+      const cur = await S(() => globalThis.__TO.poolInner()), gs = await S(() => globalThis.__TO.gpu());
+      say(`第 ${k + 1} 轮（第 ${(k % 2) + 1} 个物件）：收走 +${cur.evictions - prev.evictions}、重建 +${cur.recreations - prev.recreations}、上传 +${cur.uploads - prev.uploads} 片；池 ${cur.capacity} 片；醒着 ${gs.awake} 块`);
+      check(gs.awake <= 1, `第 ${k + 1} 轮：醒着的画板 ≤ 1 块（${gs.awake}）`);
+      prev = cur;
+    }
+  }
 }
 
 // ---------- T1 同一份文件里换图 ----------

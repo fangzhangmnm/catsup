@@ -8,6 +8,8 @@
 //   V1 失焦 → 接着画（核对每一帧）→ 抬笔；V2 iPad 的次序：先 visibilitychange（存）、后 pointercancel → 刷新重开 = 笔 A 之后那一版（分层逐像素）；
 //   V3 关页 pagehide（只落本机）；V4 临时家（崩溃快照那条路：切后台先编画再拍）；V5 / V6 人按的保存（Ctrl+S、存钮）；V7 建模的手势拖到一半时失焦（名册的另一个来源）。
 // 现状钉住（统筹 11-11：行为不改）：V8 一笔当中按 Ctrl+Z = 这一笔取消得干净（和建模的手势一样）；V9 / V10（v0.19.47 起）一笔当中按工具键 E、空格 = 画画工作台里不响应、这一笔照常画完。
+// V11（施工单十九第 3 刀，2026-11-12）：两个物件，A 画过、睡着、脏（缓存旧了），B 一笔按到一半时失焦存盘 → A 存出来的 = A 现在的（存盘那一下同步叫醒、整张合、读回、睡回去），
+//   B 的 = 这一笔之前的；之后接着画，每帧核对都对上。A 睡下时临时摘掉「睡前钉进缓存」（不然它在睡下那一刻就编好了，存盘直接用缓存、验不到叫醒那条路）。
 // 标记 hand-save-check:<名册来源>：名册每个来源都要有一条「没收的时候存盘」的检查（守卫 test/hand-busy.test.ts 扫 test/ 找这个标记，少一个 = 红）。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-mid-stroke-save.mjs [url]
 import { sizeRow } from "./lib/canvas-rows.mjs";
@@ -258,6 +260,73 @@ const waitSaved = (page) => page.waitForFunction(() => { const s = globalThis.__
   await S(() => { globalThis.__catsup.pickWorkbench("freeform"); const e = globalThis.__catsup.editor; e.setTool("select"); e.selectAll(); e.cam.setView("front"); e.zoomExtents(); e.draw(); });
   await page.mouse.move(cx, cy); await page.keyboard.press("g"); await page.mouse.move(cx + 25, cy - 30, { steps: 4 }); await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(150);
   check(await S(() => globalThis.__MS.meshHash()) !== p1.hash, "同样拖一下落定：几何变了（这个比较看得出拖）");
+  await ctx.close();
+}
+
+// ---------- V11 一笔当中存盘、另有一块睡着的脏画板（施工单十九第 3 刀）----------
+{
+  console.log("\nV11 两个物件：A 画过、睡着、脏（缓存旧了）；B 一笔按到一半时失焦存盘 → A 存出来的 = A 现在的、存完 A 还睡着；B 的 = 这一笔之前的；之后每帧核对都对上");
+  const { ctx, page, S, reloaded } = await open();
+  void page.evaluate(() => { void globalThis.__catsup.home.openGallery(); });
+  await page.waitForFunction(() => !document.getElementById("sheet").hidden, null, { timeout: 8000 });
+  await reloaded(() => page.click(`#sheetChoices button:has-text("选一个文件夹")`));
+  await S(() => globalThis.__catsup.galleryHost.open());
+  await page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
+  await page.click("#galleryNew");
+  await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden);
+  await clearNotes(S);
+  const gA = await boxAndStart(page, S);
+  check(!!gA && await S(async () => globalThis.__catsup.session.save()) === true, "A：开始画、先存一次");
+  await S(() => { const M = globalThis.__MS; M.stroke(0.3); globalThis.__catsup.editor.draw(); });   // A 画一笔（落定，还没编码）
+  // 第二个盒子 B（x 往右挪 2）：盒子 → 组件 → 网格体（全选会把 A 的实例也选上：去掉，只包这一个）→ 进去 → 画画工作台 → 开始画
+  const gB = await S(async (gA) => {
+    const C = globalThis.__catsup, e = C.editor, Sc = () => e.sceneRef, P = (x, y, z = 0) => ({ x, y, z });
+    const M = globalThis.__MS; M.keepPrime = C.paint.boards.beforeSleep; C.paint.boards.beforeSleep = null;   // A 睡下时不钉进缓存（见头注释）
+    e.exitTo(0); e.setMode("geometry"); e.setTool("select");
+    const before = new Set(Sc().def(Sc().root).instances.keys()), B = [[2, 0], [3, 0], [3, 1], [2, 1]], segs = [];
+    for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], 1), P(d[0], d[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); }
+    e.commitOp({ op: "addEdges", at: e.activePool(), segs }); e.selectAll(); for (const k of [...e.selectedPools.keys()]) e.selectedPools.delete(k);
+    e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("盒B"); e.runAction("object.toMesh");
+    const inst = [...Sc().def(Sc().root).instances.values()].find((i) => !before.has(i.id));
+    e.exitTo(0); e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected();
+    C.pickWorkbench("paint"); e.runAction("mesh.startPaint", { canvas: 1024, arrange: "patches" }); e.cam.setView("top"); e.zoomExtents();
+    for (let i = 0; i < 6; i++) { e.draw(); await new Promise((q) => requestAnimationFrame(q)); }
+    return [...Sc().textures.values()].find((t) => t.content.kind === "layered" && t.guid !== gA)?.guid ?? null;
+  }, gA);
+  const pre = await S(([gA]) => {
+    const C = globalThis.__catsup, M = globalThis.__MS, a = C.paint.boards.get(gA), c = C.paint.saver.cache.get(gA);
+    M.rA = { hash: M.paintHash(gA), comp: a.composeBytes().slice(), version: a.wp.commitVersion };   // A 的参照（存盘用的整张合成；读回那一下借显卡、用完睡回去）
+    return { asleep: a.asleep, stale: !(c && c.board === a && c.version === a.wp.commitVersion), wakes: a.wakes };
+  }, [gA]);
+  check(!!gB && pre.asleep && pre.stale, `A 睡着、缓存旧了（A 的最后一笔没编码过）；B 开始画了`, JSON.stringify({ gB: !!gB, ...pre }));
+  // B 先落定一笔（空白的画不存合成图，没得比），再按下一笔到一半
+  await S(() => { globalThis.__MS.stroke(0.3, 2.2, 2.8); globalThis.__catsup.editor.draw(); });
+  await S((gB) => globalThis.__MS.ref(gB), gB);
+  await S(() => { const M = globalThis.__MS; M.pe("pointerdown", 2.2, 0.5); for (let i = 1; i <= 6; i++) M.pe("pointermove", 2.2 + 0.05 * i, 0.5); });
+  const mid = await S((gB) => ({ stroking: globalThis.__catsup.paint.workbench.stroking, hash: globalThis.__MS.paintHash(gB) }), gB);
+  check(mid.stroking && mid.hash === (await S(() => globalThis.__MS.r.hash)), "B 的笔按着、落定的像素没被这一笔动过", JSON.stringify(mid));
+  await S(() => window.dispatchEvent(new Event("blur")));
+  await waitSaved(page);
+  const sA = await S(async ([gA]) => {
+    const C = globalThis.__catsup, M = globalThis.__MS, a = C.paint.boards.get(gA), c = C.paint.saver.cache.get(gA);
+    if (!c || !c.composite) return { ok: false, why: "A 不在缓存里 / 没有合成图" };
+    const bmp = await createImageBitmap(new Blob([c.composite.png], { type: "image/png" }), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+    const oc = new OffscreenCanvas(bmp.width, bmp.height), cx = oc.getContext("2d"); cx.drawImage(bmp, 0, 0);
+    const d = cx.getImageData(0, 0, bmp.width, bmp.height).data; let diff = 0; for (let i = 0; i < d.length; i++) if (d[i] !== M.rA.comp[i]) diff++;
+    return { ok: diff === 0 && c.version === M.rA.version && M.paintHash(gA) === M.rA.hash, diff, cacheVersion: c.version, version: M.rA.version, asleep: a.asleep, wakes: a.wakes, ofMatches: c.composite.of.bytes === c.ora.byteLength };
+  }, [gA]);
+  check(sA.ok && sA.ofMatches, `A 存出来的 = A 现在的：落定版本 ${sA.cacheVersion} = ${sA.version}、合成图和整张合成逐字节一样（差 ${sA.diff}）`, JSON.stringify(sA));
+  check(sA.asleep && sA.wakes > pre.wakes + 0, `存盘那一下叫醒过 A（叫醒 ${pre.wakes} → ${sA.wakes} 次）、存完 A 还睡着`, JSON.stringify(sA));
+  const sB = await S((gB) => globalThis.__MS.saved(gB), gB);
+  check(sB.ok && sB.ofMatches, `B 存出来的 = 这一笔之前的：落定版本 ${sB.cacheVersion} = ${sB.refVersion}、合成图逐字节一样（差 ${sB.diff}）`, JSON.stringify(sB));
+  const ck = await S(async () => { const C = globalThis.__catsup, M = globalThis.__MS, out = []; for (let i = 7; i <= 12; i++) { M.pe("pointermove", 2.2 + 0.05 * i, 0.5); C.editor.draw(); await new Promise((q) => requestAnimationFrame(q)); out.push(C.paint.diag.check()); } M.pe("pointerup", 2.8, 0.5); C.editor.draw(); await new Promise((q) => requestAnimationFrame(q)); out.push(C.paint.diag.check()); return out; });
+  check(ck.every((x) => x === true), `存完接着画 B：后面 ${ck.length} 帧每帧核对（显示 = 整张重合）都对上`, JSON.stringify(ck));
+  // 核对（diag.check）把所有画板都核一遍：睡着的 A 也被叫醒核一下（显示的那版不变），下一帧准备的末尾睡回去
+  const aEnd = await S(async ([gA]) => { const C = globalThis.__catsup, a = C.paint.boards.get(gA); for (let i = 0; i < 3; i++) { C.editor.draw(); await new Promise((q) => requestAnimationFrame(q)); } return { asleep: a.asleep, hash: globalThis.__MS.paintHash(gA) }; }, [gA]);
+  const rAhash = await S(() => globalThis.__MS.rA.hash);
+  check(aEnd.asleep && aEnd.hash === rAhash, "画完 B、跑几帧：A 睡着（核对叫醒过它，下一帧睡回去）、A 的像素没动", JSON.stringify({ ...aEnd, rAhash }));
+  await S(() => { const C = globalThis.__catsup; C.paint.boards.beforeSleep = globalThis.__MS.keepPrime; });
+  check(await S(async () => globalThis.__catsup.session.save()) === true, "存上");
   await ctx.close();
 }
 
