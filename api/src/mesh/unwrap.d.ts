@@ -36,8 +36,9 @@ export type ChartUnwrap = {
     readonly stretch: Stretch;
     readonly iterations: number; /** 起步那一轮起每一轮的能量（每张三维面积上的对称狄利克雷，最小 = 4）。 */
     readonly energies: readonly number[];
-    /** 边界贴上了：最后一轮的步子被「边界会交叉」砍过（这片想自己叠上才能更平，停在贴着的地方；拉伸多半大，要再切）。 */ readonly blockedByCrossing: boolean;
-    readonly cancelled: boolean;
+    /** 停在哪（统筹 11-12：H 的「拉伸超了再切」和第 3 刀对 user 说实话都靠它）：converged = 收敛了；max-iters = 到轮数上限（还能更平）；
+     *  contact = 边界贴上了走不动（这片要自己叠上才能更平 = 得再切一刀；拉伸多半大）；cancelled = 被取消（交的是那一轮，照样合法）。 */
+    readonly stoppedBy: "converged" | "max-iters" | "contact" | "cancelled";
     /** 补了几个洞；两条边的「洞」（一条切开的边、两头都还连着 = 张不开）不补、当它没切，记在 slits。 */ readonly holesFilled: number;
     readonly slits: number;
     /** 为了和邻居一致、在副本里绕向倒过来的面（模型里这几张面的绕向和邻居不一致）：它们在平面上和自己的三维法向相反，这是对的。 */ readonly flipped: ReadonlySet<number>;
