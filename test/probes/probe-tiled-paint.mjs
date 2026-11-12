@@ -7,7 +7,7 @@
 // ④ 模型上拿笔落到这些面上：不画、说原因（「平铺的画只在画布小窗里画」）、不长步、图层不动
 // ⑤ 撤三步（涂面、画、新建）：画回到空白、平铺的画没了、小窗切走；重做三步：回来、图层和撤之前逐字节一样
 // ⑥ 存盘 → 重新打开：还是平铺的画；冷的显示合成图（带平铺标记）；小窗里切过去 = 变热、图层和存之前逐字节一样；另一张一笔没画就存的，再打开画得上
-// ⑦ 锁着：新建不建、小窗里画不上（图层不动、不长步）
+// ⑦ 锁着：新建被拒并说原因、小窗里落笔被拒并说原因、存出来的文件字节不变（图层不动、不长步）
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-tiled-paint.mjs [url]
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -144,14 +144,22 @@ const L6a = await H(tex2), p6 = await pos();
 await line(8, 2, 14);
 check((await H(tex2)) !== L6a && (await pos()) === p6 + 1, "一笔没画就存的那张：重新打开后切过去画得上（空白分层字节的图层号是好的）", JSON.stringify({ hint: await hint() }));
 
-console.log("\n⑦ 锁着：新建不建、小窗里画不上");
+console.log("\n⑦ 锁着：新建被拒并说原因；手上拿不到笔、硬落一笔被门拒并说原因；存出来的文件字节不变");
 await S(async () => { await globalThis.__catsup.session.setLocked(true); globalThis.__catsup.editor.draw(); }); await frames(2);
+/** 存出来的文件字节（session.encodeNow，照 probe-present-lock）的哈希。 */
+const fileHash = () => S(async () => { const u = await globalThis.__catsup.session.encodeNow(); let x = 2166136261; for (let i = 0; i < u.length; i++) { x ^= u[i]; x = Math.imul(x, 16777619); } return `${(x >>> 0).toString(16)}/${u.length}`; });
+const F7 = await fileHash();
 const p7 = await pos(), n7 = await S(() => globalThis.__catsup.editor.sceneRef.textures.size);
-const t7 = await S(() => globalThis.__catsup.paint.newTiled(16, 1));
-check(t7 === null && (await S(() => globalThis.__catsup.editor.sceneRef.textures.size)) === n7 && (await pos()) === p7, "锁着：新建没建、不长步", JSON.stringify({ t7 }));
-const L7 = await H(tex);
-await line(20, 3, 28);
-check((await H(tex)) === L7 && (await pos()) === p7, "锁着：小窗里画不上（图层不动、不长步）");
+await S(() => { document.getElementById("hint").textContent = ""; });
+const t7 = await S(() => globalThis.__catsup.paint.newTiled(16, 1)), h7a = await hint();
+check(t7 === null && (await S(() => globalThis.__catsup.editor.sceneRef.textures.size)) === n7 && (await pos()) === p7 && /锁/.test(h7a), "锁着：新建被拒、提示行说原因（锁）、不长步", JSON.stringify({ t7, hint: h7a }));
+const L7 = await H(tex), tool7 = await S(() => globalThis.__catsup.editor.tool);
+await line(20, 3, 28);   // 第一层：锁上的那一下手上就换成只读工具（P-12），小窗里拖 = 平移，不落笔
+check(tool7 !== "paintPen" && tool7 !== "paintEraser" && (await H(tex)) === L7 && (await pos()) === p7, `锁着：手上拿不到笔（${tool7}）、小窗里拖画不上（图层不动、不长步）`);
+await S(() => { document.getElementById("hint").textContent = ""; });
+const r7 = await S((t) => globalThis.__catsup.paint.stroke2dOpen({ guid: t, x: 4, y: 4 }), tex), h7b = await hint();   // 第二层：绕过工具硬落一笔（调试钩子走的是落笔那道门）
+check(!!r7?.refused && /锁/.test(h7b) && (await H(tex)) === L7 && (await pos()) === p7, "锁着：硬落一笔被落笔那道门拒、提示行说原因（锁）、图层不动、不长步", JSON.stringify({ r7, hint: h7b }));
+check((await fileHash()) === F7, "锁着：被拒之后存出来的文件字节和锁上时一样", JSON.stringify({ F7 }));
 await S(async () => { await globalThis.__catsup.session.setLocked(false); });
 
 check(errs.length === 0, "没有页面错误", errs.slice(0, 3).join(" | "));
