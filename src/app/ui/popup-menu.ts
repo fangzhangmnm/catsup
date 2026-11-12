@@ -74,7 +74,7 @@ export function isPopupOpen(): boolean { return !!_open && _open.isOpen() && _op
 inputGate.face({ kind: "menu", label: "菜单", rank: 300, root: ".popup-menu", up: () => isPopupOpen() || choiceLayerOpen(), esc: () => { if (choiceLayerOpen()) closeChoiceLayer(); else closePopupMenu(); return true; } });
 
 export function togglePopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): PopupMenuHandle | null {
-  if (_open && _openAnchor === opts.anchor) { _open.close(); return null; }
+  if (isPopupOpen() && _openAnchor === opts.anchor) { _open!.close(); return null; }   // 「开着吗」只有 isPopupOpen 一个问法：元素被别处删了的那个不算开着，点 ☰ 照常开新的（openPopupMenu 先把旧的收干净）
   return openPopupMenu(opts);
 }
 
