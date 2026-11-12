@@ -43,10 +43,13 @@ export const DOC_KINDS: readonly DocKind[] = [{ kind: "glb", suffix: DOC_EXT, co
 //     session.save() 把 `saving = true` 然后 await store.save()（推云内联在里面）→ 推挂死 = saving 永远 true → tick() 的 30 s 自动保存全部跳过、
 //     编辑只在内存里直到 reload。这碰的是数据安全模型第 2 条（没传上去的改动不能丢），§3 A3。到点 → CloudNetworkError = 和断网同一类：
 //     save 返 pushed:false、文件留脏（pushPending）、下次保存补推。
+//     4 MB 以下一次传完的上传单列一档 `upload`（store 2.3.6 起有这个项；不写 = meta 那档 30 s）：三维**写明 30 s**——「正在存」不会一直卡着靠的就是这个数，
+//     钉在三维自己手里、不靠库的默认值（统筹 11-12；2.3.4 / 2.3.5 曾把它默认并进 120 s 那档，那两版不收）。慢网上 1–4 MB 的模型 30 s 传不完会被掐断重试——
+//     要不要放宽，等调试日志里攒出「慢网上有多少次卡在这 30 秒」的事实再定，单独一次改动。
 //   chunkResume：> 4 MB 的 .glb（贴图多的模型）走分块上传；单块失败不再整份从头来。只影响成功率，不影响安全。
 //   verifyChunkedCommit：分块上传只在开会话时核 If-Match，最后一块落地无条件 → 两台设备同时覆盖同一文件有「传那几十秒」的窗口；
 //     开了 = 提交最后一块前再比一次 eTag，变了就撤会话抛 412 → 冲突面（第 1 条：云端已有的不被盖）。代价 = 每次分块覆盖多一个 GET。
-const GRAPH_TRANSPORT: GraphTransportOptions = { timeouts: DEFAULT_GRAPH_TIMEOUTS, chunkResume: true, verifyChunkedCommit: true };
+const GRAPH_TRANSPORT: GraphTransportOptions = { timeouts: { ...DEFAULT_GRAPH_TIMEOUTS, upload: 30_000 }, chunkResume: true, verifyChunkedCommit: true };
 
 const od = createOneDriveProvider({ clientId: CLIENT_ID, scopes: SCOPES, authority: AUTHORITY, msalUrl: MSAL_URL, transport: GRAPH_TRANSPORT });
 export const auth = od.auth;
