@@ -12,6 +12,7 @@
 //   以后要再省（编好字节、变冷）等 1-8b 有了编码缓存：先有一份字节挂在所有还回得去的地方，才许放画板。
 // · 整个程序只有一个内核的显卡接口：第一次要用时建在渲染器的画面上（BrowserGl2Port.fromContext），以后所有画板共用。
 import { BrowserGl2Port } from "./kernel/src/shell/browser-gl2-port.ts";
+import { PaintLockedError } from "./paint-limit.ts";
 import { paintMeter } from "./frame-meter.ts";
 import type { Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
 import type { LiveImage, TextureRef } from "../minccino/contract/stream.ts";
@@ -40,6 +41,8 @@ export interface PaintBoardsOpts {
   readonly active?: (on: boolean) => void;
   /** 给用户的一句话（1-8b：这张画只能看不能画、为什么）。 */
   readonly say?: (text: string) => void;
+  /** 文件锁着吗（锁着 = 输入闸上那条锁的理由，能改 = null）：递给每块画板（开一笔、落层问它），整份换内容（load）也问（v0.19.48）。必填：漏传 = 悄悄当没锁。 */
+  readonly editLocked: () => string | null;
 }
 /** 「画」这种撤销记录：哪张贴图 + 内核封的那一步（内核的对象，三维不看里面）。 */
 export interface PaintRec { /** 哪张贴图（GUID；字段不叫 texture：守卫 textures-table 不许「点 texture」）。 */ readonly tex: Guid; readonly step: Parameters<HostedSteps["flip"]>[0] }
@@ -79,7 +82,7 @@ export class PaintBoards {
       onStep: (step) => { this.pending.push({ tex: texture, step }); },
       onReset: () => { this.pending = this.pending.filter((p) => p.tex !== texture); if (!born && !this.disposing) this.o.undoReset?.(texture, this.resetWhy?.why ?? "画画内核说这张画的状态不可信", this.resetWhy?.tell ?? true); },   // 扔画板（只在换文件时）内核清栈也会叫它：那时整个栈已经换了，不用去摘
     });
-    const board = new PaintBoard({ port: this.port, width, height, log: this.o.log, undo: steps });
+    const board = new PaintBoard({ port: this.port, width, height, log: this.o.log, undo: steps, locked: this.o.editLocked });
     born = false;
     this.pending = this.pending.filter((p) => p.tex !== texture);   // 建画板时内核要是封过步（空画布的那一步）：不进三维的栈
     board.setBackground(base);
@@ -196,6 +199,7 @@ export class PaintBoards {
   }
   /** 灌一份内容（调试钩子；以后读文件）：内核装载 = 这张画以前的步全作废（不用告诉用户：是装载，不是出错）。 */
   load(texture: Guid, data: Parameters<PaintBoard["load"]>[0]): void {
+    { const why = this.o.editLocked(); if (why) throw new PaintLockedError("PaintBoards.load: the document is locked", why); }   // 整份换内容（调试钩子 fill）也问锁（v0.19.48）
     const e = this.entries.get(texture);
     if (!e) throw new Error(`PaintBoards.load: no board for ${texture}`);
     this.resetWhy = { why: "装载了新内容", tell: false };
@@ -343,10 +347,10 @@ function gpuImageOf(port: Gl2Port, fbo: PooledFBO): unknown {
 }
 
 /** 浏览器里：内核的显卡接口建在渲染器的画面上（整个程序一个）。 */
-export function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, log?: (msg: string) => void, touched?: () => void, undoReset?: (texture: Guid, why: string, tell: boolean) => void, active?: (on: boolean) => void, say?: (text: string) => void): PaintBoards {
+export function browserPaintBoards(gl: () => WebGL2RenderingContext | null, epoch: () => number, editLocked: () => string | null, log?: (msg: string) => void, touched?: () => void, undoReset?: (texture: Guid, why: string, tell: boolean) => void, active?: (on: boolean) => void, say?: (text: string) => void): PaintBoards {
   return new PaintBoards({
     port: () => { const g = gl(); if (!g) throw new Error("PaintBoards: renderer has no WebGL2 context"); return BrowserGl2Port.fromContext(g); },
-    epoch, log, touched, ...(undoReset ? { undoReset } : {}), ...(active ? { active } : {}), ...(say ? { say } : {}),
+    epoch, editLocked, log, touched, ...(undoReset ? { undoReset } : {}), ...(active ? { active } : {}), ...(say ? { say } : {}),
   });
 }
 

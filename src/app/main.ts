@@ -293,7 +293,9 @@ const editor = new Editor(canvas, {
 }, new Renderer3(canvas, perf));
 // 画显示到模型上（贴图主线 1-3c）：内核的显卡接口建在渲染器的画面上（第一次建画板时）；换文件 = editor.docEpoch 变 = 全部销毁。没有画板 = 渲染器每帧不多做事。
 const paintTileJobs = initPaintTileJobs({ log: (m) => note("paint", m) });   // 画画内核的图块池：额度、压缩、泄漏上报开机就接；空闲 / 切后台压只在有画板时跑（0-3a；第一块画板之前）
-const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => editor.docEpoch, (m) => note("paint", m), () => editor.renderer3.resetPaintState(),
+/** 文件锁着吗（画画这一层问的那一处）：输入闸上是锁 = 交出那条锁的理由（和编辑器说同一句），能改 = null。锁的真值只在输入闸（v0.19.48）。 */
+function paintEditLocked(): string | null { const h = inputGate.held(); return h?.kind === "lock" ? h.why : null; }
+const paintBoards = browserPaintBoards(() => editor.renderer3.paintGl(), () => editor.docEpoch, paintEditLocked, (m) => note("paint", m), () => editor.renderer3.resetPaintState(),
   (texture, why, tell) => {   // 内核说这张画以前的步全作废：三维的栈摘掉它的记录；状态不可信那一种告诉用户（1-8a）
     editor.dropUndoRecords(PAINT_UNDO_KIND, (d) => (d as PaintRec).tex === texture);
     if (tell) notify({ text: `「${editor.sceneRef.textures.get(texture)?.name ?? "画"}」这张画的撤销记录清掉了：${why}`, level: "warning" });
@@ -2600,7 +2602,8 @@ function paintCheckDetail(): { ok: boolean; kernel: { guid: string; diff: number
 }
 editor.afterRender = () => meterBadge?.frame();
 var paintWb: PaintWorkbench | null = new PaintWorkbench({ editor, boards: paintBoards, strokeDeps: (chain) => paintStrokeDeps(chain), gate: (t) => paintStrokeGate(t), color: paintColor, prep: paintPrep, flashStart: () => { primary.sync(); primary.flash("paint"); }, hint: (t) => { hintEl.textContent = t; } });
-function paintStrokeGate(texture: string): "warming" | "view-only" | null {
+function paintStrokeGate(texture: string): "locked" | "warming" | "view-only" | null {
+  { const why = paintEditLocked(); if (why) { hintEl.textContent = why; return "locked"; } }   // 第二层：落笔的门（画画控制器和调试钩子都过这里；v0.19.48）
   const st = paintBoards.stateOf(editor.sceneRef, texture);
   if (st === "cold" || st === "warming") {
     hintEl.textContent = "这张画还在打开，等一下再画";

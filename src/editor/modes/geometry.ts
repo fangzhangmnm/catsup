@@ -30,6 +30,7 @@ export class GeometryMode implements Mode {
   readonly kinds = ["brep"] as const;
   readonly tools: readonly Tool[] = TOOLS.filter((t) => t !== "paint" && t !== "knife" && t !== "shrink" && t !== "walk" && t !== "create" && !BRUSHES.includes(t) && !PAINT_TOOLS.includes(t));   // 画画工作台的三把（1-7）也不是硬表面的   // 软编辑笔刷 = 网格体的（2026-10-29）   // 切割 / 沿法线是自由建模的（硬表面没有它们的手势模块；按 K 不该切到一把没反应的工具）   // 油漆桶归表面模式（刀 ③）
   readonly defaultTool: Tool = "select";   // 硬表面默认 = 鼠标（选择）工具（user 10-27「硬建模默认也是鼠标工具」；以前是画线）
+  readonly whenLocked: Mode["whenLocked"] = { tool: "select" };   // 锁上时拿它（只读）
   readonly handlers: Partial<Record<Tool, ToolHandler>> = {
     offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool(), tape: new TapeTool(), axes: new AxesTool(), protractor: new ProtractorTool(), compass: new CompassTool(),
     erase: new EraseTool(), weldErase: new WeldEraseTool(), softErase: new SoftEraseTool(), select: new SelectTool(), scale: new ScaleTool(), transform: new TransformTool(), rotate: new RotateTool(), pp: new PushPullTool(), move: new MoveTool(),

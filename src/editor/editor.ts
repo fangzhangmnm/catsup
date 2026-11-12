@@ -90,7 +90,7 @@ import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, det3, fra
 export { TOOLS, type Tool } from "./tool-ids.ts";
 import { isReadOnlyTool, type Tool } from "./tool-ids.ts";
 import type { Mode, ModeId } from "./mode.ts";
-import { workbenches, workbenchOf } from "./modes/index.ts";   // 全部工作台（加一个 = modes/index.ts 一行）
+import { workbenches, workbenchOf, lockedHold } from "./modes/index.ts";   // 全部工作台（加一个 = modes/index.ts 一行）
 import { KINDS } from "../scene/kinds.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
@@ -248,7 +248,7 @@ export class Editor {
   private ctx: EditContext = ROOT_CONTEXT;
   private readonly gridState = new GridState();   // 网格设置 + 各工作台的吸附开关（自由建模单独一份，grid-state.ts）
   /** 演示锁（周账 F-124）：真值住文件的桌面态 session.desk.locked，这里只现问输入闸（host.editHold，controller/input-gate.ts）。锁着 = 改模型的入口全拒、渲染上没有「正在编辑的那一层」；只读工具（tool-ids.ts）照用。 */ get locked(): boolean { return this.host.editHold?.()?.kind === "lock"; }
-  private lockSeen = false; /** 锁变了（解锁 / 锁上 / 换了文件）：手势作废、拿着的改模型工具放下、重画。 */ holdChanged(): void { const on = this.locked; if (on === this.lockSeen) return; this.lockSeen = on; this.cancelGesture(); if (on && !isReadOnlyTool(this._tool)) this.setTool("select"); this.host.changed(); this.draw(); }
+  private lockSeen = false; /** 锁变了（解锁 / 锁上 / 换了文件）：手势作废、拿着的改模型工具放下、重画。 */ holdChanged(): void { const on = this.locked; if (on === this.lockSeen) return; this.lockSeen = on; this.cancelGesture(); if (on && !isReadOnlyTool(this._tool)) { const h = lockedHold(this.modeList, this.mode, this.activeKind()); if (h.mode) this.setMode(h.mode); this.setTool(h.tool); }   /* 照工作台的声明 whenLocked 放下改模型的工具（统筹 11-11，v0.19.48：v0.19.47 起 setTool 不替人换工作台，画画工作台里以前放不下）；要换工作台 = 明着 setMode */ this.host.changed(); this.draw(); }
   /** 人的入口问这里：有理由不许改 = 说一句、返回 true。程序漏斗 commitIn 不看「正在问」（导入 / 粘贴等面关了才落定是合法的），只看演示锁。 */ private refuse(): boolean { const h = this.host.editHold?.(); if (!h) return false; this.host.hint(h.why); return true; }
   get grid(): Readonly<GridSettings> { return this.gridState.view(this.mode.id); }
   get docGrid(): Readonly<GridSettings> { return this.gridState.doc; }   // 文档的那一份（存盘只认它）
@@ -284,13 +284,13 @@ export class Editor {
     return this.step((pass) => {
     const next = this.modeList.find((m) => m.id === id);
     if (!next || next === this.mode) return;
-    if (!(next.kinds as readonly BodyKind[]).includes(this.activeKind())) { this.host.hint(`「${next.label}」管不了现在这个物件`); return; }   // 不变量：工作台管活动池的身体种类
+    if (!(next.kinds as readonly BodyKind[]).includes(this.activeKind())) { this.host.hint(`「${next.label}」管不了现在这个物件`); return; } if (this.locked && "elsewhere" in next.whenLocked) { this.refuse(); return; }   // 不变量：工作台管活动池的身体种类；锁着不进没有只读工具的工作台（画画，v0.19.48）
     this.cancelGesture();
     this.mode.leave?.(this.toolCtx);
     this.openParamSession(null);   // 换工作台：马前炮 / 马后炮都收
     this.mode = next;
     this.mode.enter?.(this.toolCtx);
-    if (!next.tools.includes(this._tool)) this._tool = this.locked && !isReadOnlyTool(next.defaultTool) ? "select" : next.defaultTool;
+    if (!next.tools.includes(this._tool)) this._tool = this.locked && !isReadOnlyTool(next.defaultTool) && "tool" in next.whenLocked ? next.whenLocked.tool : next.defaultTool;   // 锁着：照这个工作台声明的只读工具（v0.19.48）
     this.last = null;
     this.clearCharged();
     this.host.changed();
@@ -899,14 +899,14 @@ export class Editor {
     return inst && this.scene.kindOf(inst.def) === "brep" ? { p, inst } : null;
   }
   /** 右键 / 顶部浮条出不出「改组件原点…」。 */
-  canEditComponentOrigin(): boolean { const t = this.originEditTarget(); return !!t && !t.inst.locked; }
+  canEditComponentOrigin(): boolean { const t = this.originEditTarget(); return !!t && !t.inst.locked && this.mode.tools.includes("axes"); }   // 坐标架工具不在这个工作台 = 不露（v0.19.48：setTool 不替人换工作台）
   /** 只选了一个组件（没有散几何）→ 开会话；否则 false。 */
   beginComponentOrigin(): boolean {
     const t = this.originEditTarget();
     if (!t) return false;
     const { p, inst } = t;
     if (inst.locked) { this.host.hint(LOCKED_HINT); return false; }
-    const prevTool = this._tool;
+    const prevTool = this._tool; if (!this.mode.tools.includes("axes")) { this.host.hint(`「${this.mode.label}」工作台里没有坐标架工具，改不了组件原点`); return false; }   // v0.19.48：setTool 不替人换工作台——拒收之后不许照样开会话
     this.setTool("axes");
     this.originEdit = { instance: inst.id, def: inst.def, prevTool, ctx: this.ctxKey() };
     this.selectedPools.set(this.pickKey(p), p);   // 换工具不清选区；这里再确认一次：小三轴看得见

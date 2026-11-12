@@ -27,7 +27,7 @@ export interface PaintWorkbenchDeps {
   /** 一笔要的那些口（main.ts 和调试钩子同一份）；chain = 落点只认这一份摆放（正在编辑的那一份）。 */
   strokeDeps(chain: readonly number[]): SpacePaintDeps;
   /** 落笔之前问的门（main.ts paintStrokeGate：冷的 = 不开始 + 解开；只能看不能画 = 说为什么）。能画 = null。 */
-  gate(texture: string): "warming" | "view-only" | null;
+  gate(texture: string): "locked" | "warming" | "view-only" | null;
   readonly color: PaintColor;
   /** 画画的准备（main.ts paintPrep；和调试钩子同一个）。 */
   readonly prep: SpacePrep;
@@ -138,7 +138,7 @@ export class PaintWorkbench {
     if (!a) return;   // 落在空处：什么都不做
     if ("why" in a) { this.d.hint(a.why); if (a.start) this.d.flashStart?.(); return; }   // 没画过的物件：不自动弹面板，说一句、按钮闪一下
     if (!("tex" in a)) { this.d.hint("这张面没走画（它是别的材质）：选中它，点上面的「把这几张面加进来」"); return; }
-    if (this.d.gate(a.tex)) return;   // 冷的 / 只能看不能画：门自己说了
+    if (this.d.gate(a.tex)) return;   // 锁着 / 冷的 / 只能看不能画：门自己说了（锁 = 第二层，v0.19.48）
     const e = this.d.editor, cfg = e.config, tool = ev.tool;
     const size = cfg.get(tool, "size"), opacity = cfg.get(tool, "opacity"), hardness = cfg.get(tool, "hardness");
     const brush = { ...hookBrush({ size, hardness }), opacity };

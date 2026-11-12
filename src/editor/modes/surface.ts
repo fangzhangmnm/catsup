@@ -13,6 +13,7 @@ export class SurfaceMode implements Mode {
   readonly kinds = ["brep", "mesh"] as const;   // W-12（2026-11-11 Claude Opus 5.5）：网格体的面也在这里涂（走 meshPaintFaces；一张面只有一侧）
   readonly tools: readonly Tool[] = ["select", "paint"];
   readonly defaultTool: Tool = "paint";
+  readonly whenLocked: Mode["whenLocked"] = { tool: "select" };   // 锁上时拿它（只读）
   readonly handlers: Partial<Record<Tool, ToolHandler>> = {
     select: new SelectTool(),
     paint: new SurfaceAssignTool({

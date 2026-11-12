@@ -5,6 +5,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { SoftGl2Port } from "../src/paint/kernel/src/backend/soft-gl2-port.ts";
 import { PaintBoard } from "../src/paint/board.ts";
 import { PaintBoards } from "../src/paint/boards.ts";
+import { PaintLockedError } from "../src/paint/paint-limit.ts";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox } from "../src/mesh/ops/index.ts";
 import { Scene } from "../src/scene/scene.ts";
@@ -121,8 +122,22 @@ describe("只合成改到的那些格（1-4d 第 6 条，内核 v0.14.79）", ()
 });
 
 describe("画板登记处（1-3c）", () => {
+  it("锁着整份换内容（调试钩子 fill 那条路）：抛锁的错、不换；解锁照换（v0.19.48）", () => {
+    const { s, tex } = painted();
+    let why: string | null = null;
+    const reg = new PaintBoards({ editLocked: () => why, port: () => new SoftGl2Port(), epoch: () => 0 });
+    const b = reg.ensure(s, tex), W = b.width, H = b.height;
+    reg.load(tex, layer(W, H, pattern(W, H)));
+    const sum = (): number => { const d = b.wp.exportData(); let t = 0; for (const n of d.nodes) { const px = (n as { pixels?: { bytes: Uint8ClampedArray } }).pixels; if (px) for (const v of px.bytes) t = (t + v) | 0; } return t; };
+    const s0 = sum();
+    why = "锁着：看、选、量、进去走都行，改不了；☰「解锁」放开";
+    let err: unknown = null; try { reg.load(tex, layer(W, H, new Uint8ClampedArray(W * H * 4))); } catch (e) { err = e; }
+    assert(err instanceof PaintLockedError && (err as PaintLockedError).say === why, `抛的是锁的错、说锁的那句（${String(err)}）`);
+    eq(sum(), s0, "没换");
+    why = null; reg.load(tex, layer(W, H, new Uint8ClampedArray(W * H * 4))); assert(sum() !== s0, "解锁照换");
+  });
   it("建：大小 = 那一套坐标的画布、底色 = 材质的底色；不是画 = 抛", () => {
-    const { s, def, tex } = painted(), port = new SoftGl2Port(), reg = new PaintBoards({ port: () => port, epoch: () => 0 });
+    const { s, def, tex } = painted(), port = new SoftGl2Port(), reg = new PaintBoards({ editLocked: () => null,  port: () => port, epoch: () => 0 });
     const body = s.def(def).body, row = body.kind === "mesh" ? [...body.uvSets.values()][0] : null;
     const b = reg.ensure(s, tex);
     eq([b.width, b.height].join(), [row!.width, row!.height].join(), "大小");
@@ -138,7 +153,7 @@ describe("画板登记处（1-3c）", () => {
   it("换文件（epoch 变了）= 全部销毁；画没了（材质不指它了）= 那块歇着（不合成、留到关文件）", () => {
     const { s, tex } = painted(), port = new SoftGl2Port();
     let ep = 0;
-    const reg = new PaintBoards({ port: () => port, epoch: () => ep });
+    const reg = new PaintBoards({ editLocked: () => null,  port: () => port, epoch: () => ep });
     reg.ensure(s, tex); eq(reg.count, 1, "建了");
     ep = 1; reg.sync(s); eq(reg.count, 0, "换文件");
     reg.ensure(s, tex); eq(reg.count, 1, "新文件里再建");
@@ -146,7 +161,7 @@ describe("画板登记处（1-3c）", () => {
     reg.prepare(s); eq(reg.count, 1, "画没了：还在（歇着）"); eq((reg.board(tex)!.image as LiveImage).current(), null, "歇着 = 不合成");
   });
   it("跟着场景里那一套坐标改大小（加高；1-8a 起在提交的收尾里 follow，「准备」里的 sync 不改大小）；签名跟着变", () => {
-    const { s, def, tex } = painted(), port = new SoftGl2Port(), reg = new PaintBoards({ port: () => port, epoch: () => 0 });
+    const { s, def, tex } = painted(), port = new SoftGl2Port(), reg = new PaintBoards({ editLocked: () => null,  port: () => port, epoch: () => 0 });
     const b = reg.ensure(s, tex), sig0 = reg.sig(), body = s.def(def).body;
     if (body.kind !== "mesh") throw new Error("not mesh");
     const [g, row] = [...body.uvSets][0];

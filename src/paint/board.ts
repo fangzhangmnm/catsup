@@ -4,6 +4,7 @@
 //   有内容就不缩、留着比坐标大、记一笔（不抛：宁可画板大一截，不丢像素）。显示时贴图坐标按画板**实际**的宽高除，所以大一截也显示得对。
 // 「步的去处」是参数：这一张不给（内核的记录随手丢，改大小不留步）；1-8 时换成 HostedSteps（步交给三维的撤销栈）。
 import { DirtyCells } from "./kernel/src/common/dirty-rects.ts";
+import { PaintLockedError } from "./paint-limit.ts";
 import { PaintingWorkpiece, type PaintingData } from "./kernel/src/backend/workpiece/painting-workpiece.ts";
 import { isGroupNode, type TreeNode } from "./kernel/src/backend/workpiece/layer-tree.ts";
 import { GLBoard } from "./kernel/src/shell/gl-board.ts";
@@ -32,6 +33,8 @@ export interface PaintBoardOpts {
   readonly undo?: StepSink;
   /** 有内容的行 / 列不砍时记一笔（调试日志）。 */
   readonly log?: (msg: string) => void;
+  /** 文件锁着吗（锁着 = 交出给人看的那句理由，能改 = null）。开一笔、落层都问它（v0.19.48）。缺 = 当没锁（单测）；app 里由 PaintBoards 递进来，守卫 test/paint-pixel-writes.test.ts。画板不认识编辑器。 */
+  readonly locked?: () => string | null;
 }
 
 /** 画布上一块（格子；[x, x + w) × [y, y + h)）。 */
@@ -50,6 +53,7 @@ export class PaintBoard {
   private readonly gl: GLBoard;
   private readonly port: Gl2Port;
   private readonly log: (msg: string) => void;
+  private readonly locked: () => string | null;
   private bg: readonly [number, number, number, number] = [1, 1, 1, 1];
   /** 合成出来的那张图（内核的，下一次合成之前有效）+ 合成它时的内容键。 */
   private last: { fbo: PooledFBO; key: string } | null = null;
@@ -73,6 +77,7 @@ export class PaintBoard {
   private lastCommitted: string | null = null;
 
   constructor(o: PaintBoardOpts) {
+    this.locked = o.locked ?? ((): string | null => null);
     if (!(o.width >= 1 && o.height >= 1)) throw new Error(`PaintBoard: bad size ${o.width}x${o.height}`);
     this.wp = new PaintingWorkpiece({ tree: { width: o.width, height: o.height }, ...(o.undo ? { undo: o.undo } : {}) });
     this.gl = new GLBoard(o.port, poolCapacityForBudget(BUDGET_BYTES));
@@ -127,6 +132,7 @@ export class PaintBoard {
    * 抬笔 = 内核把它落进图层（commitBrushStroke = bakeStamps 写回链），取消 = 零痕迹。layerId 不给 = 当前层。
    */
   openStroke(layerId?: number): StrokeSession {
+    { const why = this.locked(); if (why) throw new PaintLockedError("PaintBoard.openStroke: the document is locked", why); }   // 第三层：开一笔（所有笔都过这里，v0.19.48）
     const view = new PaintingView(this.wp), id = layerId ?? view.activeId;
     const leaf = view.layers.find((l) => !("children" in l) && l.id === id) as unknown as { id: number; pixels: LayerPixels; applyRegionDiff(x: number, y: number, w: number, h: number, px: Uint8ClampedArray): { tx: number; ty: number }[] } | undefined;
     if (!leaf) throw new Error(`PaintBoard.openStroke: no leaf layer ${id}`);
@@ -149,6 +155,7 @@ export class PaintBoard {
         if (!grownOnly) this.pending = "all";   // 换了一片 / 叠法变了 / 方框缩了 = 整张；只是方框长大 = 不算变（外面那片是透明的）
       },
       commitHost: (ov) => {
+        { const why = this.locked(); if (why) throw new PaintLockedError("PaintBoard: the document was locked before the stroke landed", why); }   // 第四层：落层（一笔开着时锁上了 = 抛 → 档口取消令牌、整笔回滚、零痕迹；v0.19.48）
         const ok = this.gl.commitBrushStroke(ov.layerId, leaf.pixels, ov, this.width, this.height, (px, x, y, w, h) => leaf.applyRegionDiff(x, y, w, h, px));
         const lb = this.gl.lastBake;   // 1-4d 第 8 条：三维报的格漏了 = 三维这边标格的毛病（内核照旧读了整个方框，画没少）
         if (lb?.path === "box-unreported") this.log(`paint board: stroke cells under-reported — ${lb.strayCells} changed cell(s) outside the reported ${lb.cells}; kernel read the whole box instead`);

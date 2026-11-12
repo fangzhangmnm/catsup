@@ -42,5 +42,6 @@ export class PaintMode implements Mode {
   readonly kinds = ["mesh"] as const;
   readonly tools: readonly Tool[] = ["paintPen", "paintEraser", "eyedrop"];
   readonly defaultTool: Tool = "paintPen";
+  readonly whenLocked: Mode["whenLocked"] = { elsewhere: "select" };   // 画画工作台里没有只读的工具：锁上时去有「选择」、管得了这种身体的工作台拿（行为 = v0.19.46）；锁着时也不让进这里
   readonly handlers: Partial<Record<Tool, ToolHandler>> = { paintPen: new PaintStrokeTool("paintPen"), paintEraser: new PaintStrokeTool("paintEraser"), eyedrop: new EyedropTool() };
 }

@@ -4,6 +4,7 @@
 // 定型：笔尖所在那一段两头的路点都定型了（seg + 1 < 路的定型点数）。抬笔：收笔的渐细这时才知道总长，所以抬笔时定型层清掉、整笔重画一次（只这一次），再落层。
 // 橡皮 = 同一支笔，交给档口时 erase = true。取消 = 档口取消（零痕迹）。
 import { displayDiag } from "./display-diag.ts";
+import { PaintLockedError } from "./paint-limit.ts";
 import { SpaceStroke, type SpaceCamera } from "./space-stroke.ts";
 import { paintMeter } from "./frame-meter.ts";
 import { SpaceLayer, type FaceTables } from "./space-layer.ts";
@@ -132,7 +133,8 @@ export class SpacePaintStroke {
       try { this.layer = new SpaceLayer(this.gpu, this.stroke.geos[0], 0, { hardness: this.o.brush.hardness, color: this.o.color, accum: this.o.accum, cells: this.cells, tables: this.tables }); }
       catch (err) { this.broken = true; this.cancel(); this.d.failed?.(err); return; }   // 建表出错：这一笔取消（零痕迹）、告诉宿主；不让它在每帧的「准备」里一直抛（1-7）
       this.buildMs = performance.now() - t0;
-      this.session = this.board.openStroke();
+      try { this.session = this.board.openStroke(); }
+      catch (err) { this.broken = true; this.cancel(); this.d.failed?.(err); return; }   // 开不了（锁着，v0.19.48）：这一笔取消（零痕迹）、告诉宿主为什么
       this.layerId = this.board.wp.layerTree!.view().activeId!;
       this.ext = this.board.wrapLayer({ ...this.d.external(this.layer.frame), w: this.layer.frame.w, h: this.layer.frame.h, prec: "u8" } as Parameters<PaintBoard["wrapLayer"]>[0]);
     }
@@ -169,7 +171,7 @@ export class SpacePaintStroke {
     } catch (err) {
       // 落层中途出错（读回分几段写、哪一段抛都算）：档口已经取消令牌、已写的跟着回滚 = 这一笔整笔没落、画和落笔之前一样。收干净、说人话，不让错误冲到外面
       this.board.overlayChanged(); this.close();
-      this.d.failed?.(Object.assign(new Error(`stroke did not land: ${err instanceof Error ? err.message : String(err)}`), { say: "这一笔没能落进画里，已经整笔撤掉（画和落笔之前一样）" }));
+      this.d.failed?.(Object.assign(new Error(`stroke did not land: ${err instanceof Error ? err.message : String(err)}`), { say: err instanceof PaintLockedError ? err.say : "这一笔没能落进画里，已经整笔撤掉（画和落笔之前一样）" }));
       return;
     }
     this.board.overlayChanged();

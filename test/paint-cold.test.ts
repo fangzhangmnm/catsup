@@ -23,7 +23,7 @@ async function savedAndRead(seed = 21): Promise<{ s: Scene; texs: string[]; prin
   r.boards.disposeAll();
   return { s: sceneFromDocument(readCatsup(bytes)), texs, prints };
 }
-function boardsFor(said: string[] = []) { let ep = 0; const reg = new PaintBoards({ port: () => new SoftGl2Port(), epoch: () => ep, say: (t) => said.push(t) }); return { reg, switchFile: () => { ep++; } }; }
+function boardsFor(said: string[] = []) { let ep = 0; const reg = new PaintBoards({ editLocked: () => null,  port: () => new SoftGl2Port(), epoch: () => ep, say: (t) => said.push(t) }); return { reg, switchFile: () => { ep++; } }; }
 const tiles = (): number => appTilePool().stats().count;
 
 describe("冷的画（1-8b）", () => {

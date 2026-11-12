@@ -18,7 +18,7 @@ export function rig(nMesh = 1, opts: { quota?: number; epoch?: () => number; act
   for (let i = 0; i < nMesh; i++) { const d = s0.mintDef(`画盒${i}`, sceneBox(1, 1)); d.body = brepToMesh(s0.brep(d.id)); s0.mintInstance(s0.root, null, d.id, translation({ x: 3 + 2 * i, y: 0, z: 0 })); defs.push(d.id); }
   const port = new SoftGl2Port(), resets: string[] = [];
   let h!: History<string>;
-  const boards = new PaintBoards({ port: () => port, epoch: opts.epoch ?? (() => 0), ...(opts.active ? { active: opts.active } : {}), undoReset: (tex, why, tell) => { resets.push(`${tex.slice(0, 4)} ${tell ? "说了" : "没说"} ${why}`); h.dropRecords(PAINT_UNDO_KIND, (d) => (d as PaintRec).tex === tex); } });
+  const boards = new PaintBoards({ editLocked: () => null,  port: () => port, epoch: opts.epoch ?? (() => 0), ...(opts.active ? { active: opts.active } : {}), undoReset: (tex, why, tell) => { resets.push(`${tex.slice(0, 4)} ${tell ? "说了" : "没说"} ${why}`); h.dropRecords(PAINT_UNDO_KIND, (d) => (d as PaintRec).tex === tex); } });
   h = new History<string>(s0, opts.quota ? { quotaBytes: opts.quota } : undefined);
   h.registerComponent(boards.undoComponent() as unknown as UndoComponent);
   const cur = (): Scene => (h as unknown as { current: Scene }).current;
