@@ -8,6 +8,14 @@
 import type { OffscreenData, OffscreenDraw, OffscreenGpu, OffscreenImage, OffscreenProgram } from "../../contract/offscreen-gpu.ts";
 
 interface GlImage extends OffscreenImage { tex: WebGLTexture; fbo: WebGLFramebuffer }
+/** copyRects：每个实例一块（格子坐标 x, y, w, h），片元按自己的格子坐标 texelFetch 源图同一格、原样写。 */
+const COPY_VS = `#version 300 es
+in vec2 a_quad; in vec4 a_inst; uniform vec2 u_size;
+void main() { vec2 p = a_inst.xy + a_quad * a_inst.zw; gl_Position = vec4(p / u_size * 2.0 - 1.0, 0.0, 1.0); }`;
+const COPY_FS = `#version 300 es
+precision highp float; precision highp sampler2D;
+uniform sampler2D u_src; out vec4 o;
+void main() { o = texelFetch(u_src, ivec2(gl_FragCoord.xy), 0); }`;
 interface GlData extends OffscreenData { tex: WebGLTexture }
 interface GlProgram { prog: WebGLProgram; uniforms: Map<string, { loc: WebGLUniformLocation; type: number }> }
 
@@ -18,6 +26,8 @@ export class GlOffscreenGpu implements OffscreenGpu {
   private vao: WebGLVertexArrayObject | null = null;
   private quad: WebGLBuffer | null = null;
   private instBuf: WebGLBuffer | null = null;
+  /** copyRects 的小程序（内部的，不进登记表：拷贝没有软件 / 显卡两份要对拍，软件版就是逐块拷字节）。 */
+  private copyProg: { prog: WebGLProgram; src: WebGLUniformLocation; size: WebGLUniformLocation } | null = null;
   /** 最近一次 draw 花了多少毫秒（CPU 时间；探针量）。 */
   lastDrawMs = 0;
 
@@ -125,6 +135,33 @@ export class GlOffscreenGpu implements OffscreenGpu {
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, (src as GlImage).fbo); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, (dst as GlImage).fbo);
     gl.blitFramebuffer(x0, y0, x1, y1, x0, y0, x1, y1, gl.COLOR_BUFFER_BIT, gl.NEAREST);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+    this.restore();
+  }
+
+  copyRects(src: OffscreenImage, dst: OffscreenImage, rects: readonly { readonly x: number; readonly y: number; readonly w: number; readonly h: number }[]): void {
+    if (src.w !== dst.w || src.h !== dst.h) throw new Error("OffscreenGpu.copyRects: size mismatch");
+    if (!rects.length) return;
+    const gl = this.gl;
+    this.enter();
+    this.ensureGeometry();
+    if (!this.copyProg) {
+      const sh = (type: number, s: string): WebGLShader => { const o = gl.createShader(type)!; gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(`OffscreenGpu copyRects shader: ${gl.getShaderInfoLog(o)}`); return o; };
+      const p = gl.createProgram()!, v = sh(gl.VERTEX_SHADER, COPY_VS), f = sh(gl.FRAGMENT_SHADER, COPY_FS);
+      gl.attachShader(p, v); gl.attachShader(p, f); gl.bindAttribLocation(p, 0, "a_quad"); gl.bindAttribLocation(p, 1, "a_inst"); gl.linkProgram(p); gl.deleteShader(v); gl.deleteShader(f);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(`OffscreenGpu copyRects link: ${gl.getProgramInfoLog(p)}`);
+      this.copyProg = { prog: p, src: gl.getUniformLocation(p, "u_src")!, size: gl.getUniformLocation(p, "u_size")! };
+    }
+    const inst = new Float32Array(rects.length * 4);
+    rects.forEach((r, k) => { inst[4 * k] = r.x; inst[4 * k + 1] = r.y; inst[4 * k + 2] = r.w; inst[4 * k + 3] = r.h; });
+    gl.bindFramebuffer(gl.FRAMEBUFFER, (dst as GlImage).fbo);
+    gl.viewport(0, 0, dst.w, dst.h);
+    gl.useProgram(this.copyProg.prog);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, (src as GlImage).tex); gl.bindSampler(0, null);
+    gl.uniform1i(this.copyProg.src, 0); gl.uniform2f(this.copyProg.size, dst.w, dst.h);
+    gl.bindVertexArray(this.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, inst, gl.STREAM_DRAW);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, rects.length);   // 没开混合（enter 关了）= 原样写
     this.restore();
   }
 

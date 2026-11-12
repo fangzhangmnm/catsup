@@ -55,6 +55,7 @@ export class SoftSpaceGpu implements SpaceGpu {
     };
     p.cpu(ctx);
   }
+  copyRects(src: SpaceImage, dst: SpaceImage, rects: readonly { readonly x: number; readonly y: number; readonly w: number; readonly h: number }[]): void { for (const r of rects) this.copy(src, dst, r); }
   copy(src: SpaceImage, dst: SpaceImage, rect?: { readonly x: number; readonly y: number; readonly w: number; readonly h: number }): void {
     if (src.w !== dst.w || src.h !== dst.h) throw new Error("SpaceGpu.copy: size mismatch");
     const s = (src as SoftImage).px, d = (dst as SoftImage).px;

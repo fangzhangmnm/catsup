@@ -363,8 +363,10 @@ export class SpaceLayer {
     for (const it of newFrozen) this.grow(it.rect);
     for (const it of tail) this.grow(it.rect);
     if (newFrozen.length) this.drawItems(this.frozen, newFrozen, tips);
-    const b = this.bounds;   // 只拷这一笔碰过的那一块（内核只读这一块；当帧那张别处从没写过 = 透明）
-    if (b) this.gpu.copy(this.frozen, this.frame, { x: b[0], y: b[1], w: b[2] - b[0], h: b[3] - b[1] });
+    // 定型层 → 当帧那张：只拷这一帧标过的格（上一帧的尾巴 ∪ 新定型的 ∪ 这一帧的尾巴；抬笔重画时 resetFrozen 标了整笔的范围）。别处当帧那张本来就 = 定型层
+    //   （当帧那张 = 定型层 + 尾巴，尾巴画过的地方都标过）。以前每帧拷整个外接框 = 随这一笔走过多大一片涨（1-4d 第 9 条），一次实例化画完。
+    const runs = this.changed.runs();
+    if (runs.length) this.gpu.copyRects(this.frozen, this.frame, runs);
     if (tail.length) this.drawItems(this.frame, tail, tips);
   }
 
