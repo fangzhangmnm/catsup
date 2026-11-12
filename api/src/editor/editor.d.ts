@@ -532,7 +532,8 @@ export declare class Editor {
     get renderer3(): RenderProvider;
     get revision(): number;
     /** 文档的改动号（「有没有改动」/ 自动保存只看它，session）：跟 revision 一起加，但一步之内的先记着、成功收尾才算一次，失败的步不算（失败的一步什么都没改）。 */ get docRevision(): number;
-    private rev;
+    /** 两个明着的入口（统筹 11-12，rev() 拆开）：文档变了 = 场景改动号 + 文档改动号（一步之内的先记着）；只是换看法（进出组件、撤销 / 重做纯选区）= 只让画面缓存作废。规矩（不算桌面态、缩略图、版本串）：「写出去的文件会变 ⟹ 文档改动号一定变」是硬的（少算 = 改动不存 = 丢东西）；反过来只是尽量（多算只是多存一次），已知多算的名单在 ai-docs/20261112-save-faithfulness-audit.md 第九节。拿不准用 docChanged。 */ private docChanged;
+    private viewChanged;
     canUndo(): boolean;
     canRedo(): boolean;
     /** 有任何选中（含参考几何）= 删除 / 取消选择 / 反选 / Esc 问这个；有工具能动的选中（点 / 边 / 面 / 组 / 组件）= 移动 / 旋转 / 缩放 / 建组 / 拷贝 / 镜像问这个。 */

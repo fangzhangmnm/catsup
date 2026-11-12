@@ -368,6 +368,8 @@ export declare class Session {
     exportSides(only?: readonly number[]): BrepSideCounts;
     /** 加密件导出的那份是不加密的：说一句（UX 误导 = 数据安全缺陷）。 */
     private plainExportNote;
+    /** 导出模型（glb）不带画（统筹 11-12：先说实话；真带上排在施工单十八之后）：画的字节要在存盘编码那一步才编出来，导出走的是 documentFromScene，没有。模型上有画 = 有材质的颜色那一槽是画 / 平铺的画（paintIn / tiledPaintIn，全仓唯一的问法）。没画 = 空字符串。 */
+    exportPaintNote(): string;
     private download;
     /** 离开当前文档前的挽留：图库家 = 自动保存（WeebPaint 图库模式 UX）；文件家 / transient 且脏 = 三键。 */
     leaveGate(): Promise<boolean>;

@@ -127,10 +127,13 @@ export declare class History<M = unknown> {
      */
     dropRecords(kind: string, pred: (data: unknown) => boolean): number;
     /** 撤销一步（这一步的全部 op）：自反交换倒着走。返回场景 + 这一步之前的会话 + 标签；没得撤 → null。「之后」的会话由 sealStep 在步结束时封，这里不再补记。 */
+    /** 这几条（[start, end)）动没动文档（统筹 11-12：文档改动号变 ⟺ 写出去的文件会变）：有一条不是空 batch 的指令、或者带了撤销记录 = 动了；只改选区 / 进出组件的步（commitSession：一条空 batch、没有记录）= 没动。 */
+    private touchesDoc;
     undo(): {
         scene: Scene;
         before: M | undefined;
         label: StepLabel | undefined;
+        doc: boolean;
     } | null;
     /** 只撤一条 op（编辑器内部按新值重做那一步 / 一步中途失败回滚用；用户的撤销走 undo）。撤到一步的开头时带回那一步之前的会话。 */
     undoOp(): {
@@ -141,6 +144,7 @@ export declare class History<M = unknown> {
     redo(_s: Scene): (ApplyResult & {
         after: M | undefined;
         label: StepLabel | undefined;
+        doc: boolean;
     }) | null;
     /** 已做的步数（游标之前；不是 op 数；重做尾巴不算）。fuzz 的「一个动作最多长一步」用。 */
     steps(): number;
