@@ -66,13 +66,13 @@ for (const n of [128, 256, 512, 1024, 2048]) {
   }, n);
   const m = openMemory(n, n, r.target);   // app 自己的清单（面板上的数就是它算的），不在探针里另抄一份
   const tiles = Math.ceil(n / 256) ** 2;
-  check(r.painted === m.fixed, `${n} × ${n}：画过一笔之后显卡上一共多占 ${r.painted} 字节 = 面板上说的 ${m.fixed}（显示图连缩小图 ${m.display} + 内核四张 ${m.kernel} + 图块池 ${m.arenaAfterStroke} + 每格的表 ${m.cells} + 面表三角形表 ${m.tables} + 索引小图 ${m.index}）`, `多出来的分配：${r.added.join(" ")}`);
+  check(r.painted === m.fixed - (m.arenaPeak - m.arenaAfterStroke), `${n} × ${n}：画过一笔之后显卡上一共多占 ${r.painted} 字节 = 面板上说的 ${m.fixed} − 图块池上沿多出来的 ${m.arenaPeak - m.arenaAfterStroke}（存盘 / 睡前那一次才长）（显示图连缩小图 ${m.display} + 内核四张 ${m.kernel} + 图块池 ${m.arenaAfterStroke} + 每格的表 ${m.cells} + 面表三角形表 ${m.tables} + 索引小图 ${m.index}）`, `多出来的分配：${r.added.join(" ")}`);
   check(r.opened === m.opened, `${n} × ${n}：刚开始画（还没落笔）= 少内核池子里那两张、图块池是起步那份（${r.opened} = ${m.opened}）`, JSON.stringify(r));
   check(r.during === m.stroke - tiles * 4 - (m.arenaAfterStroke - m.arena), `${n} × ${n}：一笔正在画的时候比画完多 ${r.during} = 两张薄层 ${m.stroke} − 正在画的那层的索引小图 ${tiles * 4}（落层时重建）− 落层时图块池长的 ${m.arenaAfterStroke - m.arena}`, JSON.stringify(r));
   // 施工单十九第 3 刀起：出了画画工作台画板睡下 → 内核删掉每层的索引小图（新开的画两层，每格 4 字节）；合成目标还给内核的帧缓冲池（不删）、图块池一份文件一个（留着），这两样不算放掉
-  //   另外：睡前钉进存盘缓存（PaintSaver.prime）要整张合成读回一次，整张合成的段缓存另占片——2048 见方时池从 128 片长到 256 片（32 → 64 MB）；存盘第一次走的是同一条路（以前就会这样长），
-  //   只是清单（open-memory.ts 按「画过一笔」算的上沿）没算到。这里如实分开：放掉的 + 池长的 = 清单上该放的；池长了多少打出来（清单要不要改 / 内核要不要改，交统筹）。
-  if (r.arenaGrewOnLeave) console.log(`    ${n} × ${n}：出画画工作台时图块池长了 ${r.arenaGrewOnLeave} 字节（睡前钉进缓存那一次整张合成读回；存盘第一次同样会长）`);
+  //   另外：睡前钉进存盘缓存（PaintSaver.prime）要整张合成读回一次，整张合成的段缓存另占片——2048 见方时池从 128 片长到 256 片（32 → 64 MB）；存盘第一次走的是同一条路。
+  //   清单的上沿（open-memory.ts arenaPeak）按这一次算（统筹 11-12：清单要说真话）；放掉的 + 池长的 = 清单上该放的，池长的 = 上沿 − 第一笔之后。
+  check(r.arenaGrewOnLeave === m.arenaPeak - m.arenaAfterStroke, `${n} × ${n}：出画画工作台时（睡前钉进缓存那一次整张合成读回）图块池长了 ${r.arenaGrewOnLeave} 字节 = 清单的上沿 − 第一笔之后 ${m.arenaPeak - m.arenaAfterStroke}（存盘第一次走同一条路）`, JSON.stringify(r));
   check(r.left + r.arenaGrewOnLeave === m.cells + m.tables + 2 * tiles * 4, `${n} × ${n}：出画画工作台放掉每格的表 + 面表三角形表 + 画板睡下删掉的两张索引小图（${r.left} + 池长的 ${r.arenaGrewOnLeave} = ${m.cells + m.tables} + ${2 * tiles * 4}）`, JSON.stringify(r));
   await ctx.close();
 }

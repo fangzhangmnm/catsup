@@ -64,9 +64,15 @@ export class PaintSaver {
    * mode = "save"：版本变了的当场拷出来、finish 里编；"snapshot"：不现编，用缓存（没有缓存 = 贴图行里的 / 空白的），画板比缓存新 = stale。
    */
   freeze(doc: CatsupDocument, scene: Scene, mode: "save" | "snapshot"): PaintFrozen {
+    const { pins, stale } = this.pin(doc.textures, scene, mode);
+    return { stale, finish: async () => ({ ...doc, textures: await this.realizeRows(doc.textures, pins) }) };
+  }
+
+  /** 钉点的同步那一段：这几行贴图里每张画这一次的来源定死（freeze / prime / refresh 共用；只吃贴图行，不吃整份文档）。 */
+  private pin(textures: readonly TextureDoc[], scene: Scene, mode: "save" | "snapshot"): { pins: Map<Guid, Pin>; stale: boolean } {
     const pins = new Map<Guid, Pin>();
     let stale = false;
-    for (const t of doc.textures) {
+    for (const t of textures) {
       if (t.content.kind !== "layered") continue;
       const place = paintPlaceOf(scene, t.guid), board = this.boards.get(t.guid);
       if (board) {
@@ -100,29 +106,29 @@ export class PaintSaver {
     }
     // 内核编分层字节靠全局的 zip（index.html 的 classic 脚本）：只有这一次确实要编（当场拷的 / 空白的）才查；没有画、或者画全是现成字节的，和以前一模一样（统筹 11-11 审查：为画画加的东西不许挡住建模的存盘）。
     if ([...pins.values()].some((p) => (p.kind === "encode" && !p.reuseOra) || p.kind === "blank") && !(globalThis as { zip?: unknown }).zip) throw new ZipMissingError();
-    return {
-      stale,
-      finish: async () => {
-        const rows: TextureDoc[] = [];
-        for (const t of doc.textures) {
-          const pin = pins.get(t.guid);
-          if (!pin) { rows.push(t); continue; }
-          try {
-            const got = await this.realize(t.guid, pin);
-            const { composite: _drop, ...rest } = t; void _drop;
-            rows.push({ ...rest, content: { kind: "layered", ora: got.ora }, ...(got.composite ? { composite: got.composite } : {}) });
-          } catch (e) { throw new Error(`painting "${t.name}" (${t.guid}) could not be encoded: ${e instanceof Error ? e.message : String(e)}`); }
-        }
-        return { ...doc, textures: rows };
-      },
-    };
+    return { pins, stale };
+  }
+  /** 钉点的异步那一段：钉下来的变成字节，按传进来的顺序交回新的贴图行（编了的进缓存）。编码出错 = 抛（说是哪张画）。 */
+  private async realizeRows(textures: readonly TextureDoc[], pins: ReadonlyMap<Guid, Pin>): Promise<TextureDoc[]> {
+    const rows: TextureDoc[] = [];
+    for (const t of textures) {
+      const pin = pins.get(t.guid);
+      if (!pin) { rows.push(t); continue; }
+      try {
+        const got = await this.realize(t.guid, pin);
+        const { composite: _drop, ...rest } = t; void _drop;
+        rows.push({ ...rest, content: { kind: "layered", ora: got.ora }, ...(got.composite ? { composite: got.composite } : {}) });
+      } catch (e) { throw new Error(`painting "${t.name}" (${t.guid}) could not be encoded: ${e instanceof Error ? e.message : String(e)}`); }
+    }
+    return rows;
   }
 
   /** 有画板、比缓存新的那几张先编进缓存（崩溃快照之前、切后台时；跟自动保存同一个节奏，不单开定时器——统筹 11-11）。都是新的 = 什么都不做。 */
   async refresh(scene: Scene): Promise<void> {
     const rows = [...scene.textures.values()].filter((t) => { if (t.content.kind !== "layered") return false; const b = this.boards.get(t.guid), c = this.cache.get(t.guid); return !!b && !(c && c.board === b && c.version === b.wp.commitVersion); });
     if (!rows.length) return;
-    await this.freeze({ textures: rows } as unknown as CatsupDocument, scene, "save").finish();
+    const { pins } = this.pin(rows, scene, "save");
+    await this.realizeRows(rows, pins);
   }
 
   /**
@@ -133,7 +139,7 @@ export class PaintSaver {
   prime(scene: Scene, texture: Guid): Promise<void> | null {
     const t = scene.textures.get(texture), b = this.boards.get(texture), c = this.cache.get(texture);
     if (!t || t.content.kind !== "layered" || !b || (c && c.board === b && c.version === b.wp.commitVersion)) return null;
-    try { return this.freeze({ textures: [t] } as unknown as CatsupDocument, scene, "save").finish().then(() => {}); }
+    try { const { pins } = this.pin([t], scene, "save"); return this.realizeRows([t], pins).then(() => {}); }   // 钉是同步的（这一刻还醒着）；编码在后台
     catch (e) { return Promise.reject(e); }   // 同步那一段抛的（zip 没加载）也走失败的 Promise
   }
 

@@ -14,6 +14,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const { chromium } = createRequire(path.join(here, "../../../20260524 WeebPaint/package.json"))("playwright");
 const url = process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/";
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice(7) ?? null;
+const perf = process.argv.includes("--perf");   // 性能档（底账 perfArgs）：多跑 L 段（量时间，只打数）
 const want = (k) => !only || only.includes(k);
 const FOLDER = "ten-objects";
 const BENIGN = /Not signed in|CloudNetworkError|Failed to fetch|net::ERR|msal|favicon|GPU stall due to ReadPixels|not persisted yet/i;
@@ -180,6 +181,30 @@ if (want("M")) {
       say(`第 ${k + 1} 轮（第 ${(k % 2) + 1} 个物件）：收走 +${cur.evictions - prev.evictions}、重建 +${cur.recreations - prev.recreations}、上传 +${cur.uploads - prev.uploads} 片；池 ${cur.capacity} 片；醒着 ${gs.awake} 块`);
       check(gs.awake <= 1, `第 ${k + 1} 轮：醒着的画板 ≤ 1 块（${gs.awake}）`);
       prev = cur;
+    }
+  }
+  // L 十个物件都画过、都睡着 → 丢一次画面再恢复 → 那一帧多久、池长到多大（施工单十九第 3 刀留着的「一起醒」：只打数、不判，长大了有人看得见；只在性能档，量时间）
+  if (perf && objs.length === 10) {
+    console.log("\nL（性能档）十个物件 → 丢一次画面再恢复 → 恢复后那一帧多久、醒了几块、池长到多大（只打数、不判）");
+    await S(() => { const C = globalThis.__catsup; C.editor.exitTo(0); C.pickWorkbench("freeform"); });
+    await S(() => globalThis.__TO.frames(6));
+    const before = await S(() => ({ gpu: globalThis.__TO.gpu(), pool: globalThis.__TO.poolInner() }));
+    const r = await S(async () => {
+      const C = globalThis.__catsup, e = C.editor, gl = document.getElementById("board").getContext("webgl2"), ext = gl.getExtension("WEBGL_lose_context"), sleep = (ms) => new Promise((q) => setTimeout(q, ms));
+      if (!ext) return { skipped: "没有 WEBGL_lose_context" };
+      const px = new Uint8Array(4), sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);   // 读回一格 = 等显卡把这一帧做完
+      ext.loseContext(); await sleep(200); ext.restoreContext(); await sleep(400);
+      const t0 = performance.now(); e.draw(); sync(); const frameMs = performance.now() - t0;
+      const first = globalThis.__TO.gpu(), firstPool = globalThis.__TO.poolInner();
+      const t1 = performance.now(); e.draw(); sync(); const nextMs = performance.now() - t1;
+      await globalThis.__TO.frames(4);
+      return { frameMs: +frameMs.toFixed(1), nextMs: +nextMs.toFixed(1), first, firstPool, settled: globalThis.__TO.gpu(), settledPool: globalThis.__TO.poolInner() };
+    });
+    if (r.skipped) say(`跳过：${r.skipped}`);
+    else {
+      say(`丢画面之前：醒着 ${before.gpu.awake}、睡着 ${before.gpu.asleep}；池 ${before.pool?.capacity} 片`);
+      say(`恢复后第一帧 ${r.frameMs} ms（醒着 ${r.first.awake} 块；池 ${r.firstPool?.capacity} 片、上传 ${r.firstPool ? r.firstPool.uploads - (before.pool?.uploads ?? 0) : "?"} 片）；下一帧 ${r.nextMs} ms`);
+      say(`几帧之后：醒着 ${r.settled.awake}、睡着 ${r.settled.asleep}；池 ${r.settledPool?.capacity} 片（池只长不缩）`);
     }
   }
 }

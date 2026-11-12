@@ -21,7 +21,7 @@ const PERF = process.argv.includes("--perf");   // 性能档：绝对时间的�
 const { openMemory, bytesSay } = await import(path.join(here, "../../src/paint/open-memory.ts"));
 const { chromium } = createRequire(path.join(here, "../../../20260524 WeebPaint/package.json"))("playwright");
 const url = process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/";
-const shotDir = process.argv.slice(2).find((a) => !a.startsWith("http")) ?? null;
+const shotDir = process.argv.slice(2).find((a) => !a.startsWith("http") && !a.startsWith("--")) ?? null;   // 「--」开头的是开关（性能档的 --perf），不是截图目录
 const FOLDER = "paint-wb";
 const BENIGN = /Not signed in|CloudNetworkError|Failed to fetch|net::ERR|msal|favicon|GPU stall due to ReadPixels|not persisted yet/i;
 let pass = 0, failN = 0;

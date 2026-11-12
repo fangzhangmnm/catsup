@@ -21,13 +21,16 @@ export const TILE_ARENA_START_SLICES = 64;
 export interface PaintTargetSize { readonly faces: number; readonly tris: number }
 export interface OpenMemory {
   readonly display: number; readonly kernel: number; readonly cells: number;
-  /** 内核的显卡图块池：起步那一份 / 第一笔之后（上沿）。 */
-  readonly arena: number; readonly arenaAfterStroke: number;
+  /**
+   * 内核的显卡图块池：起步那一份 / 第一笔之后（画的时候的工作集：两层画布那么多图块）/ 上沿（存盘或画板睡前那一次整张合成：两层的图块 + 带底色的整张段的
+   * 拷贝目标（全画布那么多格，内核 frame-demand.ts）同时驻留 = 三层画布那么多；施工单十九第 3 刀量出来的：2048 见方长到 256 片 = 64 MB，1024 及以下起步那 64 片装得下）。
+   */
+  readonly arena: number; readonly arenaAfterStroke: number; readonly arenaPeak: number;
   /** 每张图层一张索引小图（新开的画两张）+ 内核的 1 × 1 填色图。 */
   readonly index: number;
   /** 面表 + 三角形表（跟物件走）。 */
   readonly tables: number;
-  /** 打开、画过一笔以后一直占着的（显示图 + 内核四张 + 图块池 + 每格的表 + 面表三角形表 + 索引小图）。还没落笔时少两张、图块池是起步那份（opened）。 */
+  /** 打开、画过一笔、存过一次以后一直占着的上沿（显示图 + 内核四张 + 图块池的上沿 + 每格的表 + 面表三角形表 + 索引小图）。还没落笔时少两张、图块池是起步那份（opened）。 */
   readonly fixed: number;
   /** 刚开始画、还没落笔时占着的。 */
   readonly opened: number;
@@ -43,9 +46,10 @@ export function openMemory(n: number, hgt = n, target: PaintTargetSize = { faces
   const tiles = Math.ceil(n / TILE_SIZE) * Math.ceil(hgt / TILE_SIZE);
   const arena = TILE_ARENA_START_SLICES * slice;
   let after = TILE_ARENA_START_SLICES; while (after < 2 * tiles) after *= 2;
-  const arenaAfterStroke = after * slice, index = 2 * tiles * 4 + 4, tables = dataBytes(2 * target.faces) + dataBytes(TRI_STRIDE * target.tris);
+  let peak = after; while (peak < 3 * tiles) peak *= 2;   // 整张合成那一次（存盘 / 画板睡前）：在第一笔之后那份上按两倍长到装得下三层画布的图块
+  const arenaAfterStroke = after * slice, arenaPeak = peak * slice, index = 2 * tiles * 4 + 4, tables = dataBytes(2 * target.faces) + dataBytes(TRI_STRIDE * target.tris);
   const common = display + cells + tables + index;
-  return { display, kernel, cells, arena, arenaAfterStroke, index, tables, fixed: common + kernel + arenaAfterStroke, opened: common + 2 * one + arena, stroke: 2 * one };
+  return { display, kernel, cells, arena, arenaAfterStroke, arenaPeak, index, tables, fixed: common + kernel + arenaPeak, opened: common + 2 * one + arena, stroke: 2 * one };
 }
 /** 网格体上这几张面的大小（面表 / 三角形表跟着它）。 */
 export function paintTargetSize(k: { faceVerts(f: number): readonly number[] }, faces: Iterable<number>): PaintTargetSize {
