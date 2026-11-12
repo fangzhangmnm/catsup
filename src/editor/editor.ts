@@ -90,7 +90,7 @@ import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, det3, fra
 export { TOOLS, type Tool } from "./tool-ids.ts";
 import { isReadOnlyTool, type Tool } from "./tool-ids.ts";
 import type { Mode, ModeId } from "./mode.ts";
-import { workbenches } from "./modes/index.ts";   // 全部工作台（加一个 = modes/index.ts 一行）
+import { workbenches, workbenchOf } from "./modes/index.ts";   // 全部工作台（加一个 = modes/index.ts 一行）
 import { KINDS } from "../scene/kinds.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
@@ -772,14 +772,14 @@ export class Editor {
   }
 
   // ---------- 工具 ----------
+  /** 哪个工作台有这把工具、又管得了正在编辑的这种身体（among 限定；没有 = null）：给明着跨工作台的调用方用（键表的跳转表、步行相机、材质面板），setTool 自己不跨（统筹 11-11）。 */
+  ownerModeOf(t: Tool, among?: readonly ModeId[]): ModeId | null { return workbenchOf(this.modeList, t, this.activeKind(), among)?.id ?? null; }
   setTool(t: Tool): void {
     if (this.locked && !isReadOnlyTool(t)) { this.refuse(); return; }   // 演示锁：改模型的工具拿不起来，说为什么（user 11-05：只读工具全部能用）
     // 不吃锁的工具（选择）上先按好的锁 = 给下一把工具的（自由建模「先按 Y 再按 G」，键表 lock.arm）：换工具时交过去、这边不留；吃锁的工具各记各的、不带（W-4）
     const prev = this._tool, handOver = !this.handlers[prev]?.lock && !this.gestureActive() ? this.locks.of(prev) : NO_LOCK;
-    if (!this.mode.tools.includes(t)) {   // 工具属于别的模式（快捷键 B 在几何模式按了油漆桶）→ 先切过去；只切到管活动池这种身体的工作台（网格体里按画线键不能切进硬表面建模）
-      const kind = this.activeKind(), owner = this.modeList.find((m) => m.tools.includes(t) && (m.kinds as readonly BodyKind[]).includes(kind));
-      if (!owner) { const any = this.modeList.find((m) => m.tools.includes(t)); if (any) this.host.hint(`「${this.mode.label}」工作台里没有这把工具（它在「${any.label}」里，管的是别的物件）`); return; }
-      this.setMode(owner.id);
+    if (!this.mode.tools.includes(t)) {   // 工作台只发自己的工具（统筹 11-11：以前这里悄悄 setMode 到拥有它的工作台——画画里按 E 就拿着建模的橡皮擦了模型）：拒收、说在哪；要跨 = 调用方先明着 setMode（工具键走键表的跳转表 TOOL_KEY_JUMPS、app 的 takeTool）。守卫：这里不许调 setMode（test/workbench-tools.test.ts）
+      const here = workbenchOf(this.modeList, t, this.activeKind()), any = here ?? workbenchOf(this.modeList, t, null); if (any) this.host.hint(`「${this.mode.label}」工作台里没有这把工具（它在「${any.label}」里${here ? "" : "，管的是别的物件"}）`); return;
     }
     this.last = null;
     if (this.param?.phase === "after") { this.openParamSession(null); this.host.hint("刚才那一步的参数已收起（换了工具）"); }   // 马后炮寿命 = 栈顶没变 ∧ 工具没换 ∧ 没撤销过（设计稿 §7 第 4 条；user「切换工具…还是显示着“刚才”」）

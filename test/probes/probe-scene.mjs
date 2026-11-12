@@ -85,7 +85,7 @@ const res = await page.evaluate(async () => {
   out.scaleHandles = (e.scaleHandles ?? []).length;
   // ⑥b 油漆桶：蘸「赭石」涂圆柱顶面 → 材质表 1 条、面有槽；再蘸贴图（2×2 PNG）涂另一面 → 两条材质、渲染不报错
   e.setPaint({ kind: "color", name: "赭石", color: [0.525, 0.149, 0.09] });
-  e.setTool("paint");
+  e.setMode("surface"); e.setTool("paint");   // v0.19.47 起 setTool 不替人换工作台：明着换到表面
   if (topCyl) { const rr = e.kernel.faceRings3(topCyl.id).outer; const cx3 = rr.reduce((a, p) => a + p.x, 0) / rr.length, cy3 = rr.reduce((a, p) => a + p.y, 0) / rr.length; const sp = px({ x: cx3, y: cy3, z: rr[0].z }); fire("pointerdown", sp.x, sp.y, { button: 0, buttons: 1 }); fire("pointerup", sp.x, sp.y, { button: 0 }); await sleep(30); }
   out.paintedMaterials = e.materials().length;
   out.topPainted = topCyl ? (e.kernel.faceMaterialOf(topCyl.id, 0) ?? e.kernel.faceMaterialOf(topCyl.id, 1)) !== undefined : false;   // DT8：哪一侧都算
@@ -95,7 +95,7 @@ const res = await page.evaluate(async () => {
   if (sideCyl) { const rr = e.kernel.faceRings3(sideCyl.id).outer; const c3 = rr.reduce((a, p) => ({ x: a.x + p.x / 4, y: a.y + p.y / 4, z: a.z + p.z / 4 }), { x: 0, y: 0, z: 0 }); const sp = px(c3); fire("pointerdown", sp.x, sp.y, { button: 0, buttons: 1 }); fire("pointerup", sp.x, sp.y, { button: 0 }); await sleep(60); }
   out.texturedMaterials = e.materials().filter((m) => e.materialPick(m).kind === "texture").length;   // 图在贴图表里（2026-11-10）：问编辑器，不读材质字段
   // ⑥c 偏移：在圆柱顶面按住、往里拖 → 顶面分成环带 + 内岛（面数 +1）
-  e.cancel(); e.setTool("offset");
+  e.cancel(); e.setMode("geometry"); e.setTool("offset");   // 偏移在硬表面工作台（v0.19.47 起 setTool 不替人换工作台）
   if (topCyl) {
     const rr = e.kernel.faceRings3(topCyl.id).outer;
     const cx4 = rr.reduce((a, p) => a + p.x, 0) / rr.length, cy4 = rr.reduce((a, p) => a + p.y, 0) / rr.length;

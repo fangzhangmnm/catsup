@@ -7,7 +7,7 @@
 //   （落定像素的哈希、整张合成的字节）→ 笔 B 按下去画几步 → 触发存盘 → 拿那一刻编出来的字节（画的缓存；文件 / 崩溃快照里也找到同一份字节）对参照。
 //   V1 失焦 → 接着画（核对每一帧）→ 抬笔；V2 iPad 的次序：先 visibilitychange（存）、后 pointercancel → 刷新重开 = 笔 A 之后那一版（分层逐像素）；
 //   V3 关页 pagehide（只落本机）；V4 临时家（崩溃快照那条路：切后台先编画再拍）；V5 / V6 人按的保存（Ctrl+S、存钮）；V7 建模的手势拖到一半时失焦（名册的另一个来源）。
-// 现状钉住（统筹 11-11：行为不改）：V8 / V9 / V10 一笔当中按 Ctrl+Z、工具键 E、空格 = 这一笔取消得干净（和建模的手势一样）。
+// 现状钉住（统筹 11-11：行为不改）：V8 一笔当中按 Ctrl+Z = 这一笔取消得干净（和建模的手势一样）；V9 / V10（v0.19.47 起）一笔当中按工具键 E、空格 = 画画工作台里不响应、这一笔照常画完。
 // 标记 hand-save-check:<名册来源>：名册每个来源都要有一条「没收的时候存盘」的检查（守卫 test/hand-busy.test.ts 扫 test/ 找这个标记，少一个 = 红）。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-mid-stroke-save.mjs [url]
 import { createRequire } from "node:module";
@@ -202,7 +202,7 @@ const waitSaved = (page) => page.waitForFunction(() => { const s = globalThis.__
   }
 
   // 现状（统筹 11-11 定：行为不改，只钉住）：一笔当中按撤销、按工具键 = 这一笔取消得干净（和建模的手势一样：手势中撤销 / 换工具 = 取消这一下）
-  for (const [label, press] of [["V8 一笔当中按 Ctrl+Z", "Control+z"], ["V9 一笔当中按工具键 E", "e"], ["V10 一笔当中按工具键 空格", " "]]) {
+  for (const [label, press] of [["V8 一笔当中按 Ctrl+Z", "Control+z"]]) {
     console.log(`\n${label}（现状）→ 这一笔取消得干净：图层像素逐位 = 落笔前、撤销栈没动、脏标记没变、之后核对对上`);
     await S(() => { globalThis.__catsup.pickWorkbench("paint"); globalThis.__catsup.editor.setTool("paintPen"); globalThis.__catsup.editor.draw(); });
     const pre = await S((g) => globalThis.__MS.state(g), g);
@@ -217,6 +217,20 @@ const waitSaved = (page) => page.waitForFunction(() => { const s = globalThis.__
     check(mid.stroking && !k.stroking, `按下去：这一笔取消了（笔按着 → 不在画了；手上的工具 ${mid.tool} → ${k.tool}）`, JSON.stringify({ mid, k }));
     check(k.hash === pre.hash && k.pos === pre.pos && k.depth === pre.depth && k.dirty === pre.dirty && k.check === true, "取消得干净：图层像素逐位 = 落笔前、撤销栈的位置和深度没动、脏标记没变、核对对上", JSON.stringify({ pre, k }));
     check(end.hash === pre.hash && end.pos === pre.pos && end.depth === pre.depth && end.check === true, "手接着动、抬起来：什么都没再画、撤销栈没动、核对对上", JSON.stringify({ pre, end }));
+  }
+
+  // v0.19.47 起（统筹 11-11）：画画工作台里别的工作台的工具键不响应（setTool 不换工作台、键表的跳转表里没有画画）→ 一笔当中按 E / 空格 = 这一笔照常画完、手上的工具不变
+  for (const [label, press] of [["V9 一笔当中按工具键 E", "e"], ["V10 一笔当中按工具键 空格", "Space"]]) {
+    console.log(`\n${label}（v0.19.47 起）→ 画画工作台里不响应：这一笔照常画完、手上的工具不变、只多一步`);
+    await S(() => { globalThis.__catsup.pickWorkbench("paint"); globalThis.__catsup.editor.setTool("paintPen"); globalThis.__catsup.editor.draw(); });
+    const pre = await S((g) => globalThis.__MS.state(g), g);
+    await S(() => { const M = globalThis.__MS; M.pe("pointerdown", 0.2, 0.85); for (let i = 1; i <= 6; i++) M.pe("pointermove", 0.2 + 0.05 * i, 0.85); globalThis.__catsup.editor.draw(); });
+    await page.keyboard.press(press); await page.waitForTimeout(150);
+    const k = await S((g) => globalThis.__MS.state(g), g);
+    await S(() => { const M = globalThis.__MS; for (let i = 7; i <= 10; i++) M.pe("pointermove", 0.2 + 0.05 * i, 0.85); M.pe("pointerup", 0.7, 0.85); globalThis.__catsup.editor.draw(); });
+    const end = await S((g) => ({ ...globalThis.__MS.state(g), check: globalThis.__catsup.paint.diag.check() }), g);
+    check(k.stroking && k.tool === "paintPen" && k.hash === pre.hash, `按下去：这一笔还在画、手上还是笔（${k.tool}）`, JSON.stringify({ pre, k }));
+    check(!end.stroking && end.hash !== pre.hash && end.pos === pre.pos + 1 && end.check === true && end.tool === "paintPen", "抬笔：这一笔照常落下（一步）、核对对上", JSON.stringify({ pre, end }));
   }
 
   // hand-save-check:editor.gesture —— 名册的「编辑器的手势」：建模拖一个东西拖到一半时切后台 / 失焦存盘 → 存出来的 = 拖之前落定的那一版；取消后刷新重开 = 拖之前

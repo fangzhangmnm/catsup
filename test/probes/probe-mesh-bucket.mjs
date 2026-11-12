@@ -29,7 +29,7 @@ const res = await page.evaluate(async () => {
   out.mode = e.modeId;
   e.commitOp({ op: "addMaterial", name: "红", color: [1, 0, 0] });
   const red = S().materials.length - 1;
-  e.setPaint(e.materialPick(S().materials[red])); e.setTool("paint"); await sleep(20);
+  e.setPaint(e.materialPick(S().materials[red])); e.setMode("surface"); e.setTool("paint"); await sleep(20);   // v0.19.47 起 setTool 不替人换工作台：明着换到表面
   const m = () => S().mesh(def).kernel, slotOf = (i) => { const j = S().mesh(def).materialSlots.indexOf(i); return j < 0 ? -99 : j; };   // 槽表里没有 = 一个不会撞上 −1（默认）的数
   const top = () => m().faces().find((f) => m().faceVerts(f).every((v) => Math.abs(m().pt(v).z - 1) < 1e-9));
   // ② 点顶面：顶面换成红、一步撤销、重做回来

@@ -113,7 +113,7 @@ import { readForeignObj } from "../format/obj-import.ts";
 import { type ImportScene, isForeignGlb, readForeignGlb } from "../format/gltf-import.ts";
 import { attachGestures } from "./gestures.ts";
 import { Locomotion } from "./locomotion.ts";
-import { TOOL_CYCLES, chordLabel, keyDocs, modifierChords, resolveKey, toolKeyText, type KeyContext, type KeyEvt } from "../controller/keymap.ts";
+import { TOOL_CYCLES, chordLabel, keyDocs, modifierChords, resolveKey, toolKeyText, type KeyContext, type KeyEvt, TOOL_KEY_JUMPS } from "../controller/keymap.ts";
 import { stanceOf } from "../controller/stance.ts";
 import { RAIL_FLYOUT_PRESS_MS, MOD_PEEK_MS } from "../controller/feel.ts";
 import { type AvatarSpec, AVATAR_DEFAULT, STATURE_MAX, STATURE_MIN, jumpReach, resolveAvatar } from "../player/body.ts";
@@ -865,7 +865,7 @@ locomotion.touch = () => touchCtl.read();
 /** 验证工作台的「步行」工具：原地编辑里 = 继续走；平时 = 拿起工具 + 进放置。 */
 function pickWalk(): void {
   if (locomotion.isEditInPlace()) { locomotion.resumeWalk(); return; }
-  editor.setTool("walk");
+  takeTool("walk");   // 步行在「验证」工作台：明着换过去（以前靠 setTool 悄悄换）
   if (!locomotion.isPlacing() && !locomotion.isWalking()) setWalk(true);
 }
 locomotion.onPhase = () => {
@@ -1082,7 +1082,7 @@ function renderMatGrid(): void {
     b.type = "button"; b.className = "swatch" + (active ? " active" : ""); b.title = title ?? label;
     b.style.background = bg;
     const t = document.createElement("span"); t.className = "swatch-label"; t.textContent = label; b.appendChild(t);
-    b.addEventListener("click", () => { onPick(); renderMatGrid(); if (editor.tool !== "paint") editor.setTool("paint"); });
+    b.addEventListener("click", () => { onPick(); renderMatGrid(); if (editor.tool !== "paint") takeTool("paint"); });   // 油漆桶在「表面」工作台：明着换过去
     matGrid.appendChild(b);
   };
   mk("默认正面", "#d6d6d6", () => editor.setPaint(null), cur === null, "默认正面（去掉材质）：导出时这一侧照出，没有材质");
@@ -1111,7 +1111,7 @@ matImageInput.addEventListener("change", async () => {
     const name = file.name.replace(/\.[^.]+$/, "") || "贴图";
     editor.setPaint({ kind: "texture", name, mimeType: file.type || "image/png", bytes, sizeM: [w, h] });
     toggleMatSheet(false);
-    editor.setTool("paint");
+    takeTool("paint");
     notify({ text: `贴图「${name}」已蘸上（${bmp.width}×${bmp.height} px → ${w} × ${h.toFixed(2)} m）：点面涂上`, level: "info" });
   } catch (err) {
     notify({ text: `图片读不了：${(err as Error).message}`, level: "error" });
@@ -1562,11 +1562,22 @@ function keyContext(): KeyContext {
   };
 }
 /** 工具键：同一个键再按一下 = 在这个工具组里换下一把（user 2026-10-25「快捷键在工具组里怎么循环：同一个键再按一下」）：E 橡皮 → 焊边 → 软边；R 矩形 → 旋转矩形；T 卷尺 → 量角器 → 轴；A 弧的四种画法轮换（画法是工具选项）。 */
+/**
+ * 明着换工作台再拿工具（统筹 11-11）：要的工具不在当前工作台 → 先换到 among 里有这把工具、又管得了这种身体的工作台（编辑器 ownerModeOf），提示行说一句，再拿工具。
+ * 编辑器的 setTool 自己从不换工作台（拒收、说在哪）。among：工具键 = 键表的跳转表 TOOL_KEY_JUMPS[当前工作台]（画画不在表里 = 出不去也进不来）；步行相机 / 材质面板 = 不限。
+ */
+function takeTool(t: Tool, among?: readonly ModeId[]): void {
+  if (!editor.modeTools().includes(t)) {
+    const m = editor.ownerModeOf(t, among);
+    if (m) { editor.setMode(m); syncUi(); editor.setTool(t); hintEl.textContent = `换到了「${editor.modes().find((x) => x.id === m)?.label ?? m}」工作台`; return; }
+  }
+  editor.setTool(t);
+}
 function toolKey(key: string, t: Tool): void {
   const cyc = KEY_CYCLES[key];
   if (cyc && cyc.includes(editor.tool)) { const next = cyc[(cyc.indexOf(editor.tool) + 1) % cyc.length]; if (editor.modeTools().includes(next)) { editor.setTool(next); return; } }
   if (key === "a" && editor.tool === "arc") { const modes: string[] = ARC_MODES.map((m) => m.id), cur = editor.config.get("arc", "mode") as string; const nx = modes[(modes.indexOf(cur) + 1) % modes.length]; editor.config.set("arc", "mode", nx); hintEl.textContent = `弧：${ARC_MODES.find((m) => m.id === nx)?.label ?? nx}（再按 A 换下一种）`; syncUi(); return; }
-  editor.setTool(t);
+  takeTool(t, TOOL_KEY_JUMPS[editor.modeId] ?? []);   // 不在这个工作台：只按跳转表明着跨（画画不在表里）；跳不了 = setTool 拒收、说这把工具在哪
 }
 function runKeyAction(action: string, ev: KeyboardEvent): void {
   const [verb, p1, p2] = action.split(":");
