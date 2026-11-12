@@ -5,7 +5,8 @@
 //    报给内核的 markChanged 只在 space-paint.ts（照 takeChanged 出来的行段报，或读数角标「强制整张」那一档报整张）。别处另算一份范围去报 = 红。
 // 这些是结构守卫：改到这几段代码时守卫跟着红，逼着回来看一眼「报的还是不是真画的那些」。真报得对不对靠 probe-live-region（多笔种逐字节）和读数角标的「核对」。
 import { describe, it, assert, eq } from "./runner.mjs";
-import { BRUSH_KINDS, BRUSH_KIND_IDS, brushKindOfTool, strokeKindOpts } from "../src/paint/brush-kinds.ts";
+import { BRUSH_KINDS, BRUSH_KIND_IDS, BRUSHES, brushKindOfTool, strokeKindOpts, resolvedBrushOf, type BrushRecord } from "../src/paint/brush-kinds.ts";
+import { hookBrush } from "../src/paint/space-paint.ts";
 import { PAINT_TOOLS } from "../src/editor/tool-ids.ts";
 const fs = (await import("node:fs" as string)) as { readFileSync(p: string, enc: string): string; readdirSync(p: string): string[]; statSync(p: string): { isDirectory(): boolean } };
 const read = (p: string): string => fs.readFileSync(p, "utf8");
@@ -72,3 +73,26 @@ describe("往脏格子位图里记东西只在真画的那段（统筹 11-11）"
     assert(/ch = this\.layer\.takeChanged\(\)/.test(sp) && /for \(const run of ch\.runs\(\)\)/.test(sp), "space-paint 报的行段要直接来自 layer.takeChanged()");
   });
 });
+
+describe("笔的表（施工单二十 1a：每行是笔的模型里那条记录，起笔经 resolvedBrushOf 解成内核的 ResolvedBrush）", () => {
+  it("两行的数和 v0.19.54 一模一样：解出来的笔 = 以前的 hookBrush + 浓度旋钮，逐项（只有 compositeMode 不同，见下）", () => {
+    for (const k of BRUSH_KIND_IDS) for (const knobs of [{ size: 20, opacity: 1, hardness: 0.5 }, { size: 3, opacity: 0.4, hardness: 0 }, { size: 180, opacity: 0.73, hardness: 1 }]) {
+      const a = resolvedBrushOf(k, knobs) as Record<string, unknown>, b = { ...hookBrush({ size: knobs.size, hardness: knobs.hardness }), opacity: knobs.opacity } as Record<string, unknown>;
+      const keys = new Set([...Object.keys(a), ...Object.keys(b)]); keys.delete("compositeMode");
+      const diff = [...keys].filter((key) => JSON.stringify(a[key]) !== JSON.stringify(b[key])).map((key) => `${key}: ${JSON.stringify(b[key])} → ${JSON.stringify(a[key])}`);
+      eq(diff.join("；"), "", `${k} ${JSON.stringify(knobs)}`);
+    }
+  });
+  it("compositeMode 按叠法写（over = buildup）：三维的一笔只拿它算 accum；内核那份 ResolvedBrush.compositeMode 只有二维笔引擎读（三维不经过）", () => {
+    for (const k of BRUSH_KIND_IDS) eq(BRUSH_KINDS[k].accum, (BRUSHES[k] as BrushRecord).compositeMode === "wash" ? "max" : "over", `${k} 的 accum 从记录算`);
+    eq([strokeKindOpts("pen").accum, strokeKindOpts("eraser").accum].join(), "over,over", "和 v0.19.54 一样（两支都是越叠越浓）");
+    const users = walk("src").filter((f) => !f.startsWith("src/paint/kernel/") && /\.compositeMode\b/.test(read(f)) && !/brush-kinds\.ts$/.test(f));
+    eq(users.join(), "", "三维这边没有别处读 compositeMode");
+  });
+  it("画画工作台起笔只经 resolvedBrushOf（不再用调试钩子那支 hookBrush）", () => {
+    const wb = read("src/app/paint-workbench.ts");
+    assert(/resolvedBrushOf\(brushKindOfTool\(tool\)!?, \{ size, opacity, hardness \}\)/.test(wb), "paint-workbench 起笔用 resolvedBrushOf");
+    assert(!/\bhookBrush\(/.test(wb) && !/import[^\n]*\bhookBrush\b/.test(wb), "paint-workbench 里不许再调 / 导入 hookBrush（注释里提到没事）");
+  });
+});
+

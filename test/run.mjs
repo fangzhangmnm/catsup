@@ -236,6 +236,7 @@ import "./paint-pixel-writes.test.ts"; // 画画这一层每个公开的口对�
 import "./paint-display-uv.test.ts";
 import "./paint-kernel-surface.test.ts";
 import "./brush-kinds.test.ts";
+import "./stroke-clock.test.ts";   // 施工单二十 1a：一笔的时钟（一笔里只用一种钟）、压感只信笔的
 import "./space-layer.test.ts";
 import "./space-vs-kernel2d.test.ts";
 import "./space-stroke-kernel.test.ts";

@@ -20,9 +20,13 @@ export type LiftClock = "event" | "handled";
 /** 事件时间像不像样：和同一个样本的处理时刻相差这么多以内（ms）。不是手感量，是「同一个起点」的判据：纪元毫秒差几十年、0 差开页以来的全部时间。 */
 const SAME_ORIGIN_MS = 10_000;
 
+/** 一个样本的事件时间像不像样（和它被处理的时刻同一个起点）。抬笔结算和画画的一笔（app/paint-workbench.ts）共用这一个判据。 */
+export function eventTimeUsable(at: number | undefined, handled: number): at is number {
+  return at !== undefined && Number.isFinite(at) && at > 0 && Math.abs(handled - at) <= SAME_ORIGIN_MS;
+}
 /** 这一笔用哪种时钟：每个样本的事件时间都像样 = event；有一个不像样 = 整笔 handled（不混着减）。 */
 export function liftClock(samples: readonly LiftSample[]): LiftClock {
-  for (const s of samples) if (s.at === undefined || !Number.isFinite(s.at) || s.at <= 0 || Math.abs(s.t - s.at) > SAME_ORIGIN_MS) return "handled";
+  for (const s of samples) if (!eventTimeUsable(s.at, s.t)) return "handled";
   return samples.length ? "event" : "handled";
 }
 

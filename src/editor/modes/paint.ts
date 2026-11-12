@@ -16,12 +16,14 @@ class PaintStrokeTool implements ToolHandler {
   active(): boolean { return this.ctx !== null; }
   cancel(): void { const c = this.ctx; this.ctx = null; c?.paint(this.ev("cancel", 0, 0)); }
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { ctx.paint(this.ev("hover", s.x, s.y)); }
-  down(ctx: ToolCtx, ev: ToolPointer): void { this.ctx = ctx; ctx.paint(this.ev("down", ev.x, ev.y, ev.pointerType)); }
-  track(ctx: ToolCtx, s: { x: number; y: number }): void { if (this.ctx) ctx.paint(this.ev("move", s.x, s.y)); }
-  up(ctx: ToolCtx, ev: ToolPointer): void { if (!this.ctx) return; this.ctx = null; ctx.paint(this.ev("up", ev.x, ev.y, ev.pointerType)); }
+  down(ctx: ToolCtx, ev: ToolPointer): void { this.ctx = ctx; ctx.paint(this.ev("down", ev.x, ev.y, ev.pointerType, ev)); }
+  track(ctx: ToolCtx, s: { x: number; y: number }, _travel?: number, ev?: ToolPointer): void { if (this.ctx) ctx.paint(this.ev("move", s.x, s.y, ev?.pointerType, ev)); }   // ev = 这一下的指针（压感、事件时间；施工单二十 1a）
+  up(ctx: ToolCtx, ev: ToolPointer): void { if (!this.ctx) return; this.ctx = null; ctx.paint(this.ev("up", ev.x, ev.y, ev.pointerType, ev)); }
   live(): string { return ""; }
   sample(): Record<string, number> { return {}; }
-  private ev(phase: PaintPointer["phase"], x: number, y: number, pointerType?: string): PaintPointer { return { tool: this.tool, phase, x, y, ...(pointerType ? { pointerType } : {}) }; }
+  private ev(phase: PaintPointer["phase"], x: number, y: number, pointerType?: string, p?: ToolPointer): PaintPointer {
+    return { tool: this.tool, phase, x, y, ...(pointerType ? { pointerType } : {}), ...(p?.pressure !== undefined ? { pressure: p.pressure } : {}), ...(p?.at !== undefined ? { at: p.at } : {}) };
+  }
 }
 
 /** 吸管：点一下 = 取那一处的颜色（宿主取、取完回到上一把笔）。 */

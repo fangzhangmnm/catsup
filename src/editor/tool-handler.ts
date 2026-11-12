@@ -36,7 +36,13 @@ export interface ToolSample { cursor3: Pt3 | null; snap: Snap3 | null; extra: Re
 
 /** 底座递给工具的全部能力（窄接口 = 测试面：给假 ctx 喂事件序列，断言 commitOp 收到的 op）。 */
 /** 画画工作台交给宿主的一下（ToolCtx.paint）：哪把工具、哪个阶段、画布本地 CSS px。 */
-export interface PaintPointer { readonly tool: "paintPen" | "paintEraser" | "eyedrop"; readonly phase: "hover" | "down" | "move" | "up" | "cancel" | "pick"; readonly x: number; readonly y: number; readonly pointerType?: string }
+export interface PaintPointer {
+  readonly tool: "paintPen" | "paintEraser" | "eyedrop"; readonly phase: "hover" | "down" | "move" | "up" | "cancel" | "pick"; readonly x: number; readonly y: number; readonly pointerType?: string;
+  /** 压感（PointerEvent.pressure）：宿主只信笔的（施工单二十 1a）。没有 = 程序造的。 */
+  readonly pressure?: number;
+  /** 事件自己发生的时间（ms，PointerEvent.timeStamp）：一笔的时间按它算（一笔里只用一种钟，宿主定）。没有 = 程序造的。 */
+  readonly at?: number;
+}
 /** 放人的指针阶段（ToolCtx.placeBody）。 */
 export type BodyPlacePhase = "hover" | "press" | "drag" | "drop";
 export interface ToolCtx {
@@ -290,7 +296,8 @@ export interface ToolHandler {
   /** 清掉自己的手势状态（底座 cancelGesture 时对所有工具调）。 */
   cancel(): void;
   down(ctx: ToolCtx, ev: ToolPointer): void;
-  track(ctx: ToolCtx, s: { x: number; y: number }, travel?: number): void;
+  /** ev = 这一下的指针（拖动时编辑器递进来；悬停 / 点两下取点 / 抬笔结算那几处没有）。只有画画的一笔看它（压感、事件时间）。 */
+  track(ctx: ToolCtx, s: { x: number; y: number }, travel?: number, ev?: ToolPointer): void;
   /** 手指轻点（见过笔的设备上手指平时 = 相机、轻点 = 取消）：这把工具认它当「点一下」就接住返回 true（步行放人；立场表 tap = place）。 */
   fingerTap?(ctx: ToolCtx, x: number, y: number): boolean;
   /** direct 工具的松手；settle() = 抬笔结算后的那一帧（null = 没样本）。steps 工具不用（底座把松手变成一次 down）。 */

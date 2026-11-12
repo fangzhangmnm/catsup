@@ -8,11 +8,12 @@
 //   画画的准备（1-4c space-prep.ts：整份几何 + 每格的表）每帧对一次：这个物件上热的画都要现成；过期了（在工作台里撤销到建模那几步 = 网格体修改号变了）
 //   这一帧就重建，不等落笔。落笔撞上「还没重建完」= 这一笔不开始、提示行说一句（和「这张画还在打开」同一个口）。出了画画工作台 = 全放。
 // · 不用不多做事：不进画画工作台就什么都不做（不建画板、不起内核）。
-import { brushKindOfTool, strokeKindOpts } from "../paint/brush-kinds.ts";
+import { brushKindOfTool, strokeKindOpts, resolvedBrushOf } from "../paint/brush-kinds.ts";
+import { StrokeClock } from "../controller/stroke-clock.ts";
 import type { Editor } from "../editor/editor.ts";
 import type { PaintPointer } from "../editor/tool-handler.ts";
 import type { PaintBoards } from "../paint/boards.ts";
-import { SpacePaintStroke, hookBrush, type SpacePaintDeps } from "../paint/space-paint.ts";
+import { SpacePaintStroke, type SpacePaintDeps } from "../paint/space-paint.ts";
 import { buildTriGrid, pickSurface, type TriGrid } from "../paint/surface-pick.ts";
 import { applyDir, applyPt, invert } from "../scene/xform.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
@@ -44,7 +45,8 @@ const NOT_STARTED = "这个物件还没开始画：点上面的「开始画…�
 export class PaintWorkbench {
   private readonly d: PaintWorkbenchDeps;
   private stroke: SpacePaintStroke | null = null;
-  private t0 = 0;
+  /** 这一笔的时钟和压感（施工单二十 1a；规矩在 controller/stroke-clock.ts：一笔里只用一种钟、压感只信笔的）。 */
+  private clock = new StrokeClock(undefined, 0);
   private lastPen: "paintPen" | "paintEraser" = "paintPen";
   private readonly grids = new WeakMap<MeshKernel, { rev: number; grid: TriGrid }>();
   private entered: string | null = null;
@@ -57,7 +59,7 @@ export class PaintWorkbench {
   pointer(ev: PaintPointer): void {
     switch (ev.phase) {
       case "down": this.begin(ev); return;
-      case "move": if (this.stroke) { this.stroke.move(ev.x, ev.y, 1, performance.now() - this.t0); this.d.editor.draw(); } return;
+      case "move": if (this.stroke) { this.stroke.move(ev.x, ev.y, this.clock.pressure(ev.pointerType, ev.pressure), this.clock.time(ev.at, performance.now())); this.d.editor.draw(); } return;
       case "up": if (this.stroke) { const st = this.stroke; this.stroke = null; st.up(); this.d.editor.draw(); } return;
       case "cancel": if (this.stroke) { const st = this.stroke; this.stroke = null; st.cancel(); this.d.editor.draw(); } return;
       case "pick": void this.eyedrop(ev.x, ev.y); return;
@@ -142,12 +144,12 @@ export class PaintWorkbench {
     if (this.d.gate(a.tex)) return;   // 锁着 / 冷的 / 只能看不能画：门自己说了（锁 = 第二层，v0.19.48）
     const e = this.d.editor, cfg = e.config, tool = ev.tool;
     const size = cfg.get(tool, "size"), opacity = cfg.get(tool, "opacity"), hardness = cfg.get(tool, "hardness");
-    const brush = { ...hookBrush({ size, hardness }), opacity };
+    const brush = resolvedBrushOf(brushKindOfTool(tool)!, { size, opacity, hardness });   // 笔的表那一行 + 旋钮（施工单二十 1a；以前 = 调试钩子那支 hookBrush，数一模一样）
     try {
       this.stroke = new SpacePaintStroke({ ...this.d.strokeDeps(e.context.chain), failed: (err) => { this.stroke = null; this.d.hint(strokeFailedSay(err)); } }, a.tex, { brush, color: this.d.color.get(), ...strokeKindOpts(brushKindOfTool(tool)!) });   // 种类相关的（擦不擦、怎么叠）只经笔的种类表
     } catch (err) { this.d.hint(strokeFailedSay(err)); this.stroke = null; return; }   // 准备没好（刚撤销改了模型）/ 撞到容量上限：这一笔不开始，说那句人话
-    this.t0 = performance.now();
-    this.stroke.down(ev.x, ev.y, 1, 0);
+    this.clock = new StrokeClock(ev.at, performance.now());
+    this.stroke.down(ev.x, ev.y, this.clock.pressure(ev.pointerType, ev.pressure), 0);
     e.draw();
   }
 

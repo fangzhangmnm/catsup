@@ -877,3 +877,13 @@ layoutFaces(style = patches)：patchesOf（种子按面积、一样大看面心�
 - 睡着时的写：撤销翻步 / 跟大小 / 装载只动内存 → `displayStale` → 下一帧醒来合一次 → 再下一帧睡回去（醒一次 = 一次整张合成 + 渲染器一次整张重拷）。
   存盘读回 / 吸色走 `borrowGpu`（同一个同步段里醒、用、睡回去）。核对（`diag.check`）把睡着的也叫醒核一下（换了版本记 `freshAt`），下一帧睡回去。
 - 来回切两个物件（`probe-ten-objects` W）：每轮池收走 11–14 片（是睡下那块把自己的片让出来）、上传 3–6 片、重建 0 次，池停在 64 片。
+
+## 追记 2026-11-12（施工单二十 1a，Claude Opus 5.5）：画画的一笔——笔从表里来，压感和时间从指针来
+- 指针（`app/gestures.ts tp`）：`ToolPointer` 带上 `at`（PointerEvent.timeStamp，抬笔结算那次就有）和 `pressure`（这次加的）。
+- 编辑器拖动时（`trackGesture`）把这一下的指针递给工具：`ToolHandler.track(ctx, s, travel, ev?)`。只有画画工具看它；悬停、点两下取点、抬笔结算那几处不递。
+- 画画工具（`modes/paint.ts`）把压感和事件时间放进 `PaintPointer`，交给画画控制器（`app/paint-workbench.ts`）。
+- 画画控制器：
+  - 起笔的笔 = 笔的表那一行 + 旋钮（大小、浓度、硬度）→ 内核 `resolveBrush` → `ResolvedBrush`（`paint/brush-kinds.ts resolvedBrushOf`），取代以前调试钩子那支 `hookBrush`。叠法、是不是橡皮也从记录算（`compositeMode`、`tool`）。
+  - 一笔的时钟和压感（`controller/stroke-clock.ts`）：落笔那一下的事件时间像样（和抬笔结算同一个判据 `eventTimeUsable`）就整笔按事件时间，不然整笔按处理时刻；不往回走。压感只信笔的，鼠标 / 手指一律 1。
+- 这一版两支笔的数和 v0.19.54 一模一样（压感系数 0、不收尖、不跟手、间距 0.1），所以画出来逐字节相同（门：钉死事件时间的合成笔事件，压感故意在 0.2–0.9 之间变）。临时把普通笔的压感系数改成 0.6，同样几笔就画得不一样了（墨 1011 → 746 像素），说明压感真的传到了一笔里。
+- 调试钩子 `paint.stroke` 照旧用 `hookBrush`（探针的笔），不走这条。

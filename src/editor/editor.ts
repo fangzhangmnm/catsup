@@ -124,8 +124,8 @@ export interface ToolPointer {
   altKey?: boolean;
   /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。缺省 = 本帧 distTo（editor.movedSinceDown）。 */
   travel?: number;
-  /** 事件自己发生的时间（ms，PointerEvent.timeStamp）：抬笔结算按它算停了多久（controller/lift-settle.ts）。键盘起手 / 程序造的没有。 */
-  at?: number;
+  /** 事件自己发生的时间（ms，PointerEvent.timeStamp）：抬笔结算按它算停了多久（controller/lift-settle.ts）；画画的一笔按它算时间（施工单二十 1a）。键盘起手 / 程序造的没有。 */
+  at?: number; pressure?: number;   // pressure = 压感（PointerEvent.pressure，0..1）：只有画画的一笔用（controller/stroke-clock.ts 只信笔的；鼠标 / 手指报的 0.5 / 0 不是压感）；键盘起手 / 程序造的没有
 }
 
 /** 选区快照（撤销 / 重做还原用；ctx = 当时的上下文键）。 */
@@ -3828,7 +3828,7 @@ export class Editor {
       perf.time("hover.draw", () => this.draw());
       return;
     }
-    this.trackGesture(s, ev.travel);
+    this.trackGesture(s, ev.travel, ev);
     this.recordSample(s);
     if (this._tool !== "select") this.computeLive();
     this.updateTip(ev.clientX, ev.clientY);
@@ -3836,9 +3836,9 @@ export class Editor {
   }
 
   /** 手势中的取点（pointerMove 与松开帧共用）：交给当前工具模块。 */
-  private trackGesture(s: { x: number; y: number }, travel?: number): void {
+  private trackGesture(s: { x: number; y: number }, travel?: number, ev?: ToolPointer): void {
     const H = this.handlers[this._tool];
-    if (H?.active()) H.track(this.toolCtx, s, travel);
+    if (H?.active()) H.track(this.toolCtx, s, travel, ev);   // ev = 这一下的指针（压感、事件时间；画画的一笔要，别的工具不看）
   }
   /** 工具模块的上下文（tool-handler.ts ToolCtx）：底座能力的窄出口；工具只认它。 */
   private makeToolCtx(): EditorCore {
