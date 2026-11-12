@@ -16,6 +16,11 @@ describe("睡和醒的结构守卫（施工单十九第 3 刀）", () => {
     eq((board.match(/this\.gl\.wake\(\)/g) ?? []).length, 1, "叫醒只有一处");
     assert(gpuFn.includes("this.gl.wake()") && gpuFn.includes("return this.gl;"), "叫醒、交出都在 gpu() 里");
     assert(/new GLBoard\(o\.port, poolCapacityForBudget\(BUDGET_BYTES\), o\.pool \? \{ pool: o\.pool \} : undefined\)/.test(board), "画板建在合用池上（PaintBoards 递进来）");
+    // 在准备的合成之外动了显卡（借一下、睡下）必须叫 touched：渲染器和内核共用一个 GL 画面，不叫 = 渲染器记着的绑定不对、画面上的画是空的（第 3 刀的探针抓到过：paint-scale 红像素 0、paint-save 冷热不一样）
+    const fn = (sig: string): string => { const i = board.indexOf(sig); return board.slice(i, board.indexOf("\n  }\n", i)); };
+    assert(/this\.touched\(\)/.test(fn("  sleep(): void {")), "sleep() 动完显卡叫 touched");
+    assert(/finally \{[^}]*this\.touched\(\)/.test(fn("  private borrowGpu<T>(")), "borrowGpu 用完（不管睡没睡回去）叫 touched");
+    assert(/touched: \(\) => this\.o\.touched\?\.\(\)/.test(readFileSync("src/paint/boards.ts", "utf8")), "登记处建画板时把渲染器的作废口递进去");
   });
   it("名单里标「gpu」的口，方法体里真经 gpu() / borrowGpu；每个改像素的口都写了睡着时怎么办", () => {
     for (const [m, rule] of Object.entries(PIXEL_WRITES.PaintBoard)) {

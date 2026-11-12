@@ -104,7 +104,7 @@ export class PaintBoards {
       onStep: (step) => { this.pending.push({ tex: texture, step }); },
       onReset: () => { this.pending = this.pending.filter((p) => p.tex !== texture); if (!born && !this.disposing) this.o.undoReset?.(texture, this.resetWhy?.why ?? "画画内核说这张画的状态不可信", this.resetWhy?.tell ?? true); },   // 扔画板（只在换文件时）内核清栈也会叫它：那时整个栈已经换了，不用去摘
     });
-    const board = new PaintBoard({ port: this.port, width, height, log: this.o.log, undo: steps, locked: this.o.editLocked, pool: this.pool });
+    const board = new PaintBoard({ port: this.port, width, height, log: this.o.log, undo: steps, locked: this.o.editLocked, pool: this.pool, touched: () => this.o.touched?.() });
     born = false;
     this.pending = this.pending.filter((p) => p.tex !== texture);   // 建画板时内核要是封过步（空画布的那一步）：不进三维的栈
     board.setBackground(base);
@@ -148,7 +148,7 @@ export class PaintBoards {
       if (!e.prepared || e.prepared.version !== r.version) { touched = true; e.freshAt = frame; }
       e.prepared = { gpuImage: gpuImageOf(this.port!, r.fbo), version: r.version };
     }
-    this.sleepIdle(frame);
+    this.sleepIdle(frame);   // 睡下动了显卡：画板自己叫 touched（PaintBoardOpts.touched）
     this.measureSync?.();
     this.lastPrepare = { jobsMs: t1 - t0, composeMs: performance.now() - t1 };
     paintMeter.put("compose", this.lastPrepare.composeMs);   // 每帧的读数（1-4d；关着不做事）

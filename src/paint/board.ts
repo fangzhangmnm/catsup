@@ -39,6 +39,11 @@ export interface PaintBoardOpts {
   readonly locked?: () => string | null;
   /** 几块画板合用的显卡图块池（施工单十九第 3 刀：一份文件一个，PaintBoards 建、换文件退租）。缺 = 自己开一个（单测）。 */
   readonly pool?: SharedTilePool;
+  /**
+   * 在每帧准备的合成之外动过显卡之后叫（借一下显卡、睡下）：渲染器和内核共用一个 GL 画面，内核动过 GL，渲染器记着的绑定就不对了，要作废一次
+   * （render3.resetPaintState）。准备里的合成由登记处统一叫。缺 = 不叫（单测）。
+   */
+  readonly touched?: () => void;
 }
 
 /** 画布上一块（格子；[x, x + w) × [y, y + h)）。 */
@@ -59,6 +64,7 @@ export class PaintBoard {
   private readonly port: Gl2Port;
   private readonly log: (msg: string) => void;
   private readonly locked: () => string | null;
+  private readonly touched: () => void;
   private bg: readonly [number, number, number, number] = [1, 1, 1, 1];
   /** 合成出来的那张图（内核的，下一次合成之前有效）+ 合成它时的内容键。 */
   private last: { fbo: PooledFBO; key: string } | null = null;
@@ -83,6 +89,7 @@ export class PaintBoard {
 
   constructor(o: PaintBoardOpts) {
     this.locked = o.locked ?? ((): string | null => null);
+    this.touched = o.touched ?? ((): void => {});
     if (!(o.width >= 1 && o.height >= 1)) throw new Error(`PaintBoard: bad size ${o.width}x${o.height}`);
     this.wp = new PaintingWorkpiece({ tree: { width: o.width, height: o.height }, ...(o.undo ? { undo: o.undo } : {}) });
     this.gl = new GLBoard(o.port, poolCapacityForBudget(BUDGET_BYTES), o.pool ? { pool: o.pool } : undefined);
@@ -305,6 +312,7 @@ export class PaintBoard {
     if (this.glHasOverlay) this.composite(this.gl, []);
     this.last = null; this.lastCommitted = null;   // 合成目标随睡还池：醒来第一次合成整张（变化史记「整张」，渲染器整张重拷）
     this.gl.sleep();
+    this.touched();   // 内核删了索引小图、还了帧缓冲：渲染器记着的绑定作废
   }
   /** 要用显卡：睡着就先叫醒。 */
   private gpu(): GLBoard {
@@ -314,7 +322,7 @@ export class PaintBoard {
   /** 借一下显卡（存盘读回、吸色）：原来睡着的，用完睡回去（一笔开着时不会是睡着的）。 */
   private borrowGpu<T>(f: (gl: GLBoard) => T): T {
     const was = this.gl.asleep;
-    try { return f(this.gpu()); } finally { if (was && !this.disposed) this.sleep(); }
+    try { return f(this.gpu()); } finally { if (was && !this.disposed) this.sleep(); this.touched(); }   // 在准备之外动了显卡：渲染器记着的绑定作废（以前醒着的画板读回之后下一帧会重合、顺手作废了；睡着的不重合，必须在这里叫）
   }
   /** 合成一次（三个口共用）；记下这一次给内核的薄层有没有（睡之前要清）。 */
   private composite(gl: GLBoard, overlays: readonly HostOverlayInput[]): PooledFBO | null {

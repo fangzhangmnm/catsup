@@ -2,7 +2,7 @@
 // probe-paint-open-memory.mjs —— 打开一张画时显卡上固定占多少：面板上说的数（src/paint/open-memory.ts）= 实际开的图（施工单十五第三节）。created 2026-11-11 by Claude Opus 5.5
 // 在测试页里给 WebGL 的建图 / 删图记账（只在这个探针的页面里，不改 app）：五档画布各开一张画、进画画工作台、画一笔，
 // 记账看得见全部显卡分配（含图组 / 3D：内核的图块池，施工单十九第 1 刀）；清单从 app 的 open-memory.ts 拿（不另抄一份）；对不上时打出多出来的每一张。
-// 量 ①开始画之后多开的 ②画过一笔之后一直占着的 ③一笔正在画的时候又多的 ④出画画工作台放掉的（每格的表），和 open-memory.ts 那张清单逐字节比（只数画布那么大的图；几 KB 的小数据图 / 图块不算）。
+// 量 ①开始画之后多开的 ②画过一笔之后一直占着的 ③一笔正在画的时候又多的 ④出画画工作台放掉的（每格的表；施工单十九第 3 刀起还有画板睡下删掉的索引小图），和 open-memory.ts 那张清单逐字节比（只数画布那么大的图；几 KB 的小数据图 / 图块不算）。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-paint-open-memory.mjs [url]
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -59,16 +59,21 @@ for (const n of [128, 256, 512, 1024, 2048]) {
     const before = new Map(); for (const k of items(G0)) before.set(k, (before.get(k) ?? 0) + 1);
     const added = []; for (const k of items(G2)) { const c = before.get(k) ?? 0; if (c) before.set(k, c - 1); else added.push(k); }
     C.pickWorkbench("freeform"); await fr(4);
-    const g3 = big(globalThis.__gpu());
+    const G3 = globalThis.__gpu(), g3 = big(G3);
+    const arenaOf = (G) => items(G).filter((k) => /^256x256x\d+:/.test(k)).reduce((a, k) => a + Number(k.split(":")[1]), 0);   // 内核的图块池（2D 图组，256 见方一片）
     const k = e.sceneRef.mesh(inst.def).kernel, fs = k.faces(); let tris = 0; for (const f of fs) tris += Math.max(1, k.faceVerts(f).length - 2);   // 画哪些面（面表 / 三角形表跟着它）：整个盒子
-    return { opened: g1 - g0, painted: g2 - g0, during: mid - g2, left: g2 - g3, added, target: { faces: fs.length, tris } };
+    return { opened: g1 - g0, painted: g2 - g0, during: mid - g2, left: g2 - g3, added, target: { faces: fs.length, tris }, arenaGrewOnLeave: arenaOf(G3) - arenaOf(G2) };
   }, n);
   const m = openMemory(n, n, r.target);   // app 自己的清单（面板上的数就是它算的），不在探针里另抄一份
   const tiles = Math.ceil(n / 256) ** 2;
   check(r.painted === m.fixed, `${n} × ${n}：画过一笔之后显卡上一共多占 ${r.painted} 字节 = 面板上说的 ${m.fixed}（显示图连缩小图 ${m.display} + 内核四张 ${m.kernel} + 图块池 ${m.arenaAfterStroke} + 每格的表 ${m.cells} + 面表三角形表 ${m.tables} + 索引小图 ${m.index}）`, `多出来的分配：${r.added.join(" ")}`);
   check(r.opened === m.opened, `${n} × ${n}：刚开始画（还没落笔）= 少内核池子里那两张、图块池是起步那份（${r.opened} = ${m.opened}）`, JSON.stringify(r));
   check(r.during === m.stroke - tiles * 4 - (m.arenaAfterStroke - m.arena), `${n} × ${n}：一笔正在画的时候比画完多 ${r.during} = 两张薄层 ${m.stroke} − 正在画的那层的索引小图 ${tiles * 4}（落层时重建）− 落层时图块池长的 ${m.arenaAfterStroke - m.arena}`, JSON.stringify(r));
-  check(r.left === m.cells + m.tables, `${n} × ${n}：出画画工作台放掉每格的表 + 面表三角形表 ${r.left} = ${m.cells + m.tables}`, JSON.stringify(r));
+  // 施工单十九第 3 刀起：出了画画工作台画板睡下 → 内核删掉每层的索引小图（新开的画两层，每格 4 字节）；合成目标还给内核的帧缓冲池（不删）、图块池一份文件一个（留着），这两样不算放掉
+  //   另外：睡前钉进存盘缓存（PaintSaver.prime）要整张合成读回一次，整张合成的段缓存另占片——2048 见方时池从 128 片长到 256 片（32 → 64 MB）；存盘第一次走的是同一条路（以前就会这样长），
+  //   只是清单（open-memory.ts 按「画过一笔」算的上沿）没算到。这里如实分开：放掉的 + 池长的 = 清单上该放的；池长了多少打出来（清单要不要改 / 内核要不要改，交统筹）。
+  if (r.arenaGrewOnLeave) console.log(`    ${n} × ${n}：出画画工作台时图块池长了 ${r.arenaGrewOnLeave} 字节（睡前钉进缓存那一次整张合成读回；存盘第一次同样会长）`);
+  check(r.left + r.arenaGrewOnLeave === m.cells + m.tables + 2 * tiles * 4, `${n} × ${n}：出画画工作台放掉每格的表 + 面表三角形表 + 画板睡下删掉的两张索引小图（${r.left} + 池长的 ${r.arenaGrewOnLeave} = ${m.cells + m.tables} + ${2 * tiles * 4}）`, JSON.stringify(r));
   await ctx.close();
 }
 await browser.close();

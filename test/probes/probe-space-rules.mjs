@@ -133,6 +133,7 @@ const out = {};
     const s1 = snap(), resets1 = resets; lay.dispose();
     e.draw(); const sB = T.readScreen();
     const board = C.paint.boards.get(T.guid); board.last = null;   // 逼内核再合成一次（内容没变）
+    C.paint.boards.setEditing([T.guid]);   // 施工单十九第 3 刀起：不在编辑的画板睡着、准备里不合成——先说它在编辑，才逼得出内核合成（下一帧画画工作台的 tick 又说空，它再睡回去）
     C.paint.boards.prepare(e.sceneRef);
     const s2 = snap(), resets2 = resets - resets1;
     e.draw(); const sC = T.readScreen(), dC = T.readDisp();
