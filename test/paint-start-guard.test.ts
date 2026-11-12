@@ -16,8 +16,10 @@ const caseBody = (src: string, name: string): string => { const i = src.indexOf(
 
 describe("开始画：守卫（1-3b）", () => {
   it("① 读贴图 layout 的只有 paintIn（document.ts）；texture-table.ts 只原样搬运；只看在不在（=== / !== undefined：一行上 sizeM 和 layout 正好一个、三个问法对称，施工单二十一第 3 刀）不算读", () => {
+    // 第一步（宽）：出现 .layout 的文件——连只看在不在的写法也算——只许是这两个（别处写 `t.layout !== undefined` 当「是不是画」用 = 红：全仓只有一个问法）
+    eq(hitsOf(/\.layout\b(?!\s*\()/g).join(","), [join("src", "format", "document.ts"), join("src", "format", "texture-table.ts")].sort().join(","), "出现 .layout 的文件");
+    // 第二步（窄）：document.ts 里每一处真读（不只是看在不在）都在 paintIn 里
     const READ = /\.layout\b(?!\s*\(|\s*[!=]==\s*undefined)/g;
-    eq(hitsOf(READ).join(","), [join("src", "format", "document.ts"), join("src", "format", "texture-table.ts")].sort().join(","), "读 .layout 的文件");
     const doc = code(join("src", "format", "document.ts")), ats = [...doc.matchAll(READ)].map((m) => m.index!);
     assert(ats.length >= 1, "document.ts 里至少一处（paintIn）");
     for (const at of ats) { const fn = doc.lastIndexOf("export function paintIn(", at); assert(fn > 0 && !doc.slice(fn, at).includes("\n}\n"), `document.ts 第 ${doc.slice(0, at).split("\n").length} 行那一处在 paintIn 里`); }
