@@ -797,7 +797,9 @@ layoutFaces(style = patches)：patchesOf（种子按面积、一样大看面心�
   documentFromScene（新拷的）+ 桌面态 / 参考窗 / 缩略图
   PaintSaver.freeze（src/paint/save.ts）：每张分层的画定来源
     有画板 + 缓存同版本 → 缓存（分层字节 + 合成图）
-    有画板 + 版本变了   → 内核 exportData（冻结拷贝）+ 当场合成读回（composeBytes，显示用的同一张，垫材质底色）+ 裁高
+    有画板 + 版本变了   → 内核 exportData（冻结拷贝）+ 当场合成读回（composeBytes：整张重新合、不带宿主的薄层、垫材质底色；不用显示那张增量合出来的）+ 裁高
+      一笔当中存（切后台 / 失焦、关页、人按保存；2026-11-11 量过）：exportData 和 composeBytes 都只看落定的 = 存的是这一笔之前那一版，合成图里没有半笔；
+      存完显示下一帧整张重合（带薄层）。名册每个来源一条这样的检查 = probe-mid-stroke-save（守卫 test/hand-busy.test.ts 扫 hand-save-check 标记）
     没画板 + 行里有字节（冷的）→ 原样
     没画板 + 没字节（没画过）→ 空白分层（按宽高编一次），不存合成图
   ─┘

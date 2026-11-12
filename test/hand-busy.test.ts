@@ -49,6 +49,13 @@ describe("守卫：名册的来源点名 + 会话只问名册", () => {
     for (const src of HAND_SOURCES) eq((hits[src] ?? []).join(","), "src/app/main.ts", `来源 ${src} 的登记`);
     for (const k of Object.keys(hits)) assert((HAND_SOURCES as readonly string[]).includes(k), `登记了名册上没有的来源 ${k}`);
   });
+  it("名册每个来源都有一条「这一下没收的时候存盘 → 存出来的 = 这一下开始之前落定的那一版、文件自己一致」的检查（test/ 里带 hand-save-check:<来源> 标记；统筹 11-11 定成规矩）", () => {
+    function* walk(dir: string): Generator<string> { for (const f of readdirSync(dir)) { const p = join(dir, f); if (statSync(p).isDirectory()) { if (f !== "fixtures") yield* walk(p); } else if (/\.(ts|mts|mjs)$/.test(f) && !/hand-busy\.test\.ts$/.test(f)) yield p; } }
+    const where: Record<string, string[]> = {};
+    for (const f of walk("test")) { const s = readFileSync(f, "utf8"); for (const m of s.matchAll(/hand-save-check:([a-z.]+)/g)) (where[m[1]] ??= []).push(f); }
+    for (const src of HAND_SOURCES) assert((where[src] ?? []).length > 0, `名册来源 ${src} 没有「没收的时候存盘」的检查（加来源 = 同时在探针里写一条，标 hand-save-check:${src}）`);
+    for (const k of Object.keys(where)) assert((HAND_SOURCES as readonly string[]).includes(k), `检查标的来源 ${k} 不在名册上（${where[k].join(", ")}）`);
+  });
   it("会话（session.ts）不点具体来源：没有 isGestureActive / gestureActive / stroking，忙不忙只问 hand.busy()", () => {
     const s = readFileSync("src/app/session.ts", "utf8").split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*\*)/.test(l)).join("\n");   // 注释里提到名字不算
     for (const bad of ["isGestureActive", "gestureActive", "stroking", "gestureInProgress"]) assert(!s.includes(bad), `session.ts 里出现了具体来源 ${bad}`);

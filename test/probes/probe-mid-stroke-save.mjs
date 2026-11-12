@@ -6,7 +6,9 @@
 // 做法：笔走真的 PointerEvent（笔 → 编辑器的画画工具 → 画画控制器，和人画一样）；笔 A 落定、还没编码过（不然存盘直接拿缓存，验了等于没验）→ 记下参照
 //   （落定像素的哈希、整张合成的字节）→ 笔 B 按下去画几步 → 触发存盘 → 拿那一刻编出来的字节（画的缓存；文件 / 崩溃快照里也找到同一份字节）对参照。
 //   V1 失焦 → 接着画（核对每一帧）→ 抬笔；V2 iPad 的次序：先 visibilitychange（存）、后 pointercancel → 刷新重开 = 笔 A 之后那一版（分层逐像素）；
-//   V3 关页 pagehide（只落本机）；V4 临时家（崩溃快照那条路：切后台先编画再拍）。
+//   V3 关页 pagehide（只落本机）；V4 临时家（崩溃快照那条路：切后台先编画再拍）；V5 / V6 人按的保存（Ctrl+S、存钮）；V7 建模的手势拖到一半时失焦（名册的另一个来源）。
+// 现状钉住（统筹 11-11：行为不改）：V8 / V9 / V10 一笔当中按 Ctrl+Z、工具键 E、空格 = 这一笔取消得干净（和建模的手势一样）。
+// 标记 hand-save-check:<名册来源>：名册每个来源都要有一条「没收的时候存盘」的检查（守卫 test/hand-busy.test.ts 扫 test/ 找这个标记，少一个 = 红）。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-mid-stroke-save.mjs [url]
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -79,6 +81,10 @@ function helpers() {
   H.inBlob = async (blob) => { const bytes = new Uint8Array(await blob.arrayBuffer()); return { png: find(bytes, H.lastPng) >= 0, ora: find(bytes, H.lastOra) >= 0, bytes: bytes.length }; };
   H.hidden = (on) => { if (on) Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" }); else delete document.visibilityState; document.dispatchEvent(new Event("visibilitychange")); };
   H.fnv = fnv;
+  /** 网格体的几何（真身，不是手势的预演）：每个活着的顶点的坐标（取到微米）。 */
+  H.meshHash = () => { let h = 2166136261; for (const d of C().editor.sceneRef.defs.values()) { const k = d.body?.kind === "mesh" ? d.body.kernel : null; if (!k) continue; for (const v of k.verts()) for (let j = 0; j < 3; j++) { const q = Math.round(k.pos[v * 3 + j] * 1e6); for (let s = 0; s < 32; s += 8) { h ^= (q >> s) & 0xff; h = Math.imul(h, 16777619); } } } return (h >>> 0).toString(16); };
+  /** 一笔当中按键之前 / 之后比的那几样：画的每个图层像素、撤销栈的位置、脏标记、手上的工具。 */
+  H.state = (g) => ({ hash: H.paintHash(g), pos: C().editor.history.position(), depth: C().editor.history.depth(), dirty: C().session.dirty(), stroking: C().paint.workbench.stroking, tool: C().editor.tool, gesture: C().editor.isGestureActive() });
 }
 
 /** 盒子 → 组件 → 网格体 → 进去 → 画画工作台 → 开始画 1024。 */
@@ -127,6 +133,7 @@ const waitSaved = (page) => page.waitForFunction(() => { const s = globalThis.__
   const g = await boxAndStart(page, S);
   check(!!g && await S(async () => globalThis.__catsup.session.save()) === true, "文件夹图库家：开始画、先存一次");
 
+  // hand-save-check:paint.stroke —— 名册的「画画的一笔」：没收的时候存盘 → 存出来的 = 这一笔开始之前落定的那一版、文件自己一致（V1–V6；守卫 test/hand-busy.test.ts 扫这个标记）
   console.log("\nV1 一笔当中失焦（flushForHide）→ 存出来的 = 笔 A 之后那一版、没有半笔；存完接着画，核对每一帧");
   const v1 = await aThenHalfB(S, g, 0.25, 0.5);
   check(!v1.fresh && v1.mid.stroking && v1.mid.gesture && v1.mid.hash === v1.ref.hash, "笔 A 落定还没编码过；笔 B 按着（编辑器也算手势中），落定的像素没被这一笔动过", JSON.stringify(v1));
@@ -172,11 +179,76 @@ const waitSaved = (page) => page.waitForFunction(() => { const s = globalThis.__
   check(s3.ok && s3.ofMatches, `关页那一刻存出来的：落定版本 = 笔 B 之前；合成图逐字节 = 笔 B 之前（差 ${s3.diff}）`, JSON.stringify(s3));
   await S(() => { globalThis.__MS.pe("pointerup", 0.6, 0.75); globalThis.__catsup.editor.draw(); });
   check(await S(() => globalThis.__catsup.paint.diag.check()) === true, "关页那一下之后抬笔：核对对上");
+  check(await S(async () => globalThis.__catsup.session.save()) === true, "存上");
+
+  // 人按的保存（Ctrl+S、存钮）：照现在的行为——存落定的那一版，抬笔后文件再变脏（统筹 11-11 定：不推迟、不改）
+  for (const [label, how, yA, yB] of [["V5 一笔当中按 Ctrl+S", "key", 0.2, 0.45], ["V6 一笔当中点存钮", "button", 0.4, 0.55]]) {
+    console.log(`\n${label} → 存出来的 = 笔 A 之后那一版、没有半笔；抬笔后文件再变脏`);
+    const v = await aThenHalfB(S, g, yA, yB);
+    check(!v.fresh && v.mid.stroking && v.mid.hash === v.ref.hash, "笔 A 落定还没编码过；笔 B 按着", JSON.stringify(v));
+    if (how === "key") await page.keyboard.press("Control+s"); else await S(() => document.getElementById("btnSave").click());
+    await page.waitForTimeout(200); await waitSaved(page);
+    const sv = await S((g) => globalThis.__MS.saved(g), g);
+    check(sv.ok && sv.ofMatches, `存出来的：落定版本 = 笔 B 之前；合成图逐字节 = 笔 B 之前（差 ${sv.diff}）`, JSON.stringify(sv));
+    const fv = await S(() => globalThis.__MS.inFolder("mid-save"));
+    check(fv.some((h) => h.png && h.ora), "文件夹里的文件带着这一份合成图和分层字节", JSON.stringify(fv));
+    const mid = await S((g) => globalThis.__MS.state(g), g);
+    check(mid.stroking && !mid.dirty, "存完：笔还按着、文件干净（存的是落定的那一版）", JSON.stringify(mid));
+    const ck2 = await S(async ([y]) => { const C = globalThis.__catsup, M = globalThis.__MS, out = []; for (let i = 7; i <= 12; i++) { M.pe("pointermove", 0.2 + 0.05 * i, y); C.editor.draw(); out.push(C.paint.diag.check()); } return out; }, [yB]);
+    await S(([y]) => { globalThis.__MS.pe("pointerup", 0.8, y); globalThis.__catsup.editor.draw(); }, [yB]);
+    const after = await S((g) => ({ ...globalThis.__MS.state(g), check: globalThis.__catsup.paint.diag.check() }), g);
+    check(ck2.every((x) => x === true) && after.check && after.hash !== v.ref.hash && after.dirty, `存完接着画：每帧核对对上；抬笔后这一笔落下、文件又脏了（等下一次存）`, JSON.stringify({ ck2, after }));
+    check(await S(async () => globalThis.__catsup.session.save()) === true, "存上");
+  }
+
+  // 现状（统筹 11-11 定：行为不改，只钉住）：一笔当中按撤销、按工具键 = 这一笔取消得干净（和建模的手势一样：手势中撤销 / 换工具 = 取消这一下）
+  for (const [label, press] of [["V8 一笔当中按 Ctrl+Z", "Control+z"], ["V9 一笔当中按工具键 E", "e"], ["V10 一笔当中按工具键 空格", " "]]) {
+    console.log(`\n${label}（现状）→ 这一笔取消得干净：图层像素逐位 = 落笔前、撤销栈没动、脏标记没变、之后核对对上`);
+    await S(() => { globalThis.__catsup.pickWorkbench("paint"); globalThis.__catsup.editor.setTool("paintPen"); globalThis.__catsup.editor.draw(); });
+    const pre = await S((g) => globalThis.__MS.state(g), g);
+    await S(() => { const M = globalThis.__MS; M.pe("pointerdown", 0.2, 0.85); for (let i = 1; i <= 6; i++) M.pe("pointermove", 0.2 + 0.05 * i, 0.85); globalThis.__catsup.editor.draw(); });
+    const mid = await S((g) => globalThis.__MS.state(g), g);
+    if (press === " ") await page.keyboard.press("Space"); else await page.keyboard.press(press);
+    await page.waitForTimeout(150);
+    const k = await S((g) => ({ ...globalThis.__MS.state(g), check: globalThis.__catsup.paint.diag.check() }), g);
+    await S(() => { const M = globalThis.__MS; for (let i = 7; i <= 10; i++) M.pe("pointermove", 0.2 + 0.05 * i, 0.85); M.pe("pointerup", 0.7, 0.85); globalThis.__catsup.editor.draw(); });
+    const end = await S((g) => ({ ...globalThis.__MS.state(g), check: globalThis.__catsup.paint.diag.check() }), g);
+    console.log(`    按之前 ${JSON.stringify(pre)}\n    笔按着 ${JSON.stringify(mid)}\n    按了之后 ${JSON.stringify(k)}\n    手抬起来之后 ${JSON.stringify(end)}`);
+    check(mid.stroking && !k.stroking, `按下去：这一笔取消了（笔按着 → 不在画了；手上的工具 ${mid.tool} → ${k.tool}）`, JSON.stringify({ mid, k }));
+    check(k.hash === pre.hash && k.pos === pre.pos && k.depth === pre.depth && k.dirty === pre.dirty && k.check === true, "取消得干净：图层像素逐位 = 落笔前、撤销栈的位置和深度没动、脏标记没变、核对对上", JSON.stringify({ pre, k }));
+    check(end.hash === pre.hash && end.pos === pre.pos && end.depth === pre.depth && end.check === true, "手接着动、抬起来：什么都没再画、撤销栈没动、核对对上", JSON.stringify({ pre, end }));
+  }
+
+  // hand-save-check:editor.gesture —— 名册的「编辑器的手势」：建模拖一个东西拖到一半时切后台 / 失焦存盘 → 存出来的 = 拖之前落定的那一版；取消后刷新重开 = 拖之前
+  console.log("\nV7 建模的手势：网格体全选、按 G 拖到一半时失焦存盘 → 存出来的 = 拖之前那一版（刷新重开对几何）");
+  await S(() => { globalThis.__catsup.pickWorkbench("freeform"); const e = globalThis.__catsup.editor; e.setTool("select"); e.selectAll(); e.cam.setView("front"); e.zoomExtents(); e.draw(); });
+  const box = await page.locator("#board").boundingBox(), cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy); await page.keyboard.press("g"); await page.mouse.move(cx + 40, cy, { steps: 4 }); await page.mouse.down(); await page.mouse.up();   // 先完整挪一次 = 落定的一步（文件变脏）
+  await page.waitForTimeout(200);
+  const p1 = await S(() => ({ hash: globalThis.__MS.meshHash(), dirty: globalThis.__catsup.session.dirty(), gesture: globalThis.__catsup.editor.isGestureActive() }));
+  await page.mouse.move(cx, cy); await page.keyboard.press("g"); await page.mouse.move(cx + 25, cy - 30, { steps: 4 });
+  const mid7 = await S(() => ({ hash: globalThis.__MS.meshHash(), gesture: globalThis.__catsup.editor.isGestureActive(), which: globalThis.__catsup.hand.which() }));
+  check(p1.dirty && !p1.gesture && mid7.gesture && mid7.which === "editor.gesture" && mid7.hash === p1.hash, `落定一步、文件脏；再按 G 拖到一半：名册说是编辑器的手势、真身的几何没动（预演在影子上）`, JSON.stringify({ p1, mid7 }));
+  await S(() => window.dispatchEvent(new Event("blur")));
+  await waitSaved(page);
+  const after7 = await S(() => ({ dirty: globalThis.__catsup.session.dirty(), gesture: globalThis.__catsup.editor.isGestureActive() }));
+  check(!after7.dirty && after7.gesture, "失焦那一下存上了（文件干净），手势还在", JSON.stringify(after7));
+  await page.keyboard.press("Escape"); await page.waitForTimeout(150);
+  check(await S(() => !globalThis.__catsup.editor.isGestureActive() && !globalThis.__catsup.session.dirty()), "Esc 取消这一下：文件还是干净的（存的就是现在这一版）");
+  await reloaded(() => page.reload());
+  await clearNotes(S);
+  const re7 = await S(() => globalThis.__MS.meshHash());
+  check(re7 === p1.hash, `刷新重开：几何 = 拖之前落定的那一版（${re7}）`, JSON.stringify({ re7, p1: p1.hash }));
+  await enterBox(S);
+  await S(() => { globalThis.__catsup.pickWorkbench("freeform"); const e = globalThis.__catsup.editor; e.setTool("select"); e.selectAll(); e.cam.setView("front"); e.zoomExtents(); e.draw(); });
+  await page.mouse.move(cx, cy); await page.keyboard.press("g"); await page.mouse.move(cx + 25, cy - 30, { steps: 4 }); await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(150);
+  check(await S(() => globalThis.__MS.meshHash()) !== p1.hash, "同样拖一下落定：几何变了（这个比较看得出拖）");
   await ctx.close();
 }
 
 // ---------- 临时家：V4 崩溃快照那条路 ----------
 {
+  // hand-save-check:paint.stroke（临时家：崩溃快照那条路）
   console.log("\nV4 临时家（开机没选家）一笔当中切后台 → 先编画再拍快照：编出来的 = 笔 A 之后那一版、没有半笔；快照里就是这一份");
   const { ctx, page, S } = await open();
   const g = await boxAndStart(page, S);
