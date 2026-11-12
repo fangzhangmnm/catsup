@@ -92,6 +92,8 @@ describe("画板的二维落笔口（施工单二十一第 1 刀）", () => {
     eq(diffs.filter((d) => d !== 0).length, 0, `每一下都对上（${diffs.join(",")}）`);
     st.end(); b.dispose();
   });
+  // 注意（统筹 11-12）：PaintBoard.stampsMoved / 落层那份「笔尖的外框」（半径 × 椭圆长短比 + 2 格）是照内核抄的一份知识——内核加新的笔尖形状（带角度的、带纹理的、按格的……），这里必须跟着改；
+  //   施工单 K1 做的时候整套换成内核报的格（哪些格变了由画的那一方说），这条测试改成核对内核报的。
   it("②″ 显示那一侧只报真变了的格：每动一下，前后两张显示图（带着这一笔）真变了的每个像素都在这一下报的格里；没变的那一下不报（四支笔、带平滑的、橡皮）", () => {
     for (const s of STROKES) {
       const b = new PaintBoard({ port: new SoftGl2Port(), width: W, height: H });
