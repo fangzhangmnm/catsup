@@ -18,7 +18,7 @@ const res = await page.evaluate(async () => {
   // 只选散线
   e.cancel();
   for (const ed of e.kernel.edges()) { const a = e.kernel.graph.pt(ed.a); if (a.x >= 4) e.selection.edges.add(ed.id); }
-  out.menu = hud.edits().filter((it) => !it.hidden).map((it) => it.label).filter((l) => l.startsWith("焊接断口"));
+  out.menu = e.commandMenu("repairWindow").map((m) => m.label).filter((l) => l.startsWith("焊接断口"));   // （修复动作 v0.16.4 起住修复面板 repairWindow，不在右键条：查修复面板那几行，2026-11-11）
   hud.pick("action:brep.weld"); await sleep(20);
   out.afterSel = count();
   return out;

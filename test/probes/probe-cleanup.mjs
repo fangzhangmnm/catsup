@@ -13,7 +13,7 @@ const res = await page.evaluate(async () => {
   e.commitOp({ op: "addEdges", at, segs: [[P(1, 0), P(1, 1)]] });
   e.commitOp({ op: "addEdges", at, segs: [[P(4, 0), P(5, 0)]] });
   e.deselectAll(); e.draw(); await sleep(30);
-  const out = { faces0: e.kernel.faces().length, edges0: e.kernel.edges().length, menu: e.commandMenu().map((m) => m.label) };
+  const out = { faces0: e.kernel.faces().length, edges0: e.kernel.edges().length, menu: e.commandMenu("repairWindow").map((m) => m.label) };   // （修复动作 v0.16.4 起住修复面板 repairWindow，不在右键条：查修复面板那几行，2026-11-11）
   C.hud.pick("action:brep.cleanup"); await sleep(30);
   out.hint = document.getElementById("hint")?.textContent ?? ""; out.faces1 = e.kernel.faces().length; out.edges1 = e.kernel.edges().length;
   const pp = e.paramPanel(); out.fields = pp ? pp.fields.map((f) => f.key) : null;

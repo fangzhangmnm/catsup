@@ -33,6 +33,6 @@ const res = await page.evaluate(() => {
   return out;
 });
 console.log(JSON.stringify(res));
-const ok = res.boxFaces === 6 && res.grouped && res.poolSel && res.lockItemBefore.includes("lock") && !res.lockItemBefore.includes("unlock") && res.locked && res.hasLocked && res.lockItemAfter.includes("unlock") && res.moveRefused && res.deleteRefused && res.enterRefused && res.unlocked && res.moveAfterUnlock;
+const ok = res.boxFaces === 6 && res.grouped && res.poolSel && res.lockItemBefore.includes("action:lock") && !res.lockItemBefore.includes("action:unlock")   /* 物件动词 v0.16.47 起进注册表、菜单 id 带 action: 前缀（2026-11-11 改） */ && res.locked && res.hasLocked && res.lockItemAfter.includes("action:unlock") && res.moveRefused && res.deleteRefused && res.enterRefused && res.unlocked && res.moveAfterUnlock;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

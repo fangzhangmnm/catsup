@@ -22,25 +22,25 @@ await page.evaluate(async () => {
 await page.waitForTimeout(150);
 const r = {};
 r.one = await page.evaluate(() => { const c = document.querySelector(".left-dial"); return { shown: !!c && !c.hidden, nativeRange: !!c?.querySelector("input[type=range]"), slots: c?.querySelectorAll(".left-dial-slot:not([hidden])").length ?? 0, icon: c?.querySelector(".left-dial-label use")?.getAttribute("href") ?? "" }; });
-const box = await page.evaluate(() => { const q = document.querySelector(".vslider").getBoundingClientRect(); return { x: q.left + q.width / 2, top: q.top, bottom: q.bottom }; });
+const box = await page.evaluate(() => { const q = [...document.querySelectorAll(".vslider")].map((v) => v.getBoundingClientRect()).find((r) => r.height > 0);   /* 看得见的那一根：v0.19.25 起前面多了画画的「大小 / 浓度」两根（藏着、0×0），第一根不是软选择半径了；气泡同理取所在格子没藏的那个（2026-11-11 改） */ return { x: q.left + q.width / 2, top: q.top, bottom: q.bottom }; });
 const radius = () => page.evaluate(() => globalThis.__catsup.editor.config.get("soft", "radius"));
 // 真鼠标输入（合成事件不是真指针，浏览器不给捕获；鼠标走的是真输入，捕获是真的——笔 / 手指走同一个 API）
 await page.mouse.move(box.x, box.bottom - 4); await page.mouse.down();
 const seen = [];
 for (let i = 1; i <= 12; i++) { await page.mouse.move(box.x + 2, box.bottom - 4 - (box.bottom - box.top) * i / 12); await page.waitForTimeout(12); seen.push(await radius()); }
 r.two = { seen, rising: seen.every((v, i) => i === 0 || v >= seen[i - 1]), top: seen[seen.length - 1],
-  bubble: await page.evaluate(() => { const bb = document.querySelector(".vslider-bubble"); return bb && !bb.hidden ? bb.textContent : null; }),
+  bubble: await page.evaluate(() => { const bb = [...document.querySelectorAll(".vslider-bubble")].find((x) => !x.parentElement?.closest("[hidden]")); return bb && !bb.hidden ? bb.textContent : null; }),
   ring: await page.evaluate(() => !document.getElementById("softRing")?.hidden) };
 // ③ 拖到滑条外面（画布上）再松手：捕获让松手回到滑条
 await page.mouse.move(box.x + 300, box.top + 40);
 await page.mouse.up(); await page.waitForTimeout(60);
-r.three = { ring: await page.evaluate(() => !document.getElementById("softRing")?.hidden), bubbleNow: await page.evaluate(() => !document.querySelector(".vslider-bubble").hidden), r: await radius() };
+r.three = { ring: await page.evaluate(() => !document.getElementById("softRing")?.hidden), bubbleNow: await page.evaluate(() => ![...document.querySelectorAll(".vslider-bubble")].find((x) => !x.parentElement?.closest("[hidden]")).hidden), r: await radius() };
 await page.waitForTimeout(1700);
-r.three.bubbleLater = await page.evaluate(() => !document.querySelector(".vslider-bubble").hidden);
+r.three.bubbleLater = await page.evaluate(() => ![...document.querySelectorAll(".vslider-bubble")].find((x) => !x.parentElement?.closest("[hidden]")).hidden);
 // ④ ]
 await page.evaluate(() => globalThis.__catsup.editor.config.set("soft", "radius", 120));
 await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "]", code: "BracketRight", bubbles: true, cancelable: true }))); await page.waitForTimeout(60);
-r.four = { r: await radius(), bubble: await page.evaluate(() => !document.querySelector(".vslider-bubble").hidden) };
+r.four = { r: await radius(), bubble: await page.evaluate(() => ![...document.querySelectorAll(".vslider-bubble")].find((x) => !x.parentElement?.closest("[hidden]")).hidden) };
 // ⑤
 await page.evaluate(() => globalThis.__catsup.hud.pick("select")); await page.waitForTimeout(80);
 r.five = await page.evaluate(() => !!document.querySelector(".left-dial")?.hidden);

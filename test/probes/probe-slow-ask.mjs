@@ -27,7 +27,7 @@ out.ask2 = await state();
 await page.click("#sheetConfirm"); await page.waitForTimeout(300);
 out.yes = await state();
 // 修复面板「应用」：勾上清理碎渣 → 同一道确认；点「不做」→ 没动
-await page.evaluate(() => { const e = globalThis.__catsup.editor, at = e.activePool(), P = (x, y, z = 0) => ({ x, y, z }); e.commitOp({ op: "addEdges", at, segs: [[P(0.5, 0), P(0.5, 1)]] }); e.deselectAll(); e.beginRepairPanel(); e.setParam("cleanup", true); e.pressParam("apply"); });
+await page.evaluate(() => { const e = globalThis.__catsup.editor, at = e.activePool(), P = (x, y, z = 0) => ({ x, y, z }); e.commitOp({ op: "addEdges", at, segs: [[P(0.5, 0), P(0.5, 1)]] }); e.deselectAll(); e.beginRepairPanel(); e.setParam("brep.cleanup", true); e.pressParam("apply"); });   // 修复面板的步骤键 = 指令 id（v0.15.9 注册表起带 brep. 前缀；2026-11-11 改）
 await page.waitForTimeout(200);
 out.panelAsk = await state();
 await page.click("#sheetCancel"); await page.waitForTimeout(200);

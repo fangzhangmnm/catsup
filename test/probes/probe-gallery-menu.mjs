@@ -3,9 +3,22 @@ import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const url = process.argv[2] ?? "http://127.0.0.1:8765/";
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
+// v0.18.27 起图库必须先有家（没选家时点「图库」先弹「选家」的面板）：先用假选夹（OPFS 子目录，照 probe-folder-home）选好文件夹家，再从 ☰ 开图库（2026-11-11 改）
+const FAKE_FSA = (folder) => {
+  window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle(folder, { create: true });
+  const P = globalThis.FileSystemHandle?.prototype;
+  if (P) { P.queryPermission = async () => "granted"; P.requestPermission = async () => "granted"; }
+};
+const ctx = await b.newContext({ viewport: { width: 1000, height: 800 } });
+await ctx.addInitScript(FAKE_FSA, "gallery-menu");
+const page = await ctx.newPage();
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
 await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500);
+void page.evaluate(() => { void globalThis.__catsup.home.openGallery(); });
+await page.waitForFunction(() => !document.getElementById("sheet").hidden, null, { timeout: 8000 });
+{ const nav = page.waitForEvent("load"); await page.click(`#sheetChoices button:has-text("选一个文件夹")`); await nav; await page.waitForFunction(() => globalThis.__catsup?.session && globalThis.__catsup.home); await page.waitForTimeout(900); }
+await page.evaluate(() => { for (const n of [...document.querySelectorAll("#noticeStack > *")]) n.remove(); if (!document.getElementById("galleryFull").hidden) document.getElementById("galleryClose")?.click(); });
+await page.waitForTimeout(200);
 const res = {};
 await page.click("#btnMenu"); await page.waitForTimeout(100);
 await page.click(".menu-item:has-text('图库')"); await page.waitForTimeout(500);

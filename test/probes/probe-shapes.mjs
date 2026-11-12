@@ -27,7 +27,7 @@ await click(SA); await click(SB); await click(SU); await click(SL);
 const rUp = await kstate();
 await page.evaluate(() => globalThis.__catsup.editor.commitOp({ op: "clear" }));
 // 3. 矩形从中心：选项 → 首点 (5,5) 第二点 (6,5.5) → x 4..6, y 4.5..5.5
-await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "clear" }); e.config.set("rect", "from", "center"); globalThis.__catsup.hud.pick("rect"); });
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "clear" }); globalThis.__catsup.hud.pick("crect"); });   // 从中心拉的矩形 v0.15.19 起是独立工具 crect（以前是矩形的「从中心」选项；2026-11-11 改）
 const [R0, R1] = await px([{ x: 0, y: 0, z: 0 }, { x: 1, y: 0.5, z: 0 }]);
 await click(R0); await click(R1);
 const r2 = await kstate();

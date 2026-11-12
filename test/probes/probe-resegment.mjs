@@ -13,7 +13,7 @@ const res = await page.evaluate(async () => {
   e.commitOp({ op: "pushpull", at, face: pts, dist: 1 });
   e.deselectAll(); e.draw(); await sleep(30);
   const segs = () => e.kernel.curves().filter((c) => c.kind === "circle" && c.params).map((c) => c.params.segments).join();
-  const out = { N, menu: e.commandMenu().map((m) => m.label), before: segs() };
+  const out = { N, menu: e.commandMenu("repairWindow").map((m) => m.label), before: segs() };   // （修复动作 v0.16.4 起住修复面板 repairWindow，不在右键条：查修复面板那几行，2026-11-11）
   C.hud.pick("action:brep.resegment"); await sleep(30);
   out.hint0 = document.getElementById("hint")?.textContent ?? ""; out.panelOpen = !!e.paramPanel(); out.same = segs();
   e.setParam("segments", "48"); await sleep(30);

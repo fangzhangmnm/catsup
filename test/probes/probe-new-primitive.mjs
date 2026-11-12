@@ -11,7 +11,7 @@ const res = await page.evaluate(async () => {
   const e = globalThis.__catsup.editor, hud = globalThis.__catsup.hud, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const c = document.getElementById("board"), r = c.getBoundingClientRect(), px = (p) => e.cam.angularPx(p, e.vp());
   const rclick = async (p) => { const s = px(p); c.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + s.x, clientY: r.top + s.y, button: 2 })); await sleep(40); };
-  const closeMenus = () => document.querySelectorAll(".popup-menu").forEach((m) => m.remove());
+  const closeMenus = () => { for (let i = 0; i < 4 && globalThis.__catsup.test.inputGate.owner() !== "scene"; i++) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true })); };   // 照正路关菜单（Esc → 输入闸交给菜单）：v0.18.38 起输入闸认 app 自己记的「菜单开着」，直接删 DOM 它不知道、会一直挡着键盘（2026-11-11 改）
   const newItems = () => hud.edits().filter((it) => it.id.startsWith("new:") && !it.hidden).map((it) => it.label);
   const box = (x0, y0, z0, x1, y1, z1) => { const B = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], z0), P(d[0], d[1], z0)]); segs.push([P(a[0], a[1], z1), P(d[0], d[1], z1)]); segs.push([P(a[0], a[1], z0), P(a[0], a[1], z1)]); } e.commitOp({ op: "addEdges", at: e.activePool(), segs }); };
   const S = () => e.scene, out = {};

@@ -73,7 +73,7 @@ const res = await page.evaluate(async () => {
 });
 await b.close();
 res.errs = errs;
-const ok = res.kindAfterCast === "mesh" && res.enter.mode === "freeform" && res.enter.kind === "mesh" && res.enter.selKind === "mesh" && res.enter.modes.join() === "freeform,surface" && res.enter.depth === 1
+const ok = res.kindAfterCast === "mesh" && res.enter.mode === "freeform" && res.enter.kind === "mesh" && res.enter.selKind === "mesh" && res.enter.modes.join() === "freeform,surface,paint"   /* v0.19.25 起网格体多一个画画工作台（2026-11-11 改） */ && res.enter.depth === 1
   && res.pickTop.faces === 1 && /1 面/.test(res.pickTop.readout) && res.clickUndo.faces === 0 && res.clickUndo.redoFaces === 1 && res.selectAll.faces === 6 && res.selectAll.edges === 12
   && res.brepVerbs.pos === 0 && res.brepVerbs.faces === 6 && res.brepVerbs.hints.every(Boolean)
   && ["group", "mirror", "hide", "soften", "harden", "explode"].every   /* v0.16.45 起网格体里有「建组件」（= 原地分开）*/((id) => !res.hudInMesh.includes(id)) && res.hudInMesh.includes("deselect") && res.hudInMesh.includes("delete")

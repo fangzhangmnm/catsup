@@ -211,7 +211,7 @@ check(/导入 glb/.test((await toasts()).at(-1)) && !(await sheetUp()), `外来 
 await page.setInputFiles("#shelfImportFile", catsupFile(new Uint8Array([1, 2, 3, 4]), "坏的.catsup")); await page.waitForTimeout(150);
 check(/导入素材失败|不是/.test((await toasts()).at(-1)), `坏文件说清：${(await toasts()).at(-1)}`);
 // 导入完存盘：架子和新条目都在（读回来）
-const reread = await page.evaluate(() => { const C = globalThis.__catsup, bytes = C.session.encode(); return [...bytes]; });
+const reread = await page.evaluate(async () => { const C = globalThis.__catsup, bytes = await C.session.encodeNow(); return [...bytes]; });   // 编码 v0.19.23 起是异步的（画要编码：freeze → finish），以前的同步 encode() 没了（2026-11-11 改）
 const { json: J } = decodeGlb(new Uint8Array(reread));
 check(J.extensions.CATSUP_shelf.items.some((it) => it.kind === "definition"), "存盘写进 CATSUP_shelf");
 
@@ -238,7 +238,7 @@ check(R5.btns.length === 4 && R5.btns.every((b) => b.off), `导入 / 清理都�
 const r5 = await p2.evaluate(() => { const C = globalThis.__catsup, e = C.editor, s = e.sceneRef, i = [...s.def(s.root).instances.values()][0]; e.deselectAll(); e.selectedPools.set(`i${i.id}`, { kind: "instance", instance: i.id }); const menu = e.commandMenu("objectMenu").map((m) => m.id); e.commitOp({ op: "shelfFolderAdd", name: "x", parent: null, guid: crypto.randomUUID() }); const hintAfter = C.hud.status(); const toast = [...document.querySelectorAll(".toast-error .toast-text")].map((t) => t.textContent); return { menu, hintAfter, toast, folders: e.sceneRef.shelf.folders.length }; });
 check(!r5.menu.includes("shelve") && !r5.menu.includes("unshelve"), "物件菜单不露上架");
 check(/更新版/.test(r5.hintAfter) && r5.toast.length === 0 && r5.folders === 0, `硬改也拒：提示行说、不弹错误：${JSON.stringify(r5)}`);
-const raw2 = await p2.evaluate(() => [...globalThis.__catsup.session.encode()]);
+const raw2 = await p2.evaluate(async () => [...await globalThis.__catsup.session.encodeNow()]);
 check(JSON.stringify(decodeGlb(new Uint8Array(raw2)).json.extensions.CATSUP_shelf) === tooNew.raw, "存盘：架子原字节带回");
 
 await browser.close();

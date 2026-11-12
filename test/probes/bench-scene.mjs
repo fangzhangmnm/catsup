@@ -1,13 +1,14 @@
 // test/probes/bench-scene.mjs —— 性能基线探针（#14，2026-10-21，Claude Fable 5.1）：实体数增长时，结算 / 拾取吸附 / 渲染重建 / 撤销各花多少。
 // 先量后优（家规）。headless swiftshader 不代表 GPU，但 CPU 侧（结算机、求解器、几何重建）的量是真的。
-// 用法：先 python3 -m http.server 8765；node test/probes/bench-scene.mjs [N=300]
+// 用法：先 python3 -m http.server 8765；node test/probes/bench-scene.mjs [url] [N=300]
 import { createRequire } from "node:module";
 const { chromium } = createRequire(new URL("../../../20260524 WeebPaint/package.json", import.meta.url))("playwright");
-const N = Number(process.argv[2] ?? 300);
+const N = Number(process.argv.slice(2).find((a) => /^\d+$/.test(a)) ?? 300);   // 网址和别的探针一样当参数给（带 http 的那个）；数字 = 盒子个数（2026-11-11 改：以前第一个参数就当 N，整跑脚本按惯例传网址进来 = N 成了无效数）
+const URL0 = process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/";
 const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage({ viewport: { width: 744, height: 1133 }, deviceScaleFactor: 2 });
 const errs = []; page.on("pageerror", (e) => errs.push(e.message));
-await page.goto(process.env.PROBE_URL ?? "http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(400); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
+await page.goto(URL0, { waitUntil: "load" }); await page.waitForTimeout(400); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
 const res = await page.evaluate(async (N) => {
   const e = globalThis.__catsup.editor; const vp = () => e.vp(); const c = document.getElementById("board"); const r = c.getBoundingClientRect();
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
