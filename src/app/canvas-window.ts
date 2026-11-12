@@ -27,7 +27,7 @@ import { createBareFloatWin } from "./ui/bare-float-win.ts";
 import type { PopupMenuItem } from "./ui/popup-menu.ts";
 
 /** 接缝在小窗里的颜色 = 三维里接缝线的颜色（施工单二十二 B）。 */
-const SEAM_CSS = `#${PALETTE.seam.toString(16).padStart(6, "0")}`;
+const SEAM_CSS = `#${PALETTE.edgeAccent.toString(16).padStart(6, "0")}`;
 
 export interface CanvasWindowDeps {
   readonly editor: Editor;

@@ -16,7 +16,7 @@ import type { MarkLayout } from "./highlight.ts";
 
 const srgb = (hex: number): readonly [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 /** 烤进顶点的颜色（= 以前后端 chunkStyle 给的同一套数：面 sRGB 浮点、线线性）。 */
-const FACE_SRGB = srgb(PALETTE.face), BACK_SRGB = srgb(PALETTE.faceBack), NO_SIDE: readonly [number, number, number] = [-1, -1, -1], EDGE_FACE = hexToLinear(PALETTE.edge), EDGE_WIRE = hexToLinear(PALETTE.edgeWire), EDGE_SEAM = hexToLinear(PALETTE.seam);
+const FACE_SRGB = srgb(PALETTE.face), BACK_SRGB = srgb(PALETTE.faceBack), NO_SIDE: readonly [number, number, number] = [-1, -1, -1], EDGE_FACE = hexToLinear(PALETTE.edge), EDGE_WIRE = hexToLinear(PALETTE.edgeWire), EDGE_SEAM = hexToLinear(PALETTE.edgeAccent);   // 接缝 = 标记线那个颜色
 
 /**
  * 画板登记处在编辑器这边看到的样子（贴图主线 1-3c；实现 = src/paint/boards.ts，编辑器不认识画画内核）。只读：改大小、合成都在每帧开画之前的「准备」里（1-4b 统筹 B）。

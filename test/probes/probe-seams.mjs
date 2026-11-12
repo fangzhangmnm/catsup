@@ -6,7 +6,7 @@
 // ④ 锁上（演示锁 = 只看）→ 没有；解锁 → 又有
 // ⑤ 开始画 → 画布小窗里接缝那组线有这条边（在画布上出现几次就几段），没标的照旧粗 / 细
 // ⑥ 撤销到标接缝之前 → 位没了、画面上没有接缝色 ⑦ 没有页面错误
-// 接缝色按画布像素数（gl.readPixels 紧跟 editor.draw()，和截图基线同一个读法）：PALETTE.seam = #f0440f，判 r > 215、40 ≤ g ≤ 110、b < 40（X 轴 / 悬停红 #cc3333 的 b = 51，不算）。
+// 接缝色按画布像素数（gl.readPixels 紧跟 editor.draw()，和截图基线同一个读法）：PALETTE.edgeAccent = #f0440f，判 r > 215、40 ≤ g ≤ 110、b < 40（X 轴 / 悬停红 #cc3333 的 b = 51，不算）。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-seams.mjs [url]
 import { createRequire } from "node:module";
 import path from "node:path";
