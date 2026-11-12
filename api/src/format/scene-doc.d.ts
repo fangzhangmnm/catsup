@@ -18,11 +18,13 @@ export interface MaterializeOpts {
 export declare function materializeDefinitions(scene: Scene, entries: readonly DefinitionEntry[], materialOf: (g: Guid) => number, opts?: MaterializeOpts): Map<Guid, DefId>;
 /** 文档 → 场景（打开 = 往空店里落地；整张表原样装，没有要决定的事，不走 plan）。 */
 export declare function sceneFromDocument(doc: CatsupDocument): Scene;
-/** 一个定义 → 文件形状（documentFromScene 和跨文件载荷的闭包同一份；name = 根用文件名）。 */
-export declare function definitionToDoc(scene: Scene, id: DefId, name?: string): DefinitionDoc;
+/** 写的时候指着的东西不在、只好不写（实例的定义没了 / 槽号指不到材质）：已知的路走不到；真走到了 = 软件的毛病，调用方记账、说出来（统筹 11-12，存盘忠实度清点 W2、W3）。 */
+export type WriteDrop = (what: "instance" | "materialSlot", detail: string) => void;
+/** 一个定义 → 文件形状（documentFromScene 和跨文件载荷的闭包同一份）。onDrop = 上面那两种兜底真走到时告诉调用方（整份存盘传，别的读面不传）。 */
+export declare function definitionToDoc(scene: Scene, id: DefId, name?: string, onDrop?: WriteDrop): DefinitionDoc;
 /** 场景 → 文档（base = 打开时的文档，保留未知携带内容 / 设置 / 视图）。 */
 /** name：以前用来把根改成文件名，2026-11-13 起不再用（根和别的物体一样叫自己的名字）；调用的地方多（测试 / 冻样本脚本），签名先留着。 */
-export declare function documentFromScene(scene: Scene, _name: string, base?: CatsupDocument | null): CatsupDocument;
+export declare function documentFromScene(scene: Scene, _name: string, base?: CatsupDocument | null, onDrop?: WriteDrop): CatsupDocument;
 export declare const materialFromDoc: (m: MaterialDoc) => Omit<Material, "guid"> & {
     guid: Guid;
 };

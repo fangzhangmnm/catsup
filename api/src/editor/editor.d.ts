@@ -114,7 +114,8 @@ export type EditorTrace = {
     preview?: Record<string, unknown>;
 };
 export interface EditorHost {
-    hint(text: string | null): void;
+    hint(text: string | null): void; /** 一步被拒（护栏 / 锁，不是出错）收尾时说一次原因：宿主另外闪一条瞬态提示（user 11-13「非抢占的弹窗…不要用error」）；普通的提示只走 hint。 */
+    refused?(why: string): void;
     /** 每条指令提交完（收尾之后、这一步还开在栈顶）：画板跟着贴图坐标改大小、内核封的那几步挂进这一步（1-8a）。beforeHistoryMove = 撤销 / 重做之前：开着的那一笔先取消。 */
     afterCommit?(): void;
     beforeHistoryMove?(): boolean | void;
@@ -419,6 +420,7 @@ export declare class Editor {
     private stepReason;
     private stepBumped;
     private _docRevision;
+    private _settingsRev;
     private stepTouched;
     private stepBefore;
     private stepLabel;

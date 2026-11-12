@@ -56,5 +56,7 @@ export declare const NEW_DOC_GRID: GridSettings;
 export declare function gridFrame(F: Frame, plane: GridPlane): Frame;
 /** 文档 settings（已经过了读的门口，format/migrate/settings.ts settingsNow：老键在那里换成现在的形状）→ 网格状态。这里不认任何旧键。 */
 export declare function gridFromSettings(s: SettingsNow): GridSettings;
+/** 文件里那一份网格设置变没变（五样全进 settingsFromGrid；编辑器拿它判「算不算改过」——统筹 11-12：只改设置就关掉不许悄悄丢）。 */
+export declare const gridDocChanged: (a: GridSettings, b: GridSettings) => boolean;
 /** 网格状态 → 文档 settings（写的门口 format/migrate/settings.ts settingsForFile：给老读者照写的那几个旧键在那里）。 */
 export declare function settingsFromGrid(s: DocumentSettings, g: GridSettings): DocumentSettings;

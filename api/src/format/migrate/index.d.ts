@@ -107,7 +107,9 @@ export interface FormatReadNotes {
     builtinFrontSlots?: number;
     referencesTooNew?: Stamp;
     shelfTooNew?: Stamp;
-    danglingShelfRefs?: number; /** 贴图表是更新版写的（major 比本版新）：原样带回、材质先按底色显示。 */
+    danglingShelfRefs?: number; /** 材质槽指着的材质不在材质表里（也不是内置背面）：这次打开那几格读成默认正面（槽缺）；存回去原来的值就没了（统筹 11-12，存盘忠实度清点 R1）。 */
+    danglingMaterialSlots?: number; /** 组 / 实例的上一层指着不存在的组：这次打开放到所在定义的最外层；存回去原来的值就没了（同上 R2）。 */
+    danglingParents?: number; /** 贴图表是更新版写的（major 比本版新）：原样带回、材质先按底色显示。 */
     texturesTooNew?: Stamp; /** 材质的 channels 指着贴图表里没有的 GUID：那一格当空的（不猜、不造）。 */
     danglingTextureRefs?: number; /** 贴图表里有本版不认识的 content 种类（整行原样带回、显示成灰色占位）。 */
     unknownTextureKinds?: number;
