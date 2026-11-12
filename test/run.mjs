@@ -66,6 +66,8 @@ import "./mesh-winding.test.ts";   // 网格体三角化保持面的绕向，导
 import "./mesh-edge-marks.test.ts";   // 网格体手标 + 默认平滑：指令、继承、自由建模里平滑边点得中（FM129 / FM138，2026-10-28 Opus）
 import "./edge-mark-rules.test.ts";   // 边标记跟着拓扑操作怎么走：两张表 + 每个操作一行 + 不自己列位 + 接缝真跟着走（施工单二十二 A，2026-11-12 Opus）
 import "./auto-seams.test.ts";   // 自动标接缝：补完每片是一张盘、只加不减、确定性（施工单二十二第 1 刀后半，2026-11-12 Opus）
+import "./legacy-at-door.test.ts";   // 照顾旧东西的代码只住在门口：门口以外带 legacy 的名字只许是名单上的、搬走的旧键旧名不再出现（user 11-13，2026-11-12 Opus）
+import "./settings-door.test.ts";   // 文档 settings 的门口和搬家之前的写法对拍：3000 份随机老形状，打开逐项一样、存盘 JSON 逐字节一样（2026-11-12 Opus）
 import "./marquee-visible.test.ts";   // 框选只框看得见的（X 光关）+ 自由建模框点（FM44 / FM139，2026-10-28 Opus）
 import "./mesh-bevel.test.ts";   // 网格体倒角：倒边 / 倒点，封闭、朝向一致、宽度、夹宽、确定性（FM152，2026-10-28 Opus）
 import "./export-naming.test.ts";   // 导出名带导出时间（WeebPaint 同款，2026-10-28 Opus）

@@ -4,6 +4,7 @@
 import type { MeshDoc, UvSetMeta } from "../format/document.ts";
 import { MeshKernel } from "./mesh-kernel.ts";
 import { FRESH } from "./corner-columns.ts";
+import { smoothDefaultOf } from "../format/migrate/mesh.ts";
 
 /** uvSets = 这个网格体的贴图坐标表（MeshBody.uvSets 的行）：每一行从内核里同 GUID 的列取角上的数。不给 = 不带贴图坐标。 */
 export function meshDocFromKernel(m: MeshKernel, uvSets: readonly UvSetMeta[] = []): MeshDoc {
@@ -49,6 +50,6 @@ export function kernelFromMeshDoc(d: MeshDoc, where = "mesh"): MeshKernel {
     if (a < 0 || b < 0 || a >= nV || b >= nV || a === b) throw new Error(`${where}: flagged edge ${i} invalid`);
     m.setEdgeFlags(m.ensureEdge(a, b), d.edgeFlags[i]);   // 不属于任何面的 = 裸线（F_WIRE 由标记自己带）
   }
-  if (d.smoothDefault) m.setSmoothDefault(d.smoothDefault);   // 缺 = 老文件 = 全硬（MeshKernel 默认；老文件语义 = 只看手标）
+  m.setSmoothDefault(smoothDefaultOf(d));   // 缺了怎么办归读的门口（format/migrate/mesh.ts：老文件 = 全是棱、只看手标）
   return m;
 }

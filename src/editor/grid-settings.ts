@@ -1,5 +1,6 @@
 // grid-settings.ts —— 绝对网格的设置（0.11 尺规纪元 ⑤，2026-10-24，Claude Fable 5.1）。纯数据 + 文档 settings 的换算；不 import editor.ts（测试直跑）。
 import type { DocumentSettings } from "../format/document.ts";
+import { settingsForFile, type SettingsNow } from "../format/migrate/settings.ts";
 import { fmtStep } from "./units.ts";
 import type { Frame } from "../scene/xform.ts";
 
@@ -59,7 +60,7 @@ export const DEFAULT_SNAP: Readonly<Record<UnitSystem, number>> = { metric: 0.2,
 export const snapLabel = (m: number, sys: UnitSystem): string => fmtStep(m, sys);
 /** 轴上的标记 / 刻度落在哪层：标记 = 屏上至少这么宽的那层（字放得下）、刻度 = 至少这么密的那层（CSS px；minccino/grid-ladder.ts ladderLevelAt）。 */
 export const UNIT_LABEL_MIN_PX = 30, AXIS_TICK_MIN_PX = 10;
-export const DEFAULT_GRID: GridSettings = { on: false, snap: 0.2, plane: "xy", system: "metric", shown: true };   // 读老文件缺键时的语义（老默认 = 1 m ÷ 5）
+export const DEFAULT_GRID: GridSettings = { on: false, snap: 0.2, plane: "xy", system: "metric", shown: true };   // 一组底值（测试拿它当底改一两项；老文件缺键时怎么办归读的门口 format/migrate/settings.ts）
 /** 新文档的栅格：吸附默认开（user 2026-10-25「以及默认snap开」）、公制 10 cm 一档。 */
 export const NEW_DOC_GRID: GridSettings = { on: true, snap: DEFAULT_SNAP.metric, plane: "xy", system: "metric", shown: true };
 /** 网格帧：把上下文帧的轴换到网格面上（右手系；网格画在帧的 XY、法向 = 帧的 Z）。xy = 原样；yz：x←y, y←z, z←x；xz：x←x, y←z, z←−y。 */
@@ -69,21 +70,11 @@ export function gridFrame(F: Frame, plane: GridPlane): Frame {
   return F;
 }
 
-/**
- * 文档 settings → 网格状态（缺 / 坏值回默认）。CATSUP_document 3.4 起 unitSystem + snapIncrement 是主的；老文件没有 unitSystem → 按老键猜
- * （制式 D&D = D&D；建筑英尺英寸制式 / 显示单位英尺英寸或英寸 = 英制；否则公制），吸附 = snapIncrement（老文件里它一直 = 格距 ÷ 细分，写入时算的）。
- */
-export function gridFromSettings(s: DocumentSettings): GridSettings {
-  const system: UnitSystem = isUnitSystem(s.unitSystem) ? s.unitSystem : s.gridPreset === "dnd" ? "dnd" : s.gridPreset === "architectural" || s.displayUnit === "ft-in" || s.displayUnit === "in" ? "imperial" : "metric";
-  const legacy = typeof s.gridStep === "number" && s.gridStep > 1e-9 && typeof s.gridSubdiv === "number" && s.gridSubdiv >= 1 ? s.gridStep / s.gridSubdiv : DEFAULT_GRID.snap;
-  const snap = typeof s.snapIncrement === "number" && s.snapIncrement > 1e-12 && Number.isFinite(s.snapIncrement) ? s.snapIncrement : legacy;
-  return { on: !!s.absoluteGrid, snap, plane: s.gridPlane === "yz" || s.gridPlane === "xz" ? s.gridPlane : "xy", system, shown: s.gridHidden !== true };
+/** 文档 settings（已经过了读的门口，format/migrate/settings.ts settingsNow：老键在那里换成现在的形状）→ 网格状态。这里不认任何旧键。 */
+export function gridFromSettings(s: SettingsNow): GridSettings {
+  return { on: s.absoluteGrid, snap: s.snapIncrement, plane: s.gridPlane, system: s.unitSystem, shown: !s.gridHidden };
 }
-/**
- * 网格状态 → 文档 settings。主的：unitSystem / snapIncrement；给老读者照写的：displayUnit（公制 m、英制 / D&D ft-in）、gridPreset、gridStep = 吸附长度、gridSubdiv = 1
- * （3.3 读者吸附逐字一样；3.2 以前的读者认不出细分 1 → 退回 1/5，minor 提示一次）。
- */
+/** 网格状态 → 文档 settings（写的门口 format/migrate/settings.ts settingsForFile：给老读者照写的那几个旧键在那里）。 */
 export function settingsFromGrid(s: DocumentSettings, g: GridSettings): DocumentSettings {
-  const preset = g.system === "metric" ? undefined : g.system === "imperial" ? "architectural" as const : "dnd" as const;
-  return { ...s, absoluteGrid: g.on, unitSystem: g.system, snapIncrement: g.snap, gridStep: g.snap, gridSubdiv: 1, displayUnit: g.system === "metric" ? "m" : "ft-in", ...(g.plane !== "xy" ? { gridPlane: g.plane } : { gridPlane: undefined }), gridPreset: preset, gridHidden: g.shown ? undefined : true };
+  return settingsForFile(s, { absoluteGrid: g.on, unitSystem: g.system, snapIncrement: g.snap, gridPlane: g.plane, gridHidden: !g.shown });
 }

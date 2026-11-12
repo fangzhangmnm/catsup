@@ -20,10 +20,11 @@ export const F_SOFT = 1, F_SMOOTH = 2, F_SEAM = 4, F_HIDDEN = 8, F_WIRE = 16;   
 /** 手标硬边（2026-10-28 Claude Opus 5.5；纪元账本 FM129 / FM131）：压过网格体的「默认平滑」，这条边永远是棱（画线、明暗断开）。和 F_SOFT / F_SMOOTH 互斥（标的时候清掉另两位）。 */
 export const F_SHARP = 32;
 /** 网格体的「默认平滑」（几何属性，不是画法——user 10-28「不要叫明暗方式，我们的语义就是几何，和representation没关系。默认平滑之类的？」；每个网格体一个；mesh/edge-smooth.ts 按它判没手标的边）：angle = 两侧面夹角小于 deg 算平滑（硬表面）/ smooth = 全平滑（软角色）/ hard = 全是棱（低多边形；
- *  也是老文件的语义——没这个键的文件 = 只看手标，和以前逐字一样）。 */
+ *  新建的网格体默认这一档；文件里缺这一项怎么办归读的门口 format/migrate/mesh.ts）。 */
 export type SmoothDefaultMode = "angle" | "smooth" | "hard";
 export interface SmoothDefault { readonly mode: SmoothDefaultMode; readonly deg: number }
-export const SMOOTH_DEFAULT_LEGACY: SmoothDefault = { mode: "hard", deg: 30 };
+/** 新建的网格体的默认平滑：全是棱（只看手标）。老文件缺这一项怎么办归读的门口（format/migrate/mesh.ts smoothDefaultOf；2026-11-12 起内核不认「老文件」）。 */
+export const SMOOTH_DEFAULT_NEW: SmoothDefault = { mode: "hard", deg: 30 };
 /** 面标记：隐藏（user 10-27「show and hide faces」；点 / 边的显隐从面推导，游离的才自己带 F_HIDDEN）。 */
 export const FF_HIDDEN = 1;
 
@@ -71,7 +72,7 @@ export class MeshKernel {
   /** 改动计数（渲染缓存 / 预演差量的钥匙；拓扑或坐标改了就 +1）。 */
   rev = 0;
   /** 默认平滑（FM129；新内核 = 老语义 hard，转换 / 导入时设 angle）。改它走 setSmoothDefault（整体标改动，渲染全量重建法向）。 */
-  smoothDefault: SmoothDefault = SMOOTH_DEFAULT_LEGACY;
+  smoothDefault: SmoothDefault = SMOOTH_DEFAULT_NEW;
   /** 改动日志（编号 + 族谱，kernel/change-log.ts 同一份实现）：每个原语记下碰到的点 / 边 / 面；渲染缓存据此只重建改过的；clone = 分叉。 */
   changes = new ChangeLog();
   /** 角上的列（贴图主线 1-2）：先后没有意思、认 GUID；data 和 loopVert 平行。只经 addColumn / ensureColumns 加。 */

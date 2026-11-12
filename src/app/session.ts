@@ -22,6 +22,7 @@ import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type Cat
 import { exportSideCounts, type BrepSideCounts } from "../scene/kinds.ts";
 import { isForeignGlb } from "../format/gltf-import.ts";
 import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
+import { settingsNow } from "../format/migrate/settings.ts";
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
 import { defaultDesk, emptyReferences, type DeskDoc, type PaintDeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import { formatNotesSay, lossySay } from "./format-notes.ts";
@@ -446,8 +447,9 @@ export class Session {
     this.loaded = doc;
     this.lazy = false;
     this.d.editor.loadScene(sc, "恢复");
-    this.d.editor.setGrid(gridFromSettings(doc.settings), true);   // 单位制跟着模型走（settings.unitSystem，老文件按 displayUnit / 制式猜；grid-settings.ts）
-    this.d.editor.loadScaleRefs(scaleRefsFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRefs；旧单选键 scaleRef 照读）
+    const now = settingsNow(doc.settings);   // 读的门口：老键在这里换成现在的形状（format/migrate/settings.ts）；编辑器只认现在的
+    this.d.editor.setGrid(gridFromSettings(now), true);   // 单位制跟着模型走
+    this.d.editor.loadScaleRefs(scaleRefsFromSettings(now));   // B43 尺度参考跟着文件走
     this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
     this.applyRefs(doc);    // 参考窗跟文件走
     this.noteFormat(doc);
@@ -614,8 +616,9 @@ export class Session {
     this.lazy = false; this.createPending = false;
     this.loaded = doc;
     this.d.editor.loadScene(sc);
-    this.d.editor.setGrid(gridFromSettings(doc.settings), true);   // 单位制跟着模型走（settings.unitSystem，老文件按 displayUnit / 制式猜；grid-settings.ts）
-    this.d.editor.loadScaleRefs(scaleRefsFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRefs；旧单选键 scaleRef 照读）
+    const now = settingsNow(doc.settings);   // 读的门口：老键在这里换成现在的形状（format/migrate/settings.ts）；编辑器只认现在的
+    this.d.editor.setGrid(gridFromSettings(now), true);   // 单位制跟着模型走
+    this.d.editor.loadScaleRefs(scaleRefsFromSettings(now));   // B43 尺度参考跟着文件走
     this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
     this.applyRefs(doc);    // 参考窗跟文件走
     this.noteFormat(doc);

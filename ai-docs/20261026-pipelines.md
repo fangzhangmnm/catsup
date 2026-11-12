@@ -972,3 +972,12 @@ layoutFaces(style = patches)：patchesOf（种子按面积、一样大看面心�
 - 入口两个：物件菜单（工作台下拉左边「物件」钮）「接缝 › 自动标接缝…」= 整个网格体；自由建模右键「接缝 ›」同一项 = 有选区时用（选了面 = 只管那几张，否则整个网格体）。指令 `mesh.autoSeams`（马后炮：折痕角度，默认 60°）→ 规划时调纯函数 `src/mesh/auto-seams.ts autoSeams` → 一条 op `meshEdgeMarks`（`mark: "seam"`，只列新补的边）= 一步撤销；规划结果带 `select` = 做完选中补的那几条（亮出来）。镜像分类 = 只改标记、直接做。
 - `autoSeams` 每一步碰多少：① ② 范围里每条边一次（非流形 / 二面角，面法向按面缓存）；③ 并查集分片 + 每片切开后的欧拉数（`chartTopology`：每个点绕一圈分份）= 随范围里的面和边涨；④ 只对不是盘的片：Kruskal 对偶树（排序 = 片里的边数 × log）+ 粘回悬空切口（每条边进出队列常数次）；封闭没把手的壳多两次 Dijkstra（这一片的边）。最后再算一遍 `chartTopology` 报片数。全部随范围涨，不随整个场景涨。
 - 实测（node 单线程，这台机器，检疫桶 user 的三个模型，一次性脚本不进仓）：小红帽 291 三角形 4–7 ms；wip2020 4556 三角形 58–95 ms；wip2021 15534 三角形 238–291 ms（30° / 60° / 90° 三档）。三个模型三档补完以后每一片切开的欧拉数都是 1（一张盘）。
+
+## 追记 2026-11-12（v0.19.65，Claude Opus 5.5）：照顾旧东西的代码只住在门口（user 11-13「backward compatibility的税不应该太重，而且需要严格隔离，而不是渗透进每一个运行时逻辑」；统筹转、user 说「现在就可以挪」）
+
+- **⑨ 文件 → 编辑器那一下多了一个门**：`app/session.ts` 打开时 `settingsNow(doc.settings)`（`src/format/migrate/settings.ts`）把文件里的 settings 换成现在的形状（单位制、吸附长度一定有且合法；尺度参考是现在的 id、旧的单选键已经并进来），编辑器的 `gridFromSettings` / `scaleRefsFromSettings` 只收这个形状（类型逼着先过门）。存盘时 `settingsFromGrid` 交给写的门 `settingsForFile`：给老读者照写 displayUnit / gridPreset / gridStep / gridSubdiv = 1、去掉旧单选键，键的先后照旧。文件读进来的那份 `CatsupDocument.settings` 原样留着（老文件原样写回字节不变）。
+- **网格体进内核那一下**：`mesh/mesh-doc.ts kernelFromMeshDoc` 一律按 `format/migrate/mesh.ts smoothDefaultOf` 设默认平滑（文件缺 = 老文件 = 全是棱）；内核里只有「新建的网格体」的默认（`SMOOTH_DEFAULT_NEW`，值没变），没有「老文件的默认」。`MeshDoc` 本身不填（写回去字节不变）。
+- **指令**：`applyOp` / `describeOp` 只认现在的名字；搬成插件之前的指令名（makePlanar / snapToGrid / restoreHierarchy）只在读复现包的 `scripts/replay-repro.mjs` 换（它顺手装上修复模块，插件指令重放得了了——以前一条都重放不了）。
+- **贴图的三个问法**：`colorMapIn` / `paintIn` 不再查「另一个键也在不在」（这种行读文件拒开、进场景抛、写文件抛，运行时见不到）。
+- 守卫 `test/legacy-at-door.test.ts`：`src/format/` 和画画内核拷贝以外，名字带 legacy 的只剩名单三项（旧文件后缀的声明 / 旧图库搬家 = 同步那一头不动 / 开机换旧设备偏好），只许减；搬走的旧键旧名门口以外不再出现。对拍 `test/settings-door.test.ts`：v0.19.64 的旧写法冻在测试里，3000 份随机老形状 settings 打开逐项一样、存盘 JSON 逐字节一样。
+- 量：不涉及性能（打开时多一次对象拷贝）。冻样本 414 份用 main（v0.19.64）和新代码各读写一遍、各走一遍「打开 → 存」（随机数换成同一个种子），字节全一样。

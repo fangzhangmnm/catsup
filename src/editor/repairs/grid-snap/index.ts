@@ -1,6 +1,6 @@
 // repairs/grid-snap —— 「拉正」（DT101）和「吸到格点」（T8 / DT4）合租：同一份规划（plan.ts planGridSnap）、同一条插件指令 "gridSnap"，两个入口，
 // 各自能顺便做另一件（user 10-26「拉正 好想要，比snap更好……这个可以和snap合租。就是可以拉正不snap之类的？」）。
-// 2026-10-26 Claude Opus 5.5 从 editor.ts / ops.ts 搬成模块；老指令名 snapToGrid 由 ops.ts 认成 "gridSnap" 重放。
+// 2026-10-26 Claude Opus 5.5 从 editor.ts / ops.ts 搬成模块；老指令名 snapToGrid 由读复现包的 scripts/replay-repro.mjs 换成 "gridSnap"（2026-11-12 起运行时不认旧名字）。
 import type { FaceEvent, FaceId, Kernel, Pt3 } from "../../../kernel/kernel.ts";
 import type { Xform } from "../../../scene/xform.ts";
 import { fmtLen } from "../../units.ts";

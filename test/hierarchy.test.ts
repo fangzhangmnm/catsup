@@ -137,7 +137,7 @@ describe("hierarchy: 恢复层级 op", () => {
     s = applyOp(s, { op: "makeComponent", at: ROOT(s), faces: [...all[0].faces, ...all[1].faces].map((f) => { const r = k.faceRings3(f)!; return r.outer; }), edges: [], name: "两个盒子" } as unknown as Op).scene;
     const def = [...s.defs.values()].find((d) => d.name === "两个盒子")!;
     const before = worldPts(s);
-    s = applyOp(s, { op: "restoreHierarchy", at: { def: def.id, group: null }, faces: [], edges: [], dedupe: true } as unknown as Op).scene;   // 老指令名（搬成插件之前的）照旧能重放
+    s = applyOp(s, { op: "plugin", name: "hierarchy", at: { def: def.id, group: null }, args: { faces: [], edges: [], dedupe: true } } as unknown as Op).scene;   // 插件写法（老复现包里的旧名字 restoreHierarchy 由 scripts/replay-repro.mjs 读包时换成这个）
     eq(s.def(def.id).instances.size, 2, "定义里的两个盒子 → 两份实例");
     assert(samePts(worldPts(s), before), "世界里的几何不变");
   });

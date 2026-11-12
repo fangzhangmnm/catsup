@@ -11,6 +11,7 @@ import { APP_VERSION } from "../src/version.ts";
 import { Kernel } from "../src/kernel/kernel.ts";
 import { Scene } from "../src/scene/scene.ts";
 import { applyOp, describeOp, resolveFace } from "../src/editor/ops.ts";
+import "../src/editor/repairs/index.ts";   // 修复模块在文件顶层登记自己的插件指令（planar / gridSnap / hierarchy…）：不 import 就重放不了插件指令（2026-11-12 补）
 
 const file = process.argv[2];
 if (!file) { console.error("usage: node scripts/replay-repro.mjs <pack.json> [index]"); process.exit(2); }
@@ -19,6 +20,9 @@ const only = process.argv[3] !== undefined ? Number(process.argv[3]) : null;
 const list = pack.entries ?? [];
 console.log(`复现包：${pack.app} ${pack.version} · ${list.length} 条 · 导出于 ${pack.exported}`);
 if (pack.version !== APP_VERSION) console.log(`注意：包是 ${pack.version} 导出的，本机是 ${APP_VERSION}。中间指令的形状改过的话，那几条重放不了（复现包不做向后兼容），会说是哪一条。`);
+/** 搬成插件之前的指令名（v0.14 的老复现包里有）：读包的时候换成插件写法、老 op 的字段原样当 args（2026-11-12 从 src/editor/ops.ts 搬到这里 = 读复现包的门口；运行时只认现在的名字）。 */
+const OLD_PLUGIN_OPS = { makePlanar: "planar", snapToGrid: "gridSnap", restoreHierarchy: "hierarchy" };
+const renamedOp = (op) => { if (!op || typeof op !== "object") return op; const name = OLD_PLUGIN_OPS[op.op]; const out = name ? (({ op: _old, at, ...args }) => ({ op: "plugin", name, at, args }))(op) : op; return Array.isArray(out.ops) ? { ...out, ops: out.ops.map(renamedOp) } : out; };
 /** 指令和它里面的子指令（batch.ops）都走一遍。 */
 const walk = (op, f) => { f(op); for (const sub of Array.isArray(op.ops) ? op.ops : []) walk(sub, f); };
 const legacyMaterial = (op) => { let hit = null; walk(op, (o) => { if (!hit && o.op === "addMaterial" && o.texture !== undefined) hit = o; }); return hit; };
@@ -32,7 +36,7 @@ for (let i = 0; i < list.length; i++) {
     process.exitCode = 1;
     break;
   }
-  if (e.op) reviveBytes(e.op);
+  if (e.op) { e.op = renamedOp(e.op); reviveBytes(e.op); }
   const k = Kernel.fromBrep(e.brep);
   console.log(`\n#${i} ${e.t} ${e.version} [${e.where}] 原始理由：${e.message}`);
   console.log(`  活动池：${k.vertices().length} 顶点 / ${k.edges().length} 边 / ${k.faces().length} 面`);

@@ -15,8 +15,8 @@ import { GROUND } from "../src/editor/pick.ts";
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
 const loop = (k: Kernel, pts: Pt3[], curve = false): void => { k.addEdges(pts.map((p, i) => [p, pts[(i + 1) % pts.length]] as [Pt3, Pt3]), curve ? { curve: true } : undefined); };
 const rootAt = (s: Scene) => ({ def: s.root, group: null });
-/** 用老指令名 snapToGrid（搬成插件之前的）：顺带验老复现包照旧能重放。 */
-const snapOp = (s: Scene, step: number, extra: Record<string, unknown> = {}): Op => ({ op: "snapToGrid", at: rootAt(s), verts: [], step, lattice: [...IDENTITY], curves: "rigid", crease: "soft", ...extra } as unknown as Op);
+/** 吸到格点的插件指令（老复现包里叫 snapToGrid 的那一条，读包时由 scripts/replay-repro.mjs 换成这个写法；2026-11-12 起运行时不认旧名字）。 */
+const snapOp = (s: Scene, step: number, extra: Record<string, unknown> = {}): Op => ({ op: "plugin", name: "gridSnap", at: rootAt(s), args: { verts: [], step, lattice: [...IDENTITY], curves: "rigid", crease: "soft", ...extra } } as unknown as Op);
 /** 在格点上：格子坐标离最近的格点 < 2 µm（内核坐标按 1 µm 取整，斜格子上的格点会被挪最多半微米）。 */
 const onLattice = (p: Pt3, step: number, L: Xform = IDENTITY): boolean => { const q = applyPt(L, p); return [q.x, q.y, q.z].every((c) => Math.abs(c - Math.round(c / step) * step) < 2e-6); };
 /** 真正的圆（带圆心 / 半径，和画圆工具一样）。 */

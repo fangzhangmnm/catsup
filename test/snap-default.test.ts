@@ -2,7 +2,10 @@
 // 钉三处：NEW_DOC_GRID.on、编辑器开机初值、Session 的两条新建路（beginLazyBlank / newDoc）都用它。读老文件缺 absoluteGrid 键照旧按关（老文件语义不变，DEFAULT_SETTINGS 不动）。
 // 运行时那一半（开机 / 关掉后新建 / lazyblank / 新文件存了再开）= test/probes/probe-snap-default.mjs。created 2026-10-25 by Claude Opus 5.5
 import { describe, it, assert, eq } from "./runner.mjs";
-import { NEW_DOC_GRID, gridFromSettings } from "../src/editor/grid-settings.ts";
+import { NEW_DOC_GRID, gridFromSettings as gridFromNow } from "../src/editor/grid-settings.ts";
+import { settingsNow } from "../src/format/migrate/settings.ts";
+import type { DocumentSettings } from "../src/format/document.ts";
+const gridFromSettings = (s: DocumentSettings) => gridFromNow(settingsNow(s));   // 先过读的门口（format/migrate/settings.ts）
 import { DEFAULT_SETTINGS } from "../src/format/document.ts";
 const fs = (await import("node:fs" as string)) as { readFileSync(u: URL, enc: "utf8"): string };
 const read = (f: string) => fs.readFileSync(new URL(`../${f}`, import.meta.url), "utf8");

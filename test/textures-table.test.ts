@@ -311,19 +311,15 @@ describe("平铺的画（CATSUP_textures 1.2，施工单二十一第 3 刀）", 
     const contents: Record<string, TextureDoc["content"]> = { image: { kind: "image", mimeType: "image/png", bytes: TINY_PNG }, layered: { kind: "layered", ora }, other: { kind: "other", raw: { json: { kind: "voxel" }, views: new Map() } } };
     const layoutOk = (): unknown => ({ definition: g(), uvSet: g() });
     const keys: Record<string, () => Partial<TextureDoc>> = { sizeM: () => ({ sizeM: [0.5, 0.25] }), layoutOk: () => ({ layout: layoutOk() }), layoutOdd: () => ({ layout: 7 }), both: () => ({ sizeM: [1, 1], layout: layoutOk() }), neither: () => ({}) };
-    // 每格的意思：color = 自由的图、paint = 铺在坐标上的画、tiled = 平铺的画、"" = 没有意思（三个都答不是 = 按底色）、fail = 读取失败
+    // 每格的意思：color = 自由的图、paint = 铺在坐标上的画、tiled = 平铺的画、"" = 没有意思（三个都答不是 = 按底色）。两个都有 / 都没有那两格进不了场景，不问三个问法（统筹 11-13：问法里那一道撤了）
     const want: Record<string, Record<string, string>> = {
-      image: { sizeM: "color", layoutOk: "", layoutOdd: "", both: "", neither: "" },
-      layered: { sizeM: "tiled", layoutOk: "paint", layoutOdd: "", both: "", neither: "" },
-      other: { sizeM: "", layoutOk: "", layoutOdd: "", both: "", neither: "" },
+      image: { sizeM: "color", layoutOk: "", layoutOdd: "" },
+      layered: { sizeM: "tiled", layoutOk: "paint", layoutOdd: "" },
+      other: { sizeM: "", layoutOk: "", layoutOdd: "" },
     };
     let cells = 0;
     for (const [cName, content] of Object.entries(contents)) for (const [kName, mk] of Object.entries(keys)) {
       const row = { guid: g(), name: `${cName}+${kName}`, value: COLOR_VALUE, content, ...mk() } as TextureDoc;
-      const table = new Map([[row.guid, row]]), m = { channels: { color: [row.guid] } };
-      const got = [colorMapIn(table, m) ? "color" : "", paintIn(table, m) ? "paint" : "", tiledPaintIn(table, m) ? "tiled" : ""].filter(Boolean);
-      assert(got.length <= 1, `${row.name}：三个问法里有 ${got.length} 个答是`);
-      eq(got[0] ?? "", want[cName][kName], `${row.name}：三个问法的答案`);
       const sc = new Scene(sceneBox(1, 1));
       if (kName === "both" || kName === "neither") {
         // 坏的两格：第一道 = 场景入口抛、场景里没有它；第二道 = 绕过场景直接塞进文档去写，写文件也抛、说是哪一行
@@ -336,7 +332,11 @@ describe("平铺的画（CATSUP_textures 1.2，施工单二十一第 3 刀）", 
         assert(e2 instanceof Error && e2.message.includes(row.name) && /could not be opened/.test(e2.message), `${row.name}：写文件也抛、说是哪一行（${String(e2)}）`);
         cells++; continue;
       }
-      // 能写的格：写进文件、读回来，两个键原样
+      // 能写的格：三个问法各答各的（最多一个答是）；写进文件、读回来，两个键原样
+      const table = new Map([[row.guid, row]]), m = { channels: { color: [row.guid] } };
+      const got = [colorMapIn(table, m) ? "color" : "", paintIn(table, m) ? "paint" : "", tiledPaintIn(table, m) ? "tiled" : ""].filter(Boolean);
+      assert(got.length <= 1, `${row.name}：三个问法里有 ${got.length} 个答是`);
+      eq(got[0] ?? "", want[cName][kName], `${row.name}：三个问法的答案`);
       sc.addTexture(row);
       let err: unknown = null, back: TextureDoc | undefined;
       try { back = readCatsup(writeCatsup(documentFromScene(sc, "cell"))).textures.find((t) => t.guid === row.guid); } catch (e) { err = e; }

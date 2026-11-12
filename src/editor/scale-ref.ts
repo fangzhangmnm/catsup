@@ -7,6 +7,7 @@
 // 选单 = 多选取并集（user「要不还是不如多重订阅吧，不然不同的室内室外会组合烦死」），默认室内 + 室外。created 2026-10-25 by Claude Opus 5.5
 import type { Pt3 } from "../kernel/kernel.ts";
 import * as Q from "../vendor/size-ladder/ladder-query.mjs";
+import type { SettingsNow } from "../format/migrate/settings.ts";
 
 /** 交货的身份：和 scripts/pull-size-ladder.mjs 钉的同一个（test/scale-ref.test.ts 核三处一致）。 */
 export const LADDER_SHA256 = "e161c8835a16024192b6206fe0ca977aa8b472f7f7981039ca15a11e6b5f278f";
@@ -172,19 +173,14 @@ export function scaleTipView(L: Ladder, subs: readonly string[], q: ScaleQuery, 
 // ---------- 选单（多选）+ 跟着文件存 ----------
 /** 新文件 / 没存过这项的旧文件默认勾哪几项（user「默认室内加室外」）。 */
 export const DEFAULT_SCALE_REFS: readonly string[] = ["interior/ALL", "exterior/ALL"];
-/** 选单 id 改过名的（仓鼠 v3：人体 · 儿童 body/CHILD → body/KIDS）：读到旧 id 换成新的。 */
-const RENAMED_REFS: Readonly<Record<string, string>> = { "body/CHILD": "body/KIDS" };
 const sameSet = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x) => b.includes(x));
-/** 文件 settings：`scaleRefs`（数组；[] = 不显示）；没写 = 默认。v0.13.52–56 单选时写的 `scaleRef`（字符串，"none" = 不显示）照样读。认不出的 id 原样留着（不显示）。 */
-export function scaleRefsFromSettings(s: { scaleRefs?: unknown; scaleRef?: unknown }): string[] {
-  const fix = (v: string): string => RENAMED_REFS[v] ?? v;
-  if (Array.isArray(s.scaleRefs)) return [...new Set(s.scaleRefs.filter((v): v is string => typeof v === "string").map(fix))];
-  if (typeof s.scaleRef === "string") return s.scaleRef === "none" ? [] : [fix(s.scaleRef)];
-  return [...DEFAULT_SCALE_REFS];
+/** 文件 settings（已经过了读的门口 format/migrate/settings.ts settingsNow：旧的单选键、改过名的 id 在那里换好）→ 勾了哪几项；没写 = 默认。认不出的 id 原样留着（不显示）。 */
+export function scaleRefsFromSettings(s: SettingsNow): string[] {
+  return s.scaleRefs ? [...s.scaleRefs] : [...DEFAULT_SCALE_REFS];
 }
-/** 写回：默认不写键（默认文档字节不变，同 gridPreset）；旧的单选键 scaleRef 不再写。 */
+/** 写回：默认不写键（默认文档字节不变，同 gridPreset）。旧的单选键归写的门口（format/migrate/settings.ts settingsForFile 去掉它）。 */
 export function scaleRefsToSettings<T extends object>(s: T, refs: readonly string[]): T & { scaleRefs?: string[] } {
-  const { scaleRef: _a, scaleRefs: _b, ...rest } = s as T & { scaleRef?: string; scaleRefs?: string[] };
+  const { scaleRefs: _b, ...rest } = s as T & { scaleRefs?: string[] };
   return (sameSet(refs, DEFAULT_SCALE_REFS) ? rest : { ...rest, scaleRefs: [...refs] }) as T & { scaleRefs?: string[] };
 }
 

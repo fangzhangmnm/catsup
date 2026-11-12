@@ -98,7 +98,7 @@ export const COLOR_CHANNEL = "color";
 export function colorMapIn(table: ReadonlyMap<Guid, TextureDoc>, m: { readonly channels?: Channels }): ColorMap | null {
   const g = m.channels?.[COLOR_CHANNEL]?.[0];
   const t = g === undefined ? undefined : table.get(g);
-  return t && t.content.kind === "image" && t.sizeM && t.layout === undefined ? (t as ColorMap) : null;   // 正好有 sizeM 一个键（和 paintIn、tiledPaintIn 对称：两个键都有 = 没有意思）
+  return t && t.content.kind === "image" && t.sizeM ? (t as ColorMap) : null;   // 两个键都有 / 都没有的行进不了场景（读文件拒开、Scene.addTexture 抛、写文件抛），这里不再问一遍（统筹 11-13 撤）
 }
 /** 画：颜色那一槽指着的那张分层的贴图，和它铺在哪个定义的哪一套贴图坐标上（两个 GUID）。 */
 export interface PaintRef { /** 那张分层的贴图（贴图表里那一行；字段不叫 texture：守卫 textures-table 不许「点 texture」这种读法，免得和旧的「材质里装着图」混）。 */ readonly textureDoc: TextureDoc; readonly definition: Guid; readonly uvSet: Guid }
@@ -110,7 +110,7 @@ export interface PaintRef { /** 那张分层的贴图（贴图表里那一行；
 export function paintIn(table: ReadonlyMap<Guid, TextureDoc>, m: { readonly channels?: Channels }): PaintRef | null {
   const g = m.channels?.[COLOR_CHANNEL]?.[0];
   const t = g === undefined ? undefined : table.get(g);
-  if (!t || t.content.kind !== "layered" || t.sizeM !== undefined) return null;   // 正好有 layout 一个键（对称：两个键都有 = 没有意思）
+  if (!t || t.content.kind !== "layered") return null;   // 两个键都有 / 都没有的行进不了场景（同 colorMapIn），这里不再问一遍
   const l = t.layout as { definition?: unknown; uvSet?: unknown } | null | undefined;
   if (!l || typeof l !== "object" || typeof l.definition !== "string" || typeof l.uvSet !== "string") return null;
   return { textureDoc: t, definition: l.definition, uvSet: l.uvSet };

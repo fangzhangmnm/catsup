@@ -225,14 +225,6 @@ export interface ApplyResult { scene: Scene; events: FaceEvent[]; }
 export interface OpPlugin { apply(s: Scene, at: PoolRef, args: Record<string, unknown>): ApplyResult; describe?(args: Record<string, unknown>): string; }
 const OP_PLUGINS = new Map<string, OpPlugin>();
 export function registerOpPlugin(name: string, plugin: OpPlugin): void { OP_PLUGINS.set(name, plugin); }
-/** 搬成插件之前的指令名（老复现包里的 op 照旧能重放）：老 op 的字段原样当 args。 */
-const LEGACY_PLUGIN_OPS: Readonly<Record<string, string>> = { makePlanar: "planar", snapToGrid: "gridSnap", restoreHierarchy: "hierarchy" };
-function normalizeLegacy(op: Op): Op {
-  const name = LEGACY_PLUGIN_OPS[(op as { op: string }).op];
-  if (!name) return op;
-  const { op: _old, at, ...args } = op as unknown as { op: string; at: PoolRef } & Record<string, unknown>;
-  return { op: "plugin", name, at, args };
-}
 
 export class OpTargetError extends Error {
   readonly what: string;
@@ -383,8 +375,7 @@ function wrapInMesh(s: Scene, op: Extract<Op, { op: "makeComponent" }>): ApplyRe
   return { scene: s, events: [] };
 }
 
-export function applyOp(s: Scene, op0: Op): ApplyResult {
-  const op = normalizeLegacy(op0);
+export function applyOp(s: Scene, op: Op): ApplyResult {
   if (!SHEAR_OPS.has(op.op)) return applyOpInner(s, op);
   const before = shearedInstances(s);
   const r = applyOpInner(s, op);
@@ -945,8 +936,7 @@ function snapEdgeSet(snap: ReturnType<typeof extractSnapshot>): (a: Pt3, b: Pt3)
 }
 
 // ---------- 摘要（调试日志一行：动词 + 数量，不含坐标）----------
-export function describeOp(op0: Op): string {
-  const op = normalizeLegacy(op0);
+export function describeOp(op: Op): string {
   const at = "at" in op && op.at ? ` @${op.at.def}/${op.at.group ?? "root"}` : "";
   switch (op.op) {
     case "plugin": { const d = OP_PLUGINS.get(op.name)?.describe?.(op.args); return `${op.name}${d ? ` ${d}` : ""}${at}`; }

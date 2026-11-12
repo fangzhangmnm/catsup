@@ -9,8 +9,11 @@ import { GROUND, NO_HAND } from "../src/editor/pick.ts";
 import { WORLD_FRAME, type Frame } from "../src/scene/xform.ts";
 import { axisAlignAngle } from "../src/editor/protractor-geom.ts";
 import { newDocument, readCatsup, writeCatsup } from "../src/format/index.ts";
-import { DEFAULT_SETTINGS } from "../src/format/document.ts";
-import { gridFromSettings, settingsFromGrid, gridLadder, displayLadder, snapLevels, DEFAULT_GRID, UNIT_SYSTEMS, IN_M, FT_M } from "../src/editor/grid-settings.ts";
+import { DEFAULT_SETTINGS, type DocumentSettings } from "../src/format/document.ts";
+import { settingsNow } from "../src/format/migrate/settings.ts";
+/** 文件里的 settings → 网格状态 = 先过读的门口（format/migrate/settings.ts），再问编辑器（这些断言在搬家前直接问 gridFromSettings，结果一个没变）。 */
+const gridFromSettings = (s: DocumentSettings) => gridFromNow(settingsNow(s));
+import { gridFromSettings as gridFromNow, settingsFromGrid, gridLadder, displayLadder, snapLevels, DEFAULT_GRID, UNIT_SYSTEMS, IN_M, FT_M } from "../src/editor/grid-settings.ts";
 import { rectToolTargets } from "../src/editor/tools.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
@@ -150,7 +153,7 @@ describe("grid: 文档 settings 往返（CATSUP_document 3.4：单位制 + 吸�
 
 describe("grid: 网格面 xy / yz / xz（user 2026-10-24「方便我吸附画立面」）", () => {
   it("gridFrame：yz / xz 都是右手系，法向 = 另一根轴；settings 往返只在非 xy 时写 gridPlane", async () => {
-    const { gridFrame, gridFromSettings, settingsFromGrid } = await import("../src/editor/grid-settings.ts");
+    const { gridFrame, settingsFromGrid } = await import("../src/editor/grid-settings.ts");
     const cross = (a: Pt3, b: Pt3): Pt3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
     for (const pl of ["xy", "yz", "xz"] as const) {
       const F = gridFrame(WORLD_FRAME, pl);

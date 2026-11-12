@@ -1,5 +1,5 @@
 // repairs/hierarchy —— 修复「恢复层级」（DT99）：规划在 plan.ts，这里 = 模块 + 插件指令 "hierarchy" 的执行（场景层搬家）。
-// 2026-10-26 Claude Opus 5.5；同日搬成模块（user「做成可以扔的模块化的」）；老指令名 restoreHierarchy 由 ops.ts 认成 "hierarchy" 重放。
+// 2026-10-26 Claude Opus 5.5；同日搬成模块（user「做成可以扔的模块化的」）；老指令名 restoreHierarchy 由读复现包的 scripts/replay-repro.mjs 换成 "hierarchy"（2026-11-12 起运行时不认旧名字） 重放。
 import { Kernel } from "../../../kernel/kernel.ts";
 import { bboxMin, extractSnapshot, transformSnapshot, type Scene, type PoolRef } from "../../../scene/scene.ts";
 import { IDENTITY, compose, frameAt, translation } from "../../../scene/xform.ts";

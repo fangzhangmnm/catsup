@@ -1,5 +1,5 @@
 // repairs/planar —— 修复「拍平」（纪元排期 T9 / 账本 DT7 + DT104）：规划在 plan.ts，这里 = 模块（参数 / 文案 / 菜单）+ 插件指令 "planar" 的执行。
-// 2026-10-26 Claude Opus 5.5 从 editor.ts / ops.ts 搬成模块（user「做成可以扔的模块化的」）；老指令名 makePlanar 由 ops.ts 认成 "planar" 重放。
+// 2026-10-26 Claude Opus 5.5 从 editor.ts / ops.ts 搬成模块（user「做成可以扔的模块化的」）；老指令名 makePlanar 由读复现包的 scripts/replay-repro.mjs 换成 "planar" 重放。
 import type { EdgeId, FaceEvent } from "../../../kernel/kernel.ts";
 import { PlanarBurst, faceKey, poolOf, registerOpPlugin, resolveEdge, resolveFace, type FaceKey } from "../../ops.ts";
 import type { Command, PoolUnit } from "../../commands/command.ts";

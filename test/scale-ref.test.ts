@@ -4,7 +4,11 @@ type Bytes = Uint8Array & { toString(enc: "utf8"): string };
 const { readFileSync } = (await import("node:fs" as string)) as { readFileSync(u: URL, enc?: "utf8"): Bytes & string };
 const { createHash } = (await import("node:crypto" as string)) as { createHash(a: "sha256"): { update(b: Uint8Array): { digest(e: "hex"): string } } };
 import * as Q from "../src/vendor/size-ladder/ladder-query.mjs";
-import { DEFAULT_SCALE_REFS, LADDER_SHA256, areaDir, closeness, forLanguage, frozenLadder, lengthDir, readingOf, remindersFor, scaleRefsFromSettings, scaleRefsToSettings, scaleTipView, scaleTooltip, type Ladder } from "../src/editor/scale-ref.ts";
+import { DEFAULT_SCALE_REFS, LADDER_SHA256, areaDir, closeness, forLanguage, frozenLadder, lengthDir, readingOf, remindersFor, scaleRefsFromSettings as refsFromNow, scaleRefsToSettings, scaleTipView, scaleTooltip, type Ladder } from "../src/editor/scale-ref.ts";
+import { settingsNow, settingsForFile } from "../src/format/migrate/settings.ts";
+import { DEFAULT_SETTINGS, type DocumentSettings } from "../src/format/document.ts";
+/** 文件里的 settings → 勾了哪几项 = 先过读的门口（旧的单选键、改过名的 id 在那里换好），再问编辑器。 */
+const scaleRefsFromSettings = (s: object) => refsFromNow(settingsNow({ ...DEFAULT_SETTINGS, ...s } as DocumentSettings));
 
 const root = new URL("../", import.meta.url);
 const bytes = readFileSync(new URL("vendor/size-ladder/ladder-v3.json", root));
@@ -118,7 +122,8 @@ describe("scale-ref: 提示框的数据（grill 定案 + 多选）", () => {
     eq(JSON.stringify(scaleRefsFromSettings({ scaleRef: "interior/DND" })), JSON.stringify(["interior/DND"]));
     eq(scaleRefsFromSettings({ scaleRef: "none" }).length, 0);
     eq("scaleRefs" in scaleRefsToSettings({ a: 1 }, ["exterior/ALL", "interior/ALL"]), false);
-    eq(JSON.stringify(scaleRefsToSettings({ a: 1, scaleRef: "x" }, [])), JSON.stringify({ a: 1, scaleRefs: [] }));
+    const saved = scaleRefsToSettings(settingsForFile({ ...DEFAULT_SETTINGS, scaleRef: "x" } as DocumentSettings, { absoluteGrid: false, unitSystem: "metric", snapIncrement: 0.2, gridPlane: "xy", gridHidden: false }), []);
+    eq("scaleRef" in saved, false, "旧的单选键存盘时不再写（写的门口 settingsForFile 去掉）"); eq(JSON.stringify(saved.scaleRefs), "[]");
   });
   it("新手提醒 = 勾的几项的提醒并起来、同一条只出一次（v3 menu[].reminders，含继承来的）", () => {
     const ids = (x: string[]): string => remindersFor(L, x).map((r) => r.id).join(",");
