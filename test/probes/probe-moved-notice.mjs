@@ -6,7 +6,7 @@ import { join, extname, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const SHOT = process.argv[2];
+const SHOT = process.argv.slice(2).find((a) => !/^https?:/.test(a));   // 截图目录；整跑脚本按惯例传网址（这个探针不用网址，页面从磁盘供），网址不当目录（11-11 整跑在仓里建出过 http:/ 文件夹）
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json", ".webmanifest": "application/json", ".wasm": "application/wasm" };
 let bad = 0;
 const ok = (c, m) => { console.log(`${c ? "✓" : "✗"} ${m}`); if (!c) bad++; };
