@@ -6,7 +6,7 @@ const { readdirSync, readFileSync, statSync, existsSync } = (await import("node:
 const join = (...p: string[]): string => p.join("/");
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, writeGltfModel, decodeGlb } from "../src/format/index.ts";
 import { encodeGlb } from "../src/format/glb.ts";
-import { COLOR_VALUE, colorMapIn, compositeFits, newDocument, paintIn, tiledPaintIn, type CatsupDocument, type TextureDoc } from "../src/format/document.ts";
+import { COLOR_VALUE, colorMapIn, compositeFits, newDocument, paintBytesSum, paintIn, tiledPaintIn, type CatsupDocument, type TextureDoc } from "../src/format/document.ts";
 import { mintGuid } from "../src/format/guid.ts";
 import { ROOT_CONTEXT, Scene } from "../src/scene/scene.ts";
 import { applyOp, OpRejected, faceKey } from "../src/editor/ops.ts";
@@ -394,6 +394,18 @@ describe("平铺的画（CATSUP_textures 1.2，施工单二十一第 3 刀）", 
     bad({ sizeM: [0, 1] }, "sizeM 不是正数");
     bad({ textureGuid: tex }, "贴图 GUID 已经有了");
     bad({ materialGuid: mat }, "材质 GUID 已经有了");
+  });
+  it("合成图的底色：颜色存进文件再读回来（来回会漂一点：1.0 回来是 0.9999999999999999、0.04045 回来差 3e-8）照样算数；真改过底色（差一档 1/255）不算", () => {
+    const ora = new Uint8Array([80, 75, 3, 4, 7]);
+    for (const color of [[1, 1, 1], [0, 0, 0], [0.3, 0.5, 0.7], [1, 0.25, 0.999], [0.0031308, 0.04045, 0.5]] as [number, number, number][]) {
+      let s = new Scene(sceneBox(1, 1));
+      const tex = mintGuid();
+      s.addTexture({ guid: tex, name: "瓦", value: COLOR_VALUE, content: { kind: "layered", ora }, sizeM: [1, 1], composite: { png: TINY_PNG, of: { bytes: ora.length, sum: paintBytesSum(ora) }, base: color } });
+      s = applyOp(s, { op: "addMaterial", name: "瓦", color, channels: { color: [tex] } }).scene;
+      const back = sceneFromDocument(readCatsup(writeCatsup(documentFromScene(s, "c")))), m = back.materials.find((x) => x.name === "瓦")!, t = back.textures.get(tex)!;
+      assert(compositeFits(t, m.color), `颜色 ${color.join(",")} 存进文件再读回来（读回 ${m.color.join(",")}）：合成图照样算数`);
+      assert(!compositeFits(t, m.color.map((v, i) => (i === 0 ? (v > 0.5 ? v - 1 / 255 : v + 1 / 255) : v))), `颜色 ${color.join(",")}：底色差一档就不算`);
+    }
   });
   it("冻的样本 tiledPaint.glb（每个有它的目录）：读出来材质「瓦」是平铺的画、sizeM 对、合成图对得上材质颜色、分层字节在；读 → 写 → 读两次写出的字节一样", () => {
     const dirs = listCorpusDirs().filter((d: string) => existsSync(join(fixtureDir(d), "tiledPaint.glb")));

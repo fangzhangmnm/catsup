@@ -74,11 +74,16 @@ export function paintBytesSum(b: Uint8Array): string {
   for (let i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 0x01000193); }
   return (h >>> 0).toString(16).padStart(8, "0");
 }
-/** 这张合成图还算数吗：分层字节在、记号对得上、底色和 base 一样。 */
+/** 合成图的底色和材质现在的颜色算不算一样（只吃颜色存进文件、读回来的浮点噪声；见 compositeFits）。 */
+const BASE_EPS = 1e-6;
+/** 这张合成图还算数吗：分层字节在、记号对得上、底色和 base 一样（差在 BASE_EPS 以内）。 */
 export function compositeFits(t: TextureDoc, base: readonly number[]): boolean {
   const c = t.composite, ora = t.content.kind === "layered" ? t.content.ora : null;
   if (!c || !ora) return false;
-  return c.of.bytes === ora.length && c.base.length === 3 && c.base.every((v, i) => v === base[i]) && c.of.sum === paintBytesSum(ora);
+  // 底色差在 BASE_EPS 以内算一样（2026-11-12 第 3 刀查出来的）：材质颜色存进文件要转成线性、读回来再转回去，1.0 回来是 0.9999999999999999——
+  //   完全相等的话，凡是有一个通道是 1.0 的画每次打开都当「底色变了」、马上解开重合（冷的画不解开那条规矩就失效了）。
+  //   BASE_EPS 只吃来回的噪声（实测：1.0 → 0.9999999999999999；0.04045 → 0.040449970408122，过了一遍 32 位浮点、1e-7 量级），比 8 位颜色的一档（1/255 ≈ 0.0039）小得多：真改过的底色照旧对不上。
+  return c.of.bytes === ora.length && c.base.length === 3 && c.base.every((v, i) => Math.abs(v - (base[i] ?? NaN)) <= BASE_EPS) && c.of.sum === paintBytesSum(ora);
 }
 export const COLOR_VALUE: { readonly kind: "color" } = { kind: "color" };
 /** 能直接贴到面上的图：原图 + 物理尺寸。 */
