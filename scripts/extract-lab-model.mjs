@@ -1,5 +1,5 @@
 // scripts/extract-lab-model.mjs —— 从 Shader 实验室的模型文件（一段 JS 里包着 GLB 的 base64）拷出一份普通的浮点 GLB（贴图主线 1-4c 规模样本用）。created 2026-11-11 by Claude Opus 5.5
-// 用法：node scripts/extract-lab-model.mjs <实验室 assets/models/xxx.js> <输出 .glb>
+// 用法：node scripts/extract-lab-model.mjs <实验室 assets/models/xxx.js> <输出 .glb>；一个文件好几个条目的（assets/characters.js）加 --id=<条目名>
 // 为什么要还原：实验室的这几个 GLB 是压过的（KHR_mesh_quantization：点的位置 16 位整数、法线 8 位、贴图坐标 16 位，都按「normalized」存，真正的大小靠节点的缩放 / 平移）。
 //   CatsUp 的外来 glb 导入（src/format/gltf-import.ts）读整数分量时不看 normalized，位置会大三万多倍；统筹 11-11：不为这个改导入，拷出来的时候还原成普通的 32 位浮点。
 // 做法：取文件里最长的那段 base64 解出 GLB → 网格图元里分量是整数的属性（POSITION / NORMAL / TANGENT / TEXCOORD_n / COLOR_n）按 glTF 的 normalized 规则换成浮点
@@ -8,11 +8,23 @@
 // 输入、输出的路径都从命令行给，脚本里不写死。user 自己的模型不进三维仓（统筹 11-11：不让仓变胖、不放无关的东西）：输出放检疫桶，现在用的那份在哪、各是哪个作品，见那个文件夹的 README。
 import { readFileSync, writeFileSync } from "node:fs";
 
-const [src, out] = process.argv.slice(2);
-if (!src || !out) { console.error("usage: node scripts/extract-lab-model.mjs <lab model .js> <out .glb>"); process.exit(2); }
-const text = readFileSync(src, "utf8"), runs = text.match(/[A-Za-z0-9+/=]{1000,}/g) ?? [];
-if (!runs.length) throw new Error(`${src}: no base64 run found`);
-const glb = Buffer.from(runs.sort((a, b) => b.length - a.length)[0], "base64");
+// --id=<条目名>（2026-11-12 加，施工单二十二 F）：实验室 assets/characters.js 那种「一个文件好几个条目、每条 { id: "...", glb: '<base64>' }」的写法，按条目名取它那一段（不靠「最长的那段」）。
+const args = process.argv.slice(2), idArg = args.find((a) => a.startsWith("--id="))?.slice(5), [src, out] = args.filter((a) => !a.startsWith("--"));
+if (!src || !out) { console.error("usage: node scripts/extract-lab-model.mjs <lab model .js> <out .glb> [--id=<entry id>]"); process.exit(2); }
+const text = readFileSync(src, "utf8");
+let b64;
+if (idArg) {
+  const at = text.indexOf(`id: "${idArg}"`);
+  if (at < 0) throw new Error(`${src}: no entry id "${idArg}"`);
+  const m = /glb:\s*'([A-Za-z0-9+/=]+)'/.exec(text.slice(at));
+  if (!m || text.slice(at, at + m.index).includes("\n  {")) throw new Error(`${src}: entry "${idArg}" has no inline glb`);
+  b64 = m[1];
+} else {
+  const runs = text.match(/[A-Za-z0-9+/=]{1000,}/g) ?? [];
+  if (!runs.length) throw new Error(`${src}: no base64 run found`);
+  b64 = runs.sort((a, b) => b.length - a.length)[0];
+}
+const glb = Buffer.from(b64, "base64");
 if (glb.toString("latin1", 0, 4) !== "glTF") throw new Error(`${src}: longest base64 run is not a GLB`);
 
 // 拆块

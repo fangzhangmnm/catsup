@@ -166,6 +166,13 @@ export const autoSeamsCmd: Command<MeshUnit> = {
   done: (n, _x, v) => `补了 ${n} 条接缝（折过 ${Number(v?.deg ?? 60)}° 的切开；补的已经选中）`,
   none: "自动标接缝：每一片都已经能摊平（或者没有面）",
   offerAlways: true,
+  /** 超过一秒先说（施工单二十二第三节第 9 条）：实测每张面约 13 微秒（node，精细坦克 2.95 万三角形 0.37 秒、1.5 万 0.2 秒），按 15 微秒估、留点余量。 */
+  estimate(env, units) {
+    let n = 0;
+    for (const u of units) n += u.sel && u.sel.faces.size ? u.sel.faces.size : env.scene.mesh(u.def).kernel.faces().length;
+    const seconds = n * 15e-6;
+    return seconds > 1 ? { seconds, what: `在 ${n} 张面上找接缝（按这台机器上每张面约 15 微秒估的）` } : null;
+  },
 };
 
 // ---------- 倒角（2026-10-28 FM152；算子 mesh/ops/bevel.ts；user「bevel为什么不做？这个没什么歧义吧。」）----------

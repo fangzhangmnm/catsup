@@ -126,18 +126,23 @@ export function autoSeams(m: AutoSeamMesh, faces: readonly number[] | null, opts
   }
   const cut = (e: number): boolean => isSeam(e) || add.has(e);
   const before = chartTopology(m, scope, cut);
+  // 每条边归哪几片（一次分好；以前每片都把全部边扫一遍 = 片数 × 边数，精细坦克 60° 要 1.7 秒）
+  const chartOf = new Map<number, number>();
+  before.forEach((ch, i) => { for (const f of ch.faces) chartOf.set(f, i); });
+  const edgesOf: ScopeEdge[][] = before.map(() => []);
+  for (const x of [...se.values()].sort((a, b) => a.e - b.e)) for (const c of new Set(x.faces.map((f) => chartOf.get(f)!))) edgesOf[c].push(x);
   let notDisk = 0;
-  for (const ch of before) {
+  for (let ci = 0; ci < before.length; ci++) {
+    const ch = before[ci];
     if (ch.chi === 1) continue;
     notDisk++;
-    const fset = new Set(ch.faces);
+    const fset = new Set(ch.faces), chartEdges = edgesOf[ci];
     // 片里没切的边（对偶图的连线）
-    const inner = [...se.values()].filter((x) => x.faces.length === 2 && fset.has(x.faces[0]) && fset.has(x.faces[1]) && !cut(x.e));
+    const inner = chartEdges.filter((x) => x.faces.length === 2 && fset.has(x.faces[0]) && fset.has(x.faces[1]) && !cut(x.e));
     inner.sort((p, q) => (bend.get(p.e)! - bend.get(q.e)!) || (edgeLen(m, q.e) - edgeLen(m, p.e)) || (p.e - q.e));
     const dsu = new DSU(), tree = new Set<number>();
     for (const x of inner) if (dsu.union(x.faces[0], x.faces[1])) tree.add(x.e);
     // 切口 = 片里所有边减去树；固定的（已经切开的 / 边界）不许粘回去
-    const chartEdges = [...se.values()].filter((x) => x.faces.some((g) => fset.has(g)));
     const C = new Set<number>(), fixed = new Set<number>(), innerIds = new Set(inner.map((x) => x.e));
     for (const x of chartEdges) { if (tree.has(x.e)) continue; C.add(x.e); if (!innerIds.has(x.e)) fixed.add(x.e); }
     const deg = new Map<number, number>();
