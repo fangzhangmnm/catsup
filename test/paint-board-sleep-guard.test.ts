@@ -25,8 +25,10 @@ describe("睡和醒的结构守卫（施工单十九第 3 刀）", () => {
   it("名单里标「gpu」的口，方法体里真经 gpu() / borrowGpu；每个改像素的口都写了睡着时怎么办", () => {
     for (const [m, rule] of Object.entries(PIXEL_WRITES.PaintBoard)) {
       if (rule.kind === "no-pixels" || rule.sleep.asleep !== "gpu") continue;
-      const i = board.indexOf(`  ${m}(`), j = board.indexOf("\n  }\n", i), body = board.slice(i, j);
-      assert(i >= 0 && /this\.gpu\(\)|this\.borrowGpu\(/.test(body), `PaintBoard.${m} 标了 gpu，方法体里要有 this.gpu() / this.borrowGpu(`);
+      const i = board.indexOf(`  ${m}(`), j = board.indexOf("\n  }\n", i);
+      let body = board.slice(i, j);
+      if (/this\.sessionDeps\(/.test(body)) { const di = board.indexOf("  private sessionDeps("); body += board.slice(di, board.indexOf("\n  }\n", di)); }   // 档口的口由共用的 sessionDeps 造（施工单二十一第 1 刀）：落层在那里经 gpu()
+      assert(i >= 0 && /this\.gpu\(\)|this\.borrowGpu\(/.test(body), `PaintBoard.${m} 标了 gpu，方法体里（或它调的 sessionDeps 里）要有 this.gpu() / this.borrowGpu(`);
     }
     for (const [cls, rows] of Object.entries(PIXEL_WRITES)) for (const [m, rule] of Object.entries(rows)) if (rule.kind !== "no-pixels") assert(rule.sleep && rule.sleep.how.length > 0, `${cls}.${m} 写明睡着时怎么办`);
   });

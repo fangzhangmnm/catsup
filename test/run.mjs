@@ -237,6 +237,7 @@ import "./paint-display-uv.test.ts";
 import "./paint-kernel-surface.test.ts";
 import "./brush-kinds.test.ts";
 import "./paint-brushes.test.ts";   // 施工单二十 1b：每支笔的旋钮 + 换笔 + 跟文件走（app/paint-brushes.ts）
+import "./paint-2d-stroke.test.ts";   // 施工单二十一第 1 刀：画板的二维落笔口（和画画仓后端逐字节、撤销、锁、一笔当中存盘）
 import "./stroke-clock.test.ts";   // 施工单二十 1a：一笔的时钟（一笔里只用一种钟）、压感只信笔的
 import "./space-layer.test.ts";
 import "./space-vs-kernel2d.test.ts";

@@ -284,7 +284,12 @@ export class StrokeSession {
     this._open = false;
     const cs = (this.engine.endStroke() ?? null) as StampCollect | null;
     let gpuCommitted = false;
-    if (cs && cs.stamps.length) gpuCommitted = this.deps.commitStamps(cs);
+    if (cs && cs.stamps.length) {
+      // 落笔尖单子那一步自己抛（宿主在这里问锁、显卡出错……）：同区域笔 / host——先取消令牌（已写的跟着回滚）再把原错误抛出去，
+      //   不留一个开着的令牌挡住下一笔（2026-11-12 CatsUp 施工单二十一第 1 刀撞上：画布上的二维笔落层时锁上了，下一笔被单令牌墙挡住）。返回 false 的语义不变。
+      try { gpuCommitted = this.deps.commitStamps(cs); }
+      catch (e) { this.token.cancel(); this.deps.invalidate(); throw e; }
+    }
     if (this._regions.length) {
       const regions = this._regions;
       this._regions = [];

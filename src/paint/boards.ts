@@ -24,7 +24,7 @@ import type { LiveImage, TextureRef } from "../minccino/contract/stream.ts";
 import { decodeOraToPainting } from "./kernel/src/backend/ora.ts";
 import type { PaintingData } from "./kernel/src/backend/workpiece/painting-workpiece.ts";
 import { compositeFits, type TextureDoc } from "../format/document.ts";
-import { PaintBoard, PAINT_GPU_BUDGET_BYTES } from "./board.ts";
+import { PaintBoard, PAINT_GPU_BUDGET_BYTES, type BoardStroke } from "./board.ts";
 import { createSharedTilePool, type SharedTilePool } from "./kernel/src/backend/gl/shared-tile-pool.ts";
 import { poolCapacityForBudget } from "./kernel/src/backend/gl/gl-room.ts";
 import { HostedSteps } from "./kernel/src/backend/workpiece/hosted-steps.ts";
@@ -236,6 +236,26 @@ export class PaintBoards {
     return () => { if (this.opens.delete(cancel) && e) e.open--; };
   }
   private readonly opens = new Set<() => void>();
+  /**
+   * 二维笔开一笔（施工单二十一第 1 刀；画板的 openBrushStroke + 登记成「开着的一笔」）：撤销 / 重做 / 扔画板之前被 cancelOpen 取消，抬笔 / 取消时摘掉登记。
+   * 没有这张画的画板 = 抛（宿主先 ensure / 让它热起来）。锁、单令牌墙在画板那一层抛。
+   */
+  openBrushStroke(texture: Guid, ...args: Parameters<PaintBoard["openBrushStroke"]>): BoardStroke {
+    const e = this.entries.get(texture);
+    if (!e) throw new Error(`PaintBoards.openBrushStroke: no board for texture ${texture}`);
+    const s = e.board.openBrushStroke(...args);
+    let untrack = (): void => {};
+    const out: BoardStroke = {
+      get open() { return s.open; },
+      move: (x, y, p, t) => s.move(x, y, p, t),
+      end: () => { try { return s.end(); } finally { untrack(); } },
+      cancel: () => { try { s.cancel(); } finally { untrack(); } },
+    };
+    untrack = this.trackOpen(texture, () => out.cancel());   // 撤销 / 重做之前取消的是这一层（连登记一起摘），不是画板那一层（那样登记留着 = 撤销以为还有一笔没画完）
+    return out;
+  }
+  /** 有没有哪块画板开着一笔（三维那一笔 / 二维笔都算；「手上有一下没收」的名册问它）。 */
+  anyStrokeOpen(): boolean { for (const e of this.entries.values()) if (e.open > 0 || e.board.strokeOpen) return true; return false; }
   /** 撤销 / 重做之前：开着的那几笔全部取消（零痕迹）。 */
   cancelOpen(): void { for (const c of [...this.opens]) c(); }
   /** 这张画的状态不可信：叫内核把以前的步全部作废（onReset → undoReset → 三维的栈摘掉记录）。 */

@@ -15,6 +15,7 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   // 一笔的手感（0-6）
   "src/backend/stroke-core.ts": ["StrokeCore", "PathPlacer", "StrokePath"],   // 1-4a 的走步、平滑、间距、渐细（和二维同一套）；PathPlacer = 三维把路落到表面上的那个口
   "src/common/resolved-brush.ts": ["ResolvedBrush", "resolveBrush"],   // 笔的设置（和二维同一套）
+  "src/backend/brush.ts": ["BrushEngine"],   // 二维笔（施工单二十一第 1 刀，统筹 11-12 点头）：画布上那一笔 = 内核自己的二维笔，和画画软件同一个引擎（走步、平滑、压感、笔尖单子）；画板 openBrushStroke 里建一个、交给档口（overlay 方式）
   "src/common/smooth-defaults.ts": ["resolveSmooth"],   // 笔的跟手 / 防抖 → 平滑器参数（施工单二十 1b，内核 v0.14.86，统筹 11-12 定「平滑只有一个内核函数」）；三维传 scale 1，只在跟手或防抖不是 0 时才调（只拿函数，不拿出厂表 SMOOTH_DEFAULTS）
   // 档口和薄层的输入（0-5）
   "src/backend/stroke-session.ts": ["StrokeSession", "StrokeSessionDeps", "HostLayerInput"],   // 档口：预览、落层（一步撤销）、取消；三维把薄层交给它

@@ -2,8 +2,8 @@
   "about": "Paint kernel copied verbatim from WeebPaint by scripts/pull-paint-kernel.sh. Do not edit here: change it in WeebPaint, then pull again. test/paint-kernel-guard.test.ts checks every hash.",
   "source": {
     "repo": "WeebPaint",
-    "commit": "94cc32df488fef1048d9bcd499ea895f18b8c8a0",
-    "version": "v0.14.86-2026-11-12"
+    "commit": "bfda69cffa0565569428b2bc0ca37dc30dc98f5a",
+    "version": "v0.14.87-2026-11-12"
   },
   "files": {
     "src/backend/algorithms/README.md": "07faa259a0e864acc853614fc284f75fda2d259efacf5483ff993f75323fa434",
@@ -57,7 +57,7 @@
     "src/backend/soft-gl2-port.ts": "957395643c0a9dc1f333533878ee56cb786e9cf4dcaa4d43a186516b260efdda",
     "src/backend/soft-shaders.ts": "97a172b0706b5d39d1a7a41ab35beeeebdc06cc411a441a4629ad731c828fde7",
     "src/backend/stroke-core.ts": "5356354555be97d0d771671b23992418ab9d239463cf0f6b3b54850365c9f69c",
-    "src/backend/stroke-session.ts": "094587e61719ad58d0ce0520fa6bc28d1dad505ffd291069d32dd9f9a30cf15e",
+    "src/backend/stroke-session.ts": "63fac4c7d8b20e8e82c19e1ebfde962a883e13349d08e63bdff9dde59f1f5dd8",
     "src/backend/stroke-smoother.ts": "06eb1338c5aab4859b02e0c7dcf5fca820d722d76b900c062b0e417ba3d4c2c0",
     "src/backend/tiles/app-tile-pool.ts": "496559a9ea49add9250f32a1038c8fcb45b7cebd2594ad8829c76eb58d05dc8f",
     "src/backend/tiles/cpu-tile-compression.ts": "12ce89f53051220bec957585073d1b638e2f2eb5fc5efb7a57658b022fb9148f",

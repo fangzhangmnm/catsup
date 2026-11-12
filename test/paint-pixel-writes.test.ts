@@ -25,9 +25,16 @@ describe("画画这一层改像素的口都表态了（v0.19.48）", () => {
     });
   }
   it("标「问锁」的真去问了", () => {
-    const board = publicMethods(PIXEL_WRITE_FILES.PaintBoard, "PaintBoard").body("openStroke");
-    eq((board.match(/this\.locked\(\)/g) ?? []).length, 2, "画板开一笔问一次、落层（commitHost）再问一次");
-    assert(/commitHost: \(ov\) => \{\s*\{ const why = this\.locked\(\);/.test(board), "落层那一问在 commitHost 的第一句");
+    const pm = publicMethods(PIXEL_WRITE_FILES.PaintBoard, "PaintBoard"), board = pm.body("openStroke"), asks = (t: string): number => (t.match(/this\.locked\(\)/g) ?? []).length;
+    // 施工单二十一第 1 刀起档口的口由共用的 sessionDeps 造（三维那一笔和二维笔只差落笔尖单子那一个口）：开一笔在方法体里问，落层（commitHost）在 sessionDeps 里问
+    const src = readFileSync(PIXEL_WRITE_FILES.PaintBoard, "utf8"), di = src.indexOf("  private sessionDeps("), deps = src.slice(di, src.indexOf("\n  }\n", di));
+    eq(asks(board), 1, "三维那一笔：画板开一笔问一次"); assert(/this\.sessionDeps\(/.test(board), "三维那一笔的档口口由 sessionDeps 造");
+    assert(di >= 0 && /commitHost: \(ov\) => \{\s*\{ const why = this\.locked\(\)/.test(deps), "落层（commitHost）一进来先问锁");
+    eq(asks(deps), 1, "sessionDeps 里只有落层那一问（二维笔落笔尖单子那一问在 openBrushStroke 自己递进去的 commitStamps 里）");
+    const b2 = pm.body("openBrushStroke");
+    eq(asks(b2), 2, "二维笔：开一笔问一次、落笔尖单子（commitStamps）再问一次");
+    assert(/commitHost: \(ov\) => \{\s*\{ const why = this\.locked\(\);/.test(deps), "落层那一问在 commitHost 的第一句");
+    assert(/this\.sessionDeps\(leaf, \(cs\) => \{\s*\{ const why = this\.locked\(\);/.test(b2), "二维笔落笔尖单子那一问在 commitStamps 的第一句");
     assert(/this\.o\.editLocked\(\)/.test(publicMethods(PIXEL_WRITE_FILES.PaintBoards, "PaintBoards").body("load")), "登记处整份换内容问锁");
     const wb = readFileSync(PIXEL_WRITE_FILES.PaintWorkbench, "utf8");
     assert(/if \(this\.d\.gate\(a\.tex\)\) return;/.test(wb), "画画控制器开一笔前过门");

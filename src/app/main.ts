@@ -1785,7 +1785,7 @@ paintColor.subscribe(mirrorPaintDesk);
 // 手上还有没有一下没收（controller/hand-busy.ts）：会话的自动保存 / 崩溃快照 / 重推只问这张名册。加一种来源 = HAND_SOURCES 一个名字 + 这里一行（守卫 test/hand-busy.test.ts）
 const hand = createHandRoster();
 hand.add({ source: "editor.gesture", busy: () => editor.isGestureActive() });   // 编辑器的工具手势（拖到一半、点了第一下等第二下……）
-hand.add({ source: "paint.stroke", busy: () => !!paintWb?.stroking });   // 画画工作台按着的一笔（1-7）
+hand.add({ source: "paint.stroke", busy: () => !!paintWb?.stroking || paintBoards.anyStrokeOpen() });   // 画画的一笔：画画工作台按着的那一笔（1-7）+ 哪块画板开着一笔（三维那一笔 / 画布上的二维笔，施工单二十一第 1 刀；同一个来源，「没收时存盘」那条检查照旧管它）
 const session = new Session({
   editor,
   hand,

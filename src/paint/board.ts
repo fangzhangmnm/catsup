@@ -16,6 +16,8 @@ import type { ExternalImage, ExternalTexture, Gl2Port, PooledFBO } from "./kerne
 import type { StepSink } from "./kernel/src/backend/workpiece/undo-stack.ts";
 import { PaintingView } from "./kernel/src/backend/workpiece/painting-view.ts";
 import { StrokeSession, type StrokeSessionDeps } from "./kernel/src/backend/stroke-session.ts";
+import { BrushEngine } from "./kernel/src/backend/brush.ts";
+import type { ResolvedBrush } from "./kernel/src/common/resolved-brush.ts";
 import type { HostOverlayInput } from "./kernel/src/backend/gl/gl-room.ts";
 import type { LayerPixels } from "./kernel/src/backend/tiles/tile-layer.ts";
 
@@ -52,6 +54,21 @@ export interface ChangedRect { readonly x: number; readonly y: number; readonly 
 export type Changed = DirtyCells | "all";
 /** 变化史留几个版本（渲染器一般每帧都拷；隔得再久就按整张）。 */
 const HISTORY = 32;
+/** 合成时垫进去的一片（三维那一笔的薄层 / 二维笔的笔尖单子）：内核 composite 吃的那种。 */
+type LiveOverlay = NonNullable<Parameters<GLBoard["composite"]>[3]>[number];
+/** 一笔要的那一层（档口和落层用到的几个口）。 */
+type StrokeLeaf = { id: number; pixels: LayerPixels; lockAlpha?: boolean; applyRegionDiff(x: number, y: number, w: number, h: number, px: Uint8ClampedArray): { tx: number; ty: number }[] };
+/** 二维笔的一笔（PaintBoard.openBrushStroke 交出来的）：move = 一个点（画布像素、压感、一笔里的毫秒）；end = 抬笔落层（落了 = true；没碰到任何像素 = false、不封步）；cancel = 零痕迹。 */
+export interface BoardStroke {
+  readonly open: boolean;
+  move(x: number, y: number, pressure: number, t: number | null): void;
+  end(): boolean;
+  cancel(): void;
+}
+/** 引擎交出来的笔尖单子 → 合成 / 落层吃的 overlay（照画画仓后端 _commitStamps；三维没有选区 = 不带蒙版）。 */
+function stampOverlayOf(cs: Parameters<StrokeSessionDeps["commitStamps"]>[0]): Parameters<GLBoard["commitBrushStroke"]>[2] {
+  return { stamps: cs.stamps, shape: cs.shape, bx: cs.bx, by: cs.by, bw: cs.bw, bh: cs.bh, layerId: cs.layer.id, opacity: cs.opacity, erase: cs.mode === "erase", blendMode: cs.blendMode, lockAlpha: !!(cs.layer as { lockAlpha?: boolean }).lockAlpha, selMask: null };
+}
 /** 两片薄层是不是同一片、叠法一样（不看方框）。 */
 function sameOverlay(a: HostOverlayInput, b: HostOverlayInput): boolean {
   return a.tex === b.tex && a.layerId === b.layerId && a.opacity === b.opacity && !!a.erase === !!b.erase && a.blendMode === b.blendMode && !!a.lockAlpha === !!b.lockAlpha && a.selMask === b.selMask;
@@ -147,15 +164,75 @@ export class PaintBoard {
    */
   openStroke(layerId?: number): StrokeSession {
     { const why = this.locked(); if (why) throw new PaintLockedError("PaintBoard.openStroke: the document is locked", why); }   // 第三层：开一笔（所有笔都过这里，v0.19.48）
+    if (this.live2d) throw new Error("PaintBoard.openStroke: a 2D stroke is open on this board — end or cancel it first");
+    const leaf = this.leafOf(layerId, "openStroke");
+    const deps = this.sessionDeps(leaf, () => false);
+    const engine = { extendStroke() {}, endStroke() { return null; }, cancelStroke() {}, flushDirty() { return null; } };
+    return new StrokeSession(deps, engine, [leaf as never], { historyType: "stroke", finalize: true }, "host");
+  }
+
+  /**
+   * 二维笔（施工单二十一第 1 刀）：内核自己的二维笔（BrushEngine，overlay 方式 = 画画软件里普通笔那条路），画在这块画板的画布上（坐标 = 画布像素，t = 一笔里的毫秒）。
+   * 和 openStroke 同一个令牌、同一个步的去处：一次手势 = 一个令牌 = 一步（封好的步交给 HostedSteps，宿主抬笔后照旧 takePending → 编辑器撤销里的一步）。
+   * 画着的时候：这一笔的笔尖单子（collectStamps）当 overlay 垫进合成（compose / verifyFull；存盘的 composeBytes 不带 = 一笔当中存的是落定那一版）。
+   * 抬笔：笔尖单子经 gpu() 落层（GLBoard.commitBrushStroke = bakeStamps 写回链，照画画仓后端 _commitStamps；三维没有选区 = 不带蒙版）。
+   * 锁问两次：开一笔（这里）、落层（commitStamps）；落层时锁上了 = 抛 → 档口取消令牌、整笔回滚、零痕迹。同一块画板同一时间只有一笔（三维那一笔开着也不行）。
+   */
+  openBrushStroke(brush: ResolvedBrush, at: { readonly x: number; readonly y: number; readonly pressure: number; readonly t: number | null }, o: { readonly erase?: boolean; readonly smooth?: { tau?: number; deadzone?: number; tailBow?: number }; readonly layerId?: number } = {}): BoardStroke {
+    { const why = this.locked(); if (why) throw new PaintLockedError("PaintBoard.openBrushStroke: the document is locked", why); }   // 第三层：开一笔（二维笔也过这一问）
+    if (this.live2d || this.hostOverlays.length) throw new Error("PaintBoard.openBrushStroke: a stroke is already open on this board — end or cancel it first");
+    const leaf = this.leafOf(o.layerId, "openBrushStroke");
+    const deps = this.sessionDeps(leaf, (cs) => {
+      { const why = this.locked(); if (why) throw new PaintLockedError("PaintBoard: the document was locked before the stroke landed", why); }   // 第四层：落层
+      const ok = this.gpu().commitBrushStroke(cs.layer.id, leaf.pixels, stampOverlayOf(cs), this.width, this.height, (px, x, y, w, h) => leaf.applyRegionDiff(x, y, w, h, px));
+      if (!ok) throw new Error("PaintBoard: the 2D stroke did not land (GPU commit returned false)");   // 没落成 = 响亮（档口取消令牌、整笔回滚），不让这一笔悄悄没了（同三维那一笔的 HOST_COMMIT_FAILED）
+      return ok;
+    });
+    const engine = new BrushEngine();
+    const session = new StrokeSession(deps, engine, [leaf as never], { historyType: "stroke", finalize: true }, "overlay");   // 构造 = 开令牌（锁 / 单令牌墙在这里抛）
+    const live = { session };
+    this.live2d = live;
+    try { engine.beginStroke(session.targets[0], brush, at.x, at.y, at.pressure, o.erase ? "erase" : "brush", o.smooth ?? {}, at.t); }
+    catch (err) { this.live2d = null; session.cancel(); throw err; }
+    this.stampsMoved(session);
+    const done = (): void => { if (this.live2d === live) this.live2d = null; this.overlayVer++; this.pending = "all"; };
+    const isOpen = (): boolean => this.live2d === live;
+    return {
+      get open() { return isOpen(); },
+      move: (x, y, pressure, t) => { if (this.live2d !== live) throw new Error("BoardStroke.move: this stroke is closed"); session.extend(x, y, pressure, t); this.stampsMoved(session); },
+      end: () => {
+        if (this.live2d !== live) return false;
+        const v0 = this.wp.commitVersion;
+        try { session.end(); } finally { done(); }   // 落层中途抛（锁上了 / 显卡出错）：档口已取消令牌、已写的回滚 = 整笔没落；收干净再抛给宿主
+        return this.wp.commitVersion !== v0;
+      },
+      cancel: () => { if (this.live2d !== live) return; try { session.cancel(); } finally { done(); } },
+    };
+  }
+  /** 二维笔动了：引擎有新的笔尖 = 显示那一侧这一版按整张（内核那边笔尖单子本来就整张重合；只重做改到的那一块是第 2 刀要核的）。 */
+  private stampsMoved(session: StrokeSession): void { if (session.flushDirty()) { this.overlayVer++; this.pending = "all"; } }
+  /** 开着的二维笔（同一时间最多一笔）。 */
+  private live2d: { readonly session: StrokeSession } | null = null;
+  /** 合成时垫进去的东西：三维那一笔的薄层 + 二维笔这一笔的笔尖单子。 */
+  private liveOverlays(): readonly LiveOverlay[] {
+    const cs = this.live2d?.session.collectStamps();
+    return cs && cs.stamps.length ? [...this.hostOverlays, stampOverlayOf(cs)] : this.hostOverlays;
+  }
+  /** 这一层（不给 = 当前层）：一笔要的那几个口。 */
+  private leafOf(layerId: number | undefined, who: string): StrokeLeaf {
     const view = new PaintingView(this.wp), id = layerId ?? view.activeId;
-    const leaf = view.layers.find((l) => !("children" in l) && l.id === id) as unknown as { id: number; pixels: LayerPixels; applyRegionDiff(x: number, y: number, w: number, h: number, px: Uint8ClampedArray): { tx: number; ty: number }[] } | undefined;
-    if (!leaf) throw new Error(`PaintBoard.openStroke: no leaf layer ${id}`);
-    const deps: StrokeSessionDeps = {
+    const leaf = view.layers.find((l) => !("children" in l) && l.id === id) as unknown as StrokeLeaf | undefined;
+    if (!leaf) throw new Error(`PaintBoard.${who}: no leaf layer ${id}`);
+    return leaf;
+  }
+  /** 档口要的口（三维那一笔和二维笔共用；只有落笔尖单子那一个口不同）。 */
+  private sessionDeps(leaf: StrokeLeaf, commitStamps: StrokeSessionDeps["commitStamps"]): StrokeSessionDeps {
+    return {
       begin: (label) => this.wp.begin(label),
       tokenChanged: (lid) => this.wp.layerTiles.tokenChanged(lid),
       tokenBeforeImage: (lid) => this.wp.layerTiles.tokenBeforeImage(lid),
       getSelection: () => null,
-      commitStamps: () => false,
+      commitStamps,
       invalidate: () => { this.overlayVer++; this.pending = "all"; },
       setShadows: () => {},
       openRegion: () => { throw new Error("PaintBoard: no region strokes on a 3D board"); },
@@ -176,8 +253,6 @@ export class PaintBoard {
         return ok;
       },
     };
-    const engine = { extendStroke() {}, endStroke() { return null; }, cancelStroke() {}, flushDirty() { return null; } };
-    return new StrokeSession(deps, engine, [leaf as never], { historyType: "stroke", finalize: true }, "host");
   }
 
   /** 合成时垫在最底下的不透明底色（材质自己的底色，sRGB 0..1）：交出来的图不透明。 */
@@ -223,7 +298,7 @@ export class PaintBoard {
     const committed = this.committedKey();
     const gl = this.gpu();
     if (committed !== this.lastCommitted) gl.markContentDirty();
-    const fbo = this.composite(gl, this.hostOverlays);
+    const fbo = this.composite(gl, this.liveOverlays());
     if (!fbo) { this.last = null; this.lastCommitted = null; return null; }
     this.last = { fbo, key }; this.shownKey = key;
     const change: Changed | null = committed !== this.lastCommitted || this.pending === "all" ? "all" : this.pending;
@@ -265,7 +340,7 @@ export class PaintBoard {
     const a = this.port.readPixels(r.fbo, 0, 0, this.width, this.height);
     const gl = this.gpu();
     gl.markContentDirty();
-    const fbo = this.composite(gl, this.hostOverlays);
+    const fbo = this.composite(gl, this.liveOverlays());
     if (!fbo) { this.last = null; this.lastCommitted = null; return null; }
     this.last = { fbo, key: this.key() }; this.shownKey = this.last.key;
     const d = diffBox(this.port.readPixels(fbo, 0, 0, this.width, this.height), a, this.width);
@@ -298,8 +373,8 @@ export class PaintBoard {
 
   /** 显卡那一半睡着吗。 */
   get asleep(): boolean { return this.gl.asleep; }
-  /** 一笔正开着（薄层还垫着）：不许睡。 */
-  get strokeOpen(): boolean { return this.hostOverlays.length > 0; }
+  /** 一笔正开着（三维那一笔的薄层还垫着，或者二维笔开着）：不许睡。 */
+  get strokeOpen(): boolean { return this.hostOverlays.length > 0 || this.live2d !== null; }
   /** 显示的那一版过期了（内容 / 底色 / 薄层在上一次交出去之后变过）：要合成一次才对。睡着的画板靠它决定要不要醒来合一次（撤销、跟大小、装载都只动内存）。 */
   get displayStale(): boolean { return this.key() !== this.shownKey; }
   /** 叫醒了几次（量；探针看来回切物件时醒睡的次数）。 */
@@ -307,7 +382,7 @@ export class PaintBoard {
   /** 睡。一笔开着 = 抛（宿主先收笔 / 取消）。睡两次没事。 */
   sleep(): void {
     if (this.disposed || this.gl.asleep) return;
-    if (this.strokeOpen) throw new Error("PaintBoard.sleep: a stroke is open (host overlays are set) — finish or cancel it first");
+    if (this.strokeOpen) throw new Error("PaintBoard.sleep: a stroke is open (host overlays are set or a 2D stroke is open) — finish or cancel it first");
     // 内核那边还垫着上一次合成时交的薄层（一笔收了以后还没再合成过，比如歇着的画板）：先合一张不带薄层的，内核才肯睡（它那边「有薄层 = 一笔开着」）
     if (this.glHasOverlay) this.composite(this.gl, []);
     this.last = null; this.lastCommitted = null;   // 合成目标随睡还池：醒来第一次合成整张（变化史记「整张」，渲染器整张重拷）
@@ -325,7 +400,7 @@ export class PaintBoard {
     try { return f(this.gpu()); } finally { if (was && !this.disposed) this.sleep(); this.touched(); }   // 在准备之外动了显卡：渲染器记着的绑定作废（以前醒着的画板读回之后下一帧会重合、顺手作废了；睡着的不重合，必须在这里叫）
   }
   /** 合成一次（三个口共用）；记下这一次给内核的薄层有没有（睡之前要清）。 */
-  private composite(gl: GLBoard, overlays: readonly HostOverlayInput[]): PooledFBO | null {
+  private composite(gl: GLBoard, overlays: readonly LiveOverlay[]): PooledFBO | null {
     this.glHasOverlay = overlays.length > 0;
     return gl.composite({ layers: this.docNodes(), width: this.width, height: this.height }, this.bg, [], overlays);
   }
