@@ -30,7 +30,7 @@ export interface ChoiceLayerHandle { readonly el: HTMLElement; readonly anchor: 
 let current: ChoiceLayerHandle | null = null;
 export function closeChoiceLayer(): void { current?.close(); }
 /** 有层开着（上层菜单的 Esc 先收这一层）。 */
-export function choiceLayerOpen(): boolean { return !!current && current.isOpen(); }
+export function choiceLayerOpen(): boolean { return !!current && current.isOpen() && current.el.isConnected; }
 /** 这一行开着的层（再点同一行 = 收起用）。 */
 export function choiceLayerOn(anchor: HTMLElement): boolean { return !!current && current.isOpen() && current.anchor === anchor; }
 
@@ -148,14 +148,14 @@ function openLayer(opts: LayerOpts): ChoiceLayerHandle {
   };
   const close = (): void => {
     if (!open) return;
-    open = false; el.remove();
+    open = false;   // 先清账、摘监听，再删元素（和 popup-menu.ts 一个次序；2026-11-11 名册审计）
     document.removeEventListener("pointerdown", onDocDown, true);
     window.removeEventListener("resize", position);
-    opts.anchor.classList.remove("is-open");
     if (current === handle) current = null;
+    el.remove(); opts.anchor.classList.remove("is-open");
   };
   const handle: ChoiceLayerHandle = { el, anchor: opts.anchor, close, isOpen: () => open };
-  render(); position();
+  try { render(); position(); } catch (e) { el.remove(); throw e; }   // 画抛了：元素别留在页面上
   if (!opts.multi) el.querySelector<HTMLElement>(".menu-item.on")?.scrollIntoView({ block: "nearest" });   // 长列表：开的时候滚到勾着的那项
   opts.anchor.classList.add("is-open");
   setTimeout(() => { if (open) document.addEventListener("pointerdown", onDocDown, true); }, 0);

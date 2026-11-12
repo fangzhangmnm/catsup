@@ -68,7 +68,8 @@ let _open: PopupMenuHandle | null = null;
 let _openAnchor: HTMLElement | null = null;
 
 export function closePopupMenu(): void { _open?.close(); }
-export function isPopupOpen(): boolean { return _open !== null; }
+/** 开着 = 记着的那个菜单自己说开着、而且它的元素还在页面上（被别处删了 = 当它关了：闸不能因为一块不在了的菜单吞键盘；2026-11-11 名册审计，v0.19.50）。 */
+export function isPopupOpen(): boolean { return !!_open && _open.isOpen() && _open.el.isConnected; }
 // 输入闸的名册：菜单 / 下拉层 / 子菜单开着 = 键盘归它（user 11-05「吞掉」：别的快捷键不穿过去，菜单不留着）；Esc 先收最上面那层。外点关菜单归下面的 onDocDown。
 inputGate.face({ kind: "menu", label: "菜单", rank: 300, root: ".popup-menu", up: () => isPopupOpen() || choiceLayerOpen(), esc: () => { if (choiceLayerOpen()) closeChoiceLayer(); else closePopupMenu(); return true; } });
 
@@ -247,17 +248,16 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
   const close = (): void => {
     if (!open) return;
     open = false;
-    body.closeSubs();
-    closeChoiceLayer();   // 从这里开出来的下拉层跟着关
-    el.remove();
+    // 先清账、摘外点监听，再做别的（2026-11-11 名册审计，v0.19.50）：以前这几步排在最后，收子菜单 / 删元素半路一抛，「开着」的账留着（键盘进不了编辑器、Esc 也救不回），
+    // 外点监听也留着、每次把按在画布上的那一下吞掉，只能刷新。
     document.removeEventListener("pointerdown", onDocDown, true);
     window.removeEventListener("resize", position);
     if (_open === handle) { _open = null; _openAnchor = null; }
-    opts.anchor.classList.remove("is-open");
-    opts.onClose?.();
+    try { body.closeSubs(); closeChoiceLayer(); }   // 从这里开出来的子菜单 / 下拉层跟着关
+    finally { el.remove(); opts.anchor.classList.remove("is-open"); opts.onClose?.(); }
   };
   const handle: PopupMenuHandle = { el, close, refresh: render, isOpen: () => open };
-  render();
+  try { render(); } catch (e) { el.remove(); throw e; }   // 画抛了：元素别留在页面上（还没记成「开着」，没人会去删它）
   opts.anchor.classList.add("is-open");
   // 下一拍再挂外点关（本次点击的 pointerdown 已经过去了，click 触发的 open 不会被自己关掉）
   setTimeout(() => { if (open) document.addEventListener("pointerdown", onDocDown, true); }, 0);

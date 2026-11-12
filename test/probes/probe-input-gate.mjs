@@ -1,6 +1,7 @@
 // 输入闸探针（headless）：设计 = ai-docs/20261105-input-gate-design.md。created 2026-11-05 by Claude Opus 5.5
 // A. 每种面开着：Ctrl+Z / L / G / 滚轮 / 拖画布 → 模型 / 工具 / 相机都不动；Esc 只关最上面那个面，不把人从组件里退出来。
 // B. 菜单开着：快捷键吞掉（工具不换、菜单还开着）、Esc 只关菜单、外点关菜单。
+// B2. 菜单的元素被别处删了 / 关菜单半路抛错：键盘照常进编辑器、按在画布上的那一下照常进工具（v0.19.50）。
 // C. 第二层：绕过门口的程序事件（isTrusted = false）也进不了编辑器。
 // D. 第三层：面开着时编辑器的人口自己也拒；程序提交（导入 / 粘贴等面关了才落定那条路）照走。
 // E. 走路键盘：面 / 文本框开着不进走路。
@@ -113,6 +114,27 @@ await page.evaluate(() => globalThis.__catsup.editor.setTool("select")); await w
   await page.click("#btnUndo", { force: true }).catch(() => {}); await wait(100);
   ok("B.menu.otherButtonStillWorksThrough", (await page.locator(".popup-menu").count()) === 0);
   await page.evaluate(() => { const e = globalThis.__catsup.editor; e.deselectAll(); }); await wait(30);
+}
+
+// ---------- B2. 菜单那张面的账（v0.19.50，名册审计 = 设计稿第 8 节）：菜单的元素被别处删了 / 关菜单半路抛错，键盘和画布都照常 ----------
+{ await page.evaluate(() => globalThis.__catsup.editor.setTool("select")); await wait(30);
+  await page.click("#btnMenu"); await wait(120);
+  await page.evaluate(() => document.querySelector(".popup-menu").remove()); await wait(30);   // 别处直接删了菜单的元素（以前 probe-new-primitive 就这么关菜单）
+  await page.keyboard.press("l"); await wait(60);
+  ok("B2.menuElRemoved.keysWork", (await st()).tool === "line");
+  await page.keyboard.press("Escape"); await wait(40);
+  await page.evaluate(() => globalThis.__catsup.editor.setTool("select")); await wait(30);
+  await page.click("#btnMenu"); await wait(120);
+  // 关菜单半路抛错：删菜单元素那一下抛一次（只抛这一次，抛完自己换回去）
+  await page.evaluate(() => { const orig = Element.prototype.remove; Element.prototype.remove = function () { if (this.classList?.contains("popup-menu")) { Element.prototype.remove = orig; throw new Error("INJECTED close throw (probe-input-gate B2)"); } return orig.call(this); }; });
+  await page.keyboard.press("Escape"); await wait(80);
+  ok("B2.closeThrow.injected", errs.some((e) => e.includes("INJECTED close throw")));
+  await page.keyboard.press("l"); await wait(60);
+  ok("B2.closeThrow.keysWork", (await st()).tool === "line");
+  await page.mouse.click(...mid(0.7, 0.7)); await wait(100);
+  ok("B2.closeThrow.boardPressNotSwallowed", (await st()).gesture);   // 按在画布上的那一下进了画线工具（以前外点监听留着，每一下都被吞）
+  await page.keyboard.press("Escape"); await wait(40);
+  await page.evaluate(() => { document.querySelectorAll(".popup-menu").forEach((n) => n.remove()); globalThis.__catsup.editor.setTool("select"); }); await wait(30);
 }
 
 // ---------- 文本框 ----------
@@ -237,6 +259,7 @@ await page.evaluate(async () => { const e = globalThis.__catsup.editor; e.setToo
 }
 
 console.log(JSON.stringify(out, null, 1));
-console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)");
-if (errs.length) process.exitCode = 1;
+const realErrs = errs.filter((e) => !e.includes("INJECTED close throw"));   // B2 故意抛的那一个不算
+console.log(realErrs.length ? "PAGEERRORS:\n" + realErrs.join("\n") : "(no page errors)");
+if (realErrs.length) process.exitCode = 1;
 await b.close();
