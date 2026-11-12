@@ -1,5 +1,5 @@
 {
- "note": "探针底账（统筹 11-11 定）：每个探针一行，状态四种——green / known-red（reason 为什么红、since 从哪一版、fixBy 谁什么时候修）/ flaky（symptom、seen = 几次里红几次、fixBy）/ helper（不是探针，整跑不跑）。另一栏 role：guard = 整跑要跑的；scaffold = 做某张单时对着看的细探针，不进整跑；perf = 性能档（量时间 / 量规模，碰画画那条路的单收尾和纪元收尾跑，--tier=perf）；没写 = guard。perfArgs = 守卫档文件里量的那一半，性能档带上这几个参数再跑。redline: true = 红线那一小组（守丢数据的，每个改了 src 的版本推完马上后台跑，--redline）（统筹 11-11：碰到哪个分哪个；每张单收尾时把那张单的细探针收成一两条综合的，守卫不许变薄）。整跑 = node scripts/probe-sweep.mjs（放后台跑、不卡队），只报新红 / 新绿 / 还红着、最慢的二十个和总用时；新红 = 停下来。目标：施工单开工时 known-red 一行都没有。比旧版本只用发版提交干净构建出来的（脚本 --compare 写死了）。守卫 test/test-tiers-guard.test.ts：每个探针文件都有一行、每一行都有文件、每种状态该写的都写了。created 2026-11-11 by Claude Opus 5.5",
+ "note": "探针底账（统筹 11-11 定）：每个探针一行，状态四种——green / known-red（reason 为什么红、since 从哪一版、fixBy 谁什么时候修）/ flaky（symptom、seen = 几次里红几次、fixBy）/ helper（不是探针，整跑不跑）。另一栏 role：guard = 整跑要跑的；scaffold = 做某张单时对着看的细探针，不进整跑；perf = 性能档（量时间 / 量规模，碰画画那条路的单收尾和纪元收尾跑，--tier=perf）；没写 = guard。perfArgs = 守卫档文件里量的那一半，性能档带上这几个参数再跑。redline: true = 红线那一小组（守丢数据的，每个改了 src 的版本推完马上后台跑，--redline）。beforeProd: true = 守红线但太长、进不了每版都跑的那一组（同步冲突 probe-update-conflict 两分钟）：推正式版前和红线组一起跑（--redline --prod）（统筹 11-11：碰到哪个分哪个；每张单收尾时把那张单的细探针收成一两条综合的，守卫不许变薄）。整跑 = node scripts/probe-sweep.mjs（放后台跑、不卡队），只报新红 / 新绿 / 还红着、最慢的二十个和总用时；新红 = 停下来。目标：施工单开工时 known-red 一行都没有。比旧版本只用发版提交干净构建出来的（脚本 --compare 写死了）。守卫 test/test-tiers-guard.test.ts：每个探针文件都有一行、每一行都有文件、每种状态该写的都写了。created 2026-11-11 by Claude Opus 5.5",
  "asOf": "2026-11-11 v0.19.50（19 个旧红交代完；snap-base 偶发查清修好 = known-red 零行、flaky 零行；记录 = ai-docs/20261111-paint-1-4d-smooth.md「收尾：全部探针整跑一遍」和它下面的「19 个旧红的交代」）",
  "probes": {
   "bench-bake-paths.mts": {"state":"green","role":"perf"},
@@ -190,7 +190,7 @@
   "probe-undo-fuzz.mjs": {"state":"green","redline":true},
   "probe-undo-session.mjs": {"state":"green"},
   "probe-units.mjs": {"state":"green"},
-  "probe-update-conflict.mjs": {"state":"green"},
+  "probe-update-conflict.mjs": {"state":"green","beforeProd":true},
   "probe-vcb.mjs": {"state":"green"},
   "probe-verify.mjs": {"state":"green"},
   "probe-walk-pen.mjs": {"state":"green"},

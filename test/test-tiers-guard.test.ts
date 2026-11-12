@@ -54,6 +54,7 @@ describe("测试分档守卫", () => {
     for (const [f, r] of Object.entries(led.probes) as [string, Record<string, unknown>][]) {
       if (r.role !== undefined && r.role !== "guard" && r.role !== "scaffold" && r.role !== "perf") bad.push(`${f}：role「${r.role}」只能是 guard / scaffold / perf（没写 = guard）`);   // 统筹 11-12：分档本身
       if (r.redline !== undefined && (r.redline !== true || (r.role ?? "guard") !== "guard" || (r.state !== "green" && r.state !== "flaky"))) bad.push(`${f}：redline 只能写 true，而且得是守卫档、现在是绿的（红线那一小组不许放已知红的）`);
+      if (r.beforeProd !== undefined && (r.beforeProd !== true || (r.role ?? "guard") !== "guard" || r.state !== "green")) bad.push(`${f}：beforeProd 只能写 true，而且得是守卫档、现在是绿的`);
       if (r.perfArgs !== undefined && (!Array.isArray(r.perfArgs) || !r.perfArgs.length || !r.perfArgs.every((x) => typeof x === "string" && x.startsWith("--")))) bad.push(`${f}：perfArgs 是一串 --开头的参数`);
     }
     const reds = Object.entries(led.probes).filter(([, r]) => (r as Record<string, unknown>).redline === true).map(([f]) => f);
