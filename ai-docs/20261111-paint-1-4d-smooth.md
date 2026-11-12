@@ -299,3 +299,19 @@
   - **可能是真毛病，要查**：`probe-left-dial`（拖动时的气泡、圈 6 项 false）、`probe-paint-workbench`（「锁着时离开画画工作台，『开始画…』不露」那一条）、`probe-draw-frame`（`markerAfterSet`）、`probe-mesh-workbench` / `probe-new-primitive`（该抛的没抛：`threw` false）。
 - 日志在本机：`$CLAUDE_JOB_DIR/tmp/sweep/`（每个探针一份，加上 `results.tsv`）。
 
+
+### 19 个旧红的交代（2026-11-11，Catsup小弟；统筹插在施工单十九前）
+- **结论：19 个红 = 2 个真毛病（都修了）+ 16 个探针过时（照现在的口改了，判据一条没删）+ 1 个偶发（记进底账，等统筹定）。** 改完拿 reds 分支的构建逐个跑过，18 个绿。
+- **真毛病两个**：
+  - `probe-paint-workbench`：v0.19.47 带进来的（锁着时 `setTool("select")` 在画画工作台里落空），v0.19.48 锁的三层修了，见上面那条。
+  - `probe-draw-frame`：**v0.15.30 起就坏了**。改组件原点之后的马后炮面板（「原点放在哪」）一开就被收掉：撤销制度刀 2 立了「换了工具 → 马后炮作废」，而 `commitComponentOrigin` 是先开面板、后把工具换回原来那把。改成先换工具再开面板（`editor.ts` 一行挪位置，体重不变）。从那一版起这个探针红在「面板标题 / 字段 / 改到底面」三条；v0.15.15–29 红的是另外几条，后来修好了。
+- **探针过时 16 个**（往回找过从哪一版起红；条件搬了地方就去查新地方）：
+  - 修复动作 v0.16.4 起住修复面板：`probe-cleanup` / `fill-holes` / `resegment` / `straighten` / `weld-breaks` 改查 `commandMenu("repairWindow")`。
+  - 物件动词 v0.16.47 起 id 带 `action:`：`probe-lock`。
+  - 指令注册表 v0.15.9：`probe-make-planar`（`brep.planar`）、`probe-slow-ask`（`setParam("brep.cleanup")`）。
+  - v0.19.25 加画画工作台：`probe-mesh-workbench`（工作台单子多一个 paint）、`probe-left-dial`（前面多了两根藏着的竖滑条和气泡，改取看得见的那根）。
+  - v0.18.38 输入闸认 app 记的「菜单开着」：`probe-new-primitive` 关菜单改按 Esc（以前直接删 DOM，闸还以为菜单开着）。
+  - v0.18.13 单位搬进 ☰：`probe-gridplane`。v0.15.19 中心矩形成独立工具：`probe-shapes`（`crect`）。v0.18.27 图库必须有家：`probe-gallery-menu`（先用假选夹选好文件夹家）。v0.19.23 编码改异步：`probe-shelf`（`encodeNow`）。`bench-scene`：网址当参数（以前第一个参数当盒子个数）。
+  - **更正上面那条记录**：`probe-mesh-workbench` / `probe-new-primitive` 的 `threw: false` 是对的那个值（判据要的就是不抛），不是「该抛的没抛」；它俩红在别的条件上，见上。提交说明里写的「17 个探针」是数错了，改的是 16 个文件。
+- **偶发 `probe-snap-base`**：`mouseShiftSnaps`（鼠标按住 Shift 拖、松手落在吸附点上）有时 false。v0.19.48 上 10 次红 4 次、v0.19.47 上 10 次红 5 次（上面那条记录写的 7 次红 1 次是当时机器更闲）；墙上钟往回拨查过（0–2 毫秒，不是它）；松手前先等 100 毫秒 = 10 / 10 绿。疑点：`gestures.ts onUp` 拿抬起那一下的坐标，提交用的可能还是上一帧的预演。是应用的毛病（快手松开吸不上）还是探针太快，没定：修应用还是改探针交统筹。
+- **立了底账和整跑脚本**，规矩见 `ai-docs/20261110-test-tiers.md` 第五节：`test/probes/probe-ledger.json`（每个探针一行，守卫逼着加）+ `scripts/probe-sweep.mjs`（只报新红 / 新绿 / 还红着，红在哪一条自己打出来；比旧版本只用发版提交干净构建的）+ `scripts/probe-why-red.mjs`。现在 `known-red` 零行、`flaky` 一行。
