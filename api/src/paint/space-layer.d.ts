@@ -119,6 +119,12 @@ export declare class SpaceLayer {
     private changed;
     /** 这一帧标格花了多少毫秒（量；1-4d 第 6 条判据「算这张图 ≤ 0.2 毫秒」）。 */
     lastMarkMs: number;
+    /**
+     * 抬笔整笔重画那一次（resetFrozen 起）画进去的 item 的格（1-4d 第 8 条）：交给落层（HostOverlayInput.cells）只读回这些格。
+     * 和画进去的是同一批 item 的方框（update 里标的那几行），不另算范围；内核还会自己核一遍（报的格以外真变了 = 照旧读整个方框）。没在整笔重画 = null。
+     */
+    private strokeCellsMap;
+    get strokeCells(): DirtyCells | null;
     /** 上一帧尾巴画过的方框（这一帧要还原成定型层的样子：再标一遍）。 */
     private prevTail;
     /** 这一笔到现在一帧里最大的那张数据表有多少个数、是哪张（量「一帧的数据表放不下」离上限多远；1-7 合之前统筹要的数）；batches = 一次画最多分了几批（1-4d 第 4 条）。 */

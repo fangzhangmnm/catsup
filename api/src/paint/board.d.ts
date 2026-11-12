@@ -1,5 +1,6 @@
 import { DirtyCells } from "./kernel/src/common/dirty-rects.ts";
 import { PaintingWorkpiece, type PaintingData } from "./kernel/src/backend/workpiece/painting-workpiece.ts";
+import { GLBoard } from "./kernel/src/shell/gl-board.ts";
 import type { ExternalImage, ExternalTexture, Gl2Port, PooledFBO } from "./kernel/src/common/gl2-port.ts";
 import type { StepSink } from "./kernel/src/backend/workpiece/undo-stack.ts";
 import { StrokeSession } from "./kernel/src/backend/stroke-session.ts";
@@ -116,6 +117,8 @@ export declare class PaintBoard {
     } | null;
     /** 显示的那张合成图上一格的颜色（RGBA 字节，垫着底色、不透明；吸管用，1-7）。出界 / 显卡画面丢了 = null。 */
     pixelAt(x: number, y: number): Uint8Array | null;
+    /** 最近一次落层怎么读回的（内核 GLBoard.lastBake：box / cells / box-unreported、读了几次、多少字节；探针 / 测试看）。 */
+    get lastBake(): GLBoard["lastBake"];
     /** 现在的底色（sRGB 0..1，三个数）。 */
     get background(): readonly [number, number, number];
     dispose(): void;
