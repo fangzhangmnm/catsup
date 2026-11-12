@@ -11,6 +11,19 @@ export interface ImageViewHooks {
   hover?(id: number | null): void;
   /** 点了一下（没拖）：点中的编号，点空处 = null。 */
   click?(id: number | null): void;
+  /**
+   * 落笔（可选；施工单二十一第 2 刀）：按下那一下要不要当成画——宿主看手上的工具定（笔 / 鼠标左键）；手指永远是看（挪、缩），不来问。
+   * 要 = 这一下之后的移动 / 抬起都交给 down / move / up（格坐标，可以带小数），不平移、不点选；画着时别的指针不理（一笔当中不挪不缩）。
+   */
+  stroke?: {
+    wants(e: { readonly pointerType: string; readonly button: number }): boolean;
+    down(x: number, y: number, e: PointerEvent): void;
+    move(x: number, y: number, e: PointerEvent): void;
+    /** cancelled = pointercancel（系统收走了这个指针）。 */
+    up(x: number, y: number, e: PointerEvent, cancelled: boolean): void;
+  };
+  /** 悬停时亮出来的笔印：这一点上手上的笔有多大（直径，格）；不画 = null。放大到看得见格子时，格心落在这个圆里的格也亮出来。 */
+  brushAt?(x: number, y: number): number | null;
 }
 export interface ImageView {
   /** 换图（宽高 = 格数；图的像素和格一一对应）。null = 没有图（画底色）。 */
@@ -44,6 +57,7 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
   let thin = new Float32Array(0), thick = new Float32Array(0);
   let ringOf: (id: number) => ArrayLike<number> | undefined = () => undefined;
   let sel: number[] = [], hov: number | null = null;
+  let tip: { x: number; y: number; d: number } | null = null;   // 悬停的笔印（格）
   let k = 1, ox = 0, oy = 0, fitted = false;   // 屏幕(CSS 像素) = 格 × k + o
   let raf = 0;
   const dpr = (): number => window.devicePixelRatio || 1;
@@ -89,6 +103,19 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
     };
     lines(thin, 1.6, 0.6);
     lines(thick, 3, 1.4);
+    // 悬停的笔印：圆（什么颜色的画上都看得见）；放大到看得见格子时，格心落在圆里的格亮出来
+    if (tip) {
+      const r = tip.d / 2, cx = tip.x * k + ox, cy = tip.y * k + oy;
+      if (k >= GRID_FROM) {
+        g.fillStyle = "rgba(255,255,255,0.32)";
+        for (let y = Math.max(0, Math.floor(tip.y - r)); y <= Math.min(H - 1, Math.ceil(tip.y + r)); y++) for (let x = Math.max(0, Math.floor(tip.x - r)); x <= Math.min(W - 1, Math.ceil(tip.x + r)); x++) {
+          if ((x + 0.5 - tip.x) ** 2 + (y + 0.5 - tip.y) ** 2 <= r * r) g.fillRect(x * k + ox, y * k + oy, k, k);
+        }
+      }
+      g.beginPath(); g.arc(cx, cy, Math.max(1.5, r * k), 0, Math.PI * 2);
+      g.strokeStyle = "rgba(0,0,0,0.6)"; g.lineWidth = 2; g.stroke();
+      g.strokeStyle = "rgba(255,255,255,0.9)"; g.lineWidth = 1; g.stroke();
+    }
   };
   const doFit = (): void => {
     const { w, h } = size();
@@ -103,8 +130,21 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
   // —— 输入 ——
   const ptrs = new Map<number, { x: number; y: number }>();
   let down: { x: number; y: number; moved: boolean } | null = null, pinch: { d: number; cx: number; cy: number } | null = null;
+  let drawing: number | null = null;   // 正在画的那个指针（stroke 钩子收下的）
+  const setTip = (p: { x: number; y: number } | null): void => {
+    const d = p && hooks.brushAt ? hooks.brushAt(p.x, p.y) : null;
+    const nt = p && d !== null ? { x: p.x, y: p.y, d } : null;
+    if (!nt && !tip) return;
+    tip = nt; schedule();
+  };
   const setHover = (id: number | null): void => { if (id === hov) return; hov = id; hooks.hover?.(id); schedule(); };
   const onDown = (e: PointerEvent): void => {
+    if (drawing !== null) { e.preventDefault(); return; }   // 一笔当中别的指针不理（不挪不缩）
+    if (e.pointerType !== "touch" && !ptrs.size && hooks.stroke?.wants({ pointerType: e.pointerType, button: e.button })) {
+      cv.setPointerCapture(e.pointerId); drawing = e.pointerId;
+      const q = toImg(local(e).x, local(e).y); setTip(q); hooks.stroke.down(q.x, q.y, e);
+      e.preventDefault(); return;
+    }
     cv.setPointerCapture(e.pointerId);
     const p = local(e); ptrs.set(e.pointerId, p);
     if (ptrs.size === 1) down = { x: p.x, y: p.y, moved: false };
@@ -113,7 +153,13 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
   };
   const onMove = (e: PointerEvent): void => {
     const p = local(e), prev = ptrs.get(e.pointerId);
-    if (!prev) { if (e.pointerType === "mouse") { const q = toImg(p.x, p.y); setHover(hooks.pick(q.x, q.y)); } return; }
+    if (drawing !== null) {
+      if (e.pointerId !== drawing) return;
+      const evs = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
+      for (const c of evs.length ? evs : [e]) { const q = toImg(local(c).x, local(c).y); hooks.stroke!.move(q.x, q.y, c); }
+      setTip(toImg(p.x, p.y)); return;
+    }
+    if (!prev) { if (e.pointerType === "mouse" || e.pointerType === "pen") { const q = toImg(p.x, p.y); setHover(hooks.pick(q.x, q.y)); setTip(q); } return; }
     ptrs.set(e.pointerId, p);
     if (ptrs.size >= 2 && pinch) {
       const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
@@ -125,6 +171,13 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
     if (down?.moved) { ox += p.x - prev.x; oy += p.y - prev.y; schedule(); }
   };
   const onUp = (e: PointerEvent): void => {
+    if (drawing !== null) {
+      if (e.pointerId !== drawing) return;
+      drawing = null;
+      const q = toImg(local(e).x, local(e).y); hooks.stroke!.up(q.x, q.y, e, e.type === "pointercancel");
+      if (e.pointerType !== "mouse") setTip(null);
+      return;
+    }
     const p = local(e), had = ptrs.delete(e.pointerId);
     if (ptrs.size < 2) pinch = null;
     if (had && ptrs.size === 0 && down) {
@@ -133,7 +186,7 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
     }
   };
   const onWheel = (e: WheelEvent): void => { e.preventDefault(); const p = local(e); zoomAt(p.x, p.y, Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015))); };
-  const onLeave = (e: PointerEvent): void => { if (e.pointerType === "mouse" && !ptrs.size) setHover(null); };
+  const onLeave = (e: PointerEvent): void => { if ((e.pointerType === "mouse" || e.pointerType === "pen") && !ptrs.size && drawing === null) { setHover(null); setTip(null); } };
   cv.addEventListener("pointerdown", onDown);
   cv.addEventListener("pointermove", onMove);
   cv.addEventListener("pointerup", onUp);
