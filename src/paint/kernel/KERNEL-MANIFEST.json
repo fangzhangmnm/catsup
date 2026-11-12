@@ -2,7 +2,7 @@
   "about": "Paint kernel copied verbatim from WeebPaint by scripts/pull-paint-kernel.sh. Do not edit here: change it in WeebPaint, then pull again. test/paint-kernel-guard.test.ts checks every hash.",
   "source": {
     "repo": "WeebPaint",
-    "commit": "0b033b733337a85a10b58a658ff76c159b6c6caa",
+    "commit": "ccb919f9ed4be2d7d2291275e2a5be0e717ae077",
     "version": "v0.14.84-2026-11-11"
   },
   "files": {
@@ -31,7 +31,7 @@
     "src/backend/filters/stylize-kernels.ts": "7d1ace687e59be87ceeeba5c46b8c4394cf264f3d9bbd88edada8b1e16aaf6e2",
     "src/backend/format/layout.ts": "65ef12d7afe4b3ed9cfc798ec191d233bfbd74eb9e61caa64108591e97e8f921",
     "src/backend/format/migrate.ts": "580f74dc35b4414fcc26dbe07102db4d45fae75b5c05a51fd8dbd3e5b7cfb130",
-    "src/backend/gl/bake-cells.ts": "e1bbe8ac3ff9794ad7bd38db9f9a15a0385130080e1f9565a677a40166431d76",
+    "src/backend/gl/bake-cells.ts": "a8738ed7aff88a6032b8e38deed9f0ec51f7caa7320149bc15961da177a4883b",
     "src/backend/gl/blend-glsl.ts": "6c58dccae524d40e30f36f2aea7eece8a2f97f26928442d1421fe43324f607c1",
     "src/backend/gl/frame-demand.ts": "29239a834de045e46894b3e43c3946876d35dfd35d5cdd81a271935c2926a90f",
     "src/backend/gl/gl-compositor.ts": "f0c3e303a860b5a4e45ee50bee4d69236ebaf731cc42201c49510b699891ad9d",

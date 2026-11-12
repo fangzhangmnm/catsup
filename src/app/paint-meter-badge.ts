@@ -15,6 +15,8 @@ export interface PaintMeterBadge {
   sync(visible: boolean): void;
   /** 开关（工具条「读数」）。打开时清掉攒着的半帧。 */
   toggle(): boolean;
+  /** 探针（1-4d 第 10 条，连续画 300 帧）：record(true) 开始逐帧记（每一帧各段 + 合计 + 是不是核对那一帧 + 这一帧画完的时刻 t），record(false) 停、交回记下的。读数要开着才有数。 */
+  record(on: boolean): (MeterFrame & { total: number; checked: boolean; t: number })[] | null;
   /** 探针：最近一秒的读数。 */
   snapshot(): { frames: number; avg: Record<string, number>; max: Record<string, number>; gapMs: number; dropped: number; checks: number; mismatches: number; skipped: number };
 }
@@ -26,6 +28,7 @@ export function mountPaintMeterBadge(o: { sceneMs(): number; copyMs(): number; m
   document.body.appendChild(el);
   const hist: { t: number; f: MeterFrame; total: number; checked: boolean }[] = [];
   let lastPaint = 0, shown = false, sinceCheck = 0, checks = 0, mismatches = 0, skipNext = false, alertUntil = 0;
+  let rec: (MeterFrame & { total: number; checked: boolean; t: number })[] | null = null;
   const stats = (now: number): ReturnType<PaintMeterBadge["snapshot"]> => {
     const all = hist.filter((h) => now - h.t <= 1000), win = all.filter((h) => !h.checked), avg: Record<string, number> = {}, max: Record<string, number> = {};
     for (const k of [...METER_SEGS, "total"] as const) { let s = 0, m = 0; for (const h of win) { const v = k === "total" ? h.total : h.f[k]; s += v; m = Math.max(m, v); } avg[k] = win.length ? s / win.length : 0; max[k] = m; }
@@ -53,6 +56,7 @@ export function mountPaintMeterBadge(o: { sceneMs(): number; copyMs(): number; m
       paintMeter.put("scene", o.sceneMs()); paintMeter.put("copy", o.copyMs()); paintMeter.put("mips", o.mipsMs());
       const f = paintMeter.endFrame(), now = performance.now();
       hist.push({ t: now, f, total: METER_SEGS.reduce((a, k) => a + f[k], 0), checked: skipNext });
+      if (rec) rec.push({ ...f, total: hist[hist.length - 1].total, checked: skipNext, t: now });
       skipNext = false;
       while (hist.length && now - hist[0].t > 2000) hist.shift();
       if (displayDiag.check && (++sinceCheck >= CHECK_EVERY || displayDiag.penUp)) {   // 核对：画完这一帧之后做，读回的时间落在下一帧头上 → 下一帧不算
@@ -65,5 +69,6 @@ export function mountPaintMeterBadge(o: { sceneMs(): number; copyMs(): number; m
     sync(visible) { shown = paintMeter.on && visible; el.hidden = !shown; if (shown) paint(performance.now()); },
     toggle() { paintMeter.on = !paintMeter.on; paintMeter.endFrame(); hist.length = 0; sinceCheck = 0; checks = 0; mismatches = 0; skipNext = false; return paintMeter.on; },
     snapshot: () => stats(performance.now()),
+    record(on) { if (on) { rec = []; return null; } const r = rec; rec = null; return r; },
   };
 }

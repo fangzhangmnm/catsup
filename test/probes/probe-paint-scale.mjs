@@ -9,6 +9,7 @@
 //   C 同一个盒子开强行对称（两半共用画布上同一块：一颗笔尖下同一块挂两张面）：B 的整条。
 //   D 4194304 格（「2048 见方」那一档；「开始画」没有画布大小的参数，铺法宽度定死 1024、给密度只长高度 → 二分出正好铺满 1024 × 4096 的密度，格数、表的大小和 2048² 一样）：B 的整条。
 //   E 每张面三角形的上限：72 段圆柱的顶盖（70 个三角形）量一笔的每帧；1026 段（顶盖 1024 个三角形）画得上、真显卡和软件版一样；1027 段（1025 个）准备时报那句人话、这一笔不开始。
+//   L 连续画 300 帧（1-4d 第 10 条，只量；每帧等显卡做完 = 真页面的节奏）：六千面默认 / 4194304 格、两万四千面（每次都跑），wip2021 两档（给了真模型才跑）：各段中位 / 最慢（第几帧），三条「不随……涨」的对比，笔画期间存盘那几条路跑没跑。
 //   K 带坏面的小网格体（1-4d 第 5 条，每次都跑）：96 张面的方盒子，正面上一张压成零面积、一张压成很细：开始画前后自检过、整条走一遍（画、对拍、橡皮、存、重开、再画）、重开后自检过。
 // 手动跑的一档 = user 自己的真模型（不进仓：--models=<文件夹> 或环境变量 CATSUP_USER_MODELS；没给 = 明着说没跑，不算绿）：
 //   F wip2021.glb（15534 个三角形）：B 的整条，默认密度 + 4194304 格两档。
@@ -495,6 +496,68 @@ if (haveModels && want("I")) await section("I", async () => {
       check(!r?.refused && pk.values > 0 && pk.values <= pk.cap, `${name}、${what}：画了（${r?.tips} 颗笔尖），一帧最大的表 = ${pk.table} ${pk.values} 个数，上限 ${pk.cap}（用了 ${(100 * pk.values / pk.cap).toFixed(2)}%）`, JSON.stringify({ refused: r?.refused, pk }));
     }
   }
+});
+
+// ---------- L 连续画 300 帧的读数（1-4d 第 10 条；只量、不判，三条「不随……涨」看数字）----------
+// 读数角标开着、逐帧记（每帧各段：收点 / 打射线 / 走步 / 找面 / 画薄层 / 内核合成 / 拷显示图 / 缩小图 / 画场景），一笔 300 个点 = 300 帧（每个点画一帧）。
+// 每帧画完等显卡做完再画下一帧（stroke 的 pace，等的时间不算进任何一段 = 真页面一帧一帧的节奏）。每一档：除去头 10 帧，各段的中位数和最慢；开头（第 10–40 帧）vs 末段（最后 30 帧还在往画上写的）各段中位数。软件显卡上的绝对数只作参考。
+if (want("L")) await section("L", async () => {
+  console.log("\nL 连续画 300 帧：各段中位 / 最慢；三条「不随……涨」——画布 1024² vs 4194304 格、六千面 vs 两万四千面、一笔的开头 vs 末段（最后 30 帧还在画的）");
+  const SEGS = ["input", "rays", "walk", "reach", "layer", "compose", "copy", "mips", "scene", "total"];
+  const med = (a) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[b.length >> 1] : 0; }, f1 = (v) => +v.toFixed(2);
+  const mxAt = (fs, k) => fs.reduce((m, f) => (f[k] > m.v ? { v: f[k], at: f.i } : m), { v: 0, at: -1 });   // 最慢那一帧是一笔里的第几帧
+  const run300 = async (label, tex, def) => {
+    await S(() => __H.view("front"));
+    const pts = await S((d) => { const r = __H.rect(d), out = []; for (let i = 0; i < 300; i++) { const t = i / 299, k = Math.floor(t * 6), u = t * 6 - k, x = r.x0 + r.w * (0.15 + 0.7 * (k % 2 ? 1 - u : u)), y = r.y0 + r.h * (0.2 + 0.6 * t); out.push({ x, y }); } return out; }, def);
+    // 笔画期间存盘那几条路（会话的存 / 崩溃快照、画的编码）有没有跑：包一层记时刻，画完拆掉——最慢那一帧是不是正好撞上
+    await S(() => { const c = globalThis.__catsup, log = globalThis.__L_saveLog = [], undo = globalThis.__L_unwrap = [];
+      for (const [o, k] of [[c.session, "save"], [c.session, "snapshot"], [c.paint.saver, "freeze"], [c.paint.saver, "refresh"]]) {
+        const own = Object.prototype.hasOwnProperty.call(o, k), f = o[k];
+        o[k] = function (...a) { log.push({ k, t: performance.now() }); return f.apply(this, a); };
+        undo.push(() => { if (own) o[k] = f; else delete o[k]; });
+      } });
+    await S(() => { const m = globalThis.__catsup.meter(); if (!m.toggle()) m.toggle(); m.record(true); });
+    const r = await S(([t, p]) => globalThis.__catsup.paint.stroke({ guid: t, points: p, size: 16, hardness: 0.6, color: [0.9, 0.2, 0.1], pace: true }), [tex, pts]);   // pace = 每帧等显卡做完（不进读数）：不等的话软件显卡上 wip2021 一帧 120 ms 以上的活越攒越多，某一帧卡几秒、落在哪帧不固定（2026-11-11 量过）
+    const rec = await S(() => { const m = globalThis.__catsup.meter(), out = m.record(false); m.toggle(); return out; });
+    const saves = await S(() => { for (const u of globalThis.__L_unwrap) u(); return globalThis.__L_saveLog; });
+    check(!r?.refused && r?.tips > 0 && rec && rec.length >= 300, `${label}：连续画了 ${rec?.length} 帧（${r?.tips} 颗笔尖）`, JSON.stringify({ refused: r?.refused, n: rec?.length }));
+    // 末段 = 最后 30 帧还在往画上写的（写层 > 0）：真模型上笔后面会走出模型，第 270–300 帧可能什么都没画
+    const all = (rec ?? []).map((f, i) => ({ ...f, i })), frames = all.filter((f) => !f.checked).slice(10, 300), head = all.slice(10, 40), tail = all.slice(10, 301).filter((f) => f.layer > 0).slice(-30);
+    const row = Object.fromEntries(SEGS.map((k) => { const m = mxAt(frames, k); return [k, { med: f1(med(frames.map((f) => f[k]))), max: f1(m.v), at: m.at, head: f1(med(head.map((f) => f[k]))), tail: f1(med(tail.map((f) => f[k]))) }]; }));
+    row.tailFrom = tail[0]?.i ?? -1; row.tailTo = tail[tail.length - 1]?.i ?? -1;
+    row.tailOff = tail.length < 30 || row.tailTo < 150;   // 还在画的帧太少 / 早早就画出了模型 = 开头 vs 末段那条不作数
+    say(`${label}：` + SEGS.map((k) => `${k} 中位 ${row[k].med}/最慢 ${row[k].max}@第 ${row[k].at} 帧（开头 ${row[k].head} → 末段 ${row[k].tail}）`).join("；") + `；末段 = 第 ${row.tailFrom}–${row.tailTo} 帧`);
+    const t0 = all[0]?.t ?? 0, tEnd = all[all.length - 1]?.t ?? 0, during = (saves ?? []).filter((e) => e.t >= t0 && e.t <= tEnd);
+    const frameAt = (t) => all.findIndex((f) => f.t >= t);   // 这次调用落在哪一帧里（那一帧画完之前）
+    row.savesDuring = during.length;
+    say(`${label}：笔画期间存盘那几条路 ${during.length ? during.map((e) => `${e.k}@第 ${frameAt(e.t)} 帧`).join("、") : "一次都没跑"}；最慢一帧（合计）= 第 ${row.total.at} 帧`);
+    return row;
+  };
+  const results = {};
+  for (const [key, levels, cellsT] of [["6144 张面、默认密度", 5, null], ["6144 张面、4194304 格", 5, 4194304], ["24576 张面、默认密度", 6, null]]) {
+    await newFile();
+    const def = await S((lv) => __H.cube(lv, false), levels);
+    const p = cellsT ? await S(([d, c]) => __H.paint(d, { density: __H.densityForCells(d, c) }), [def, cellsT]) : await S((d) => __H.paint(d), def);
+    say(`${key}：${p.faces} 张面、画布 ${p.width}×${p.height}`);
+    results[key] = await run300(key, p.tex, def);
+  }
+  if (haveModels) {
+    for (const dense of [1, 2]) {
+      await newFile(); await importGlb("wip2021.glb");
+      const def = (await S(() => __H.meshDefs()))[0].def;
+      const p = dense > 1 ? await S(([d]) => __H.paint(d, { density: __H.densityForCells(d, 4194304), name: "规模" }), [def]) : await S((d) => __H.paint(d, { name: "规模" }), def);
+      const key = `wip2021、${dense > 1 ? "4194304 格" : "默认密度"}`;
+      say(`${key}：${p.faces} 张面、画布 ${p.width}×${p.height}`);
+      results[key] = await run300(key, p.tex, def);
+    }
+  }
+  // 三条对比：同一段的中位数应该差不多（差得多的段点名：比值 > 1.5 且多出 1 毫秒以上）
+  const cmp = (a, b, what) => { if (!results[a] || !results[b]) return; const grew = SEGS.filter((k) => k !== "total" && results[b][k].med > 1.5 * results[a][k].med && results[b][k].med - results[a][k].med > 1).map((k) => `${k} ${results[a][k].med} → ${results[b][k].med}`);
+    say(`对比 ${what}：${grew.length ? "涨了的段：" + grew.join("、") : "各段中位数都差不多（没有一段比值 > 1.5 且多 1 毫秒以上）"}；合计 ${results[a].total.med} → ${results[b].total.med}`); };
+  cmp("6144 张面、默认密度", "6144 张面、4194304 格", "画布 1024 宽默认 vs 4194304 格（六千面）");
+  cmp("6144 张面、默认密度", "24576 张面、默认密度", "六千面 vs 两万四千面");
+  if (haveModels) cmp("wip2021、默认密度", "wip2021、4194304 格", "wip2021 默认 vs 4194304 格");
+  for (const [k, row] of Object.entries(results)) { if (row.tailOff) { say(`对比 一笔的开头 vs 末段（${k}）：不作数——还在画的帧不够（末段 = 第 ${row.tailFrom}–${row.tailTo} 帧）`); continue; } const grew = SEGS.filter((g) => g !== "total" && row[g].tail > 1.5 * row[g].head && row[g].tail - row[g].head > 1).map((g) => `${g} ${row[g].head} → ${row[g].tail}`); say(`对比 一笔的开头 vs 末段（第 ${row.tailFrom}–${row.tailTo} 帧，${k}）：${grew.length ? "涨了的段：" + grew.join("、") : "各段差不多"}`); }
 });
 
 console.log(`\n${pass} 过 · ${failN} 红${haveModels ? "" : " · 真模型那一档没跑"}`);

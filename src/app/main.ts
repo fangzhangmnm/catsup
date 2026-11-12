@@ -2616,7 +2616,7 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
     /** 画画工作台（1-7）：现在的颜色（一个入口）、控制器。 */
     color: paintColor, workbench: paintWb,
     /** 一整笔（贴图主线 1-4b；探针用）：屏幕点（CSS 像素）→ 1-4a 控制器 → 薄层（真显卡）→ 档口；每一点画一帧（准备在 draw 里）；cancel = 取消。第一笔时建画板。 */
-    stroke: (o: { guid?: string; points: readonly { x: number; y: number; p?: number }[]; size?: number; hardness?: number; color?: readonly number[]; accum?: "max" | "over"; erase?: boolean; kind?: BrushKind; cancel?: boolean; taperOut?: number; measure?: boolean; beforeUp?: () => void; midway?: () => void }) => {
+    stroke: (o: { guid?: string; points: readonly { x: number; y: number; p?: number }[]; size?: number; hardness?: number; color?: readonly number[]; accum?: "max" | "over"; erase?: boolean; kind?: BrushKind; cancel?: boolean; taperOut?: number; measure?: boolean; pace?: boolean; beforeUp?: () => void; midway?: () => void }) => {
       const S = editor.sceneRef, g = o.guid ?? [...S.textures.keys()].find((t) => paintPlaceOf(S, t));
       if (!g) throw new Error("no placed paint in this scene");
       const gate = paintStrokeGate(g);   // 落笔撞上冷的画：这一笔不开始、说一句、同时解开（1-8b）；以后真的笔（1-7）走同一个口
@@ -2640,7 +2640,7 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
         if (i === 0) st.down(p.x, p.y, p.p ?? 1, i * 16); else st.move(p.x, p.y, p.p ?? 1, i * 16);
         const b = performance.now();
         editor.draw();
-        if (o.measure) sync();
+        if (o.measure || o.pace) sync();   // pace（1-4d 第 10 条）：每帧画完等显卡做完再画下一帧 = 真页面在交换画面那一下等的那样；等的时间不进读数的任何一段（不等 = 软件显卡上活越攒越多，某一帧被卡住几秒，记到碰巧在跑的那段上）
         if (i === o.points.length >> 1) o.midway?.();   // 探针：画到一半（笔还按着）那一帧之后（核对 / 比字节）
         if (o.measure) frames.push({ moveMs: b - a, drawMs: performance.now() - b, tips: st.tipCount(), ...st.lastFrame, gpuLayerMs: paintBoards.lastPrepare.jobsMs - st.lastFrame.tipsMs - st.lastFrame.hostMs, composeMs: paintBoards.lastPrepare.composeMs, copyMs: R3.liveStats().copyMs });
       });
