@@ -44,6 +44,11 @@ export declare const RESERVED_EDGE: readonly ColumnDef[];
 export declare const edgeColumn: (k: MeshKernel, d: ColumnDef) => EdgeColumn | null;
 /** 这条边有这个标记吗（没有这一列 = 没有）。 */
 export declare function edgeMark(k: MeshKernel, e: number, d: ColumnDef): boolean;
+/**
+ * 成批问一列（每条边都问的：画线、导出、整模型判平滑）：列对象一次拿在手里，返回「这条边有没有这个标记」（3d，统筹 11-13：单条问每次按名字找列，
+ * 16 万面上整模型判一遍慢 28–45%）。只在这一趟用：内核改了（rev 变了，列数组扩容会换）要重拿；边要是活的（调用的地方按 k.edges() 走）。
+ */
+export declare function edgeMarkReader(k: MeshKernel, d: ColumnDef): (e: number) => boolean;
 /** 写一条边的标记（操作本意 / 指令点名写的；第一次写「有」才建这一列，没有这一列时写「没有」= 什么都不做）。 */
 export declare function setEdgeMark(k: MeshKernel, e: number, d: ColumnDef, on: boolean): void;
 /** 字节里每一位是哪一列（edge-bits.ts 的位）；F_WIRE 是结构位（内核自己记），64 / 128 没有定义。 */

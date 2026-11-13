@@ -145,7 +145,7 @@ export interface FormatReadNotes {
     /** 网格体载荷里还带着以前的 uvSets 键（几个网格体）：画在面上的位置，旧存法。读的门口不带回 = 保存之后不再保留（算会丢的）。
      *  和上一条分开记：存过一次再打开，网格体上已经没有它了，这时只剩上一条、再存什么都不丢。 */
     oldUvColumns?: number;
-    /** 网格体的面 / 边那两个字节里带着这一版不认识的位（更新版写的）：几张面、几条边。读的门口去掉了（mesh/mesh-doc.ts dropUnknownMarks）= 没读进来，保存之后不再保留（统筹 11-13，属性规程第九½节末：不拒开）。 */
+    /** 网格体的面 / 边那两个字节里带着这一版不认识的位（不猜是谁写的：更新版、别的软件、坏了都可能）：几张面、几条边。读的门口去掉了（mesh/mesh-doc.ts dropUnknownMarks）= 没读进来，保存之后不再保留（统筹 11-13，属性规程第九½节末：不拒开）。 */
     unknownMarks?: {
         faces: number;
         edges: number;

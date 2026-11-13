@@ -4,7 +4,10 @@ type Say<K extends keyof FormatReadNotes> = (v: NonNullable<FormatReadNotes[K]>)
 export declare const READ_NOTE_SAY: {
     readonly [K in keyof Required<FormatReadNotes>]: Say<K>;
 };
-/** 「N 张面、M 条边带着这一版不认识的标记（更新版的 CatsUp 写的）」——打开和导入素材两处共用（导入那句在 shelf-actions.ts）。 */
+/**
+ * 「N 张面、M 条边带着这一版不认识的标记」——打开和导入素材两处共用（导入那句在 shelf-actions.ts）。只说事实：不猜是谁写的
+ * （可能是更新版的 CatsUp、别的软件，也可能是文件坏了；统筹 11-13）。
+ */
 export declare function unknownMarksText(v: {
     faces: number;
     edges: number;
