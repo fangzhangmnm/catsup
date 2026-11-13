@@ -164,6 +164,7 @@
   "probe-selbar.mjs": {"state":"green"},
   "probe-select-field.mjs": {"state":"green"},
   "probe-select-points.mjs": {"state":"green"},
+  "probe-select-keep.mjs": {"state":"green"},
   "probe-selecting.mjs": {"state":"green"},
   "probe-shapes.mjs": {"state":"green"},
   "probe-share-download.mjs": {"state":"green"},

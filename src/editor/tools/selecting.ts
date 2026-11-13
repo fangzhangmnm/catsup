@@ -123,18 +123,22 @@ export function selModeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean | "lasso")
  */
 export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number, opts: { growBar?: boolean; keepOnSelection?: boolean } = {}): "onSelection" | void {
   const view = ctx.live(), mode = selModeOf(ctx, ev, false);
+  // 替换档单击点中已经选着的 = 选区不变（user 11-13「单选选中选区的时候也应该是non op除非是不同的boolean模式」；以前硬表面里缩成只剩它一个）。
+  // 加 / 减 / 切换（Shift、Ctrl、多选档）照各自的意思；双击 / 三击照旧扩。参考线 / 空组件 / 子物体 / 点边面一个口径（keep 收进三处）。
+  const keep = (inSel: () => boolean): boolean => n === 1 && mode === "replace" && !ev.shiftKey && inSel();
   const hit = ctx.pick(ev.x, ev.y, { kinds: pickKinds(ctx) });
   if (ev.altKey && hit.edge !== undefined && ctx.selectLoop(hit, mode)) return;   // Alt 点边 = 环 / 洞（网格体；硬表面没有这个，照常点）
   if (opts.keepOnSelection && n === 1 && !ev.shiftKey && !ev.copy && !ev.altKey && ctx.hitInSelection(hit)) return "onSelection";   // 点第二下（不是双击）：交给调用方（移动 / 旋转 / 缩放 / 挤出 = 手柄）
   // A31：参考线 / 参考点（光标下不是边或顶点时）——参考点 > 参考线，与实体拾取「点 > 边」同口径；面上的参考线照样点得中
   if (hit.edge === undefined && hit.vertex === undefined) {
     const g = pickGuide(view.guides(), ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.eps().hit);
-    if (g) { ctx.selectGuide(g.id, mode); ctx.afterSelect(); return; }
+    if (g) { if (keep(() => ctx.isSelected({ guide: g.id }))) return; ctx.selectGuide(g.id, mode); ctx.afterSelect(); return; }
   }
   // 空组件（导入的空节点，T11）：没几何，点它的小三轴 = 点它；点 / 边优先（标记压在边上时边赢），面让给标记（埋在几何里的空节点也点得中）
   const em = hit.edge === undefined && hit.vertex === undefined ? ctx.emptyAt(ev.x, ev.y) : null;
   if (em) {
     if (n >= 2) { ctx.enterPool(em.pick); return; }
+    if (keep(() => ctx.isSelected({ pool: em.key }))) return;
     ctx.replaceSelection({ edges: [], faces: [], pools: [em.pick] }, mode);
     ctx.afterSelect();
     return;
@@ -145,10 +149,10 @@ export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number, opts: { gr
   // 双击空处 = 退出一层（user 10-27「单击空白退出一层其实还是蛮容易误触的，既然进去是双击，退出也改成双击」；单击空处 = 取消选择）
   if (c.kind === "none" && (mode === "replace" || multiTap) && ctx.contextDepth() > 0 && n === 2) { ctx.exitContext(); return; }
   if (c.kind === "none" && multiTap) { ctx.replaceSelection({ edges: [], faces: [], pools: [] }, "replace"); ctx.afterSelect(); return; }   // 多选里点空处 = 清空（FM158）
-  // 选择工具「再点一下选区」= 扩 / 缩选区的拖动条（ai-docs/20261027-gizmo-design.md §7；user 10-28 夜「select按第二次的的gizmos」）：替换档里点中已经选着的 → 不改选区、出条；
-  // 双击（面带环边那一档）之后也出在旁边。只在网格体（自由建模）里；别的工具的「点一下 = 选」不出。
+  // 选择工具「再点一下选区」= 扩 / 缩选区的拖动条（ai-docs/20261027-gizmo-design.md §7；user 10-28 夜「select按第二次的的gizmos」）：替换档里点中已经选着的 → 不改选区（上面那条规矩）、出条；
+  // 双击（面带环边那一档）之后也出在旁边。只在网格体（自由建模）里；别的工具的「点一下 = 选」、硬表面都不出。
   const bar = opts.growBar && ctx.selection().kind === "mesh";
-  if (bar && n === 1 && mode === "replace" && !ev.shiftKey && ctx.hitInSelection(hit)) { ctx.selGrowBar({ x: ev.x, y: ev.y }); return; }
+  if (keep(() => ctx.hitInSelection(hit))) { ctx.selGrowBar(bar ? { x: ev.x, y: ev.y } : null); return; }
   ctx.selGrowBar(null);
   ctx.selectExpand(hit, n >= 3 ? 2 : n === 2 ? 1 : 0, mode);
   if (bar && n === 2 && ctx.hasActableSelection()) ctx.selGrowBar({ x: ev.x, y: ev.y });

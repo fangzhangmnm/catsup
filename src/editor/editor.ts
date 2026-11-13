@@ -3925,7 +3925,7 @@ export class Editor {
       lasso: (pts) => this.host.lasso?.(pts), placeBody: (p, x, y) => this.host.placeBody?.(p, x, y), paint: (ev) => this.host.paint?.(ev),
       softRing: (c) => this.host.softRing?.(c),
       selGrowBar: (at) => this.host.selGrowBar?.(at),
-      hitInSelection: (h) => this.hitInSelection(h),
+      hitInSelection: (h) => this.hitInSelection(h), isSelected: (x) => ("guide" in x ? this.selectedGuides.view.has(x.guide) : this.selectedPools.has(x.pool)),
       marqueePick: (area) => marqueeScreen(this.liveWorld(), this.cam, this.vp(), area, { xray: this._xray, verts: this.mode.id === "freeform" }),
       emptyAt: (sx, sy) => this.emptyAt(sx, sy),
       emptiesIn: (area) => this.emptiesIn(area),
