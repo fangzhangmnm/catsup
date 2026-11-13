@@ -55,7 +55,7 @@ export class KnifeRefused extends Error {}
  * 切之前验一道（笔的设计稿第八节第 2 条；只读，不改 k）。路径里有面里的点 = 必须是「环上一点 → 面里的点… → 环上一点」，两头都在面 f 的环上：
  *   先在副本上（只算位置）拼出劈开后的两个环，各自投到自己的拟合平面上（和三角化同一个投影：planeOfRing + planeBasis）：
  *   新长的那几段不许和别的边相交、不许折回去，两个环的绕向都和原面一样（Newell 同向）；面里的每个点离原面的三角形不超过 COPLANAR_TOL_DEFAULT。
- * 只有两个环上点、没有面里的点（一刀直的）照同一道验（刀线出了凹的面 = 拦）。三个以上的环上点（老指令）不验，照旧一段一段切。
+ * 只有两个环上点、没有面里的点（一刀直的）照同一道验（刀线出了凹的面 = 拦）。一刀只有两头：三个以上的环上点 = 拦（统筹审后 1：不留不验的旁路）。
  * 通过 = null；拦 = 一句说事实的话。工具预演刀线的颜色用同一个函数。
  */
 export function knifeCheck(k: MeshKernel, f: number, path: readonly KnifeStop[]): string | null {
@@ -63,7 +63,7 @@ export function knifeCheck(k: MeshKernel, f: number, path: readonly KnifeStop[])
   const ringStops = path.filter((s) => !("p" in s)), inner = path.filter((s): s is { p: Pt3 } => "p" in s).map((s) => s.p);
   if (path.length && "p" in path[0]) return "从面中间起刀还没做：第一个点要在点或边上";
   if (path.length && "p" in path[path.length - 1]) return "刀线还没切到边上：最后一个点要在这张面的点或边上";
-  if (ringStops.length > 2) return inner.length ? "一刀只能在一张面里拐弯：中间不能再碰到边" : null;
+  if (ringStops.length > 2) return "一刀只能在一张面里拐弯：中间不能再碰到边";
   if (ringStops.length < 2) return "一刀要两个点";
   const r = k.faceVerts(f), n = r.length, P = r.map((v) => k.pt(v));
   // 环上点在原环上的位置：顶点 = 它的下标；边上的点 = 那条边起点的下标 + 沿环方向的参数（0..1）
@@ -71,6 +71,7 @@ export function knifeCheck(k: MeshKernel, f: number, path: readonly KnifeStop[])
     if ("v" in s) { const i = r.indexOf(s.v); return i < 0 ? "这个点不在这张面的边上" : { i, u: 0, p: P[i] }; }
     if ("e" in s) {
       if (!k.hasE(s.e)) return "这条边已经不在了";
+      if (!(s.t > 0 && s.t < 1)) return "边上的点要落在边的中间";   // t = 0 / 1 = 和端点重合（统筹审后 2：工具夹在 0.001–0.999，这一道给重放和小窗改数）
       const A = k.edgeA[s.e], B = k.edgeB[s.e];
       for (let i = 0; i < n; i++) {
         const j = (i + 1) % n;
@@ -136,36 +137,19 @@ export function knifeCheck(k: MeshKernel, f: number, path: readonly KnifeStop[])
 }
 
 /**
- * 刀：面 f 上按顺序一串落点（KnifeStop）。返回沿刀口的顶点序列（面里的点 = 新点，按折线的先后）。
- * 两个环上点（中间可以夹面里的点）= 一刀：先 knifeCheck，拦下来就抛 KnifeRefused、一个数都不动；过了 = 劈边（边上的点）+ splitFaceAlong。
- * 三个以上环上点、没有面里的点 = 老指令：一段一段切（不验）。
+ * 刀：面 f 上一刀 = 「环上一点 → 面里的点… → 环上一点」（KnifeStop；面里的点可以零个）。返回沿刀口的顶点序列（面里的点 = 新点，按折线的先后）。
+ * 先 knifeCheck，拦下来就抛 KnifeRefused、一个数都不动；过了 = 劈边（边上的点）+ splitFaceAlong。两点之间已经有边、没有拐点 = 什么都不切（和以前一样）。
  */
 export function knife(k: MeshKernel, f: number, path: readonly KnifeStop[]): number[] {
   const ringStops = path.filter((s) => !("p" in s)) as ({ v: number } | { e: number; t: number })[];
   const inner = path.filter((s): s is { p: Pt3 } => "p" in s).map((s) => s.p);
-  if (ringStops.length <= 2) {
-    const why = knifeCheck(k, f, path);
-    if (why && !(why.startsWith("这两个点之间已经有边了") && !inner.length)) throw new KnifeRefused(why);
-    const s0 = ringStops[0], A = "e" in s0 ? k.edgeA[s0.e] : -1, B = "e" in s0 ? k.edgeB[s0.e] : -1;   // 两个点在同一条边上：劈完第一个，那条边就没了，第二个改指劈出来的那一半
-    const a = toVert(k, s0), s1 = ringStops[1];
-    const b = toVert(k, "e" in s0 && "e" in s1 && s1.e === s0.e ? onHalf(k, A, a, B, s0.t, s1.t) : s1);
-    if (why) return [a, b];   // 已经相邻：边已在（和以前一样，什么都不切）
-    return [a, ...splitFaceAlong(k, f, a, b, inner).verts, b];
-  }
-  if (inner.length) throw new KnifeRefused("一刀只能在一张面里拐弯：中间不能再碰到边");
-  const verts = ringStops.map((s) => toVert(k, s));
-  let cur = f;
-  for (let i = 0; i + 1 < verts.length; i++) {
-    const a = verts[i], b = verts[i + 1];
-    // 找到同时含 a、b 的面（刀切过一次后 b 可能在新面上）
-    const cand = [cur, ...k.faces()].find((ff) => k.hasF(ff) && k.faceVerts(ff).includes(a) && k.faceVerts(ff).includes(b));
-    if (cand === undefined) throw new Error(`knife: no face contains both ${a} and ${b}`);
-    const r = k.faceVerts(cand), ia = r.indexOf(a), ib = r.indexOf(b);
-    if ((ib - ia + r.length) % r.length === 1 || (ia - ib + r.length) % r.length === 1) { cur = cand; continue; }   // 已经相邻：边已在
-    const nf = splitFaceAlong(k, cand, a, b).face;
-    cur = k.faceVerts(nf).includes(b) ? nf : cand;
-  }
-  return verts;
+  const why = knifeCheck(k, f, path);
+  if (why && !(why.startsWith("这两个点之间已经有边了") && !inner.length)) throw new KnifeRefused(why);
+  const s0 = ringStops[0], A = "e" in s0 ? k.edgeA[s0.e] : -1, B = "e" in s0 ? k.edgeB[s0.e] : -1;   // 两个点在同一条边上：劈完第一个，那条边就没了，第二个改指劈出来的那一半
+  const a = toVert(k, s0), s1 = ringStops[1];
+  const b = toVert(k, "e" in s0 && "e" in s1 && s1.e === s0.e ? onHalf(k, A, a, B, s0.t, s1.t) : s1);
+  if (why) return [a, b];   // 已经相邻：边已在（和以前一样，什么都不切）
+  return [a, ...splitFaceAlong(k, f, a, b, inner).verts, b];
 }
 
 const toVert = (k: MeshKernel, s: { v: number } | { e: number; t: number }): number => ("v" in s ? s.v : splitEdge(k, s.e, s.t));

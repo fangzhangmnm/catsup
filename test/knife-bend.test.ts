@@ -90,6 +90,37 @@ describe("不平的四边形上拐弯切", () => {
   });
 });
 
+describe("角抬起来的四边形（做角色时常见的不平；统筹审后 3：确认不是误拦）", () => {
+  /** 边长 1 的正方形，一个角抬起边长的三成。 */
+  const lifted = (): { k: MeshKernel; f: number; e: number[] } => {
+    const k = new MeshKernel(), v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0.3), P(0, 1, 0)].map((p) => k.addVertex(p)), f = k.addFace(v, FRESH);
+    return { k, f, e: [0, 1, 2, 3].map((i) => k.edgeOf(v[i], v[(i + 1) % 4])) };
+  };
+  const mid = (e: number): KnifeStop => ({ e, t: 0.5 });
+  const cut = (pick: (x: { k: MeshKernel; f: number; e: number[] }) => KnifeStop[], label: string): void => {
+    const x = lifted(), n0 = newell(x.k.facePts(x.f)), path = pick(x);
+    eq(knifeCheck(x.k, x.f, path), null, label);
+    const s = new Set(x.k.faces()); knife(x.k, x.f, path);
+    const g = x.k.faces().find((y) => !s.has(y))!;
+    eq(x.k.check().join(";"), "", label);
+    assert(trisAlong(x.k, x.f, n0) && trisAlong(x.k, g, n0), `${label}：两张面的三角形都和原面同向`);
+  };
+  /** 面里的点：落在原面画出来的三角形上（和工具一样），取 (0.5, 0.5) 那一处。 */
+  const center = (k: MeshKernel, f: number): Pt3 => { const ps = k.facePts(f); for (const [a, b, c] of k.faceTriangles(f)) { const A = ps[a], B = ps[b], C = ps[c], d = (B.x - A.x) * (C.y - A.y) - (C.x - A.x) * (B.y - A.y), u = ((0.5 - A.x) * (C.y - A.y) - (C.x - A.x) * (0.5 - A.y)) / d, w = ((B.x - A.x) * (0.5 - A.y) - (0.5 - A.x) * (B.y - A.y)) / d; if (u >= 0 && w >= 0 && u + w <= 1) return P(A.x + (B.x - A.x) * u + (C.x - A.x) * w, A.y + (B.y - A.y) * u + (C.y - A.y) * w, A.z + (B.z - A.z) * u + (C.z - A.z) * w); } throw new Error("中心不在三角形上"); };
+  it("一条边的中点直切到对边的中点（两对都试）", () => { cut(({ e }) => [mid(e[0]), mid(e[2])], "0 → 2"); cut(({ e }) => [mid(e[1]), mid(e[3])], "1 → 3"); });
+  it("切到相邻边的中点（四个角都试，含抬起来的那个角）", () => { for (let i = 0; i < 4; i++) cut(({ e }) => [mid(e[i]), mid(e[(i + 1) % 4])], `${i} → ${(i + 1) % 4}`); });
+  it("带一个拐点切（拐点在面中间、落在画出来的三角形上）", () => { cut(({ k, f, e }) => [mid(e[0]), { p: center(k, f) }, mid(e[2])], "0 → 中 → 2"); cut(({ k, f, e }) => [mid(e[1]), { p: center(k, f) }, mid(e[3])], "1 → 中 → 3"); });
+});
+
+describe("边上的点 t 要在 0 和 1 之间（统筹审后 2）", () => {
+  it("t = 0 / t = 1 = 拦", () => {
+    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));
+    const f = front(k), left = edgeAt(k, f, P(0, 0, 0), P(0, 0, 1)), right = edgeAt(k, f, P(1, 0, 0), P(1, 0, 1));
+    eq(knifeCheck(k, f, [{ e: left, t: 0 }, { e: right, t: 0.5 }]), "边上的点要落在边的中间");
+    eq(knifeCheck(k, f, [{ e: left, t: 0.5 }, { e: right, t: 1 }]), "边上的点要落在边的中间");
+  });
+});
+
 describe("随机对拍：凸面 / 凹面上随机折线 2000 次", () => {
   /** 确定的随机数（mulberry32）。 */
   const rng = (seed: number): (() => number) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };

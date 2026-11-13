@@ -49,7 +49,9 @@ export function meshSnapTarget(ctx: ToolCtx, s: { x: number; y: number }, moving
   return Number.isFinite(bt) ? { p: add3(ray.origin, scale3(ray.dir, bt)), kind: "on-face" } : null;
 }
 /** 射线 × 三角形（Möller–Trumbore）：命中的射线参数（> 0），没中 = null。 */
-function rayTri(o: Pt3, d: Pt3, a: Pt3, b: Pt3, c: Pt3): number | null {
+function rayTri(o: Pt3, d: Pt3, a: Pt3, b: Pt3, c: Pt3): number | null { return rayTriHit(o, d, a, b, c)?.t ?? null; }
+/** 射线 × 三角形（Möller–Trumbore）：命中 = 射线参数 t（> 0）+ 重心坐标 u、v（点 = a + (b − a)·u + (c − a)·v）；没中 = null。刀在面里的点用重心坐标换回定义坐标。 */
+export function rayTriHit(o: Pt3, d: Pt3, a: Pt3, b: Pt3, c: Pt3): { t: number; u: number; v: number } | null {
   const e1 = sub3(b, a), e2 = sub3(c, a), p = cross3(d, e2), det = dot3(e1, p);
   if (Math.abs(det) < 1e-12) return null;
   const inv = 1 / det, tv = sub3(o, a), u = dot3(tv, p) * inv;
@@ -57,6 +59,6 @@ function rayTri(o: Pt3, d: Pt3, a: Pt3, b: Pt3, c: Pt3): number | null {
   const q = cross3(tv, e1), v = dot3(d, q) * inv;
   if (v < 0 || u + v > 1) return null;
   const t = dot3(e2, q) * inv;
-  return t > 1e-9 ? t : null;
+  return t > 1e-9 ? { t, u, v } : null;
 }
 

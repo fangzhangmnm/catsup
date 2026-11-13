@@ -18,7 +18,8 @@
 //   · 不带 XOR（FM11「好刀不要xor」）：去边归溶解。停在面中间（悬线）还没做（网格面是简单环，悬线要另一种表示）。
 import type { Pt3 } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
-import { knife, loopCuts } from "../../mesh/ops/index.ts";
+import { knife, knifeCheck, KnifeRefused, loopCuts, type KnifeStop } from "../../mesh/ops/index.ts";
+import { rayTriHit } from "./mesh-snap.ts";
 import { LOOP_CUT_DEFAULTS, LOOP_CUT_FIELDS, loopCutArgs } from "../mesh-edits/loop-cut-fields.ts";
 import type { ParamField, ParamValue } from "../param-panel.ts";
 import { applyPt } from "../../scene/xform.ts";
@@ -34,9 +35,12 @@ const HINT_NEXT = "切割：接着找下一个点（同一张面上的点或边�
 export type KnifePoint = { v: number } | { e: number; t: number };
 /** 吸附关着时，离端点不到这么多屏幕像素 = 就是那个端点（统筹 11-13：免得切出看不见的碎边）。 */
 export const KNIFE_END_PX = 2;
-type Hit = { pt: KnifePoint; w: Pt3; kind: SnapKind };
-/** 这一串里切成的一刀（马后炮重切用）：提交的那条记录 + 刀口上的顶点（和 path 一一对应）。 */
-type Cut = { def: number; face: number; path: [KnifePoint, KnifePoint]; verts: number[] };
+/** 落点：点 / 边上的点（环上）；或者面里的点（第七节第 4 步：local = 定义坐标，笔正下方那一点、不吸附）。 */
+type RingHit = { pt: KnifePoint; w: Pt3; kind: SnapKind };
+type FaceHit = { face: number; local: Pt3; w: Pt3; kind: "on-face" };
+type Hit = RingHit | FaceHit;
+/** 这一串里切成的一刀（马后炮重切用）：提交的那条记录 + 刀口上的顶点（和 path 一一对应：面里的点 = 新点）。 */
+type Cut = { def: number; face: number; path: KnifeStop[]; verts: number[] };
 
 /** 一个落点在哪几张面上（点 = 围着它的面；边上的点 = 边两侧的面）。 */
 function facesAt(m: MeshKernel, p: KnifePoint): number[] {
@@ -70,6 +74,8 @@ export class MeshKnifeTool implements ToolHandler {
   private startW: Pt3 | null = null;
   private startKind: SnapKind = "endpoint";
   private hov: Hit | null = null;
+  /** 在面里拐过的弯（还没切到边的那一段：只是预演，不进撤销；放弃 = 什么都没发生）：哪张面、拐点（定义坐标 / 世界坐标）。第一个面里的点定下是哪张面。 */
+  private bend: { face: number; pts: Pt3[]; ws: Pt3[] } | null = null;
   /** Ctrl+R 预备：下一下点到边上直接环切（Blender Ctrl+R；纪元账本 FM10「也加一个模式按钮」）。 */
   private loopNext = false;
   armLoop(ctx: ToolCtx): void { this.cancel(); this.loopNext = true; ctx.hint("环切：点一条边（四边形带上的）就切一圈；Esc 取消"); }
@@ -82,9 +88,9 @@ export class MeshKnifeTool implements ToolHandler {
   active(): boolean { return this.start !== null || this.input.pressing(); }
   /** 松着手、已经有起点 = 在等下一下：回车 = 在光标处点一下（底座 confirmGesture）。 */
   awaitsClick(): boolean { return this.start !== null && !this.input.pressing(); }
-  cancel(): void { this.start = this.startW = null; this.hov = null; this.cursorS = null; this.input.cancel(); this.chain = []; }
+  cancel(): void { this.start = this.startW = null; this.hov = null; this.cursorS = null; this.input.cancel(); this.chain = []; this.bend = null; }
   sample(): Record<string, number> { return {}; }
-  describe(): Record<string, unknown> { return { meshKnife: { start: this.start, hov: this.hov?.pt ?? null, pressing: this.input.pressing() } }; }
+  describe(): Record<string, unknown> { const h = this.hov; return { meshKnife: { start: this.start, hov: h ? ("face" in h ? { face: h.face } : h.pt) : null, pressing: this.input.pressing(), bend: this.bend ? { face: this.bend.face, n: this.bend.pts.length } : null } }; }
 
   /** 悬着（鼠标没按、笔悬空、还没有起点）= 只找位置：落点标记跟着，不碰提示行。 */
   hover(ctx: ToolCtx, s: { x: number; y: number }): void {
@@ -103,7 +109,7 @@ export class MeshKnifeTool implements ToolHandler {
   }
   /** 屏幕点 → 过上一个落点、垂直于视线的平面上的点（每帧现算，见 cursorS）。 */
   private onPlane(ctx: ToolCtx, s: { x: number; y: number }): Pt3 | null {
-    const a = this.startW;
+    const a = this.bend?.ws[this.bend.ws.length - 1] ?? this.startW;   // 拐过弯 = 从最后一个拐点量
     if (!a) return null;
     const vp = ctx.vp(), fr = ctx.frame(), pa = fr.project?.(a, vp), n = fr.ray(pa?.x ?? s.x, pa?.y ?? s.y, vp).dir, r = fr.ray(s.x, s.y, vp);
     const den = n.x * r.dir.x + n.y * r.dir.y + n.z * r.dir.z;
@@ -111,19 +117,31 @@ export class MeshKnifeTool implements ToolHandler {
     const t = (n.x * (a.x - r.origin.x) + n.y * (a.y - r.origin.y) + n.z * (a.z - r.origin.z)) / den;
     return { x: r.origin.x + r.dir.x * t, y: r.origin.y + r.dir.y * t, z: r.origin.z + r.dir.z * t };
   }
-  /** 现在这一下切不切得出来（刀线的颜色）。 */
+  /** 现在这一下切不切得出来（刀线的颜色）：落在环上 = 和提交同一个 knifeCheck；落在面里 = 这张面能接着拐（拐弯的那张 / 挨着起点的）。 */
   private validNow(ctx: ToolCtx): boolean {
     const a = this.start, h = this.hov;
     if (!a || !h) return false;
-    const m = ctx.mesh(), b = h.pt;
-    return !cutsNothing(m, a, b) && commonFace(m, a, b) !== null;
+    const m = ctx.mesh();
+    if ("face" in h) return this.bend ? h.face === this.bend.face : facesAt(m, a).includes(h.face);
+    const plan = this.planTo(m, h.pt);
+    return !!plan && !("why" in plan);
+  }
+  /** 从起点（经过拐点）到环上这一点的一刀：哪张面、整条路径；切不出 = null（两点之间已经有边）；验不过 = 原因（knifeCheck 那一句）。 */
+  private planTo(m: MeshKernel, b: KnifePoint): { face: number; path: KnifeStop[] } | { why: string } | null {
+    const a = this.start!;
+    if (this.bend) { const path: KnifeStop[] = [a, ...this.bend.pts.map((p) => ({ p })), b], why = knifeCheck(m, this.bend.face, path); return why ? { why } : { face: this.bend.face, path }; }
+    if (cutsNothing(m, a, b)) return null;
+    const face = commonFace(m, a, b);
+    if (face === null) return { why: "两个点不在同一张面上（先切到中间那条边上，再接着切）" };
+    const why = knifeCheck(m, face, [a, b]);
+    return why ? { why } : { face, path: [a, b] };
   }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.loopNext) {
       const h = this.snapAt(ctx, ev);
       this.loopNext = false;
-      if (h && "e" in h.pt) { const sel = ctx.selection(); this.hadSel = sel.faces.size > 0 || sel.edges.size > 0 || sel.verts.size > 0; this.loopCutAt(ctx, h.pt.e); return; }
+      if (h && "pt" in h && "e" in h.pt) { const sel = ctx.selection(); this.hadSel = sel.faces.size > 0 || sel.edges.size > 0 || sel.verts.size > 0; this.loopCutAt(ctx, h.pt.e); return; }
       ctx.hint("环切：要点在边上（Ctrl+R 再来一次）"); return;
     }
     this.input.down(ctx, ev);
@@ -132,10 +150,19 @@ export class MeshKnifeTool implements ToolHandler {
 
   up(ctx: ToolCtx, ev: ToolPointer): void { if (this.input.pressing()) this.input.up(ctx, ev); }
 
-  /** 下点（seek-input 的口）：在现在的落点标记上下一点——第一个点 = 起点；之后每一点都和上一个点切一刀（= 一步撤销），接着从这一点往下切（面中间、边、点都一样）。 */
+  /** 下点（seek-input 的口）：在现在的落点标记上下一点——第一个点 = 起点；面里的点 = 拐一个弯（第一个定下是哪张面）；环上的点 = 从上一个点（经过拐点）切一刀（= 一步撤销），接着从这一点往下切。 */
   private placeHere(ctx: ToolCtx): void {
-    const h = this.hov;
-    if (!h) { ctx.hint(this.start ? "切割：下点要在点或边上（停在面中间还没做）；抬笔 / Esc / 左下「收刀」收刀" : HINT_FIRST); return; }
+    const h = this.hov, m = ctx.mesh();
+    if (!h) { ctx.hint(this.start ? "切割：下点要在点、边或者面上；抬笔 / Esc / 左下「收刀」收刀" : HINT_FIRST); return; }
+    if ("face" in h) {   // 面里的点（第七节第 4 步）
+      if (!this.start) { ctx.hint("切割：从面中间起刀还没做，第一个点要在点或边上"); return; }
+      if (this.bend && h.face !== this.bend.face) { ctx.hint("切割：一刀只能在一张面里拐弯（这一点在另一张面上）；先切到这张面的边上"); return; }
+      if (!this.bend && !facesAt(m, this.start).includes(h.face)) { ctx.hint("切割：这张面不挨着起点（起点要在这张面的点或边上）"); return; }
+      this.bend ??= { face: h.face, pts: [], ws: [] };
+      this.bend.pts.push(h.local); this.bend.ws.push(h.w);
+      ctx.hint("切割：在面里拐了一个弯；接着拐，或者切到这张面的点或边上");
+      return;
+    }
     if (!this.start) {
       const sel = ctx.selection(); this.hadSel = sel.faces.size > 0 || sel.edges.size > 0 || sel.verts.size > 0;
       this.chain = []; this.chainOps0 = ctx.opCount();
@@ -143,38 +170,40 @@ export class MeshKnifeTool implements ToolHandler {
       ctx.hint(HINT_NEXT);
       return;
     }
-    const a = this.start, b = h.pt, m = ctx.mesh(), def = ctx.activePool().def;
-    if (cutsNothing(m, a, b)) { this.setStart(ctx, h); ctx.hint("切割：这两个点之间已经有边了，从这里接着切"); return; }   // 起点挪到新点（W-2：以前边上的点不挪、提示却说「从这里」）
-    const face = commonFace(m, a, b);
-    if (face === null) { this.settle(ctx); ctx.hint("切割：两个点不在同一张面上（先切到中间那条边上，再接着切）"); return; }
-    const probe = m.clone(), verts = knife(probe, face, [a, b]);   // 先在副本上切一遍拿新点的 id（提交 = 同一份内核 + 同一组参数 = 同一批 id）
-    ctx.commitOp({ op: "meshKnife", def, face, path: [a, b] });
-    this.chain.push({ def, face, path: [a, b], verts });
+    const a = this.start, b = h.pt, def = ctx.activePool().def;
+    if (!this.bend && cutsNothing(m, a, b)) { this.setStart(ctx, h); ctx.hint("切割：这两个点之间已经有边了，从这里接着切"); return; }   // 起点挪到新点（W-2：以前边上的点不挪、提示却说「从这里」）
+    const plan = this.planTo(m, b);
+    if (!plan) return;
+    if ("why" in plan) { if (!this.bend) this.settle(ctx); ctx.hint(`切割：${plan.why}`); return; }   // 拐过弯的这一段留着（只是预演）：换一个终点，或者 Esc 放弃
+    const probe = m.clone(), verts = knife(probe, plan.face, plan.path);   // 先在副本上切一遍拿新点的 id（提交 = 同一份内核 + 同一组参数 = 同一批 id）
+    ctx.commitOp({ op: "meshKnife", def, face: plan.face, path: plan.path });
+    this.chain.push({ def, face: plan.face, path: plan.path, verts });
+    this.bend = null;
     this.setStart(ctx, { pt: { v: verts[verts.length - 1] }, w: h.w, kind: "endpoint" });
     ctx.hint(`切了一刀；${HINT_NEXT.slice(3)}`);
   }
   /** 抬笔（seek-input 的口；报压感的笔抬起、宽限过了）= 收刀：已经切好的留着、进小窗，还没切到的那一段丢掉（和 Esc、左下「收刀」同一段 endChain）。还没有起点 = 什么都不做。 */
   private liftEnd(ctx: ToolCtx): void { if (this.start) ctx.endChain(); else { this.hov = null; ctx.setSnap(null); } }
   /** 定下一个点（第一个点 / 切到的点 / 挪过去的起点）：起点换成它。 */
-  private setStart(ctx: ToolCtx, h: Hit): void { this.start = h.pt; this.startW = h.w; this.startKind = h.kind; ctx.setAnchor(h.w); this.settle(ctx); }
+  private setStart(ctx: ToolCtx, h: RingHit): void { this.start = h.pt; this.startW = h.w; this.startKind = h.kind; ctx.setAnchor(h.w); this.settle(ctx); }
   /** 松手之后：找落点时的落点 / 光标丢掉（不留连到别处的线），标记留在起点上——笔没有悬停，不然看不出起点在哪；下一次按下再清（down）。 */
   private settle(ctx: ToolCtx): void { this.hov = null; this.cursorS = null; ctx.setCursor(null); ctx.setSnap(this.startW ? { p: this.startW, kind: this.startKind } : null); }
 
   live(ctx: ToolCtx, preview: PreviewOp): string {
     const a = this.start, h = this.hov;
     if (!a || !h) return "";
-    const m = ctx.mesh(), b = h.pt;
-    if (cutsNothing(m, a, b)) return "";
-    const face = commonFace(m, a, b);
-    if (face === null) return "不在同一张面上";
-    preview({ op: "meshKnife", def: ctx.activePool().def, face, path: [a, b] });
-    return "切一刀";
+    if ("face" in h) return this.bend ? "拐弯" : "";   // 面里：还没切到边，只画刀线
+    const plan = this.planTo(ctx.mesh(), h.pt);
+    if (!plan) return "";
+    if ("why" in plan) return plan.why;
+    preview({ op: "meshKnife", def: ctx.activePool().def, face: plan.face, path: plan.path });
+    return this.bend ? "沿折线切一刀" : "切一刀";
   }
 
   viewExtras(ctx: ToolCtx): Partial<ViewState> {   // 刀没退出就一直画刀线（切不出来 = 灰；不被几何挡）；没落点 = 画到光标（每帧按屏幕位置现算）
     if (!this.startW) return {};
     const b = this.hov?.w ?? (this.cursorS ? this.onPlane(ctx, this.cursorS) : null);
-    return b ? { knifeLine: { a: this.startW, b, valid: this.validNow(ctx) } } : {};
+    return b ? { knifeLine: { a: this.startW, b, valid: this.validNow(ctx), ...(this.bend ? { via: this.bend.ws } : {}) } } : {};
   }
 
   private loopCutAt(ctx: ToolCtx, e: number): void {
@@ -201,8 +230,8 @@ export class MeshKnifeTool implements ToolHandler {
     const chain = this.chain, nOps = ctx.opCount() - this.chainOps0;
     this.chain = [];
     ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
-    const rows: { key: string; i: number; j: 0 | 1; t: number }[] = [];
-    chain.forEach((c, i) => ([0, 1] as const).forEach((j) => { const p = c.path[j]; if ("e" in p) rows.push({ key: `p${rows.length}`, i, j, t: p.t }); }));
+    const rows: { key: string; i: number; j: number; t: number }[] = [];
+    chain.forEach((c, i) => [0, c.path.length - 1].forEach((j) => { const p = c.path[j]; if ("e" in p) rows.push({ key: `p${rows.length}`, i, j, t: p.t }); }));   // 只列两头落在边上的；面里的拐点这一版不列（第八节第 4 条）
     if (!chain.length || !rows.length || nOps <= 0) return;   // 一刀没切成 / 落点全在顶点上 = 不开
     const fields: ParamField[] = rows.map((r, n) => ({ key: r.key, def: { kind: "number", label: `第 ${n + 1} 点`, min: 0, max: 1, step: 0.01 } }));
     const shown: Record<string, ParamValue> = Object.fromEntries(rows.map((r) => [r.key, Math.round(r.t * 1000) / 1000]));
@@ -212,7 +241,7 @@ export class MeshKnifeTool implements ToolHandler {
       ctx.setSnap(v !== undefined && m.hasV(v) ? { p: applyPt(ctx.ctxXform(), m.pt(v)), kind: "on-edge" } : null);
     };
     ctx.offerAfterthought("切割", fields, shown, nOps, (vals, restoring) => {
-      const cuts = chain.map((c): Cut => ({ ...c, path: [c.path[0], c.path[1]] }));
+      const cuts = chain.map((c): Cut => ({ ...c, path: [...c.path] }));
       for (const [n, r] of rows.entries()) {
         const t = vals[r.key] === shown[r.key] ? r.t : Number(vals[r.key]);   // 没动的那几行用原来的精确值（小窗里显示的是舍入的）
         if (!(t > 0.001 && t < 0.999)) { ctx.hint(`切割：第 ${n + 1} 点拖到了边的端头上（要在 0 和 1 之间），退回原来的位置`); return false; }
@@ -221,7 +250,7 @@ export class MeshKnifeTool implements ToolHandler {
       }
       const probe = ctx.mesh().clone(), got: number[][] = [];
       try { for (const c of cuts) got.push(knife(probe, c.face, c.path)); }
-      catch { ctx.hint("切割：按这个位置切不出来，退回原来的位置"); return false; }   // 先在副本上切一遍：切不成 = 一条都不提交
+      catch (err) { ctx.hint(err instanceof KnifeRefused ? `切割：按这个位置${err.message}，退回原来的位置` : "切割：按这个位置切不出来，退回原来的位置"); return false; }   // 先在副本上切一遍：切不成 = 一条都不提交（验那一道说的原因照写）
       for (const c of cuts) ctx.commitOp({ op: "meshKnife", def: c.def, face: c.face, path: c.path });
       verts = got;
       if (!restoring) ctx.hint(`切割：按新位置重切了 ${cuts.length} 刀`);
@@ -239,6 +268,7 @@ export class MeshKnifeTool implements ToolHandler {
     const c = ctx.classify(ctx.world(), ctx.pickStatic(s.x, s.y));   // 真身的拓扑（预演里那条边已经劈开了）
     if (c.kind !== "entity") return null;
     const m = ctx.mesh(), X = ctx.ctxXform(), h = c.local;
+    if (h.vertex === undefined && h.edge === undefined) return h.face !== undefined && this.start ? this.faceAt(ctx, s, h.face) : null;   // 面里：有起点了才算（拐弯；第一个点要在点或边上）
     if (ctx.snapBase() === ctx.mods().shift) return this.freeAt(ctx, s, h);   // 吸附关着（底 XOR Shift = 关）：笔正下方那一点（2026-11-13 user）
     if (h.vertex !== undefined && m.hasV(h.vertex)) return { pt: { v: h.vertex }, w: applyPt(X, m.pt(h.vertex)), kind: "endpoint" };
     if (h.edge !== undefined && m.hasE(h.edge)) {
@@ -250,6 +280,19 @@ export class MeshKnifeTool implements ToolHandler {
       return { pt: { e: h.edge, t }, w: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t }, kind: "on-edge" };
     }
     return null;
+  }
+  /** 面里的点 = 笔正下方那一点（不吸附，吸附开着也一样；第八节第 4 条）：射线打这张面画出来的三角形，重心坐标换回定义坐标（落在三角形上，离面 0）。 */
+  private faceAt(ctx: ToolCtx, s: { x: number; y: number }, f: number): FaceHit | null {
+    const m = ctx.mesh();
+    if (!m.hasF(f)) return null;
+    const X = ctx.ctxXform(), ps = m.facePts(f), ws = ps.map((p) => applyPt(X, p)), ray = ctx.frame().ray(s.x, s.y, ctx.vp());
+    const at = (A: Pt3, B: Pt3, C: Pt3, u: number, v: number): Pt3 => ({ x: A.x + (B.x - A.x) * u + (C.x - A.x) * v, y: A.y + (B.y - A.y) * u + (C.y - A.y) * v, z: A.z + (B.z - A.z) * u + (C.z - A.z) * v });
+    let best: FaceHit | null = null, bt = Infinity;
+    for (const [a, b, c] of m.faceTriangles(f)) {
+      const r = rayTriHit(ray.origin, ray.dir, ws[a], ws[b], ws[c]);
+      if (r && r.t < bt) { bt = r.t; best = { face: f, local: at(ps[a], ps[b], ps[c], r.u, r.v), w: at(ws[a], ws[b], ws[c], r.u, r.v), kind: "on-face" }; }
+    }
+    return best;
   }
   /**
    * 吸附关着的落点：拾取给了边 = 那条边；只给了点 = 这个点连着的边里离笔最近的那条（屏幕上）。边上取笔正下方那一点（不拽到中点）；

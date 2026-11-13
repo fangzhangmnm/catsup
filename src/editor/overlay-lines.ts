@@ -206,9 +206,9 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): AuxLines[] {
   // ---- 切割的刀线（最上层）----
   const kl = view.knifeLine;
   if (kl) {
-    const kk = `${kl.a.x},${kl.a.y},${kl.a.z}>${kl.b.x},${kl.b.y},${kl.b.z}|${kl.valid}`;
+    const pts = [kl.a, ...(kl.via ?? []), kl.b], kk = `${pts.map((p) => `${p.x},${p.y},${p.z}`).join(">")}|${kl.valid}`;
     const s = segs();
-    push(s, kl.a, kl.b, kl.valid ? "selected" : "disabled");
+    for (let i = 0; i + 1 < pts.length; i++) push(s, pts[i], pts[i + 1], kl.valid ? "selected" : "disabled");   // 面里拐过的点一段一段连
     out.push(lines("knife", "knife", kk, s));
   }
   // ---- 吸附提示线（小球归后端的标记）----

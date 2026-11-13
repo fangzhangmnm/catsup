@@ -88,7 +88,7 @@ export interface ViewState {
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
   tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
   /** 切割的刀线（上一个落点 → 光标）：永远画在最上面、不被几何挡（user 10-27「线还是需要画的，以及线不要被别的遮挡了。这样用户知道自己没退出刀」）；valid = 这一刀切得出来。 */
-  knifeLine?: { a: Pt3; b: Pt3; valid: boolean } | null;
+  knifeLine?: { a: Pt3; b: Pt3; valid: boolean; via?: readonly Pt3[] } | null;   // via = 面里拐过的点（a → via… → b；笔的设计稿第八节）
 }
 
 /**
