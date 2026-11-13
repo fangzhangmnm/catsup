@@ -97,10 +97,8 @@ export declare class History<M = unknown> {
     /**
      * 第 from 条指令起（到现在）某个定义第一次被改之前的那份网格体（施工单十八第 2 刀：收尾比这一步前后、记空出来的地方；只读，不延长那份的寿命——它本来就是撤销记录）。
      * 找法：最早一条网格体档的记录（影子 = 那一下之前的表）或整场景档的快照（深拷）；都没有、只有骨架快照 = 这一步没换过它的表：定义还在 = unchanged，
-     * 定义这一步没了 = 骨架快照里共用的那份（没人再改过它）。slots = 那时的速查表（网格体档的记录不带：速查表只往后加，用现在的）。
+     * 定义这一步没了 = 骨架快照里共用的那份（没人再改过它）。只给内核，不给速查表：翻代号用一步开始时拷的那份（editor/paint-freed.ts FreedBase.slots，统筹预审 C）。
      */
-    /** 定义这一步没了时它的速查表：这一步里任何一份场景快照里的（速查表只往后加，哪一份都一样能翻代号）。 */
-    private slotsInStep;
     meshBefore(def: DefId, from: number): {
         kind: "unchanged";
     } | {
@@ -108,7 +106,6 @@ export declare class History<M = unknown> {
     } | {
         kind: "mesh";
         kernel: MeshKernel;
-        slots: readonly string[] | null;
     };
     log(): readonly Op[];
     /** 撤销记录占的字节（估计）。 */

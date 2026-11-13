@@ -3,6 +3,15 @@ import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { DefId, Scene } from "../scene/scene.ts";
 /** [x0, y0, x1, y1)，单位格。 */
 export type Rect = readonly [number, number, number, number];
+/**
+ * 一个框和这张画布能到的范围 [0, w) × [0, h) 取交集（统筹预审 B：面角上的坐标是文件里写什么就是什么、退化面上也可能除出无穷大；旧画只可能在画布里）。
+ * 交集不是有限数（NaN）或者是空的 = null（不记、不进索引）。进 RectIndex / 清单之前一律先过这里。
+ */
+export declare function clampToReach(r: Rect, w: number, h: number): Rect | null;
+/** 一套排法画布能到的范围（format/uvset-table.ts freedReach）；表里没有这一行 = null。 */
+export declare function reachOf(s: Scene, g: Guid): readonly [number, number] | null;
+/** 一堆框按一套排法的范围取交集（null 的扔掉）。 */
+export declare function clampAll(rs: readonly Rect[], reach: readonly [number, number]): Rect[];
 /** 一份网格体：内核 + 速查表（代号 → 排法 GUID）。 */
 export interface MeshSide {
     readonly k: MeshKernel;
