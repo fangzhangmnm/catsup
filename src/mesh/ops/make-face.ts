@@ -17,7 +17,9 @@ import type { Pt3 } from "../../kernel/geom.ts";
 
 export type FacePlan =
   | { readonly kind: "fill" }                                   // ① 交给 meshFill（补洞），选区原样
-  | { readonly kind: "ring"; readonly ring: readonly number[]; readonly how: "chain" | "quad" | "points" }
+  | { readonly kind: "ring"; readonly ring: readonly number[]; readonly how: "chain" | "quad" | "points" | "strip" | "corner";
+      /** 填完选区落在哪（顺着填：四边形 = 新的对边、从边来的三角 = 对着原边的点、从点来的三角 = 对着那个点的边）；缺 = 选新面。按点说（新边的编号造了才有）。 */
+      readonly after?: { readonly edge: readonly [number, number] } | { readonly vert: number } }
   | { readonly kind: "edge"; readonly a: number; readonly b: number };
 
 const sub = (a: Pt3, b: Pt3): Pt3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
@@ -26,11 +28,52 @@ const dot = (a: Pt3, b: Pt3): number => a.x * b.x + a.y * b.y + a.z * b.z;
 const len = (a: Pt3): number => Math.hypot(a.x, a.y, a.z);
 const d2 = (a: Pt3, b: Pt3): number => (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
 
+/**
+ * 顺着填（统筹 11-13，user「选中一条边F可以顺着边流往下填」）= 照抄 Blender「Face from Single Vertex or Edge」：
+ * 手册（New Edge/Face from Vertices 那一页，projects.blender.org/blender/blender-manual 的 manual/modeling/meshes/editing/vertex/make_face_edge.rst）原文：
+ * 「If only a single vertex or edge is selected on the boundary of a hole, Blender creates a face using the neighboring edges.」
+ * 「In addition, only the new edge is selected afterwards, making it possible to create another face right away.」
+ * 细则对着 Blender 源码 source/blender/editors/mesh/editmesh_tools.cc 的 edbm_add_edge_face_exec__tricky_extend_sel / edbm_add_edge_face_exec__vert_edge_lookup /
+ * edbm_add_edge_face_exec__tricky_finalize_sel 三个函数核的：
+ *   · 只选着一条边：两头各「除了这条边，正好一条」开口边或裸线、不和这条边挨同一张面 → 远端不同 = 四边形、同一个点 = 三角；填完四边形只选新的对边、三角只选对着原边的点。
+ *   · 只选着一个点：正好两条开口边或裸线（两条同是裸线或同是开口边）、不挨同一张面 → 拐角三角；填完只选对着这个点的边。
+ * 一头零条 / 两条以上 = 不顺着填，说哪一头怎么了（不说「点不够」）。
+ * 「一个点」那一半 user 没点名、统筹转告后说不用拿掉 → 单独一个开关（FILL_CORNER_FROM_VERTEX），要关只关它。
+ */
+export const FILL_CORNER_FROM_VERTEX = true;
+const openAt = (k: MeshKernel, v: number, not: number): number[] => [...k.vEdges(v)].filter((x) => x !== not && k.eFaces(x).length <= 1);
+const shareFace = (k: MeshKernel, x: number, y: number): boolean => k.eFaces(x).some((f) => k.eFaces(y).includes(f));
+const otherEnd = (k: MeshKernel, e: number, v: number): number => (k.edgeA[e] === v ? k.edgeB[e] : k.edgeA[e]);
+function stripFromEdge(k: MeshKernel, e: number, eye: Pt3 | null): FacePlan | string {
+  if (k.eFaces(e).length >= 2) return "顺着填：这条边两边都有面了，不在洞边上（选洞边上的一条边再按）";
+  const a = k.edgeA[e], b = k.edgeB[e], na = openAt(k, a, e).filter((x) => !shareFace(k, x, e)), nb = openAt(k, b, e).filter((x) => !shareFace(k, x, e));
+  const say = (n: number[]): string => (n.length === 0 ? "接不上开口边（不在洞边上）" : `分叉了（那个点上有 ${n.length} 条开口边，不知道往哪接）`);
+  if (na.length !== 1 && nb.length !== 1) return `顺着填：这条边两头都${na.length === nb.length ? say(na) : `不行（一头${say(na)}，另一头${say(nb)}）`}`;
+  if (na.length !== 1 || nb.length !== 1) return `顺着填：这条边有一头${say(na.length !== 1 ? na : nb)}`;
+  const a2 = otherEnd(k, na[0], a), b2 = otherEnd(k, nb[0], b), ring = a2 === b2 ? [a, b, a2] : [a, b, b2, a2];
+  const why = faceBlocker(k, ring);
+  if (why) return `顺着填：${why}`;
+  return { kind: "ring", ring: orient(k, ring, eye), how: "strip", after: a2 === b2 ? { vert: a2 } : { edge: [a2, b2] } };
+}
+function cornerFromVertex(k: MeshKernel, v: number, eye: Pt3 | null): FacePlan | string {
+  const n = openAt(k, v, -1);
+  if (n.length < 2) return "顺着填：这个点不在洞边上（接不上两条开口边）";
+  if (n.length > 2) return `顺着填：这个点分叉了（有 ${n.length} 条开口边，不知道补哪个角）`;
+  if (k.eFaces(n[0]).length !== k.eFaces(n[1]).length) return "顺着填：这个点的两条边一条是裸线、一条挨着面，不知道往哪补";
+  if (shareFace(k, n[0], n[1])) return "顺着填：这个点的两条开口边挨着同一张面（是那张面的尖角，不是洞的拐角）";
+  const p = otherEnd(k, n[0], v), q = otherEnd(k, n[1], v), ring = [v, p, q], why = faceBlocker(k, ring);
+  if (why) return `顺着填：${why}`;
+  return { kind: "ring", ring: orient(k, ring, eye), how: "corner", after: { edge: [p, q] } };
+}
+
 /** 选区说的是哪一种面（只读）。eye = 本地坐标的眼睛位置（旁边没有面时朝它）；null = 不管。 */
 export function planMakeFace(k: MeshKernel, sel: MeshSel, eye: Pt3 | null): FacePlan | string {
   const selE = [...(sel.edges ?? [])].filter((e) => k.hasE(e)).sort((a, b) => a - b), selV = [...(sel.verts ?? [])].filter((v) => k.hasV(v));
   const V = [...new Set([...selV, ...selE.flatMap((e) => [k.edgeA[e], k.edgeB[e]])])].sort((a, b) => a - b);
   if (!V.length) return (sel.faces ?? []).length ? "选的是面——要选点或边（选一圈边 / 几个点）" : "先选点或边";
+  // ⑥ 顺着填（Blender 单边 / 单点 F，见上）：只选着一条边（点只是它的两端）/ 只选着一个点，而且没选面
+  if (!(sel.faces ?? []).length && selE.length === 1 && selV.every((v) => v === k.edgeA[selE[0]] || v === k.edgeB[selE[0]])) return stripFromEdge(k, selE[0], eye);
+  if (FILL_CORNER_FROM_VERTEX && !(sel.faces ?? []).length && !selE.length && selV.length === 1) return cornerFromVertex(k, selV[0], eye);
   // ① 一圈开口的边（或这一圈上的点）= 补洞（现成的）
   const loops = edgeLoops(k, selE.length ? { edges: selE } : { verts: selV });
   if (typeof loops !== "string") {

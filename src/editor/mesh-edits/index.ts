@@ -287,10 +287,14 @@ export const makeFace: Command<MeshUnit> = {
       if (typeof r === "string") return { ops: [], count: 0, notes: [r] };
       return { ops: [{ op: "meshFill", def: u.def, ...(s.edges.length ? { edges: s.edges } : { verts: s.verts }) }], count: 1, select: { faces: r.faces }, notes: ["补了一张面（这一圈开口的边）"] };
     }
-    const ring = p.kind === "edge" ? [p.a, p.b] : [...p.ring], r = makeFaceRing(k.clone(), ring);
+    const ring = p.kind === "edge" ? [p.a, p.b] : [...p.ring], probe = k.clone(), r = makeFaceRing(probe, ring);
     if (typeof r === "string") return { ops: [], count: 0, notes: [r] };
-    const say = p.kind === "edge" ? "两个点之间连了一条边" : p.how === "chain" ? `把这条链的两头接上，造了一张 ${ring.length} 边形` : p.how === "quad" ? "两条边之间造了一张四边形" : `按这些点围成的一圈造了一张 ${ring.length} 边形`;
-    return { ops: [{ op: "meshMakeFace", def: u.def, ring }], count: 1, select: "face" in r ? { faces: [r.face] } : { edges: [r.edge] }, notes: [say] };
+    const after = p.kind === "ring" ? p.after : undefined;   // 顺着填：选区落到新的对边 / 对点上（Blender 同款，连着按 F 往下填）
+    const select = after ? ("edge" in after ? { edges: [probe.edgeOf(after.edge[0], after.edge[1])] } : { verts: [after.vert] }) : "face" in r ? { faces: [r.face] } : { edges: [r.edge] };
+    const say = p.kind === "edge" ? "两个点之间连了一条边" : p.how === "strip" ? (ring.length === 4 ? "顺着填了一张四边形（选区到了新的对边上，接着按 F 往下填）" : "顺着填了一张三角（这个洞补到头了）")
+      : p.how === "corner" ? "拐角补了一张三角（选区到了对边上，接着按 F 往下填）"
+      : p.how === "chain" ? `把这条链的两头接上，造了一张 ${ring.length} 边形` : p.how === "quad" ? "两条边之间造了一张四边形" : `按这些点围成的一圈造了一张 ${ring.length} 边形`;
+    return { ops: [{ op: "meshMakeFace", def: u.def, ring }], count: 1, select, notes: [say] };
   },
   done: () => "造面",
   none: "造面（F）没做",

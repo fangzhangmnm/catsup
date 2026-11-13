@@ -1,7 +1,8 @@
 // 造面（Blender F；mesh/ops/make-face.ts 计划 + duplicate.ts makeFaceRing 造；统筹插队单 11-13）。created 2026-11-13 by Claude Opus 5.5
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { addBox, planMakeFace, makeFaceRing, fillOrBridge, ringNewell } from "../src/mesh/ops/index.ts";
+import { addBox, planMakeFace, makeFaceRing, fillOrBridge, ringNewell, loopCuts } from "../src/mesh/ops/index.ts";
+import { FILL_CORNER_FROM_VERTEX } from "../src/mesh/ops/make-face.ts";
 import { recalcNormals } from "../src/mesh/ops/orient.ts";
 
 const P = (x: number, y: number, z: number) => ({ x, y, z });
@@ -61,9 +62,9 @@ describe("造面：五种选法", () => {
 
 describe("造面：做不了要说原因（什么都不动）", () => {
   const refuse = (k: MeshKernel, sel: { verts?: number[]; edges?: number[] }, has: string) => { const f0 = k.faceCount(), e0 = k.edgeCount(), r = make(k, sel); assert(!!r.err && r.err.includes(has), `该说「${has}」，实际 ${JSON.stringify(r)}`); eq(k.faceCount(), f0); eq(k.edgeCount(), e0); };
-  it("点不够：只选一个点 / 只选一条边", () => {
+  it("只选一个点 / 只选一条边、接不上东西：说具体怎么了（顺着填那条路），不只说「点不够」（统筹 11-13）", () => {
     const k = new MeshKernel(), a = k.addVertex(P(0, 0, 0)), b = k.addVertex(P(1, 0, 0));
-    refuse(k, { verts: [a] }, "点不够"); refuse(k, { edges: [wire(k, a, b)] }, "点不够");
+    refuse(k, { verts: [a] }, "不在洞边上"); refuse(k, { edges: [wire(k, a, b)] }, "接不上开口边");
   });
   it("会造出一条边挂三张面（盒子底上一条已经挂两张面的边）", () => {
     const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));
@@ -97,5 +98,62 @@ describe("造面：做不了要说原因（什么都不动）", () => {
   it("指令那一层自己再核一遍：直接递一个会挂三张面的点序也拒绝", () => {
     const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));
     const r = makeFaceRing(k, [vAt(k, 0, 0, 0), vAt(k, 1, 0, 0), vAt(k, 1, 1, 1)]); assert(typeof r === "string" && r.includes("三张面"), String(r));
+  });
+});
+
+describe("顺着填（Blender 单边 / 单点 F：手册「Face from Single Vertex or Edge」+ 源码 tricky_extend_sel 三个函数）", () => {
+  /** 计划 → 造 → 选区落到哪（按点说的对边 / 对点 → 这一份内核里的编号）。 */
+  const press = (k: MeshKernel, sel: { verts?: number[]; edges?: number[] }): { err?: string; how?: string; n?: number; edge?: number; vert?: number } => {
+    const p = planMakeFace(k, sel, null);
+    if (typeof p === "string") return { err: p };
+    if (p.kind !== "ring") return { err: `不是顺着填：${p.kind}` };
+    const r = makeFaceRing(k, [...p.ring]);
+    if (typeof r === "string") return { err: r };
+    const a = p.after;
+    return { how: p.how, n: p.ring.length, ...(a ? ("edge" in a ? { edge: k.edgeOf(a.edge[0], a.edge[1]) } : { vert: a.vert }) : {}) };
+  };
+  /** 长 5 的盒子切成 5 段，挖掉前面（y = 0）那一溜 5 张面 = 一条带子形的洞。 */
+  const stripBox = (): { k: MeshKernel; left: number } => {
+    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(5, 1, 1));
+    const along = k.edges().find((e) => Math.abs(k.pt(k.edgeA[e]).x - k.pt(k.edgeB[e]).x) > 4)!; loopCuts(k, along, 4);
+    for (const f of k.faces().filter((f) => k.faceVerts(f).every((v) => Math.abs(k.pt(v).y) < 1e-9))) k.removeFace(f);
+    const left = k.edges().find((e) => [k.edgeA[e], k.edgeB[e]].every((v) => Math.abs(k.pt(v).x) < 1e-9 && Math.abs(k.pt(v).y) < 1e-9))!;
+    return { k, left };
+  };
+  const openEdges = (k: MeshKernel) => k.edges().filter((e) => k.eFaces(e).length === 1);
+  it("一条带子连按五下 F = 五张四边形，每次选区落在新的对边上；第六下 = 到头、说原因；洞补完、朝向一致", () => {
+    const { k, left } = stripBox(); eq(openEdges(k).length, 12, "洞一圈 12 条边");
+    let cur = left; const xs: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const r = press(k, { edges: [cur] });
+      assert(!r.err && r.how === "strip" && r.n === 4 && r.edge !== undefined && r.edge >= 0, `第 ${i + 1} 下：${JSON.stringify(r)}`);
+      cur = r.edge!; xs.push(Math.round(k.pt(k.edgeA[cur]).x * 1000) / 1000);
+    }
+    eq(xs.join(","), "1,2,3,4,5", "选区一格一格往右走"); eq(openEdges(k).length, 0, "洞补完了"); eq(k.check().join(";"), ""); eq(recalcNormals(k.clone()).flipped, 0, "朝向和邻面一致");
+    const last = press(k, { edges: [cur] }); assert(!!last.err && last.err.includes("两边都有面"), `第六下：${JSON.stringify(last)}`);
+  });
+  it("一头分叉 = 不顺着填、说哪一头怎么了（不说「点不够」），什么都不动", () => {
+    const k = new MeshKernel(), [a, b, c, d, e] = [P(0, 0, 0), P(1, 0, 0), P(-1, 1, 0), P(-1, -1, 0), P(2, 1, 0)].map((p) => k.addVertex(p));
+    const w = (x: number, y: number) => { const g = k.ensureEdge(x, y); k.setWire(g, true); return g; };
+    const ab = w(a, b); w(a, c); w(a, d); w(b, e);
+    const f0 = k.faceCount(), r = press(k, { edges: [ab] });
+    assert(!!r.err && r.err.includes("分叉") && !r.err.includes("点不够"), String(r.err)); eq(k.faceCount(), f0);
+  });
+  it("选的边两边都有面 = 「不在洞边上」", () => {
+    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));
+    const r = press(k, { edges: [k.edges()[0]] }); assert(!!r.err && r.err.includes("不在洞边上"), String(r.err));
+  });
+  it("一个点夹在两条开口边之间 = 拐角三角，选区落在对着它的边上；再按 F = 顺着填完收尾三角、选区落在对着原边的点上", () => {
+    eq(FILL_CORNER_FROM_VERTEX, true);
+    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); k.removeFace(faceAtZ(k, 1));
+    const r1 = press(k, { verts: [vAt(k, 0, 0, 1)] });
+    assert(!r1.err && r1.how === "corner" && r1.n === 3 && r1.edge !== undefined, JSON.stringify(r1));
+    const r2 = press(k, { edges: [r1.edge!] });
+    assert(!r2.err && r2.how === "strip" && r2.n === 3 && r2.vert === vAt(k, 1, 1, 1), JSON.stringify(r2));
+    eq(openEdges(k).length, 0); eq(k.check().join(";"), ""); eq(recalcNormals(k.clone()).flipped, 0);
+  });
+  it("一个点的两条开口边挨着同一张面（孤零零一张面的尖角）= 不补、说原因", () => {
+    const k = new MeshKernel(), vs = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)].map((p) => k.addVertex(p)); k.addFace(vs, { kind: "fresh" });
+    const r = press(k, { verts: [vs[0]] }); assert(!!r.err && r.err.includes("尖角"), String(r.err)); eq(k.faceCount(), 1);
   });
 });

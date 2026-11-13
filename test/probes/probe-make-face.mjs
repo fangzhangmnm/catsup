@@ -61,7 +61,7 @@ const res = await page.evaluate(async () => {
   await cell("edge", { verts: [top[0], top[2]] }, () => ({ wire: m().edgeOf(top[0], top[2]) >= 0 && m().isWire(m().edgeOf(top[0], top[2])) }));
   // 拒绝
   const refuse = async (name, select) => { const before = snap(); sel(select); const steps = e.history.steps(); await F(); out[name] = { dSteps: e.history.steps() - steps, same: snap() === before, hint: hint() }; };
-  await refuse("few", { verts: [top[0]] });
+  { const zb = Math.min(...L.map((p) => p.z)), bc = vAt(P(cx - 0.5, cy - 0.5, zb)); await refuse("few", { verts: [bc] }); }   // 底角的点：周围全是两边有面的边 = 不在洞边上（顶上开口那一圈的点现在 = 顺着填拐角三角，v0.19.107）
   const bot = m().verts().filter((v) => Math.abs(m().pt(v).z - Math.min(...L.map((p) => p.z))) < 1e-6);
   await refuse("three", { verts: [bot[0], bot[1], top[2]].filter((x) => x !== undefined) });
   // 共线：一条边的两端 + 边中点（劈出来）
@@ -103,7 +103,7 @@ for (const [k, label] of [["fill", "① 一圈点 = 补一张"], ["chain", "② 
   const r = R[k]; chk(`${label}：多一张面、自检干净、一步、撤销回原样`, r && r.dFaces === 1 && r.check === "" && r.dSteps === 1 && r.undone, r);
 }
 chk("⑤ 两个点 = 一条裸线、一步、撤销回原样", R.edge && R.edge.wire && R.edge.dSteps === 1 && R.edge.dFaces === 0 && R.edge.undone, R.edge);
-chk("拒绝：点不够（说了、一步不多、没动）", R.few.dSteps === 0 && R.few.same && /点不够/.test(R.few.hint), R.few);
+chk("拒绝：只选一个不在洞边上的点（说了「不在洞边上」、一步不多、没动；v0.19.107 起不再只说「点不够」）", R.few.dSteps === 0 && R.few.same && /不在洞边上/.test(R.few.hint), R.few);
 chk("拒绝：会挂三张面", R.three.dSteps === 0 && R.three.same && /三张面/.test(R.three.hint), R.three);
 chk("拒绝：共线", R.collinear.dSteps === 0 && R.collinear.same && /一条线上/.test(R.collinear.hint), R.collinear);
 chk("右键菜单里有「造面（F）」", Array.isArray(R.menu) && R.menu.some((x) => String(x).includes("造面")), R.menu);
