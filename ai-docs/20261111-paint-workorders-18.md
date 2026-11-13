@@ -454,3 +454,17 @@
 **探针**：读老数组的四个改成按名字读列（`probe-mesh-mirror`、`probe-mesh-soft-erase`、`probe-mesh-marks`、`probe-seams`）。
 
 **没做、留给 3d**：探针列测试（布尔边列全 1、整数面列全 7，照 OPS 表逐个操作看一份 / 照抄带值、新长是缺省）——OPS 表要先改成能当测试输入的数据；三条老形状在内存里已经没有了，3d 剩守卫和属性页要的只读清单。
+
+### 属性地基轮第三步 3d = 收尾：成批读、按环造边核值、探针列、守卫、只读清单（2026-11-13 深夜，Catsup小弟 = Claude Opus 5.5；分支 `attr-3d`）
+
+**做了什么**（统筹 11-13 深夜加的三件 + 3d 原来的）：
+- 不认识的标记那句提示去掉「（更新版的 CatsUp 写的）」，只说事实（打开、导入两句；`format-notes.ts unknownMarksText`）。
+- `declareRingEdges`：已经在、又给了来历 = 照来历算该有的值逐列比，不一样抛。复制 / 镜像大模型上的代价见流程图追记。
+- 成批读：`reserved-columns.ts edgeMarkReader`、`edge-smooth.ts edgeLookOf`；每条边都问的五处换上；单条问照旧。数字见流程图追记。
+- 探针列测试 `test/probe-columns.test.ts`：`edge-mark-rules.ts` 的 OPS 改成数据（每个文件 `{ say, ops: { 函数: { edges, faces } }, helpers }`），测试照表逐个函数跑一个典型例子（36 个）。故意弄坏两处验过它抓得到。
+- 守卫：每个导出的函数在 ops 或 helpers 里；表里每个函数有例子；三个老数组名带下标只在文件门口、内核实例上没有那几个字段。
+- 属性页要的只读清单：`src/scene/attribute-list.ts`（`meshAttributeList` / `brepAttributeList`，同一种行）。
+
+**验证**：全套 2562 绿；新测试：探针列 37 条、成批 / 单条对拍、按环造边核值、只读清单 2 条、守卫 2 条。
+
+**量出来的老问题（没动、已报统筹）**：对称化随面数涨得比线性快（逐个删、每删一个重排空位表），16 万面要几分钟。
