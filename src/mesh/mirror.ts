@@ -352,7 +352,7 @@ export function removeSeamWalls(m: MeshKernel, axis: MirrorAxis, tol = MIRROR_TO
   let n = 0;
   for (const f of m.faces()) {
     if (!m.faceVerts(f).every((v) => sideOf(coordOf(m.pt(v), axis), tol) === 0)) continue;
-    if (m.fEdges(f).every((e) => m.eFaces(e).length >= 3)) { m.removeFace(f); n++; }
+    if (m.fEdges(f).every((e) => m.eFaces(e).length >= 3)) { m.removeFaceReported(f, "seam-wall"); n++; }   // 夹层面：删并进报告「没了的面」（属性地基轮第二步，规程第七¾节第 7 条）
   }
   return n;
 }

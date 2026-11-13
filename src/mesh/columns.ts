@@ -93,8 +93,18 @@ export interface OddFace {
   readonly face: ReadonlyMap<string, readonly number[]>;
   readonly corner: ReadonlyMap<string, CornerOdd>;
 }
-/** 内核的报告：这段时间里新面 / 改过的面当中「有列对不上」的那些（面编号 → 哪几列）。面已经不在了的不报。 */
-export interface FaceReport { readonly odd: ReadonlyMap<number, OddFace> }
+/** 这一步里没了的面（被操作明着删的不进）：为什么（原因由调用方给，比如塌了 / 重叠 / 夹层；内核不认它）、和哪张重叠、没了之前的样子。 */
+/**
+ * 面为什么没了（报告「没了的面」的原因；调用方给）：collapsed = 合并点之后不同的点不到三个；overlap = 合并点之后和另一张面是同一圈点（with = 留下的那张）；
+ * seam-wall = 强行对称删掉的躺在镜像面上的夹层面。新加一种 = 这里加一个值，收尾那一层（editor/paint-upkeep.ts GONE_WORDS）不填说法编译不过。
+ */
+export type GoneWhy = "collapsed" | "overlap" | "seam-wall";
+export interface GoneFace { readonly why: GoneWhy; readonly with?: number; readonly shape: FaceShape }
+/**
+ * 内核的报告：这段时间里新面 / 改过的面当中「有列对不上」的那些（面编号 → 哪几列）；面已经不在了的不报。
+ * gone = 这段时间里没了的面（列表，不拿面编号当键：编号同一步里可能被新面复用）。
+ */
+export interface FaceReport { readonly odd: ReadonlyMap<number, OddFace>; readonly gone: readonly GoneFace[] }
 
 /** 面的旧样子。没有列的内核：ring / pts / corner / face 都是 null（只记材质，几乎不花时间）。 */
 export interface FaceShape {
@@ -149,6 +159,12 @@ function pickMerged(rule: MergeRule, groups: readonly ArrayLike<number>[], fill:
   const isFill = (g: ArrayLike<number>): boolean => { for (let c = 0; c < g.length; c++) if (!Object.is(g[c], fill)) return false; return true; };
   const i = groups.findIndex((g) => !isFill(g));
   return { at: i < 0 ? 0 : i, mixed };
+}
+
+/** 一个数的并成：几个来源上的值按规则名取一个（回缺省值 = fill）。和列走的是同一个 pickMerged；合并点的边标记按位用它（merge-points.ts EDGE_FLAG_RULES）。 */
+export function mergeScalar(rule: MergeRule, values: readonly number[], fill: number): number {
+  const { at } = pickMerged(rule, values.map((v) => [v]), fill);
+  return at < 0 ? fill : values[at];
 }
 
 /**
@@ -287,3 +303,77 @@ function closestOnTriangle(p: Pt3, P: Float64Array, ia: number, ib: number, ic: 
   const den = 1 / (va + vb + vc), sv = vb * den, sw = vc * den;
   return at(1 - sv - sw, sv, sw);
 }
+
+// ---------------------------------------------------------------- 合并点时角上的数（属性地基轮第二步；规程第七¾节第 3 条「一伙角一起走」）
+/** 合并点一张面的输入：合并之前的样子 + 挤过之后的环（每个角 = 原环里哪几个角挤成的，连续一段）。 */
+export interface MergeCornerInput { readonly shape: FaceShape; readonly corners: readonly { readonly src: readonly number[] }[] }
+/**
+ * 合并点之后每张面挤过的环上每个角在每一列角上的列的值（面的下标 → 列 → 角数 × arity）。不管拓扑，只算数；全仓取值只在这个文件（守卫）。
+ * 连续的列：一伙 = 同一个点上、这一列的值逐位相同的那些角；环上相邻、合并到同一个点的两个角（挤成一个的那一段）各自的伙并成一大伙，一路传下去。
+ *   每一大伙取一个值：每个点上先把这一伙在那个点上的几个值等权平均（按值的字节排好再加），再按点的权重混（点按编号从小到大加；大伙里的点权重都是 0 = 等权）；
+ *   有格子的取整到格子。没并进大伙的角不动。加的先后都固定，和组的先后、面的先后无关（结果逐位相同）。
+ * 离散的列不并伙：挤成一个的角取权重最大的那个点的角（一样大取原环里靠前的）。
+ * weight = 组里每个点的权重（不在任何组里的点没有）。
+ */
+export function mergeCornerValues(cols: readonly CornerColumn[], faces: readonly MergeCornerInput[], weight: ReadonlyMap<number, number>): Map<string, Float32Array>[] {
+  const out = faces.map(() => new Map<string, Float32Array>());
+  for (const col of cols) {
+    const A = col.arity, d = col.def;
+    if (!faces.every((x) => x.shape.corner?.has(col.id) && x.shape.ring)) continue;   // 没有列的内核：shapeOf 不记值
+    const valOf = (fi: number, i: number): Float32Array => faces[fi].shape.corner!.get(col.id)!.subarray(i * A, i * A + A);
+    const vOf = (fi: number, i: number): number => faces[fi].shape.ring![i];
+    if (!d.continuous) {
+      faces.forEach((x, fi) => {
+        const o = new Float32Array(x.corners.length * A);
+        x.corners.forEach((c, k) => {
+          let best = c.src[0];
+          for (const i of c.src) { const wi = weight.get(vOf(fi, i)) ?? 0, wb = weight.get(vOf(fi, best)) ?? 0; if (wi > wb || (wi === wb && i < best)) best = i; }
+          o.set(valOf(fi, best), k * A);
+        });
+        out[fi].set(col.id, o);
+      });
+      continue;
+    }
+    // 连续的列：一伙的键 = 点 + 值的字节
+    const keyOf = (fi: number, i: number): string | null => {
+      const v = vOf(fi, i);
+      if (!weight.has(v)) return null;
+      return `${v}:${Array.from(new Uint32Array(Float32Array.from(valOf(fi, i)).buffer)).join(",")}`;
+    };
+    const parent = new Map<string, string>(), find = (a: string): string => { let r = a; while (parent.get(r) !== r) r = parent.get(r)!; let x = a; while (x !== r) { const n = parent.get(x)!; parent.set(x, r); x = n; } return r; };
+    const val = new Map<string, Float32Array>();
+    faces.forEach((x, fi) => x.shape.ring!.forEach((_, i) => { const key = keyOf(fi, i); if (key !== null && !parent.has(key)) { parent.set(key, key); val.set(key, Float32Array.from(valOf(fi, i))); } }));
+    faces.forEach((x, fi) => x.corners.forEach((c) => {
+      if (c.src.length < 2) return;
+      const keys = c.src.map((i) => keyOf(fi, i)!).sort();
+      for (let j = 1; j < keys.length; j++) { const a = find(keys[0]), b = find(keys[j]); if (a !== b) parent.set(a < b ? b : a, a < b ? a : b); }
+    }));
+    const members = new Map<string, string[]>();
+    for (const key of [...parent.keys()].sort()) { const r = find(key); (members.get(r) ?? members.set(r, []).get(r)!).push(key); }
+    const big = new Map<string, Float32Array>();
+    for (const [root, keys] of members) {
+      if (keys.length < 2) continue;
+      const byPoint = new Map<number, string[]>();
+      for (const key of keys) { const v = Number(key.slice(0, key.indexOf(":"))); (byPoint.get(v) ?? byPoint.set(v, []).get(v)!).push(key); }
+      const pts = [...byPoint.keys()].sort((a, b) => a - b);
+      const wsum = pts.reduce((s, v) => s + (weight.get(v) ?? 0), 0), acc = new Float64Array(A);
+      for (const v of pts) {
+        const w = wsum > 0 ? (weight.get(v) ?? 0) / wsum : 1 / pts.length, ks = byPoint.get(v)!;   // 已按字节排好（keys 排过序）
+        for (let c = 0; c < A; c++) { let m = 0; for (const key of ks) m += val.get(key)![c]; acc[c] += w * (m / ks.length); }
+      }
+      const q = d.quantum, o = new Float32Array(A);
+      for (let c = 0; c < A; c++) o[c] = q ? Math.round(acc[c] * q) / q : acc[c];
+      big.set(root, o);
+    }
+    faces.forEach((x, fi) => {
+      const o = new Float32Array(x.corners.length * A);
+      x.corners.forEach((c, k) => {
+        const key = keyOf(fi, c.src[0]), b = key !== null ? big.get(find(key)) : undefined;
+        o.set(b ?? valOf(fi, c.src[0]), k * A);
+      });
+      out[fi].set(col.id, o);
+    });
+  }
+  return out;
+}
+

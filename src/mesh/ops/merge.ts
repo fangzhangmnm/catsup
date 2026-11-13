@@ -1,81 +1,14 @@
-// mesh/ops/merge.ts —— 合：一组顶点并成一个（到中心 / 到第一个 / 到给定点）。退化的面（少于 3 个不同顶点）自动清掉。created 2026-10-27 by Claude Fable 5.1
+// mesh/ops/merge.ts —— 合：一组顶点并成一个（到中心 / 到第一个 / 先挪到给定点再并到它）。created 2026-10-27 by Claude Fable 5.1
+// 2026-11-13 属性地基轮第二步（Claude Opus 5.5）：改成调内核的合并点原子 MeshKernel.mergePoints（规程第七¾节第二稿）。以前这里手搓：挤成的角挑一个照抄、
+//   重叠的面按点集认、几条边并成一条时标记悄悄丢、蝴蝶结按第一次出现去重——都换成原子里的规矩（一伙角一起走、同一圈点才算重叠、标记按小表并、
+//   环上重复的点剪成几圈），塌掉 / 重叠被删的面进报告「没了的面」。
+// 原子不收任意位置：给了点 = 先把第一个点挪过去，再「合并到第一个点」（镜像落到中缝那条路；和以前最后把幸存点放到给定点一样）。
 import type { Pt3 } from "../../kernel/geom.ts";
-import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
+import type { MeshKernel } from "../mesh-kernel.ts";
 
 export function mergeVerts(k: MeshKernel, ids: readonly number[], target: "center" | "first" | Pt3 = "center"): number {
   const set = [...new Set(ids)].filter((v) => k.hasV(v));
   if (set.length < 2) throw new Error("mergeVerts: need ≥ 2 distinct alive vertices");
-  const survivor = set[0];
-  const pts = set.map((v) => k.pt(v));
-  const to: Pt3 = target === "first" ? pts[0] : target === "center" ? { x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length, z: pts.reduce((s, p) => s + p.z, 0) / pts.length } : target;
-  const gone = new Set(set.slice(1));
-  // 受影响的面：含任一被并顶点的面
-  const faces = new Set<number>();
-  for (const v of set) for (const e of k.vEdges(v)) for (const f of k.eFaces(e)) faces.add(f);
-  // 记下被并顶点的裸线（另一端不在并集里的）：之后挂到幸存者上
-  const wires: [number, number, number][] = [];
-  for (const v of gone) for (const e of k.vEdges(v)) if (k.edgeFlags[e] & F_WIRE) { const o = k.edgeA[e] === v ? k.edgeB[e] : k.edgeA[e]; if (!gone.has(o) && o !== survivor) wires.push([survivor, o, k.edgeFlags[e]]); }
-  // 角上的数（贴图主线 1-2，Fable 裁定 ③）：并完的环 = 原来那张的一份；每个角带着「从原来哪几个角来」（src），跟着去重 / 剪刺 / 去捏点一起走。
-  // 几个角挤成一个角：原位置和落点 to 逐位相同的那个优先（那个位置上的画留在原地），没有就取原环里靠前的那个。
-  const pick = (orig: readonly number[], grp: readonly number[]): number => {
-    for (const i of grp) { const p = k.pt(orig[i]); if (p.x === to.x && p.y === to.y && p.z === to.z) return i; }
-    return Math.min(...grp);
-  };
-  for (const f of [...faces].sort((a, b) => a - b)) {
-    const orig = k.faceVerts(f), r = orig.map((v) => (gone.has(v) ? survivor : v));
-    const ring: number[] = [], src: number[][] = [];
-    r.forEach((v, i) => { if (!ring.length || ring[ring.length - 1] !== v) { ring.push(v); src.push([i]); } else src[src.length - 1].push(i); });
-    while (ring.length > 1 && ring[0] === ring[ring.length - 1]) { ring.pop(); const last = src.pop()!; src[0] = [...last, ...src[0]]; }
-    if (new Set(ring).size < 3) { k.removeFace(f); continue; }
-    cutSpurs(ring, src);   // 两次出现之间只夹着不到 3 个不同点的那段 = 零面积的刺（并点落在自己这张面的一条边上），剪掉（2026-10-28 Opus；镜像设计稿 §5.5）
-    if (new Set(ring).size < 3) { k.removeFace(f); continue; }
-    const of = k.shapeOf(f);
-    if (new Set(ring).size !== ring.length) {   // 环里还有不相邻的重复（并出一个捏点 = 两边都是像样的环，蝴蝶结）：按第一次出现的位置去重——面还成立，拓扑上是捏点，留给自检报
-      const seen = new Set<number>(), r2: number[] = [], s2: number[][] = []; ring.forEach((v, i) => { if (!seen.has(v)) { seen.add(v); r2.push(v); s2.push(src[i]); } });
-      if (r2.length < 3) { k.removeFace(f); continue; }
-      k.setFaceRing(f, r2, { kind: "copy", of, corners: s2.map((g) => pick(orig, g)) }); continue;
-    }
-    k.setFaceRing(f, ring, { kind: "copy", of, corners: src.map((g) => pick(orig, g)) });
-  }
-  // 被并顶点剩下的边（裸线 / 面已删留下的）全删，再删顶点
-  for (const v of gone) { for (const e of [...k.vEdges(v)]) { if (k.eFaces(e).length) throw new Error("mergeVerts: internal: face still references merged vertex"); k.removeEdge(e); } k.removeVertex(v); }
-  for (const [a, b, fl] of wires) if (a !== b) { const e = k.ensureEdge(a, b); if (!k.eFaces(e).length) k.setEdgeFlags(e, fl); }
-  dedupeFacesAround(k, survivor);
-  k.setPos(survivor, to);
-  return survivor;
+  if (typeof target === "object") { k.setPos(set[0], target); return k.mergePoints([{ verts: set, to: "first" }])[0]; }
+  return k.mergePoints([{ verts: set, to: target === "first" ? "first" : { weights: set.map(() => 1) } }])[0];
 }
-
-/**
- * 并点之后变成一模一样的两张面（点集相同，绕向同向或反向——薄片的两面 / 并塌的一折）留一张、删另一张（2026-10-29 Opus）。
- * 只看连着幸存者的面：这次并点造出来的重复一定都含幸存者；原来就有的重复不碰。不删的话每条边被 4 张面共用（非流形），
- * 强行对称再镜一份就更多（user 10-29 日志：合并 3 个点 + 强行对称之后 `edge 18 has 4 faces`）。留 id 小的那张（确定性）。
- */
-function dedupeFacesAround(k: MeshKernel, v: number): void {
-  const fs = new Set<number>();
-  for (const e of k.vEdges(v)) for (const f of k.eFaces(e)) fs.add(f);
-  const seen = new Set<string>();
-  for (const f of [...fs].sort((a, b) => a - b)) {
-    const key = [...k.faceVerts(f)].sort((a, b) => a - b).join(",");
-    if (seen.has(key)) k.removeFace(f); else seen.add(key);
-  }
-}
-
-/**
- * 剪刺（原地改 ring；aux = 和 ring 平行的「每个角从原来哪几个角来」，跟着同样删改——挨着重复并成一个时两组并起来）：某个点在环里出现两次（不相邻），两次之间那段（或绕回来的另一段）不到 3 个不同的点 = 零面积的一根刺（来回走同一条线），剪掉那段、留一次。
- * 例：A X M B M（把 X 对面的角并到自己这张面的边 AB 的中点 M 上）→ A X M。两段都像样（蝴蝶结）的不碰。
- */
-function cutSpurs(ring: number[], aux: number[][]): void {
-  for (let guard = 0; guard < 64; guard++) {
-    let cut = false;
-    outer: for (let i = 0; i < ring.length; i++) for (let j = i + 1; j < ring.length; j++) {
-      if (ring[i] !== ring[j]) continue;
-      const inner = ring.slice(i, j), outerArc = [...ring.slice(j), ...ring.slice(0, i)];
-      if (new Set(inner).size < 3) { ring.splice(i + 1, j - i); aux.splice(i + 1, j - i); cut = true; break outer; }          // 里面那段是刺：留 ring[i]，去掉 i+1..j
-      if (new Set(outerArc).size < 3) { const keep = ring.slice(i, j), keepA = aux.slice(i, j); ring.length = 0; ring.push(...keep); aux.length = 0; aux.push(...keepA); cut = true; break outer; }   // 外面那段是刺：只留里面
-    }
-    if (!cut) return;
-    for (let i = ring.length - 1; i > 0; i--) if (ring[i] === ring[i - 1]) { ring.splice(i, 1); aux[i - 1] = [...aux[i - 1], ...aux[i]]; aux.splice(i, 1); }   // 剪完可能又挨着重复
-    while (ring.length > 1 && ring[0] === ring[ring.length - 1]) { ring.pop(); const last = aux.pop()!; aux[0] = [...last, ...aux[0]]; }
-  }
-}
-

@@ -51,6 +51,7 @@ import "./soft-flat-merge.test.ts";   // 软边两侧变 180° 自动并（FM80�
 import "./no-self-snap.test.ts";   // 拖着的东西不吸自己：对齐引擎层性质（A5 / F-89，2026-10-27 Fable）
 import "./mesh-kernel.test.ts";
 import "./corner-columns.test.ts";
+import "./merge-points.test.ts";   // 合并点这个原子（属性地基轮第二步，2026-11-13 Claude Opus 5.5）
 import "./mesh-view.test.ts";
 import "./mesh-format.test.ts";   // CATSUP_mesh 1.0.0 多边形载荷（2026-10-27 Fable M3）
 import "./uv-format.test.ts";   // CATSUP_mesh 2.0 贴图坐标进文件（2026-11-11 贴图主线 1-2½）

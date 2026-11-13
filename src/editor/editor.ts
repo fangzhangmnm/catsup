@@ -1112,8 +1112,8 @@ export class Editor {
       if (!side) { this.host.hint(`强行对称：开（${A} 轴）——镜像面两边都还没有面，没有可镜的；以后每一步都会对称`); return; }
       if (!r) { this.host.hint(`强行对称：开，但有面跨过镜像面、而且一刀劈不开（凹的面）：先在中缝上手动切一刀；在那之前每一步都不对称`); return; }
       this.mirrorLastSide.set(def, side);
-      this.commitIn(pass, { op: "meshSymmetrize", def, axis: ax, side });
-      this.host.hint(`强行对称：开（${A} 轴，以 ${sideLabel(side, ax)} 那半为准${side !== want ? `（${sideLabel(want, ax)} 那半是空的）` : ""}；${r.cutEdges ? `沿镜像面切开了 ${r.cutEdges} 条边、` : ""}另一半删了 ${r.removedFaces} 张面、镜过来 ${r.added} 张面）——以后每一步都会对称`);
+      this.commitIn(pass, { op: "meshSymmetrize", def, axis: ax, side }); const tail = this.mirrorNote; this.mirrorNote = "";   // 收尾说的（夹层面没了几张、其中几张上有画）接在后面
+      this.host.hint(`强行对称：开（${A} 轴，以 ${sideLabel(side, ax)} 那半为准${side !== want ? `（${sideLabel(want, ax)} 那半是空的）` : ""}；${r.cutEdges ? `沿镜像面切开了 ${r.cutEdges} 条边、` : ""}另一半删了 ${r.removedFaces} 张面、镜过来 ${r.added} 张面）——以后每一步都会对称${tail ? ` ｜ ${tail}` : ""}`);
     }, { title: "强行对称" });
   }
   /** 在副本上试一次对称（会先沿镜像面切开）：成了 = 结果（切了几条边、删了 / 镜了几张面，说给人听），劈不开 = null。 */

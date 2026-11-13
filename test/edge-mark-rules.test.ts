@@ -1,12 +1,13 @@
 // 边上的标记跟着拓扑操作怎么走（施工单二十二 A，统筹 11-12）：一处常量 + 两张表 + 每个拓扑操作一行，守卫逼着填。created 2026-11-12 by Claude Opus 5.5
 // 钉：① 内核里每一位边标记在 JOIN、MOVE 两张表里都有一格（新加一位不填 = 红）；② src/mesh/ops/ 每个文件在 OPS 表里有一行、表里没有多出来的行；
 //    ③ 拓扑操作不自己列位（不许直接写 F_SOFT / F_SMOOTH / F_SHARP / F_SEAM / F_HIDDEN；结构位 F_WIRE 例外）；
-//    ④ 接缝真的跟着走：挤出的帽、劈边、细分、环切的两半带；并边有一条就留；倒角时挨着的边换成新边带上；手标两条都有才留照旧。
+//    ④ 接缝真的跟着走：挤出的帽、劈边、细分、环切的两半带；并边有一条就留（隐藏并边两条都有才留）；倒角时挨着的边换成新边带上；手标两条都有才留照旧。
 import { describe, it, eq, assert } from "./runner.mjs";
 const { readFileSync, readdirSync } = (await import("node:fs" as string)) as { readFileSync(p: string, enc: string): string; readdirSync(p: string): string[] };
 import * as MK from "../src/mesh/mesh-kernel.ts";
 import { MeshKernel, F_SEAM, F_SHARP, F_SOFT, F_SMOOTH, F_HIDDEN } from "../src/mesh/mesh-kernel.ts";
 import { JOIN, MOVE, OPS, joinFlags, MOVING_MARKS, HAND_MARKS } from "../src/mesh/edge-mark-rules.ts";
+import { EDGE_FLAG_RULES, mergeEdgeFlags } from "../src/mesh/merge-points.ts";
 import { addBox } from "../src/mesh/ops/index.ts";
 import { extrudeFaces } from "../src/mesh/ops/extrude.ts";
 import { splitEdge } from "../src/mesh/ops/split.ts";
@@ -45,9 +46,10 @@ describe("边标记跟着走的规矩（edge-mark-rules.ts）", () => {
     }
     eq(bad.join(","), "");
   });
-  it("并边：手标两条都有才留；接缝 / 隐藏有一条就留（joinFlags 和表一致）", () => {
+  it("并边：手标和隐藏两条都有才留；接缝有一条就留（joinFlags 和表一致）", () => {
     eq(joinFlags(F_SHARP, F_SHARP), F_SHARP); eq(joinFlags(F_SHARP, 0), 0); eq(joinFlags(F_SOFT | F_SMOOTH, F_SOFT), F_SOFT);
-    eq(joinFlags(F_SEAM, 0), F_SEAM); eq(joinFlags(0, F_HIDDEN), F_HIDDEN); eq(joinFlags(F_SEAM | F_SHARP, F_SHARP), F_SEAM | F_SHARP);
+    eq(joinFlags(F_SEAM, 0), F_SEAM); eq(joinFlags(F_SEAM | F_SHARP, F_SHARP), F_SEAM | F_SHARP);
+    eq(joinFlags(0, F_HIDDEN), 0, "隐藏：一条藏一条看得见 = 看得见的赢（统筹 11-13；以前是有一条就留）"); eq(joinFlags(F_HIDDEN, F_HIDDEN), F_HIDDEN);
     const run = (fa: number, fb: number): number => {
       const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1));
       const e = m.edges()[0]; m.setEdgeFlags(e, 0);
@@ -57,6 +59,16 @@ describe("边标记跟着走的规矩（edge-mark-rules.ts）", () => {
     };
     eq(run(F_SEAM, 0) & F_SEAM, F_SEAM, "溶解二度点：接缝有一条就留（断一截那一片就切不开）");
     eq(run(F_SHARP, 0) & F_SHARP, 0, "手标照旧两条都有才留");
+    eq(run(F_HIDDEN, 0) & F_HIDDEN, 0, "溶解二度点：一段藏一段看得见 = 并出来看得见");
+    eq(run(F_HIDDEN, F_HIDDEN) & F_HIDDEN, F_HIDDEN, "两段都藏 = 还藏着");
+  });
+  it("合并点那张表（merge-points.ts EDGE_FLAG_RULES：标记 → 规则名）和 JOIN 表一致：both ↔ defaultIfMixed、either / 结构位 ↔ firstNonDefault；内核的每一位都有一格", () => {
+    const want = { both: "defaultIfMixed", either: "firstNonDefault", structural: "firstNonDefault" } as const;
+    for (const [b, kind] of Object.entries(JOIN)) eq(EDGE_FLAG_RULES[Number(b)], want[kind], `位 ${b}：JOIN 是 ${kind}`);
+    eq(Object.keys(EDGE_FLAG_RULES).sort().join(), Object.keys(JOIN).sort().join(), "两张表的位一样");
+    const code = readFileSync("src/mesh/merge-points.ts", "utf8").split("export const mergeEdgeFlags")[1].split("\n};")[0];
+    assert(!/F_[A-Z]+/.test(code), "合并的代码只按规则名办，不认识哪一位");
+    eq(mergeEdgeFlags([F_HIDDEN, 0]), 0); eq(mergeEdgeFlags([F_HIDDEN, F_HIDDEN | F_SEAM]), F_HIDDEN | F_SEAM); eq(mergeEdgeFlags([F_SEAM, 0, 0]), F_SEAM);
   });
   it("接缝跟着走：挤出的帽带、劈边两半带、细分两半带、环切被切的两半带、倒角时挨着的边换成新边带上", () => {
     { // 挤出：顶面外圈标接缝 → 帽那圈带、原来的边界留着

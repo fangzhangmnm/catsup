@@ -14,12 +14,13 @@
 import type { Pt3 } from "../kernel/geom.ts";
 import { triangulateFace } from "../format/triangulate.ts";
 import { ChangeLog } from "../kernel/change-log.ts";
-import { checkColumnDef, sameColumnDef, writeColumns, type ColumnDef, type CornerColumn, type FaceColumn, type FaceOrigin, type FaceReport, type FaceShape, type OddFace } from "./columns.ts";
-export type { ColumnDef, ColumnType, CornerColumn, CornerOdd, Domain, FaceColumn, FaceOrigin, FaceReport, FaceShape, MergeRule, OddFace } from "./columns.ts";
+import { checkColumnDef, sameColumnDef, mergeCornerValues, writeColumns, type ColumnDef, type CornerColumn, type FaceColumn, type FaceOrigin, type FaceReport, type FaceShape, type GoneFace, type GoneWhy, type OddFace } from "./columns.ts";
+import { planMerge, ringKey, type MergeGroup } from "./merge-points.ts";
+export type { ColumnDef, ColumnType, CornerColumn, CornerOdd, Domain, FaceColumn, FaceOrigin, FaceReport, FaceShape, GoneFace, GoneWhy, MergeRule, OddFace } from "./columns.ts";
+export type { MergeGroup, MergeTo } from "./merge-points.ts";
 
-export const F_SOFT = 1, F_SMOOTH = 2, F_SEAM = 4, F_HIDDEN = 8, F_WIRE = 16;   // F_WIRE = 裸线（不属于任何面也合法）
-/** 手标硬边（2026-10-28 Claude Opus 5.5；纪元账本 FM129 / FM131）：压过网格体的「默认平滑」，这条边永远是棱（画线、明暗断开）。和 F_SOFT / F_SMOOTH 互斥（标的时候清掉另两位）。 */
-export const F_SHARP = 32;
+import { F_WIRE } from "./edge-bits.ts";
+export { F_SOFT, F_SMOOTH, F_SEAM, F_HIDDEN, F_WIRE, F_SHARP } from "./edge-bits.ts";   // 边上的位住 edge-bits.ts（合并点那张规则表要按名字列它们，又不能 import 内核）
 /** 网格体的「默认平滑」（几何属性，不是画法——user 10-28「不要叫明暗方式，我们的语义就是几何，和representation没关系。默认平滑之类的？」；每个网格体一个；mesh/edge-smooth.ts 按它判没手标的边）：angle = 两侧面夹角小于 deg 算平滑（硬表面）/ smooth = 全平滑（软角色）/ hard = 全是棱（低多边形；
  *  新建的网格体默认这一档；文件里缺这一项怎么办归读的门口 format/migrate/mesh.ts）。 */
 export type SmoothDefaultMode = "angle" | "smooth" | "hard";
@@ -84,6 +85,8 @@ export class MeshKernel {
   faceCols: FaceColumn[] = [];
   /** 「对不上」的面（面编号 → 哪几列）：用的那一层 takeReport() 拿走并清空；跟着来历传给新面（columns.ts）。 */
   private odd = new Map<number, OddFace>();
+  /** 这段时间里没了的面（removeFaceReported / 合并点；takeReport 拿走并清空；跟着 swapWith 换，拷贝不带）。 */
+  private goneList: GoneFace[] = [];
 
   // ---------------- 基本查询
   vertexCount(): number { let n = 0; for (let i = 0; i < this.vCount; i++) if (this.vAlive[i]) n++; return n; }
@@ -292,12 +295,100 @@ export class MeshKernel {
     if (!Number.isInteger(v)) throw new Error(`setFaceValue: ${v} is not an integer`);
     c.data[f] = v; this.changes.f(f); this.rev = ++meshRevClock;
   }
-  /** 上一次拿走之后「对不上」的面（还活着的；面编号 → 哪几列），拿走即清空。 */
+  /** 上一次拿走之后「对不上」的面（还活着的；面编号 → 哪几列）和没了的面，拿走即清空。 */
   takeReport(): FaceReport {
     const odd = new Map<number, OddFace>();
     for (const [f, o] of this.odd) if (this.hasF(f)) odd.set(f, o);
-    this.odd = new Map();
-    return { odd };
+    const gone = this.goneList;
+    this.odd = new Map(); this.goneList = [];
+    return { odd, gone };
+  }
+  /** 删面并记进报告「没了的面」（原因由调用方给，内核不认它；with = 和哪张重叠之类）：记下删之前的样子，再照 removeFace 删。 */
+  removeFaceReported(f: number, why: GoneWhy, withFace?: number): void {
+    if (!this.hasF(f)) return;
+    this.goneList.push({ why, ...(withFace !== undefined ? { with: withFace } : {}), shape: this.shapeOf(f) });
+    this.removeFace(f);
+  }
+  /**
+   * 把边 e 的一头从 from 换成 to（还是那条边：编号、标记都不变）。要求：这条边现在不挂面（调用方先把面摘下来）、to 活着、换完的那一对点上还没有边。
+   * 合并点用（第七¾节第 2 条「只是一头换了点的边还是那条边」）；增量邻接一起改（check 的 M8 对拍守着）。
+   */
+  relinkEdgeEnd(e: number, from: number, to: number): void {
+    if (!this.hasE(e)) throw new Error(`relinkEdgeEnd: edge ${e} is not alive`);
+    if (!this.hasV(to)) throw new Error(`relinkEdgeEnd: vertex ${to} is not alive`);
+    const a = this.edgeA[e], b = this.edgeB[e];
+    if (from !== a && from !== b) throw new Error(`relinkEdgeEnd: ${from} is not an end of edge ${e}`);
+    const other = from === a ? b : a;
+    if (to === other) throw new Error(`relinkEdgeEnd: would make a loop edge`);
+    if (this.eFHead[e]) throw new Error(`relinkEdgeEnd: edge ${e} still belongs to a face`);
+    if (this.edgeOf(other, to) >= 0) throw new Error(`relinkEdgeEnd: there is already an edge between ${other} and ${to}`);
+    this.vUnlink(a, 2 * e); this.vUnlink(b, 2 * e + 1);
+    this.edgeKey.delete(this.keyOf(a, b));
+    this.edgeA[e] = Math.min(other, to); this.edgeB[e] = Math.max(other, to);
+    this.vLink(this.edgeA[e], 2 * e); this.vLink(this.edgeB[e], 2 * e + 1);
+    this.edgeKey.set(this.keyOf(other, to), e);
+    this.changes.e(e); this.touch(true);
+  }
+  /**
+   * 合并点（规程第七¾节第二稿；规划在 merge-points.ts、角上的数在 columns.ts mergeCornerValues）：若干组点各合并成一个，所有组一次做完、和组的先后无关。
+   * 返回每组的幸存点（每组第一个点；照传进来的先后）。塌掉的面、合并出来同一圈点的重叠面删掉、进报告「没了的面」（原因 collapsed / overlap）。
+   */
+  mergePoints(groups: readonly MergeGroup[]): number[] {
+    const plan = planMerge(this, groups);
+    const vals = mergeCornerValues(this.cornerCols, plan.faces, plan.weight);
+    for (const p of plan.faces) this.unlinkRing(p.f);   // ① 受影响的面从边上摘下来（摘的时候按角上记着的边号，不按端点查）
+    for (const e of plan.collapsed) this.removeEdge(e);   // ② 边：两头合并到一起的、并掉的删（现在都不挂面了）；留下的改端点、并标记
+    for (const ep of plan.edges) for (const e of ep.drop) this.removeEdge(e);
+    for (const ep of plan.edges) {
+      const e = ep.keep;
+      for (const end of [this.edgeA[e], this.edgeB[e]]) { const to = plan.rep.get(end); if (to !== undefined && to !== end) this.relinkEdgeEnd(e, end, to); }   // 并掉的都删过了：中途换出来的那一对点上不会已经有边
+      if (this.edgeFlags[e] !== ep.flags) { this.edgeFlags[e] = ep.flags; this.changes.e(e); }
+    }
+    for (const v of plan.gone) this.removeVertex(v);   // ③ 被合并掉的点（它的边上面都处理掉了）
+    const touched: number[] = [], spurs: [number, number][] = [];
+    plan.faces.forEach((p, pi) => {   // ④ 面：编号从小到大
+      if (p.main < 0) {   // 塌了（剪出来的刺照样留成线）
+        this.fAlive[p.f] = 0; this.fFree.push(p.f); this.fFree.sort((a, b) => b - a); this.odd.delete(p.f); this.changes.f(p.f);
+        this.goneList.push({ why: "collapsed", shape: p.shape });
+        for (const loop of p.loops) if (loop.length === 2) spurs.push([p.corners[loop[0]].v, p.corners[loop[1]].v]);
+        return;
+      }
+      const flags = this.faceFlags[p.f];
+      const put = (loop: readonly number[], f: number | null): number => {
+        const ring = loop.map((c) => p.corners[c].v), origin: FaceOrigin = { kind: "copy", of: p.shape, corners: loop.map((c) => p.corners[c].src[0]) };
+        let g: number;
+        if (f === null) { g = this.addFace(ring, p.shape.mat, origin); this.faceFlags[g] = flags; }
+        else {
+          g = f; this.faceStart[g] = this.loopCount; this.faceLen[g] = ring.length;
+          this.writeRing(g, ring, origin);
+          for (let i = 0; i < ring.length; i++) this.ensureEdge(ring[i], ring[(i + 1) % ring.length]);
+          this.linkRing(g); this.changes.f(g);
+        }
+        for (const c of this.cornerCols) { const v = vals[pi].get(c.id); if (!v) continue; const o = new Float32Array(loop.length * c.arity); loop.forEach((ci, j) => o.set(v.subarray(ci * c.arity, ci * c.arity + c.arity), j * c.arity)); this.setCornerValues(g, c.id, o); }
+        touched.push(g);
+        return g;
+      };
+      put(p.loops[p.main], p.f);
+      p.loops.forEach((loop, li) => {
+        if (li === p.main) return;
+        if (loop.length >= 3) put(loop, null);
+        else if (loop.length === 2) spurs.push([p.corners[loop[0]].v, p.corners[loop[1]].v]);
+      });
+    });
+    for (const [a, b] of spurs) { const e = this.edgeOf(a, b); if (e >= 0 && !this.eFHead[e] && !(this.edgeFlags[e] & F_WIRE)) { this.edgeFlags[e] |= F_WIRE; this.changes.e(e); } }   // ⑤ 刺 = 不挂面的线（刺尖的点不删）；那条边还挂着别的面就不用打
+    for (const ep of plan.edges) { const e = ep.keep; if (this.hasE(e) && !this.eFHead[e] && !(this.edgeFlags[e] & F_WIRE)) this.removeEdge(e); }   // ⑥ 塌掉的面留下的、不挂面又不是线的边
+    const seen = new Set<number>();   // ⑦ 重叠：同一圈点（同向或反向）留编号最小的
+    for (const f of touched.sort((a, b) => a - b)) {
+      if (!this.hasF(f) || seen.has(f)) continue;
+      const ring = this.faceVerts(f), key = ringKey(ring), same: number[] = [];
+      for (const e of this.vEdges(ring[0])) for (const g of this.eFaces(e)) if (!same.includes(g) && this.faceLen[g] === ring.length && ringKey(this.faceVerts(g)) === key) same.push(g);
+      same.sort((a, b) => a - b);
+      for (const g of same) seen.add(g);
+      for (const g of same.slice(1)) this.removeFaceReported(g, "overlap", same[0]);
+    }
+    for (const v of [...plan.pos.keys()].sort((a, b) => a - b)) this.setPos(v, plan.pos.get(v)!);   // ⑧ 点挪到最后的位置
+    this.touch(true);
+    return [...plan.survivors];
   }
   setPos(v: number, p: Pt3): void { this.pos[3 * v] = p.x; this.pos[3 * v + 1] = p.y; this.pos[3 * v + 2] = p.z; this.changes.v(v); this.touch(false); }
   setFlags(e: number, mask: number, on: boolean): void { if (!this.hasE(e)) return; this.edgeFlags[e] = on ? this.edgeFlags[e] | mask : this.edgeFlags[e] & ~mask; this.changes.e(e); this.rev = ++meshRevClock; }
@@ -409,7 +500,7 @@ export class MeshKernel {
     [this.edgeA, o.edgeA] = [o.edgeA, this.edgeA]; [this.edgeB, o.edgeB] = [o.edgeB, this.edgeB]; [this.eAlive, o.eAlive] = [o.eAlive, this.eAlive]; [this.edgeFlags, o.edgeFlags] = [o.edgeFlags, this.edgeFlags]; [this.eCount, o.eCount] = [o.eCount, this.eCount]; [this.eFree, o.eFree] = [o.eFree, this.eFree];
     [this.edgeKey, o.edgeKey] = [o.edgeKey, this.edgeKey]; [this.vHead, o.vHead] = [o.vHead, this.vHead]; [this.eNext, o.eNext] = [o.eNext, this.eNext]; [this.eFHead, o.eFHead] = [o.eFHead, this.eFHead]; [this.lNext, o.lNext] = [o.lNext, this.lNext]; [this.lEdge, o.lEdge] = [o.lEdge, this.lEdge]; [this.lFace, o.lFace] = [o.lFace, this.lFace]; [this.triCache, o.triCache] = [o.triCache, this.triCache];
     [this.rev, o.rev] = [o.rev, this.rev]; [this.changes, o.changes] = [o.changes, this.changes]; [this.smoothDefault, o.smoothDefault] = [o.smoothDefault, this.smoothDefault];
-    [this.cornerCols, o.cornerCols] = [o.cornerCols, this.cornerCols]; [this.faceCols, o.faceCols] = [o.faceCols, this.faceCols]; [this.odd, o.odd] = [o.odd, this.odd];
+    [this.cornerCols, o.cornerCols] = [o.cornerCols, this.cornerCols]; [this.faceCols, o.faceCols] = [o.faceCols, this.faceCols]; [this.odd, o.odd] = [o.odd, this.odd]; [this.goneList, o.goneList] = [o.goneList, this.goneList];
   }
   /** 紧凑快照（去空位、id 重编：存 / 导出时整理，user 10-27「catsup rule: organize in export/save」）。 */
   toSnapshot(): MeshSnapshot {

@@ -26,12 +26,14 @@ export const MOVE: Readonly<Record<number, string>> = {
 
 /**
  * 并边（两条边并成一条：溶解二度点、整理里的有限溶解、删点）每一位怎么合（守卫：内核里每一位都要在这里有一格）：
- * both = 两条都有才留（手标三位：硬软边设计稿 §6 第 3 问，和硬表面体一致）；either = 有一条就留（接缝：断一截那一片就切不开；隐藏：不丢 user 标的）；
+ * both = 两条都有才留（手标三位：硬软边设计稿 §6 第 3 问，和硬表面体一致；隐藏：一条藏一条看得见，并完看得见的那条不能凭空没了——统筹 11-13 定，和硬表面 kernel/layers.ts 第④条一致，
+ *   以前是「有一条就留」）；either = 有一条就留（接缝：断一截那一片就切不开）；
  * structural = 结构位，调用的人按拓扑重算。
  */
 export const JOIN: Readonly<Record<number, "both" | "either" | "structural">> = {
   [F_SOFT]: "both", [F_SMOOTH]: "both", [F_SHARP]: "both",
-  [F_SEAM]: "either", [F_HIDDEN]: "either",
+  [F_HIDDEN]: "both",
+  [F_SEAM]: "either",
   [F_WIRE]: "structural",
 };
 const bitsOf = (kind: "both" | "either" | "structural"): number => Object.entries(JOIN).reduce((acc, [b, k]) => (k === kind ? acc | Number(b) : acc), 0);
@@ -45,7 +47,7 @@ export function joinFlags(f0: number, f1: number): number { return (f0 & f1 & JO
 export const OPS: Readonly<Record<string, string>> = {
   "bevel.ts": "倒角：挨着被倒的边、自己没被倒的边换成新边时带上原来的标记（MOVING_MARKS_WITH_HIDDEN）；被倒的边本身变成倒角带，它的标记不往带上搬（现状：棱、接缝都丢；Blender 默认也不搬）；圆角中间的线标成平滑（SMOOTH_MARK）",
   "build.ts": "建面 / 建几何体：新边不带标记",
-  "cleanup.ts": "整理：有限溶解里并边走 join.ts 的 joinFlags；去重点 = 合到一点（见 merge.ts）",
+  "cleanup.ts": "整理：有限溶解里并边走 join.ts 的 joinFlags；去重点 = 所有组一次交给内核的合并点原子（见 merge.ts）",
   "delete.ts": "删：剩下的边不动；溶解二度点走 join.ts 的 joinFlags",
   "duplicate.ts": "复制（Shift+D）/ 补洞 / 桥接：新的几何不带标记（现状）",
   "extrude.ts": "挤出：帽上的边带原来那条的标记（MOVING_MARKS，不带隐藏）；新长出来的侧边不带",
@@ -53,9 +55,9 @@ export const OPS: Readonly<Record<string, string>> = {
   "geometry.ts": "挪点 / 变换：只挪点，边不变；setEdgeFlags 是给指令用的通用设位（位由调用的人给）",
   "index.ts": "出口：不碰边",
   "inset.ts": "插入：外圈的边不变，新长出来的内圈和连接边不带",
-  "join.ts": "并边：joinFlags（JOIN 表：手标两条都有才留、接缝 / 隐藏有一条就留）；并面：被并掉的公共边没了",
+  "join.ts": "并边：joinFlags（JOIN 表：手标和隐藏两条都有才留、接缝有一条就留）；并面：被并掉的公共边没了",
   "loopcut.ts": "环切：被切的边劈成两半（走 split.ts，两半都带）；切出来的新环不带",
-  "merge.ts": "合到一点：碰到的边是重建的，标记全丢（棱也丢）——现状；裸线照原样带回",
+  "merge.ts": "合到一点 = 内核的合并点原子（MeshKernel.mergePoints，规划在 mesh/merge-points.ts）：只换了一头的边还是那条边、标记原样；几条并成同一对点的留编号最小的、标记按 merge-points.ts EDGE_FLAG_RULES（标记 → 规则名，和 JOIN 同一套）并；环上剪下来的刺留成裸线",
   "orient.ts": "法向一致化：只翻面的绕向，边不变",
   "primitives.ts": "基本体：新几何自己设（不从别处搬）",
   "split.ts": "劈边 / 劈面 / 刀：被劈的边两半都带全部位；面里切出来的新边不带",

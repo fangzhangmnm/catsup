@@ -141,6 +141,15 @@ describe("改了模型新面自动铺上（1-3b 测试 B）", () => {
     assert(/1 张面的画没带过来/.test(note), `提示行：${note}`);
     eq([...unplacedPaintFaces(r.s, r.def, null).values()].flat().length, 0, "并出来的那张补上了位置");
   });
+  it("合并点让画过的面塌掉（属性地基轮第二步）：提示行说「合并之后有 1 张面塌掉了、被去掉（其中 1 张上有画）」；撤销一下全回来", () => {
+    const r = rig(boxMesh);
+    r.step(startOp(r.def, r.k().faces()));
+    const before = canon(r.s, r.def), k = r.k(), f = k.faces()[0], ring = k.faceVerts(f);
+    const note = r.step({ op: "meshMerge", def: r.def, verts: [ring[0], ring[2]] });   // 一张四边形的对角两点合并 = 这张面塌了（两条刺都还挂着别的面）
+    assert(!r.k().hasF(f), "那张面没了");
+    assert(note.includes("合并之后有 1 张面塌掉了、被去掉（其中 1 张上有画）"), `提示行：${note}`);
+    r.undo(); eq(canon(r.s, r.def), before, "撤销一下全回来");
+  });
 });
 
 describe("画布加高（1-3b 测试 C）", () => {

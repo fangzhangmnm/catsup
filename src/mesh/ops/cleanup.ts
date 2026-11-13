@@ -1,7 +1,6 @@
 // mesh/ops/cleanup.ts —— 整理：有限溶解（Blender Limited Dissolve：两侧几乎共面的边并掉、再溶解共线的二度点）、去重点（距离内的点合并）。created 2026-10-27 by Claude Fable 5.1
 import { MeshKernel } from "../mesh-kernel.ts";
 import { joinFaces, dissolveVertex } from "./join.ts";
-import { mergeVerts } from "./merge.ts";
 
 /** 两面法向夹角 ≤ deg 的内部边（恰两张不同面）并掉；然后把变成二度共线（夹角 ≤ deg）的点溶掉。返回并掉的边数 / 点数。 */
 export function limitedDissolve(k: MeshKernel, deg = 5): { edges: number; verts: number } {
@@ -46,6 +45,8 @@ export function removeDoubles(k: MeshKernel, dist = 1e-4): number {
   const groups = new Map<number, number[]>();
   for (const v of k.verts()) (groups.get(find(v)) ?? groups.set(find(v), []).get(find(v))!).push(v);
   let merged = 0;
-  for (const g of [...groups.values()].sort((a, b) => a[0] - b[0])) if (g.length > 1) { mergeVerts(k, g.sort((a, b) => a - b), "center"); merged += g.length - 1; }
+  const toMerge = [...groups.values()].filter((g) => g.length > 1).map((g) => g.sort((a, b) => a - b));   // 所有组一次合并完（合并点原子；和组的先后无关）
+  if (toMerge.length) k.mergePoints(toMerge.map((g) => ({ verts: g, to: { weights: g.map(() => 1) } })));
+  for (const g of toMerge) merged += g.length - 1;
   return merged;
 }

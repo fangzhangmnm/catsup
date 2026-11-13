@@ -6,7 +6,7 @@
 //   · 角上一列 "uv-at"（UV_AT_COL）：每角两个数，单位 = 格，1/1024 格的整数倍（quantum = 1024：内核插值后取整到这一格）。没有位置的面这里是 0，没有意思。
 // 有没有位置只看代号。内核只报告「哪几列在来源之间对不上」；并出来的面代号或坐标对不上 → 拿掉位置、数出来，在每一步的收尾里（editor/paint-upkeep.ts）。
 // 写位置只有一个口：placeFace。读坐标的那几块（铺法、每格的表、笔的目标、拾取、画布小窗的线、渲染）经 uvMesh 这个视图问，不直接碰那两列（守卫：这两个 id 只许出现在这里）。
-import type { MeshKernel, ColumnDef, FaceReport } from "../mesh/mesh-kernel.ts";
+import type { MeshKernel, ColumnDef, FaceReport, GoneFace } from "../mesh/mesh-kernel.ts";
 import type { Guid } from "../format/guid.ts";
 import type { UvDoc } from "../format/document.ts";
 import type { Pt3 } from "../kernel/geom.ts";
@@ -93,6 +93,9 @@ export function remapUvCode(face: Map<string, number>, remap: (code: number) => 
  *   代号一样、角上的坐标对不上 / 取不到：坐标照「取最前的」，这里判成没有位置（drop）。
  * drop = 现在还有位置、要拿掉的面；lost = 来源里有位置、收尾之后没有位置的面数（数出来、提示行说一句；不许悄悄丢）。
  */
+/** 报告里没了的一张面，没了之前在不在画布上（面上的代号 ≥ 0 = 有位置 = 有画）。收尾数「其中几张上有画」用。 */
+export const hadPaint = (g: GoneFace): boolean => (g.shape.face?.get(UV_SET_COL.id) ?? -1) >= 0;
+
 export function uvLosses(k: MeshKernel, report: FaceReport): { drop: number[]; lost: number } {
   const drop: number[] = [];
   let lost = 0;

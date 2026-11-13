@@ -8,17 +8,33 @@
 // 施工单十八第 1½ 刀（属性规程第二½节：用到某个意思的那一层每步之后自己读报告、自己检查）：内核只报告哪几列在来源之间对不上，
 //   「并出来贴图坐标接不上 = 没有位置」在这里判（scene/uv.ts uvLosses），拿掉位置走 meshLayoutPaint 的 drop，进同一步、撤销一起撤。
 //   报告的寿命：每次提交前把上一步没人取的丢掉（upkeepSnapshot）；提交后一开始就拿（后面补进同一步的指令在影子内核上跑，换回来时报告也跟着换）。
+// 属性地基轮第二步（规程第七¾节第 6 条 / 第 7½ 节）：报告里「没了的面」（合并点塌了 / 重叠、强行对称的夹层）在这里说一句人话，带「其中几张上有画」。
+//   收尾自己补的指令（补位置 / 对称化）和人点的对称化也走一遍收尾，但只说没了的面（它们各自的提交各拿各的报告）。
 import type { Op } from "./ops.ts";
 import { type ForceEnv, type ForcePaintHook, type ForceSnaps, forceAfter, forceSideFor, forceSnapshot, forcesOn } from "./mirror-force.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { MIRROR_TOL, coordOf, type MirrorAxis } from "../mesh/mirror.ts";
 import { unplacedPaintFaces } from "../scene/paint.ts";
-import { uvLosses } from "../scene/uv.ts";
+import { hadPaint, uvLosses } from "../scene/uv.ts";
+import type { FaceReport, GoneFace, GoneWhy } from "../mesh/mesh-kernel.ts";
 
-/** 收尾自己会提交的指令：它们之后不再收尾（免得套自己）。 */
+/** 收尾自己会提交的指令：它们之后不再补位置（免得套自己）；只说这一条里没了的面。 */
 const UPKEEP_OPS: ReadonlySet<string> = new Set(["meshLayoutPaint", "meshSymmetrize"]);
 /** 提交前记下的：强行对称那份 + 每个网格体内核的版本号和改动日志的号。 */
 export interface UpkeepSnaps { readonly force: ForceSnaps | null; readonly paint: ReadonlyMap<number, { readonly rev: number; readonly seq: number }> }
+
+/** 没了的面怎么说（原因 → 一句话，N = 几张）；后面接「（其中 M 张上有画）」，M = 0 不接。新加一种原因 = columns.ts GoneWhy 加一个值，这里不填编译不过。 */
+const GONE_WORDS: Readonly<Record<GoneWhy, (n: number) => string>> = {
+  collapsed: (n) => `合并之后有 ${n} 张面塌掉了、被去掉`,
+  overlap: (n) => `有 ${n} 张面和别的面完全重叠、被去掉`,
+  "seam-wall": (n) => `强行对称去掉了 ${n} 张躺在镜像面上的夹层面`,
+};
+/** 报告里没了的面 → 提示行的话（按原因第一次出现的先后；没有 = 空）。 */
+export function goneNotes(gone: readonly GoneFace[]): string[] {
+  const by = new Map<GoneWhy, { n: number; painted: number }>();
+  for (const g of gone) { const c = by.get(g.why) ?? by.set(g.why, { n: 0, painted: 0 }).get(g.why)!; c.n++; if (hadPaint(g)) c.painted++; }
+  return [...by].map(([why, c]) => GONE_WORDS[why](c.n) + (c.painted ? `（其中 ${c.painted} 张上有画）` : ""));
+}
 
 /** 强行对称对称化之后这张面还在不在（有一个点在留着的那半 = 在〔跨过中缝的先被切开〕；整张躺在镜像面上 = 在；别的 = 被删）。 */
 function kept(k: MeshKernel, f: number, axis: MirrorAxis, side: -1 | 1): boolean {
@@ -42,7 +58,7 @@ export function upkeepRewrite(env: ForceEnv, op: Op): Op {
 export function upkeepSnapshot(env: ForceEnv, op: Op): UpkeepSnaps | null {
   for (const d of env.scene.defs.values()) if (d.body.kind === "mesh") d.body.kernel.takeReport();   // 上一步没人取的报告丢掉（规程第六节的寿命）
   const force = forceSnapshot(env, op);
-  if (UPKEEP_OPS.has(op.op)) return force ? { force, paint: new Map() } : null;
+  if (UPKEEP_OPS.has(op.op)) return { force, paint: new Map() };   // 不补位置，只说没了的面
   const paint = new Map<number, { rev: number; seq: number }>();
   for (const d of env.scene.defs.values()) if (d.body.kind === "mesh") paint.set(d.id, { rev: d.body.kernel.rev, seq: d.body.kernel.changes.seq });
   return force || paint.size ? { force, paint } : null;
@@ -51,20 +67,25 @@ export function upkeepSnapshot(env: ForceEnv, op: Op): UpkeepSnaps | null {
 /**
  * 提交后：强行对称（带画的钩子）→ 别的改过的网格体补位置 → 数放不下的、并面丢了画的。commit = 进同一步。返回要接在提示行后面的话（没有 = 空串）。
  */
-export function upkeepAfter(env: ForceEnv, op: Op, snaps: UpkeepSnaps, commit: (op: Op) => void): string {
+export function upkeepAfter(env: ForceEnv, op: Op, snaps: UpkeepSnaps, commit0: (op: Op) => void): string {
   const notes: string[] = [];
+  // 报告：这一条指令的，每个网格体拿一次（提交前 upkeepSnapshot 已经把上一步没人取的丢了）；收尾自己补进同一步的每一条提交完也拿一次（每次提交在影子内核上跑、换回来时报告跟着换，
+  //   不拿就被下一条换掉）。编辑器里那几条自己的收尾先拿到（commitIn 套一层），这里就是空的：谁先拿算谁的，不会数两遍。
+  const reports = new Map<number, FaceReport>(), gone: GoneFace[] = [];
+  const takeAll = (into: Map<number, FaceReport> | null): void => { for (const d of env.scene.defs.values()) if (d.body.kind === "mesh") { const r = d.body.kernel.takeReport(); into?.set(d.id, r); gone.push(...r.gone); } };
+  takeAll(reports);
+  const commit = (o: Op): void => { commit0(o); takeAll(null); };   // 收尾自己的指令（补位置 / 对称化）：不会丢画（不看 odd），没了的面（夹层）照样数
   /** 这个网格体这一步动过的面（日志记不得了 = null = 看全部）。 */
   const touched = (def: number): Iterable<number> | null => { const sn = snaps.paint.get(def); return sn ? (env.scene.mesh(def).kernel.changes.since(sn.seq)?.faces ?? null) : null; };
   const live = (def: number): boolean => env.scene.defs.has(def) && env.scene.kindOf(def) === "mesh";
   const pendingOf = (def: number): number[] => (live(def) ? [...unplacedPaintFaces(env.scene, def, touched(def)).values()].flat() : []);
   const layoutIn = (def: number, faces: readonly number[]): void => { if (faces.length) commit({ op: "meshLayoutPaint", def, faces: [...faces].sort((a, b) => a - b) }); };
   const handled = new Set<number>();
-  // 内核的报告先拿走：后面补进同一步的指令（补位置 / 对称化）各自在内核的影子上跑、换回来的时候报告会被换掉。
   // 并出来贴图坐标接不上的面：先拿掉位置（一条只拿掉、不铺的 meshLayoutPaint），后面的补位置 / 对称化照常把它们当「还没有位置」
   let dropped = 0;
   for (const [def, sn] of snaps.paint) {
     if (!live(def) || env.scene.mesh(def).kernel.rev === sn.rev) continue;
-    const k = env.scene.mesh(def).kernel, { drop, lost } = uvLosses(k, k.takeReport());
+    const k = env.scene.mesh(def).kernel, { drop, lost } = uvLosses(k, reports.get(def) ?? k.takeReport());
     dropped += lost;
     if (drop.length) commit({ op: "meshLayoutPaint", def, faces: [], drop });
   }
@@ -95,9 +116,9 @@ export function upkeepAfter(env: ForceEnv, op: Op, snaps: UpkeepSnaps, commit: (
       const row = env.scene.uvSets.get(g);
       if (fs.length && row && row.fit !== "density") fixed.add(`${row.width} × ${row.height}`);
     }
-    k.takeReport();   // 收尾自己的指令（补位置 / 对称化）的报告：不会丢画，清掉免得留到下一步
   }
   if (unplaced) notes.push(`有 ${unplaced} 张面在画布上放不下，先照底色显示${fixed.size ? `（这张画定的是 ${[...fixed].join("、")}，不自己变大）` : ""}`);
   if (dropped) notes.push(`有 ${dropped} 张面的画没带过来（并面时两边的位置对不上）`);
+  notes.push(...goneNotes(gone));
   return notes.join("；");
 }
