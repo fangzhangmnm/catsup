@@ -18,11 +18,11 @@
 //   以前的 uvSets 键（2.x）现行格式里没有：读的门口不带回、记一笔（notes.oldUvColumns），没有「2.x 按老的算」。
 //   两条规矩：① 以后跟着角走的数据一律做成新的一列，不许塞进列的行里当别的键（旧版本改了网格它就过时了）；② 换编码、或者哪个种类受不了线性继承 = 大版本。
 // 没有 faceStart 键 = 0.14 的三角汤最小形（migrate/mesh.ts 读成每三角一面）。created 2026-10-27 by Claude Fable 5.1
-import type { ColumnDoc, MeshDoc } from "./document.ts";
+import { dropUvSets, type ColumnDoc, type MeshDoc, type UvDoc } from "./document.ts";
 import type { ViewSink } from "./brep-codec.ts";
 import { MESH_STAMP_NO_UV, migrateExtension, stampOf, type FormatReadNotes, type Stamp, type UvDropWhy } from "./migrate/index.ts";
 import { carryJson, landCarried } from "./texture-table.ts";
-import { UV_Q } from "../mesh/corner-columns.ts";
+import { UV_Q } from "../scene/uv.ts";
 
 /** uv 列里「这个角没有值」的整数（施工单十八 3.2）。 */
 export const UV_NONE = -2147483648;
@@ -31,42 +31,30 @@ import { polygonsFromTriangles } from "./migrate/mesh.ts";
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 
-/** 一个 uv 通道（写进文件前 / 读出来展开前）。 */
+/** 一个 uv 通道（写进文件前）。 */
 export interface UvChannel { readonly sets: string[]; readonly faceSet: Int32Array; readonly data: Int32Array }
 /**
- * 按排法分的 uv 列 → 通道（文件头注释 3.0）。每张面有没有位置看它第一个角（内存里一张面在一列上整面有或整面没有）；坐标 × 1024 取整（值本来就是 1/1024 格的整数倍）。
- * 同一份列写出来逐字节一样：通道、sets、下标都只由「哪张面在哪几套上有位置」和 GUID 的字典序决定，和内存里列的先后无关。
+ * 内存里的贴图坐标（MeshDoc.uv，和通道同形）→ 文件里的一个通道（文件头注释 3.0）：sets 按 GUID 字典序、代号跟着换；坐标 × 1024 取整（值本来就是 1/1024 格的整数倍）；
+ * 没有位置的面（代号 −1）整面写 UV_NONE。同一份内容写出来逐字节一样：只由「哪张面在哪套上、坐标多少」和 GUID 的字典序决定，和速查表的先后无关。
+ * 施工单十八第 1½ 刀起内存里一张面最多在一套排法上 = 永远只写一个通道（v0.19.80 一张面在几套上就写几个通道；一张面一套时两边逐字节一样）。
  */
-export function packUvChannels(uv: readonly ColumnDoc[], faceStart: Int32Array, faceLen: Int32Array, corners: number): UvChannel[] {
-  const nF = faceStart.length, per: string[][] = Array.from({ length: nF }, () => []), byGuid = new Map(uv.map((c) => [c.guid, c])), empty: string[] = [];
-  for (const c of uv) {
-    let any = false;
-    for (let f = 0; f < nF; f++) if (!Number.isNaN(c.values[2 * faceStart[f]])) { per[f].push(c.guid); any = true; }
-    if (!any) empty.push(c.guid);   // 空列：在这套排法上、零张面有位置
+export function packUv(uv: UvDoc, faceStart: Int32Array, faceLen: Int32Array, corners: number): UvChannel {
+  const nF = faceStart.length, sets = [...new Set(uv.sets)].sort(), at = uv.sets.map((g) => sets.indexOf(g));
+  if (uv.faceSet.length !== nF || uv.data.length !== 2 * corners) throw new Error(`packUv: ${uv.faceSet.length} face codes / ${uv.data.length} numbers for ${nF} faces / ${corners} corners`);
+  const faceSet = new Int32Array(nF).fill(-1), data = new Int32Array(2 * corners).fill(UV_NONE);
+  for (let f = 0; f < nF; f++) {
+    const c = uv.faceSet[f];
+    if (!(c >= 0 && c < uv.sets.length)) continue;
+    faceSet[f] = at[c];
+    const s0 = 2 * faceStart[f], e0 = s0 + 2 * faceLen[f];
+    for (let i = s0; i < e0; i++) data[i] = Math.round(uv.data[i] * UV_Q);
   }
-  let n = empty.length ? 1 : 0;
-  for (const l of per) { l.sort(); n = Math.max(n, l.length); }
-  const out: UvChannel[] = [];
-  for (let k = 0; k < n; k++) {
-    const used = new Set<string>(k === 0 ? empty : []);
-    for (const l of per) if (l[k] !== undefined) used.add(l[k]);
-    const sets = [...used].sort(), at = new Map(sets.map((g, i) => [g, i]));
-    const faceSet = new Int32Array(nF).fill(-1), data = new Int32Array(2 * corners).fill(UV_NONE);
-    for (let f = 0; f < nF; f++) {
-      const g = per[f][k];
-      if (g === undefined) continue;
-      faceSet[f] = at.get(g)!;
-      const v = byGuid.get(g)!.values, s0 = 2 * faceStart[f], e0 = s0 + 2 * faceLen[f];
-      for (let i = s0; i < e0; i++) data[i] = Math.round(v[i] * UV_Q);
-    }
-    out.push({ sets, faceSet, data });
-  }
-  return out;
+  return { sets, faceSet, data };
 }
 
 export function encodeMeshItem(m: MeshDoc, sink: ViewSink): Record<string, unknown> {
   const bv = (a: ArrayBufferView, count: number): { bufferView: number; count: number } => ({ bufferView: sink.add(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)), count });
-  const other = (m.columns ?? []).filter((c) => c.kind !== "uv"), uv = packUvChannels((m.columns ?? []).filter((c) => c.kind === "uv"), m.faceStart, m.faceLen, m.loopVert.length);
+  const other = m.columns ?? [], uv = m.uv ? [packUv(m.uv, m.faceStart, m.faceLen, m.loopVert.length)] : [];
   const st = (x: Stamp): Record<string, number> => ({ version: x.major, ...(x.minor ? { minor: x.minor } : {}), ...(x.patch ? { patch: x.patch } : {}) });
   const any = other.length + uv.length > 0, stamp = any ? stampOf("CATSUP_mesh") : st(MESH_STAMP_NO_UV);   // 没有列 = 照旧 1.2（逐字节）；有列 = 3.0
   return {
@@ -117,22 +105,29 @@ export function decodeMeshItem(raw: Record<string, unknown>, sliceOf: (bv: numbe
 
 /**
  * 角上的列的读和收口（施工单十八 3.2；规矩照 1-2½ 那条统一的：附属数据坏了模型照开，坏的那一部分按「没有」处理、记进 notes，打开之后明着说，再存盘会把坏的部分去掉）。
- * 交出去的每一列每张面整面有或整面没有；uv 通道展开回按排法分的列（GUID = 排法那一行的号）。
  * · 整个 columns 不是列表 → 全不认。· 一项不是对象 → 这一项不认。
- * · 别的 kind：身份号 / 种类 / 每角几个数（正整数）/ 角上的数那一段（在、长度 = arity × 角数）不对 → 这一列不认；一张面一半有数一半没有、有无穷大 → 这张面整面写成没有。
- * · uv 通道：readUvChannel。
- * · 同一个网格体里别的 kind 的几列同一个号、或者和某套排法同号 → 这几列都不认（不挑第一个）。同一套排法出现在几个通道里是正常的（各管各的面）。
- * uv 列的号在排法表里有没有、角落没落在画布里：要对着顶层的排法表看，在 paint-read.ts。
+ * · 别的 kind：身份号 / 种类 / 每角几个数（正整数）/ 角上的数那一段（在、长度 = arity × 角数）不对 → 这一列不认；一张面一半有数一半没有、有无穷大 → 这张面整面写成没有（NaN）。
+ * · uv 通道：只认第一个（readUvChannel，交出 MeshDoc.uv，和内存同形）；后面的通道不认，有位置的面数出来记一笔（extra-channel；施工单十八第 1½ 刀：内存里一张面最多在一套排法上）。
+ * · 同一个网格体里别的 kind 的几列同一个号、或者和某套排法同号 → 这几列都不认、那套排法也不认（不挑第一个）。
+ * 排法的号在排法表里有没有、角落没落在画布里：要对着顶层的排法表看，在 paint-read.ts。
  */
 function readColumns(raw: unknown, d: MeshDoc, sliceOf: (bv: number) => ArrayBuffer, notes: FormatReadNotes, def: { readonly guid: string; readonly name: string }): void {
   const drop = (col: { guid: string; name: string } | null, faces: number, why: UvDropWhy): void => { (notes.uvDropped ??= []).push({ def: { guid: def.guid, name: def.name }, uvSet: col, faces, why }); };
   if (!Array.isArray(raw)) { drop(null, 0, "not-a-list"); return; }
   const view = (bv: number): Uint8Array => new Uint8Array(sliceOf(bv)), corners = d.loopVert.length;
   const buf = (o: unknown): ArrayBuffer | null => { const b = isObj(o) && typeof o.bufferView === "number" ? o.bufferView : null; if (b === null) return null; try { return sliceOf(b); } catch { return null; } };
-  const kept: ColumnDoc[] = [], uv = new Map<string, Float32Array>();
+  const kept: ColumnDoc[] = [];
+  let uv: UvDoc | null = null, uvSeen = false;
   for (const r of raw as unknown[]) {
     if (!isObj(r)) { drop(null, 0, "not-an-object"); continue; }
-    if (r.kind === "uv") { readUvChannel(r, d, buf, uv, drop); continue; }
+    if (r.kind === "uv") {
+      if (!uvSeen) { uvSeen = true; uv = readUvChannel(r, d, buf, drop); continue; }
+      const fb = buf(r.faceSet);   // 多出来的通道：数一下里面有位置的面（读不出来 = 0），不带回
+      let n = 0;
+      if (fb && fb.byteLength === 4 * d.faceStart.length) for (const x of new Int32Array(fb)) if (x >= 0) n++;
+      drop(null, n, "extra-channel");
+      continue;
+    }
     if (!(typeof r.guid === "string" && isGuid(r.guid))) { drop(null, 0, "bad-guid"); continue; }
     const id = { guid: r.guid, name: "" };
     if (typeof r.kind !== "string" || !(typeof r.arity === "number" && Number.isInteger(r.arity) && r.arity > 0)) { drop(id, 0, "bad-kind"); continue; }
@@ -145,7 +140,7 @@ function readColumns(raw: unknown, d: MeshDoc, sliceOf: (bv: number) => ArrayBuf
   }
   const count = new Map<string, number>();
   for (const c of kept) count.set(c.guid, (count.get(c.guid) ?? 0) + 1);
-  for (const g of uv.keys()) count.set(g, (count.get(g) ?? 0) + 1);
+  for (const g of uv?.sets ?? []) count.set(g, (count.get(g) ?? 0) + 1);
   const dup = (g: string): boolean => (count.get(g) ?? 0) > 1;
   const cols = kept.filter((c) => { if (!dup(c.guid)) return true; drop({ guid: c.guid, name: "" }, 0, "duplicate-guid"); return false; });
   for (const c of cols) {
@@ -162,41 +157,45 @@ function readColumns(raw: unknown, d: MeshDoc, sliceOf: (bv: number) => ArrayBuf
     if (partial) drop(id, partial, "partial-corners");
     if (nonFinite) drop(id, nonFinite, "non-finite-corners");
   }
-  for (const [g, values] of uv) { if (dup(g)) { drop({ guid: g, name: "" }, 0, "duplicate-guid"); continue; } cols.push({ guid: g, kind: "uv", arity: 2, values }); }
+  if (uv) {
+    const bad = new Set(uv.sets.filter(dup));
+    for (const g of bad) drop({ guid: g, name: "" }, 0, "duplicate-guid");
+    if (bad.size) uv = dropUvSets(uv, bad, d.faceStart, d.faceLen).uv;
+    d.uv = uv;
+  }
   if (cols.length) d.columns = cols;
 }
 
 /**
- * 一个 uv 通道展开进 uv（排法 GUID → 按角的坐标，NaN = 没有）。坏在哪，那一部分按「没有」，记一笔：
- * · arity 不是 2 → 这个通道不认（bad-kind）。sets 不是列表 → 不认（bad-sets）。faceSet / data 找不到 → 不认（no-data）；个数不是面数 / 角数 × 2 → 不认（bad-length）。
- * · sets 里每个是 GUID 的项都建一列（没有面引用 = 这个网格体在那套排法上、零张面有位置）；重复的 GUID 允许（指同一列）。
- * · 一张面：下标越界、或者 sets 里那一项不是 GUID → 这张面没有（bad-face-set）；faceSet 说有而角上是「没有」或一半有一半没有、faceSet 是 −1 而角上有数 → 这张面没有（face-set-mismatch）；
- *   同一张面在前一个通道里已经在这套排法上有位置 → 后一个不认（same-set-twice）。
+ * 第一个 uv 通道 → MeshDoc.uv（排法列表 + 每面代号 + 每角坐标，和内存同形）。坏在哪，那一部分按「没有」（代号 −1、坐标 0），记一笔：
+ * · arity 不是 2 → 这个通道不认（bad-kind）。sets 不是列表 → 不认（bad-sets）。faceSet / data 找不到 → 不认（no-data）；个数不是面数 / 角数 × 2 → 不认（bad-length）。不认 = null。
+ * · sets 里每个是 GUID 的项都进排法列表（没有面引用 = 这个网格体在那套排法上、零张面有位置）；重复的 GUID 并成一项（指同一套）。
+ * · 一张面：下标越界、或者 sets 里那一项不是 GUID → 这张面没有（bad-face-set）；faceSet 说有而角上是「没有」或一半有一半没有、faceSet 是 −1 而角上有数 → 这张面没有（face-set-mismatch）。
  */
-function readUvChannel(r: Record<string, unknown>, d: MeshDoc, buf: (o: unknown) => ArrayBuffer | null, uv: Map<string, Float32Array>, drop: (col: { guid: string; name: string } | null, faces: number, why: UvDropWhy) => void): void {
+function readUvChannel(r: Record<string, unknown>, d: MeshDoc, buf: (o: unknown) => ArrayBuffer | null, drop: (col: { guid: string; name: string } | null, faces: number, why: UvDropWhy) => void): UvDoc | null {
   const nF = d.faceStart.length, corners = d.loopVert.length;
-  if (r.arity !== 2) { drop(null, 0, "bad-kind"); return; }
-  if (!Array.isArray(r.sets)) { drop(null, 0, "bad-sets"); return; }
+  if (r.arity !== 2) { drop(null, 0, "bad-kind"); return null; }
+  if (!Array.isArray(r.sets)) { drop(null, 0, "bad-sets"); return null; }
   const fb = buf(r.faceSet), db = buf(r.data);
-  if (!fb || !db || fb.byteLength % 4 !== 0 || db.byteLength % 4 !== 0) { drop(null, 0, "no-data"); return; }
-  if (fb.byteLength / 4 !== nF || db.byteLength / 4 !== 2 * corners) { drop(null, 0, "bad-length"); return; }
-  const sets = (r.sets as unknown[]).map((x) => (typeof x === "string" && isGuid(x) ? x : null)), faceSet = new Int32Array(fb), data = new Int32Array(db);
-  for (const g of sets) if (g !== null && !uv.has(g)) uv.set(g, new Float32Array(2 * corners).fill(NaN));
+  if (!fb || !db || fb.byteLength % 4 !== 0 || db.byteLength % 4 !== 0) { drop(null, 0, "no-data"); return null; }
+  if (fb.byteLength / 4 !== nF || db.byteLength / 4 !== 2 * corners) { drop(null, 0, "bad-length"); return null; }
+  const raw = (r.sets as unknown[]).map((x) => (typeof x === "string" && isGuid(x) ? x : null)), faceSet = new Int32Array(fb), data = new Int32Array(db);
+  const sets: string[] = [], code = raw.map((g) => { if (g === null) return -1; let i = sets.indexOf(g); if (i < 0) { sets.push(g); i = sets.length - 1; } return i; });
+  const outSet = new Int32Array(nF).fill(-1), outData = new Float32Array(2 * corners);
   let badIndex = 0;
-  const mismatch = new Map<string | null, number>(), twice = new Map<string, number>(), bump = <K>(m: Map<K, number>, k: K): void => { m.set(k, (m.get(k) ?? 0) + 1); };
+  const mismatch = new Map<string | null, number>(), bump = <K>(m: Map<K, number>, k: K): void => { m.set(k, (m.get(k) ?? 0) + 1); };
   for (let f = 0; f < nF; f++) {
     const s0 = 2 * d.faceStart[f], e0 = s0 + 2 * d.faceLen[f], i = faceSet[f];
     let none = 0;
     for (let c = s0; c < e0; c++) if (data[c] === UV_NONE) none++;
     if (i === -1) { if (none !== e0 - s0) bump(mismatch, null); continue; }
-    const g = i >= 0 && i < sets.length ? sets[i] : null;
-    if (g === null) { badIndex++; continue; }
-    if (none) { bump(mismatch, g); continue; }
-    const col = uv.get(g)!;
-    if (!Number.isNaN(col[s0])) { bump(twice, g); continue; }
-    for (let c = s0; c < e0; c++) col[c] = data[c] / UV_Q;
+    const k = i >= 0 && i < code.length ? code[i] : -1;
+    if (k < 0) { badIndex++; continue; }
+    if (none) { bump(mismatch, sets[k]); continue; }
+    outSet[f] = k;
+    for (let c = s0; c < e0; c++) outData[c] = data[c] / UV_Q;
   }
   if (badIndex) drop(null, badIndex, "bad-face-set");
   for (const [g, n] of mismatch) drop(g === null ? null : { guid: g, name: "" }, n, "face-set-mismatch");
-  for (const [g, n] of twice) drop({ guid: g, name: "" }, n, "same-set-twice");
+  return { sets, faceSet: outSet, data: outData };
 }

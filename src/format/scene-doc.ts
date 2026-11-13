@@ -5,9 +5,12 @@
 // created 2026-10-21 by Claude Fable 5.1
 import { Kernel } from "../kernel/kernel.ts";
 import { kernelFromMeshDoc, meshDocFromKernel } from "../mesh/mesh-doc.ts";
+import { applyUvDoc, uvDocOf, UV_COLUMN_IDS } from "../scene/uv.ts";
 import { DEFAULT_LAYER, defaultLayers, emptyGuidesDoc, emptyShelf, shelfIsEmpty } from "./document.ts";
 import { Scene, type DefId, type GroupId, type Material } from "../scene/scene.ts";
-import type { CatsupDocument, Channels, DefinitionDoc, GuidesDoc, MaterialDoc, ShelfDoc } from "./document.ts";
+import type { CatsupDocument, Channels, DefinitionDoc, GuidesDoc, MaterialDoc, ShelfDoc, UvDoc } from "./document.ts";
+/** 网格体载荷里的 uv 键（没有 = 不写这个键）。 */
+const uvKey = (uv: UvDoc | undefined): { uv?: UvDoc } => (uv ? { uv } : {});
 import { emptyGuides, type Guides } from "../scene/guides.ts";
 import { BUILTIN_BACK_GUID, type Guid } from "./guid.ts";
 import { BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
@@ -80,7 +83,9 @@ export function materializeDefinitions(scene: Scene, entries: readonly Definitio
     const d = e.def, def = scene.def(idOf.get(d.guid)!);
     // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
     if (d.kind === "mesh" && d.mesh) {
-      def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: slotsOf(d) };   // 排法表在场景这一层（下面 doc.uvSets），身体上只有角上的列
+      const kernel = kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), uvSetSlots: Guid[] = [];
+      if (d.mesh.uv) applyUvDoc(kernel, uvSetSlots, d.mesh.uv);   // 贴图坐标：速查表 + 面上的代号 + 角上的坐标（排法表在场景这一层，下面 doc.uvSets）
+      def.body = { kind: "mesh", kernel, materialSlots: slotsOf(d), uvSetSlots };
       if (d.mesh.mirror) scene.meshMirrors.set(def.id, { mode: d.mesh.mirror.mode, axis: d.mesh.mirror.axis });
       placeInstances(def.id, e, () => null);   // 网格体没有组
       continue;
@@ -138,7 +143,7 @@ export function definitionToDoc(scene: Scene, id: DefId, name?: string, onDrop?:
   });
   const groupGuid = (g: GroupId | null): Guid | null => (g !== null && d.body.kind === "brep" ? (d.body.groups.get(g)?.guid ?? null) : null);
   const instances = [...d.instances.values()].filter((i) => scene.defs.has(i.def) || (onDrop?.("instance", `definition ${d.guid} instance ${i.guid} → definition ${i.def}`), false)).map((i) => ({ guid: i.guid, definition: scene.def(i.def).guid, parent: groupGuid(i.parent), xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) }));
-  if (d.body.kind === "mesh") { const mr = scene.meshMirrors.get(d.id); return { guid: d.guid, name: d.name, kind: "mesh", mesh: { ...meshDocFromKernel(d.body.kernel), ...(mr ? { mirror: { mode: mr.mode, axis: mr.axis } } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: slotGuids(d.body.materialSlots), guides: emptyGuidesDoc() }; }
+  if (d.body.kind === "mesh") { const mr = scene.meshMirrors.get(d.id); return { guid: d.guid, name: d.name, kind: "mesh", mesh: { ...meshDocFromKernel(d.body.kernel, UV_COLUMN_IDS), ...uvKey(uvDocOf(d.body.kernel, d.body.uvSetSlots)), ...(mr ? { mirror: { mode: mr.mode, axis: mr.axis } } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: slotGuids(d.body.materialSlots), guides: emptyGuidesDoc() }; }
   const b = d.body;
   return {
     guid: d.guid,
@@ -158,7 +163,7 @@ export function definitionToDoc(scene: Scene, id: DefId, name?: string, onDrop?:
 export function documentFromScene(scene: Scene, _name: string, base?: CatsupDocument | null, onDrop?: WriteDrop): CatsupDocument {
   // 贴图坐标进文件了（1-2½；施工单十八：排法表在场景这一层）：definitionToDoc 带着内核里的每一列。uv 列在场景的排法表里没有那一行 = 内部出了错，整份写盘抛（统筹 11-11：要响），
   //   不悄悄丢掉那一列。抛在整份写盘这里、不在 definitionToDoc：后者也是条目仓库的读面（粘贴对账、复制成唯一），那些路上不该炸。
-  for (const d of scene.defs.values()) if (d.body.kind === "mesh") for (const c of d.body.kernel.columnDefs()) if (c.kind === "uv" && !scene.uvSets.has(c.guid)) throw new Error(`definition "${d.name}" (${d.guid}): the mesh kernel has a uv column ${c.guid} that is not in the scene uvSet table; refusing to write (the file would lose which canvas these corners are on)`);
+  for (const d of scene.defs.values()) if (d.body.kind === "mesh") for (const g of d.body.uvSetSlots) if (!scene.uvSets.has(g)) throw new Error(`definition "${d.name}" (${d.guid}): the mesh is on uvSet ${g}, which is not in the scene uvSet table; refusing to write (the file would lose which canvas these corners are on)`);
   const ids = [...scene.defs.keys()];
   const rootIndex = ids.indexOf(scene.root);
   const definitions: DefinitionDoc[] = ids.map((id) => definitionToDoc(scene, id, undefined, onDrop));   // 根的名字是它自己的（四位码或 user 起的），不拿文件名覆盖（user 11-13「以后根永远不跟文件名…不要跟文件名搞特殊」）；name 参数只剩签名

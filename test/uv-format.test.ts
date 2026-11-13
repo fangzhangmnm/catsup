@@ -1,6 +1,7 @@
 // 贴图坐标进文件（贴图主线 1-2½ 起；2026-11-13 施工单十八第 1 刀整份重写：排法表 = 顶层扩展 CATSUP_uvsets 1.0，网格体上是角上的列 = CATSUP_mesh 3.0 columns（uv = 通道：sets 对照表 + faceSet 每面下标 + data 每角坐标；统筹 11-13 改），
 // 画的 layout = { uvSet } = CATSUP_textures 1.3；不做迁移）。created 2026-11-11 / rewritten 2026-11-13 by Claude Opus 5.5
-// ① 往返和拍子：三节的形状（统筹要看的第 ① 处）、uv 通道存 1/1024 格的整数、不带列照旧 1.2、两个通道 / 空列 / 列的先后、fit / freed / 不认识的键原样带回（uv 通道里的不带）、太新拒开。
+// ① 往返和拍子：三节的形状（统筹要看的第 ① 处）、uv 通道存 1/1024 格的整数、不带列照旧 1.2、第二个起的通道（只认第一个）/ 空的那一套 / 速查表的先后、fit / freed / 不认识的键原样带回（uv 通道里的不带）、太新拒开。
+// 2026-11-13 第 1½ 刀：内存里贴图坐标 = 速查表 + 面上的代号 + 角上的坐标，MeshDoc.uv 和文件通道同形（一张面最多在一套上）。
 // ② 附属数据坏了模型照开：坏的部分按「没有」处理、记进 readNotes、打开之后说出来；读进来自检全过（uv 通道的每一种坏法各一条）。
 // ③ 旧存法的画（第五节）：老目录里冻着的带画样本读得开、模型不变、画按底色、说两句（几张旧存法的画按底色；几个物件上的旧位置保存之后不再保留，只有后一句算会丢）、存了再开稳定且只剩前一句、新写的文件里没有老写法。
 // ④ 比内容（粘贴对账）跟着面转。
@@ -11,7 +12,8 @@ import { FormatTooNewError, type FormatReadNotes } from "../src/format/migrate/i
 import { canonDefinition } from "../src/format/entry-canon.ts";
 import { meshBodyIssues } from "../src/scene/paint.ts";
 import { uvSetAutoPlaces, type Scene } from "../src/scene/scene.ts";
-import { paintIn, type CatsupDocument, type MeshDoc } from "../src/format/document.ts";
+import { paintIn, type CatsupDocument, type MeshDoc, type UvDoc } from "../src/format/document.ts";
+import { uvSetOfFace } from "../src/scene/uv.ts";
 import { formatNotesSay, lossySay } from "../src/app/format-notes.ts";
 import { UV_NONE } from "../src/format/mesh-payload.ts";
 import { sceneUvPainted, sceneUvTwoSets, sceneMeshed, sceneFingerprint, sceneUvDensityFit } from "./format-scenes.ts";
@@ -39,7 +41,7 @@ function patchInts(g: Glb, ref: AnyJson, edit: (a: Int32Array) => void): void {
 }
 /** 模型本身（去掉角上的列）：每个定义的几何、槽表、实例。 */
 function modelOnly(doc: CatsupDocument): string {
-  const strip = (m: MeshDoc | undefined): unknown => { if (!m) return null; const { columns: _c, ...rest } = m; void _c; return rest; };
+  const strip = (m: MeshDoc | undefined): unknown => { if (!m) return null; const { columns: _c, uv: _u, ...rest } = m; void _c; void _u; return rest; };
   const ta = (_k: string, v: unknown): unknown => (ArrayBuffer.isView(v) ? Array.from(v as unknown as ArrayLike<number>) : v);
   return JSON.stringify(doc.definitions.map((d) => ({ guid: d.guid, kind: d.kind, mesh: strip(d.mesh), brep: d.brep, groups: d.groups, instances: d.instances })), ta);
 }
@@ -58,18 +60,36 @@ function firstPlaced(g: Glb): { ch: AnyJson; f: number; s: number; e: number } {
   const md = meshItem(g), ch = md.columns.find((c: AnyJson) => c.kind === "uv"), fs = ints(g, ch.faceSet), st = ints(g, md.faceStart), ln = ints(g, md.faceLen), f = fs.findIndex((x) => x !== -1);
   return { ch, f, s: 2 * st[f], e: 2 * (st[f] + ln[f]) };
 }
-/** 手造一份「一张面同时在两套排法上」的文档：两套排法的场景，第二套没有位置的面也给一块（每角一个小坐标，落在画布里）。 */
-function twoChannelDoc(): CatsupDocument {
-  const doc = documentFromScene(sceneUvTwoSets(), "t"), m = doc.definitions.find((d) => d.kind === "mesh")!.mesh!, [a, b] = m.columns!;
-  for (let f = 0; f < m.faceStart.length; f++) {
-    const s0 = 2 * m.faceStart[f], e0 = s0 + 2 * m.faceLen[f];
-    if (Number.isNaN(a.values[s0]) || !Number.isNaN(b.values[s0])) continue;   // 只挑在第一套上有、第二套上没有的面
-    for (let i = s0; i < e0; i++) b.values[i] = 1 + ((i - s0) % 4) / 4;
-  }
-  return doc;
+/** BIN 末尾追加一段 32 位整数，返回新的 bufferView 下标（四字节对齐）。 */
+function addInts(g: Glb, a: Int32Array): number {
+  const off = Math.ceil(g.bin.length / 4) * 4, bin = new Uint8Array(off + a.byteLength);
+  bin.set(g.bin); bin.set(new Uint8Array(a.buffer, a.byteOffset, a.byteLength), off);
+  g.bin = bin; g.json.bufferViews.push({ buffer: 0, byteOffset: off, byteLength: a.byteLength });
+  if (g.json.buffers?.[0]) g.json.buffers[0].byteLength = bin.length;
+  return g.json.bufferViews.length - 1;
 }
-/** 场景里每张面在每条 uv 列上有没有位置：定义名 → 有位置的面数。 */
-const placed = (s: Scene): number => { let n = 0; for (const d of s.defs.values()) if (d.body.kind === "mesh") { const k = d.body.kernel; for (const c of k.columnDefs()) if (c.kind === "uv") n += k.faces().filter((f) => k.cornerValues(f, c.guid)).length; } return n; };
+/**
+ * 手造一份 v0.19.80 会写的「一张面同时在两套排法上」的文件：两套排法的场景，在第 0 套上有位置的面在第 1 套上也给一块（每角一个小坐标，落在画布里），
+ * 照 v0.19.80 的写法进第二个 uv 通道（字典序大的那套）。good = 同一个场景、加通道之前的那份；n1 = 第二个通道里有位置的面数。
+ */
+function twoChannelGlb(): { g: Glb; good: Glb; n1: number } {
+  const g = glbOf(sceneUvTwoSets()), good = clone(g), md = meshItem(g), ch0 = md.columns[0], fs0 = ints(g, ch0.faceSet), st = ints(g, md.faceStart), ln = ints(g, md.faceLen), nF = fs0.length, corners = ch0.data.count;
+  const fs1 = new Int32Array(nF).fill(-1), d1 = new Int32Array(2 * corners).fill(UV_NONE);
+  let n1 = 0;
+  for (let f = 0; f < nF; f++) {
+    if (fs0[f] !== 0) continue;
+    fs1[f] = 0; n1++;
+    for (let i = 2 * st[f]; i < 2 * (st[f] + ln[f]); i++) d1[i] = 1024 + ((i - 2 * st[f]) % 4) * 256;
+  }
+  md.columns.push({ kind: "uv", arity: 2, sets: [ch0.sets[1]], faceSet: { bufferView: addInts(g, fs1), count: nF }, data: { bufferView: addInts(g, d1), count: corners } });
+  return { g, good, n1 };
+}
+/** 场景里有位置的面数（每个网格体每张面最多在一套上）。 */
+const placed = (s: Scene): number => { let n = 0; for (const d of s.defs.values()) if (d.body.kind === "mesh") { const b = d.body; n += b.kernel.faces().filter((f) => uvSetOfFace(b.kernel, b.uvSetSlots, f) !== null).length; } return n; };
+/** 场景里网格体在几套排法上（每个网格体的速查表加起来）。 */
+const uvSetsOn = (s: Scene): number => [...s.defs.values()].reduce((n, d) => n + (d.body.kind === "mesh" ? d.body.uvSetSlots.length : 0), 0);
+/** 文档里那个网格体的贴图坐标。 */
+const uvOfDoc = (doc: CatsupDocument): UvDoc => doc.definitions.find((d) => d.kind === "mesh")!.mesh!.uv!;
 
 describe("贴图坐标进文件：形状、往返和拍子（施工单十八第 1 刀）", () => {
   it("① 带画：网格体盖 3.0、columns 里一个 uv 通道（kind / arity 2 / sets 字典序 / faceSet 面数 / data 角数）、没有 uvSets 键；顶层 CATSUP_uvsets 一行一套（fit 写明）；贴图表 1.3、layout = { uvSet }；读回来指纹相等、自检过、再存逐字节不变", () => {
@@ -98,44 +118,45 @@ describe("贴图坐标进文件：形状、往返和拍子（施工单十八第 
   });
   it("① uv 通道存 1/1024 格的 32 位整数：faceSet 指的那一套读回来的值 × 1024 = 文件里的整数；faceSet −1 = 两个 −2147483648、那张面在哪一套上都没有", () => {
     const s = sceneUvTwoSets(), g = glbOf(s), md = meshItem(g), ch = md.columns[0], fs = ints(g, ch.faceSet), data = ints(g, ch.data), st = ints(g, md.faceStart), ln = ints(g, md.faceLen);
-    const cols = readCatsup(enc(g)).definitions.find((d) => d.mesh)!.mesh!.columns!;
+    const uv = uvOfDoc(readCatsup(enc(g)));
     let placedN = 0;
     for (let f = 0; f < fs.length; f++) {
       const s0 = 2 * st[f], e0 = 2 * (st[f] + ln[f]);
-      if (fs[f] === -1) { for (let i = s0; i < e0; i++) eq(data[i], UV_NONE, `面 ${f} 没有位置：角 ${i}`); for (const c of cols) assert(Number.isNaN(c.values[s0]), `面 ${f} 在 ${c.guid} 上没有`); continue; }
+      if (fs[f] === -1) { for (let i = s0; i < e0; i++) eq(data[i], UV_NONE, `面 ${f} 没有位置：角 ${i}`); eq(uv.faceSet[f], -1, `面 ${f} 读回来没有位置`); continue; }
       placedN++;
-      const c = cols.find((x) => x.guid === ch.sets[fs[f]])!;
-      for (let i = s0; i < e0; i++) eq(c.values[i] * 1024, data[i], `面 ${f} 角 ${i}`);
-      for (const o of cols) if (o !== c) assert(Number.isNaN(o.values[s0]), `面 ${f} 不在别的那一套上`);
+      eq(uv.sets[uv.faceSet[f]], ch.sets[fs[f]], `面 ${f} 在同一套上`);
+      for (let i = s0; i < e0; i++) eq(uv.data[i] * 1024, data[i], `面 ${f} 角 ${i}`);
     }
     assert(placedN > 0 && new Set(Array.from(fs).filter((x) => x >= 0)).size === 2, "两套各有面");
   });
-  it("① 一张面同时在两套排法上 = 两个通道（第 k 套按 GUID 字典序进第 k 个通道）；能开、能存、来回逐字节；读回来每列和写之前一样", () => {
-    const doc = twoChannelDoc(), bytes = writeCatsup(doc), g = decodeGlb(bytes) as unknown as Glb, md = meshItem(g), chs = (md.columns as AnyJson[]).filter((c) => c.kind === "uv");
-    eq(chs.length, 2, "两个通道");
-    const fs0 = ints(g, chs[0].faceSet), fs1 = ints(g, chs[1].faceSet);
-    for (let f = 0; f < fs1.length; f++) if (fs1[f] !== -1) { assert(fs0[f] !== -1, `面 ${f}：第 1 个通道有它，第 0 个通道也有`); assert(chs[0].sets[fs0[f]] < chs[1].sets[fs1[f]], `面 ${f}：字典序小的那套在第 0 个通道`); }
-    const back = readCatsup(bytes), m0 = doc.definitions.find((d) => d.kind === "mesh")!.mesh!, m1 = back.definitions.find((d) => d.kind === "mesh")!.mesh!;
-    eq(back.readNotes?.uvDropped, undefined, "没有不认的");
-    for (const c of m0.columns!) { const r = m1.columns!.find((x) => x.guid === c.guid)!; eq(Array.from(r.values).map(String).join(), Array.from(c.values).map(String).join(), `列 ${c.guid}`); }
-    const s = sceneFromDocument(back);
-    eq(issuesOf(s).join("；"), "", "自检过");
-    assert(same(writeCatsup(documentFromScene(s, "t")), bytes), "经场景再存逐字节不变");
+  it("① 第二个起的 uv 通道（v0.19.80 一张面在两套上时写的）：只认第一个；后面那个里有位置的面数出来记一笔（extra-channel）、说出来、算会丢的；模型一个字不差；存了只剩一个通道、和没有第二个通道的那份逐字节一样", () => {
+    const { g, good, n1 } = twoChannelGlb();   // 好的那份 = 同一个场景、加第二个通道之前
+    assert(n1 > 0, "第二个通道里有面");
+    const { notes, s } = readBad(good, g);
+    eq((notes.uvDropped ?? []).map((x) => `${x.why}:${x.faces}`).join(), `extra-channel:${n1}`);
+    const say = formatNotesSay(notes).join("\n");
+    assert(new RegExp(`有 ${n1} 张面在第二套贴图坐标上也有位置（这一版一张面只放得下一套，第二套不认）`).test(say), say);
+    assert(lossySay(notes).length > 0, "算会丢的（第一次存盘前要点头）");
+    eq(placed(s), placed(sceneFromDocument(readCatsup(enc(good)))), "第一个通道上的位置一张不少");
+    const bytes = writeCatsup(documentFromScene(s, "t"));
+    eq((meshItem(decodeGlb(bytes) as unknown as Glb).columns as AnyJson[]).filter((c) => c.kind === "uv").length, 1, "存了只剩一个通道");
+    assert(same(bytes, writeCatsup(documentFromScene(sceneFromDocument(readCatsup(enc(good))), "t"))), "和没有第二个通道的那份存出来逐字节一样");
   });
-  it("① 空列（这个网格体在某套排法上、一张面都没有位置）：它的 GUID 进第 0 个通道的 sets；读回来那一列还在（全空）；全都是空列也写第 0 个通道", () => {
-    const doc = documentFromScene(sceneUvTwoSets(), "t"), m = doc.definitions.find((d) => d.kind === "mesh")!.mesh!, [a, b] = m.columns!;
-    b.values.fill(NaN);
+  it("① 空的那一套（网格体在某套排法上、一张面都没有位置）：它的 GUID 照样进 sets；读回来速查表里还有它、没有面在上面；全都空也写通道", () => {
+    const doc = documentFromScene(sceneUvTwoSets(), "t"), m = doc.definitions.find((d) => d.kind === "mesh")!.mesh!, uv = m.uv!, [a, b] = uv.sets;
+    m.uv = { ...uv, faceSet: uv.faceSet.map((c) => (uv.sets[c] === b ? -1 : c)) };
     const bytes = writeCatsup(doc), ch = meshItem(decodeGlb(bytes) as unknown as Glb).columns[0];
-    eq(JSON.stringify(ch.sets), JSON.stringify([a.guid, b.guid].sort()), "两套都在 sets 里");
+    eq(JSON.stringify(ch.sets), JSON.stringify([a, b].sort()), "两套都在 sets 里");
     const s = sceneFromDocument(readCatsup(bytes)), k = [...s.defs.values()].find((d) => d.body.kind === "mesh")!.body;
-    assert(k.kind === "mesh" && k.kernel.hasColumn(b.guid) && k.kernel.faces().every((f) => !k.kernel.cornerValues(f, b.guid)), "空列读回来还在、全空");
+    assert(k.kind === "mesh" && k.uvSetSlots.includes(b) && k.kernel.faces().every((f) => uvSetOfFace(k.kernel, k.uvSetSlots, f) !== b), "空的那一套读回来还在、没有面");
     assert(same(writeCatsup(documentFromScene(s, "t")), bytes), "经场景再存逐字节不变");
-    a.values.fill(NaN);
+    m.uv = { ...uv, faceSet: uv.faceSet.map(() => -1) };
     const g2 = decodeGlb(writeCatsup(doc)) as unknown as Glb, md2 = meshItem(g2), ch2 = md2.columns[0];
-    eq(md2.version, 3); eq(JSON.stringify(ch2.sets), JSON.stringify([a.guid, b.guid].sort())); assert(Array.from(ints(g2, ch2.faceSet)).every((x) => x === -1), "faceSet 全 −1");
+    eq(md2.version, 3); eq(JSON.stringify(ch2.sets), JSON.stringify([a, b].sort())); assert(Array.from(ints(g2, ch2.faceSet)).every((x) => x === -1), "faceSet 全 −1");
   });
-  it("① 内存里列的先后不影响写出来的字节", () => {
-    const d = twoChannelDoc(), flipped: CatsupDocument = { ...d, definitions: d.definitions.map((x) => (x.kind === "mesh" ? { ...x, mesh: { ...x.mesh!, columns: [...x.mesh!.columns!].reverse() } } : x)) };
+  it("① 速查表的先后不影响写出来的字节", () => {
+    const d = documentFromScene(sceneUvTwoSets(), "t"), m = d.definitions.find((x) => x.kind === "mesh")!.mesh!, uv = m.uv!, n = uv.sets.length;
+    const flipped: CatsupDocument = { ...d, definitions: d.definitions.map((x) => (x.kind === "mesh" ? { ...x, mesh: { ...x.mesh!, uv: { sets: [...uv.sets].reverse(), faceSet: uv.faceSet.map((c) => (c < 0 ? c : n - 1 - c)), data: uv.data } } } : x)) };
     assert(same(writeCatsup(flipped), writeCatsup(d)), "整份逐字节一样");
   });
   it("① 不认识的键原样带回：排法表头上的、一行里的（连同它指着的字节）；uv 通道里的不带回（通道是写的时候现排的，没有地方挂）", () => {
@@ -175,9 +196,8 @@ describe("贴图坐标进文件：形状、往返和拍子（施工单十八第 
 
 describe("附属数据坏了模型照开：坏的部分按没有处理、记一笔、说出来（施工单十八第 1 刀）", () => {
   const good = (): Glb => glbOf(sceneUvTwoSets());
-  const twoCh = (): Glb => decodeGlb(writeCatsup(twoChannelDoc())) as unknown as Glb;
   const whys = (n: FormatReadNotes): string => (n.uvDropped ?? []).map((x) => `${x.why}:${x.faces}`).join();
-  const uvCols = (s: Scene): number => [...s.defs.values()].flatMap((d) => (d.body.kind === "mesh" ? d.body.kernel.columnDefs().filter((c) => c.kind === "uv") : [])).length;
+  const uvCols = uvSetsOn;
   it("faceSet 说有、角上一半有值一半没有 → 这张面没有位置（face-set-mismatch）；别的面不受影响", () => {
     const g0 = good(), g = clone(g0), p = firstPlaced(g), before = placed(sceneFromDocument(readCatsup(enc(g0))));
     patchInts(g, p.ch.data, (a) => { a[p.s] = UV_NONE; a[p.s + 1] = UV_NONE; });
@@ -221,20 +241,13 @@ describe("附属数据坏了模型照开：坏的部分按没有处理、记一�
       eq(whys(notes), `${why}:0`, why); eq(placed(s), 0, `${why}：这个通道上的面都没有位置`); eq(uvCols(s), 0, `${why}：两套都没有列（只在这个通道里）`);
     }
   });
-  it("两个通道里同一张面指同一套 → 后一个不认（same-set-twice）", () => {
-    const g0 = twoCh(), g = clone(g0), chs = (meshItem(g).columns as AnyJson[]).filter((c) => c.kind === "uv"), n1 = Array.from(ints(g, chs[1].faceSet)).filter((x) => x !== -1).length;
-    chs[1].sets = chs[1].sets.map(() => chs[0].sets[0]);   // 第 1 个通道全指第 0 个通道里的第一套（第 0 个通道里那几张面都在它上面）
-    const doc = readCatsup(enc(g)), dropped = (doc.readNotes?.uvDropped ?? []).filter((x) => x.why === "same-set-twice").reduce((k, x) => k + x.faces, 0);
-    assert(dropped > 0 && dropped <= n1, `后一个不认的面 ${dropped}（第 1 个通道一共 ${n1} 张）：${JSON.stringify(doc.readNotes?.uvDropped)}`);
-    eq(modelOnly(doc), modelOnly(readCatsup(enc(g0))), "模型本身一个字不差");
-  });
   it("别的种类的列和某套排法同号 → 这两样都不认（不挑第一个）；指着那套的画当孤儿留着", () => {
     const g0 = good(), g = clone(g0), md = meshItem(g), ch = md.columns[0], g1 = ch.sets[0];
     md.columns.push({ guid: g1, kind: "test", arity: 2, data: { bufferView: ch.data.bufferView, count: ch.data.count } });
     const { notes, s } = readBad(g0, g);
     eq((notes.uvDropped ?? []).filter((x) => x.why === "duplicate-guid").length, 2, JSON.stringify(notes.uvDropped));
     const k = [...s.defs.values()].find((d) => d.body.kind === "mesh")!.body;
-    assert(k.kind === "mesh" && !k.kernel.hasColumn(g1), "那一套和那条别的列都没了"); eq(uvCols(s), 1, "另一套还在");
+    assert(k.kind === "mesh" && !k.kernel.hasColumn(g1) && !k.uvSetSlots.includes(g1), "那一套和那条别的列都没了"); eq(uvCols(s), 1, "另一套还在");
   });
   it("uv 的号在排法表里没有 → 这一列不认（no-row）；画挂的排法不在表里 → 孤儿", () => {
     const g0 = good(), g = clone(g0), painted = g.json.extensions.CATSUP_textures.list[0].layout.uvSet, list = g.json.extensions.CATSUP_uvsets.list as AnyJson[];
@@ -298,17 +311,19 @@ describe("旧存法的画（施工单十八第五节：不做迁移）", () => {
 });
 
 describe("比内容跟着面转（粘贴对账；1-2½，施工单十八：列）", () => {
-  it("面的先后和环的起点换了、列的先后换了 → 判一样；改一个角上的数 → 判不一样", () => {
-    const doc = documentFromScene(sceneUvTwoSets(), "t"), d = doc.definitions.find((x) => x.kind === "mesh")!, m = d.mesh!, cols = m.columns!;
+  it("面的先后和环的起点换了、速查表的先后换了 → 判一样；改一个角上的数 → 判不一样", () => {
+    const doc = documentFromScene(sceneUvTwoSets(), "t"), d = doc.definitions.find((x) => x.kind === "mesh")!, m = d.mesh!, uv = m.uv!;
     const canon = (x: typeof d): string => JSON.stringify(canonDefinition(x, () => undefined), (_k, v) => (ArrayBuffer.isView(v) ? Array.from(v as unknown as ArrayLike<number>) : v));
-    const nF = m.faceStart.length, order = [...Array(nF).keys()].reverse(), loop: number[] = [], start: number[] = [], len: number[] = [], vals = cols.map(() => [] as number[]);
+    const nF = m.faceStart.length, order = [...Array(nF).keys()].reverse(), loop: number[] = [], start: number[] = [], len: number[] = [], data: number[] = [], nS = uv.sets.length;
     for (const f of order) {
-      const s = m.faceStart[f], n = m.faceLen[f]; start.push(loop.length); len.push(n);
-      for (let k = 0; k < n; k++) { const c = s + ((k + 1) % n); loop.push(m.loopVert[c]); cols.forEach((col, j) => vals[j].push(col.values[2 * c], col.values[2 * c + 1])); }
+      const s0 = m.faceStart[f], n = m.faceLen[f]; start.push(loop.length); len.push(n);
+      for (let k = 0; k < n; k++) { const c = s0 + ((k + 1) % n); loop.push(m.loopVert[c]); data.push(uv.data[2 * c], uv.data[2 * c + 1]); }
     }
-    const turned = { ...d, mesh: { ...m, faceStart: Int32Array.from(start), faceLen: Int32Array.from(len), loopVert: Int32Array.from(loop), faceMat: Int32Array.from(order.map((f) => m.faceMat[f])), faceFlags: Uint8Array.from(order.map((f) => m.faceFlags[f])), columns: cols.map((c, j) => ({ ...c, values: Float32Array.from(vals[j]) })).reverse() } };
-    eq(canon(turned), canon(d), "转过、排过、列的先后换过 = 一样");
-    const nudged = { ...d, mesh: { ...m, columns: cols.map((c, j) => (j === 0 ? { ...c, values: (() => { const a = c.values.slice(); const k = a.findIndex((x) => !Number.isNaN(x)); a[k] += 1; return a; })() } : c)) } };
+    const turnedUv: UvDoc = { sets: [...uv.sets].reverse(), faceSet: Int32Array.from(order.map((f) => (uv.faceSet[f] < 0 ? -1 : nS - 1 - uv.faceSet[f]))), data: Float32Array.from(data) };
+    const turned = { ...d, mesh: { ...m, faceStart: Int32Array.from(start), faceLen: Int32Array.from(len), loopVert: Int32Array.from(loop), faceMat: Int32Array.from(order.map((f) => m.faceMat[f])), faceFlags: Uint8Array.from(order.map((f) => m.faceFlags[f])), uv: turnedUv } };
+    eq(canon(turned), canon(d), "转过、排过、速查表的先后换过 = 一样");
+    const at = uv.faceSet.findIndex((c) => c >= 0), nudgedData = uv.data.slice(); nudgedData[2 * m.faceStart[at]] += 1;
+    const nudged = { ...d, mesh: { ...m, uv: { ...uv, data: nudgedData } } };
     assert(canon(nudged) !== canon(d), "改一个角上的数 = 不一样");
   });
 });

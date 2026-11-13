@@ -87,7 +87,7 @@ const UV_WHY: Record<UvDropWhy, string> = {
   "no-data": "（角上的数找不到）", "bad-length": "（角上的数个数和模型对不上）", "duplicate-guid": "（和同一个物件的另一列用了同一个身份号）", "no-row": "（排法表里没有这一套）",
   "partial-corners": "的角一半有坐标一半没有", "non-finite-corners": "的角坐标不是有限的数", "off-canvas-corners": "的角落在画布外面",
   "bad-sets": "（对照表的格式不对）", "bad-face-set": "指的那一套对不上（对照表里没有那一项、或者那一项不是身份号）",
-  "face-set-mismatch": "的「有没有位置」和角上的坐标对不上", "same-set-twice": "在同一套上写了两次（后一次不认）",
+  "face-set-mismatch": "的「有没有位置」和角上的坐标对不上", "extra-channel": "在第二套贴图坐标上也有位置（这一版一张面只放得下一套，第二套不认）",
 };
 /** 排法表的一行读不了的原因（uvSetRowsDropped 用）。 */
 const UV_ROW_WHY: Record<UvRowWhy, string> = {

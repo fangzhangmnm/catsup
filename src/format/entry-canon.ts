@@ -29,15 +29,20 @@ function canonBrep(snap: BrepSnapshot, slotGuid: (slot: number) => Guid | null):
 
 /** 网格体：点的下标原样（可能有重合的点，按坐标认会把「焊了」和「没焊」判成一样）；面从最小下标起转、面和边标记排序（存盘重开只会换这两样的序）；角上的列跟着面转（1-2½；施工单十八：列 = columns）。 */
 function canonMesh(m: MeshDoc, slotGuid: (slot: number) => Guid | null): unknown {
-  const { faceStart, faceLen, loopVert, faceMat, faceFlags, edgePairs, edgeFlags, columns, ...rest } = m;
-  const cols = byKey(columns ?? [], (c) => c.guid);   // 列表顺序没有语义：按身份号排，每张面上的键也按这个序
+  const { faceStart, faceLen, loopVert, faceMat, faceFlags, edgePairs, edgeFlags, columns, uv, ...rest } = m;
+  // 比内容时每套排法看成一列（施工单十八第 1½ 刀：内存和文件里是「每面一个代号 + 每角坐标」，这里展开成和以前一样的「每套一列、这张面在这一套上有没有值」，
+  //   所以速查表的先后、代号的号不影响比较）。别的列照旧。
+  type Col = { guid: string; kind: string; arity: number; extra?: { json: unknown }; at(i: number): Float32Array | null };
+  const uvCols: Col[] = [...new Set(uv?.sets ?? [])].map((g) => ({ guid: g, kind: "uv", arity: 2, at: (i: number): Float32Array | null => (uv!.sets[uv!.faceSet[i]] === g ? uv!.data.subarray(2 * faceStart[i], 2 * (faceStart[i] + faceLen[i])) : null) }));
+  const fileCols: Col[] = (columns ?? []).map((c) => ({ guid: c.guid, kind: c.kind, arity: c.arity, extra: c.extra, at: (i: number): Float32Array | null => { const v = c.values.subarray(c.arity * faceStart[i], c.arity * (faceStart[i] + faceLen[i])); return Number.isNaN(v[0]) ? null : v; } }));
+  const cols = byKey([...fileCols, ...uvCols], (c) => c.guid);   // 列表顺序没有语义：按身份号排，每张面上的键也按这个序
   // 每张面从最小下标起转；角上的列跟着同一张面、同样转（存盘重开只会换面的序和环的起点，角上的数跟着角走）。这一列上没有值 = null。
   const faces = Array.from(faceStart, (start, i) => {
     const n = faceLen[i], ring = Array.from(loopVert.subarray(start, start + n));
     let at = 0; for (let k = 1; k < n; k++) if (ring[k] < ring[at]) at = k;
     const turn = <T>(xs: readonly T[], w: number): T[] => [...xs.slice(at * w), ...xs.slice(0, at * w)];
     const col: Record<string, number[] | null> = {};
-    for (const c of cols) { const v = Array.from(c.values.subarray(c.arity * start, c.arity * (start + n))); col[c.guid] = Number.isNaN(v[0]) ? null : turn(v, c.arity); }
+    for (const c of cols) { const v = c.at(i); col[c.guid] = v ? turn(Array.from(v), c.arity) : null; }
     return { ring: turn(ring, 1), mat: faceMat[i] >= 0 ? slotGuid(faceMat[i]) : null, flags: faceFlags[i], ...(cols.length ? { col } : {}) };
   });
   const edges = Array.from(edgeFlags, (flags, i) => { const a = edgePairs[2 * i], b = edgePairs[2 * i + 1]; return { a: Math.min(a, b), b: Math.max(a, b), flags }; });

@@ -31,7 +31,7 @@ export function sceneStore(s: Scene): SceneStore {
     for (const m of d.body.materialSlots) { const g = m === BUILTIN_BACK_SLOT ? BUILTIN_BACK_GUID : s.materials[m]?.guid; if (g !== undefined) out.push(materialRef(g)); }
     for (const i of d.instances.values()) { const g = i.layer === undefined ? undefined : layerGuid(i.layer); if (g !== undefined) out.push(layerRef(g)); }
     for (const i of d.instances.values()) { const t = s.defs.get(i.def); if (t) out.push(defRef(t.guid)); }
-    if (d.body.kind === "mesh") for (const c of d.body.kernel.columnDefs()) if (c.kind === "uv") out.push(uvSetRef(c.guid));   // 网格体的 uv 列指排法
+    if (d.body.kind === "mesh") for (const g of d.body.uvSetSlots) out.push(uvSetRef(g));   // 网格体的速查表指排法（第 1½ 刀：表上有、零张面有位置的也算引用，和以前「有这一列」同一个意思）
     return out;
   };
   const store: SceneStore = {

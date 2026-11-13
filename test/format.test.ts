@@ -11,6 +11,7 @@ import { SCENES, SCENE_DOCS, DOC_SAMPLES, fingerprint, sceneFingerprint } from "
 import { listFixtures, readFixture, hasFixtureDir, listCorpusDirs } from "./fixtures/format/fixtures.mjs";
 import { meshDocFromKernel, kernelFromMeshDoc } from "../src/mesh/mesh-doc.ts";
 import type { Scene } from "../src/scene/scene.ts";
+import { UV_COLUMN_IDS } from "../src/scene/uv.ts";
 
 const BUDGET_BYTES: Record<string, number> = { box: 2900, holed: 3100, house: 3100, cylinder: 8400, folded: 3300 };   // holed / house 3000 → 3100（2026-11-13：新文档的 settings 写明单位制 "unitSystem":"metric" 等 ≈ +25 B，实测 3012 / 3024）   // 全部 +200（2026-11-04 身份地基）：实测每份多约 130 B = 定义 guid + root + 默认层 guid + 拍子   // folded（DT87 折线，2026-10-26）：两张三角 + 一层 fold，实测 2980   // box 2600 → 2700（2026-10-25：第六个扩展 CATSUP_desk + document minor 键 ≈ +50 B，实测 2648）   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
 
@@ -187,9 +188,9 @@ describe("format: group / component / 软边 往返（v2，2026-10-21）", () =>
   }
 });
 
-/** 当前场景去掉贴图坐标：每个网格体的 uv 列拿掉、排法表清空（旧存法的画那几个样本只比模型本身用）。 */
+/** 当前场景去掉贴图坐标：每个网格体的速查表和那两列拿掉、排法表清空（旧存法的画那几个样本只比模型本身用）。 */
 function withoutUv(sc: Scene): Scene {
-  for (const d of sc.defs.values()) if (d.body.kind === "mesh") { const md = meshDocFromKernel(d.body.kernel); delete md.columns; d.body.kernel = kernelFromMeshDoc(md); }
+  for (const d of sc.defs.values()) if (d.body.kind === "mesh") { const md = meshDocFromKernel(d.body.kernel, UV_COLUMN_IDS); delete md.columns; d.body.kernel = kernelFromMeshDoc(md); d.body.uvSetSlots = []; }   // 第 1½ 刀：贴图坐标 = 速查表 + 那两列（跳过不写）
   sc.uvSets.clear();
   return sc;
 }

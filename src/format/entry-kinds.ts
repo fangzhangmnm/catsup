@@ -11,8 +11,8 @@ export const materialRef = (guid: Guid): Ref => ({ kind: MATERIAL, guid });
 export const layerRef = (guid: Guid): Ref => ({ kind: LAYER, guid });
 export const textureRef = (guid: Guid): Ref => ({ kind: TEXTURE, guid });
 export const uvSetRef = (guid: Guid): Ref => ({ kind: UVSET, guid });
-/** 定义用到的排法（网格体上 uv 列的号；施工单十八 3.4）。 */
-const uvSetsOfDef = (d: DefinitionDoc): Guid[] => (d.mesh?.columns ?? []).filter((c) => c.kind === "uv").map((c) => c.guid);
+/** 定义用到的排法（网格体的贴图坐标指的那几套；施工单十八 3.4 / 第 1½ 刀：MeshDoc.uv.sets）。 */
+const uvSetsOfDef = (d: DefinitionDoc): Guid[] => [...(d.mesh?.uv?.sets ?? [])];
 
 /** 定义这种条目在图上的样子：文件形状 + 它实例上层代号的那张对照表（层代号是源文件层表的代号，家规「编号只当对照表的代号」；离开那份文件就得带着表走）。 */
 export interface DefinitionEntry { readonly def: DefinitionDoc; readonly layerGuid: (code: number) => Guid | undefined }
@@ -27,11 +27,11 @@ registerKind<DefinitionEntry>({
     for (const g of e.def.materialSlots) if (g !== null) out.push(materialRef(g));
     for (const i of e.def.instances) { const g = i.layer === undefined ? undefined : e.layerGuid(i.layer); if (g !== undefined) out.push(layerRef(g)); }
     for (const i of e.def.instances) out.push(defRef(i.definition));
-    for (const g of uvSetsOfDef(e.def)) out.push(uvSetRef(g));   // 网格体的 uv 列指排法（施工单十八 3.4）
+    for (const g of uvSetsOfDef(e.def)) out.push(uvSetRef(g));   // 网格体的贴图坐标指排法（施工单十八 3.4）
     return out;
   },
   rewrite: (e, map) => ({ ...e, def: { ...e.def, guid: map(defRef(e.def.guid)), materialSlots: e.def.materialSlots.map((g) => (g === null ? null : map(materialRef(g)))), instances: e.def.instances.map((i) => ({ ...i, definition: map(defRef(i.definition)) })),
-    ...(e.def.mesh?.columns ? { mesh: { ...e.def.mesh, columns: e.def.mesh.columns.map((c) => (c.kind === "uv" ? { ...c, guid: map(uvSetRef(c.guid)) } : c)) } } : {}) } }),
+    ...(e.def.mesh?.uv ? { mesh: { ...e.def.mesh, uv: { ...e.def.mesh.uv, sets: e.def.mesh.uv.sets.map((g) => map(uvSetRef(g))) } } } : {}) } }),
   remintOwned(e) {
     const groups = new Map(e.def.groups.map((g) => [g.guid, mintGuid()])), parent = (g: Guid | null): Guid | null => (g === null ? null : (groups.get(g) ?? null));
     return { ...e, def: { ...e.def, groups: e.def.groups.map((g) => ({ ...g, guid: groups.get(g.guid)!, parent: parent(g.parent) })), instances: e.def.instances.map((i) => ({ ...i, guid: mintGuid(), parent: parent(i.parent) })) } };

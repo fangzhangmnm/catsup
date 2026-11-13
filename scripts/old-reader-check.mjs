@@ -87,7 +87,7 @@ for (const [name, mk] of Object.entries(S.SCENES)) files.push({ name: `golden:${
 // 每三份随机文件里一份带 desk 的笔（1.5 起跟文件走；1.6 起按笔记，2026-11-12）：旧读者 desk 是 1.4，该能开、把 paint 当不认识的键原样带回
 const withPaint = (doc, i) => { doc.desk.paint = { color: "#3366cc", brushes: { pen: { size: 10 + (i % 7), opacity: 0.8, hardness: 0.5, extra: {} }, eraser: { size: 40, opacity: 1, hardness: 0.8, extra: {} }, wash: { size: 3, extra: { flow: 0.2 } } }, active: { brush: "pen" }, extra: {} }; return doc; };
 for (let i = 0; i < N; i++) { const withUv = i % 2 === 0, pen = i % 3 === 0, d = F.documentFromScene(randomScene(withUv), `r${i}`); files.push({ name: `random:${i}${withUv ? "+uv" : ""}${pen ? "+pen" : ""}`, bytes: F.writeCatsup(pen ? withPaint(d, i) : d) }); }
-const hasUv = (bytes) => { const doc = F.readCatsup(bytes); return doc.uvSets.length > 0 || doc.definitions.some((d) => d.mesh?.columns?.some((c) => c.kind === "uv")); };
+const hasUv = (bytes) => { const doc = F.readCatsup(bytes); return doc.uvSets.length > 0 || doc.definitions.some((d) => (d.mesh?.uv?.sets.length ?? 0) > 0); };
 const hasTextures = (bytes) => F.readCatsup(bytes).textures.length > 0;
 /** 这一版读出来是平铺的画的材质（GUID）和那一行的分层字节。 */
 const tiledOf = (bytes) => { const doc = F.readCatsup(bytes), t = new Map(doc.textures.map((x) => [x.guid, x])); return doc.materials.flatMap((m) => { const r = D.tiledPaintIn(t, m); return r ? [{ mat: m.guid, tex: r.textureDoc.guid, ora: r.textureDoc.content.ora }] : []; }); };
