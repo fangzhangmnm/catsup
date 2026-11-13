@@ -3,8 +3,9 @@
 // W-6 ④ 移动、没做手势时点「XY」→ 拖一个点只在 XY 面里动（z 不变）；再点一下 = 解开；锁上后换去旋转再换回来 = 还是它 ⑤ 吸附钮长按菜单里没有锁的选项
 //     ⑥ 拿选择工具（不吃锁）时锁的三行不出；拿移动时出，三行六颗
 // Esc ⑦ 键盘 Esc 只解当前这把工具的锁：移动锁着 XY、缩放锁着 X → 在移动里按 Esc = 移动没锁、缩放还是 X
-// 交接 ⑧ 不吃锁的工具（选择）先按 Y 再按 G = 这次移动锁在 Y（键表 lock.arm）；交过去以后选择工具那边不留
-// v0.19.3（Fable 审后三处）⑨ 选择上按 Y = 右上三行出来、亮 Y；点一下灭、三行收起 ⑩ 没做手势时锁着按 Esc = 只解锁、还在组件里；再按一下才退出一层
+// 先锁拿掉了（锁的一轮第二步，统筹 11-13：轴键只在动作里管用）⑧ 拿着选择按 Y = 什么都不发生（三行不出、没有锁）；再按 G = 这次移动不限制
+//   ⑨ G 里按 Y = 只沿 Y（轴键那份 = editor.axisConstraintNow，不是按钮锁：右上角不亮）；Esc 之后就没了
+// v0.19.3（Fable 审后）⑩ 没做手势时锁着按 Esc = 只解锁、还在组件里；再按一下才退出一层
 //     ⑪ 换文件（新建）= 各工具都没有锁
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-tool-locks.mjs [url]
 import { createRequire } from "node:module";
@@ -83,25 +84,23 @@ await ev(async () => { const { tool, tap } = window.__tl; tool("scale"); await t
 r.sevenBefore = await ev(() => window.__tl.lk());
 await page.locator("#board").hover({ position: { x: 300, y: 600 } }); await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 r.seven = await ev(async () => { const { tool, lk, sleep } = window.__tl; const move = lk(); tool("scale"); await sleep(30); const scale = lk(); tool("move"); return { move, scale }; });
-// ⑧ 选择工具先按 Y 再按 G = 这次移动锁 Y；交过去以后选择那边不留
+// ⑧ 选择工具按 Y = 什么都不发生；再按 G = 这次移动不限制
 await ev(async () => { const { e, P, click, tool } = window.__tl; tool("select"); e.deselectAll(); await click(P(0, 0, 1)); });
 const v0 = await ev(() => { const { e, P, px } = window.__tl; return px(P(0, 0, 1)); });
 const bx = await page.locator("#board").boundingBox();
 await page.mouse.move(bx.x + v0.x + 4, bx.y + v0.y - 4); await page.waitForTimeout(40);
 await page.keyboard.press("y"); await page.waitForTimeout(40);
-r.eightArmed = await ev(() => ({ tool: window.__tl.e.tool, ...window.__tl.lk() }));
-await page.keyboard.press("g"); await page.waitForTimeout(60);
-r.eightGesture = await ev(() => ({ tool: window.__tl.e.tool, gesture: window.__tl.e.isGestureActive(), ...window.__tl.lk() }));
-await page.keyboard.press("Escape"); await page.waitForTimeout(60);
-r.eightSelect = await ev(async () => { const { tool, sleep, e } = window.__tl; tool("select"); await sleep(30); return { axis: e.axisLock, plane: e.planeLock }; });
-// ⑨ 选择上按 Y：交接中的锁看得见、点一下能解
-await ev(async () => { const { e, tool } = window.__tl; tool("select"); e.deselectAll(); });
-await page.mouse.move(bx.x + v0.x + 4, bx.y + v0.y - 4); await page.waitForTimeout(40);
-await page.keyboard.press("y"); await page.waitForTimeout(60);
 const rowsShown = () => ev(() => { const box = document.querySelector(".gizmo-locks"); return !!box && !box.hidden && box.getClientRects().length > 0; });
-r.nineArmed = { shown: await rowsShown(), ...(await ev(() => window.__tl.lk())) };
-await page.click(".gizmo-lock.lock-y:not(.lock-plane)"); await page.waitForTimeout(60);
-r.nineOff = { shown: await rowsShown(), ...(await ev(() => window.__tl.lk())) };
+const keyed = () => ev(() => window.__tl.e.axisConstraintNow().kind + (window.__tl.e.axisConstraintNow().dir ? ":" + ["x", "y", "z"].find((a) => Math.abs(Math.abs(window.__tl.e.axisConstraintNow().dir[a]) - 1) < 1e-9) : ""));
+r.eightArmed = { tool: await ev(() => window.__tl.e.tool), shown: await rowsShown(), ...(await ev(() => window.__tl.lk())), keyed: await keyed() };
+await page.keyboard.press("g"); await page.waitForTimeout(60);
+r.eightGesture = { tool: await ev(() => window.__tl.e.tool), gesture: await ev(() => window.__tl.e.isGestureActive()), ...(await ev(() => window.__tl.lk())), keyed: await keyed() };
+// ⑨ G 里按 Y = 只沿 Y（轴键那份）、右上角不亮；Esc 之后就没了
+await page.keyboard.press("y"); await page.waitForTimeout(60);
+r.nineArmed = { ...(await ev(() => window.__tl.lk())), keyed: await keyed() };
+await page.keyboard.press("Escape"); await page.waitForTimeout(60);
+r.nineOff = { gesture: await ev(() => window.__tl.e.isGestureActive()), ...(await ev(() => window.__tl.lk())), keyed: await keyed() };
+r.eightSelect = await ev(async () => { const { tool, sleep, e } = window.__tl; tool("select"); await sleep(30); return { axis: e.axisLock, plane: e.planeLock }; });
 // ⑩ 移动锁着 X、没做手势、没选区：第一下 Esc 只解锁（还在组件里），第二下才退出
 await ev(async () => { const { e, tool, tap } = window.__tl; tool("move"); e.deselectAll(); await tap(".lock-x:not(.lock-plane)"); });
 const where = () => ev(() => ({ depth: window.__tl.e.contextDepth(), gesture: window.__tl.e.isGestureActive(), ...window.__tl.lk() }));
@@ -123,8 +122,8 @@ const ok = r.one.sel === 1 && r.one.armed.axis === "x" && /(^| )X\*/.test(r.one.
   && r.snapMenuLocks === ""
   && !r.six.select.box && r.six.select.btns === "" && r.six.move.box && r.six.move.btns.split(" ").length === 6
   && r.sevenBefore.plane === "z" && r.seven.move.plane === null && r.seven.move.axis === null && r.seven.scale.axis === "x"
-  && r.eightArmed.tool === "select" && r.eightArmed.axis === "y" && r.eightGesture.tool === "move" && r.eightGesture.gesture && r.eightGesture.axis === "y" && r.eightSelect.axis === null && r.eightSelect.plane === null
-  && r.nineArmed.shown && r.nineArmed.axis === "y" && /(^| )Y\*/.test(r.nineArmed.btns) && r.nineArmed.btns.split(" ").length === 6 && !r.nineOff.shown && r.nineOff.axis === null
+  && r.eightArmed.tool === "select" && !r.eightArmed.shown && r.eightArmed.axis === null && r.eightArmed.keyed === "free" && r.eightGesture.tool === "move" && r.eightGesture.gesture && r.eightGesture.axis === null && r.eightGesture.keyed === "free" && r.eightSelect.axis === null && r.eightSelect.plane === null
+  && r.nineArmed.keyed === "line:y" && r.nineArmed.axis === null && !/\*/.test(r.nineArmed.btns) && !r.nineOff.gesture && r.nineOff.keyed === "free" && r.nineOff.axis === null
   && r.tenBefore.depth === 1 && r.tenBefore.axis === "x" && !r.tenBefore.gesture && r.tenFirst.axis === null && r.tenFirst.depth === 1 && r.tenSecond.depth === 0
   && r.elevenBefore.move === "z/" && r.elevenBefore.rect === "/x" && r.elevenBefore.line === "/y" && ["line", "move", "scale", "rect", "select"].every((t) => r.eleven[t] === "/")
   && errs.length === 0;

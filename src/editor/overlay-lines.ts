@@ -188,7 +188,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): AuxLines[] {
     const s = segs();
     for (const l of lk) {
       const L = LOCK_LINE_SPAN_PX * ctx.worldPerPx(l.through), o = l.through, d = l.dir;
-      push(s, { x: o.x - d.x * L, y: o.y - d.y * L, z: o.z - d.z * L }, { x: o.x + d.x * L, y: o.y + d.y * L, z: o.z + d.z * L }, l.color === "n" ? "neutral" : AXIS_AUX[l.color]);
+      push(s, { x: o.x - d.x * L, y: o.y - d.y * L, z: o.z - d.z * L }, { x: o.x + d.x * L, y: o.y + d.y * L, z: o.z + d.z * L }, l.color === "n" ? "neutral" : l.color === "dir" ? "axisDir" : AXIS_AUX[l.color]);   // dir = 锁住的方向不和任何一根轴平行（N / T 按出来的；品红）
     }
     out.push(lines("lockLines", "lock", k, s));
   }

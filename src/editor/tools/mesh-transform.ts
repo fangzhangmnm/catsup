@@ -20,6 +20,7 @@ import { softDistances, softWeights } from "../../mesh/soft-select.ts";
 import { meshSnapTarget } from "./mesh-snap.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
+import { moveLock, rotateLock, scaleLock } from "../../controller/axis-apply.ts";
 import { BoxDrag, adoptPress, clickSelect, pressKindOf, pressTarget, selectionTarget, type Target } from "./selecting.ts";
 import { type Grip, MeshHandles } from "./mesh-handles.ts";
 import type { ViewState } from "../view-state.ts";
@@ -178,8 +179,8 @@ export class MeshTransformTool implements ToolHandler {
   private solve(ctx: ToolCtx): { moves: Map<number, Pt3>; dims: string } | null {
     const pivot = this.pivotW, grab = this.grabW, s0 = this.start, s1 = this.cur;
     if (!pivot || !grab || !s0 || !s1) return null;
-    // 锁：键盘锁轴 / 锁面（方向键、X / Y / Z）> 这一下按着的手柄把手（mesh-handles.ts Grip）> 不锁
-    const kAx = ctx.axisLockDir(), kPn = ctx.planeLockNormal(), keyed = !!(kAx || kPn), ax = keyed ? kAx : this.grip?.axis ?? null, pn = keyed ? kPn : this.grip?.plane ?? null;
+    // 锁：轴键 / 按钮锁（ctx.axisConstraint，照这一族读：移动 = moveLock、旋转 = rotateLock、缩放 = scaleLock）> 这一下按着的手柄把手（mesh-handles.ts Grip）> 不锁
+    const k = (this.op === "rotate" ? rotateLock : this.op === "scale" ? scaleLock : moveLock)(ctx.axisConstraint()), keyed = !!(k.axis || k.plane), ax = keyed ? k.axis : this.grip?.axis ?? null, pn = keyed ? k.plane : this.grip?.plane ?? null;
     const X = ctx.ctxXform(), Xi = invert(X), typed = ctx.typed(), tag = typed !== null ? "（打的数）" : "";
     let fW: (p: Pt3) => Pt3, dims: string;
     if (this.op === "normal") {   // 沿法线：离轴心（屏幕）远了 = 胖、近了 = 瘦（Blender Alt+S 同手感）；每个点沿自己的法向走同样长

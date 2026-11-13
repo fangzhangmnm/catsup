@@ -28,7 +28,7 @@ import { DOC_EXT, downloadName, hex4 } from "../config.ts";
 import { mountContextBar } from "./context-bar.ts";
 import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
-import { openSelectionMenu, openContextMenuAt, openSubmenuAt, submenuItems } from "./context-menu.ts";
+import { openSelectionMenu, openContextMenuAt, openSubmenuAt, submenuItems, openDeleteMenuAt } from "./context-menu.ts";
 import { barItems, selectionRoute } from "./selection-actions.ts";
 import { openObjectWindow } from "./object-window.ts";
 import { createHierarchyWindow, type HierarchyWindow } from "./hierarchy-window.ts";
@@ -978,6 +978,9 @@ var lastPointerType = typeof matchMedia === "function" && matchMedia("(hover: no
 // eslint-disable-next-line no-var
 var vcbRef: { render(): void } | null = null;   // var：上下文条 mount 时就回调 afterRender（参数小窗那时还没挂）   // var：上下文条的 selection provider 在 mount 时就读它（加载期）
 canvas.addEventListener("pointerdown", (ev) => { if (ev.pointerType !== lastPointerType) { lastPointerType = ev.pointerType; selectModeFollow(ev.pointerType); syncUi(); } }, { capture: true });
+// eslint-disable-next-line no-var
+var lastCanvasClient: { x: number; y: number } | null = null;   // 光标最后停在画布上哪（client 坐标）：动作外按 X 的小菜单弹在这里（键表 delete.menu）
+canvas.addEventListener("pointermove", (ev) => { lastCanvasClient = { x: ev.clientX, y: ev.clientY }; }, { capture: true, passive: true });
 // 选区两档跟着手上的指针走（user 10-28 晚「鼠标模式点应该是替换选择」）：换成鼠标 = 替换、换成笔 / 手指 = 多选（stance.ts BOOLEAN_DEFAULT）；
 // 人在工具条上自己选过一档 = 这次打开不再自动换（尊重手选）。capture 阶段先于工具收到这一下，所以这一下就按新设备算。
 let selectModeChosen = false, selectModeAuto = false;
@@ -1694,7 +1697,11 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "select.linked": if (!editor.selectLinkedAt(p1 === "remove")) hintEl.textContent = p1 === "remove" ? "Shift+L：光标下面没有东西（拿掉的是光标停着的那一块）" : "L：光标下面没有东西（选的是光标停着的那一块）"; syncUi(); return;
     case "select.invert": editor.invertSelection(); return;
     case "select.none": editor.deselectAll(); return;
-    case "delete.ifAny": if (editor.hasAnySelection()) editor.deleteSelection(); syncUi(); return;
+    case "delete.menu": {   // 动作外按 X = 光标处弹「删除 / 溶解」（统筹 11-13）；光标没进过画布 = 画布正中
+      if (editor.locked) { hintEl.textContent = HINT_LOCKED; return; }
+      const r = canvas.getBoundingClientRect(), at = lastCanvasClient ?? { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      openDeleteMenuAt(editor, at.x, at.y); return;
+    }
     case "delete": editor.deleteSelection(); return;
     case "edit.cut": editor.cutSelection(); syncUi(); return;
     case "edit.copy": editor.copySelection(); syncUi(); return;
@@ -1708,8 +1715,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "mesh.loopCutArm": editor.armLoopCut(); syncUi(); return;
     case "move.slideToggle": editor.toggleSlideOnce(); syncUi(); return;   // 移动中再按 G = 这一次沿边滑（Blender G G；工具条「沿边滑」= 常驻模式）
     case "lock.key": editor.lockKey(p1 === "none" ? null : (p1 as "x" | "y" | "z"), p2 === "plane"); syncUi(); return;   // 方向键（A9）
-    case "lock.arm": editor.armLock(p1 as "x" | "y" | "z", p2 === "plane"); syncUi(); return;   // 先锁好、下一下生效
-    case "lock.axis": if (editor.isGestureActive()) editor.lockKey(p1 as "x" | "y" | "z", p2 === "plane"); else editor.armLock(p1 as "x" | "y" | "z", p2 === "plane"); syncUi(); return;   // 操作工具 = 自动按了 G（UX17）
+    case "axis.press": editor.axisPress(p1 as "x" | "y" | "z" | "n" | "t", p2 === "shift"); syncUi(); return;   // 动作里的轴键（锁的一轮第二步：语法模块 controller/axis-constraint.ts）
     case "tool.key": toolKey(p1, p2 as Tool); return;
     case "component.make": if (editor.hasGeometrySelection() || editor.hasPoolSelection()) editor.makeComponent(hex4()); return;   // SU：G = 建组件
     case "hide": if (editor.hasHideableSelection()) editor.hideSelection(); return;   // Blender：H（DT49）

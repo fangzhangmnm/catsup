@@ -12,15 +12,18 @@ describe("键表：什么时候按 X 是什么意思", () => {
   it("和弦：字母按物理键、修饰键固定顺序", () => {
     eq(chordOf(K("KeyX")), "x"); eq(chordOf(K("KeyB", "b", { ctrl: true, shift: true })), "ctrl+shift+b"); eq(chordOf(K("Space", " ")), "space"); eq(chordOf(K("ArrowRight", "ArrowRight", { shift: true })), "shift+arrowright");
   });
-  it("自由建模：选择工具 X = 删除（有选区）；操作工具 X / Y / Z = 轴（手势外先锁、手势中锁）——user「move模式相当于blender帮你自动按G」", () => {
-    eq(act(ctx({ mode: "freeform", tool: "select", anySelection: true, actableSelection: true }), K("KeyX")), "delete.ifAny");
-    eq(act(ctx({ mode: "freeform", tool: "select", anySelection: false, actableSelection: false }), K("KeyX")), "delete.ifAny");   // 没选区 = 什么都不删（不再先锁 X）
-    for (const tool of ["move", "rotate", "scale", "pp", "offset", "shrink"] as const) {
-      eq(act(ctx({ mode: "freeform", tool, anySelection: true, actableSelection: true }), K("KeyX")), "lock.axis:x", tool);
-      eq(act(ctx({ mode: "freeform", tool, gesture: true }), K("KeyX")), "lock.key:x", `${tool} 手势中`);
-      eq(act(ctx({ mode: "freeform", tool, gesture: true }), K("KeyZ", "z", { shift: true })), "lock.key:z:plane", `${tool} 手势中 Shift`);
+  it("自由建模：动作外 X = 弹「删除 / 溶解」小菜单（拿着什么工具都一样）；动作里 X / Y / Z / N / T（加 Shift）= 轴键；动作外 Y / Z / N 不响应、Shift+Z = 缩放到全部（统筹 11-13，锁的一轮第二步）", () => {
+    for (const tool of ["select", "move", "rotate", "scale", "pp", "offset", "shrink"] as const) {
+      eq(act(ctx({ mode: "freeform", tool, anySelection: true, actableSelection: true }), K("KeyX")), "delete.menu", tool);
+      eq(act(ctx({ mode: "freeform", tool, anySelection: true, actableSelection: true }), K("KeyY")), "∅", `${tool} 动作外 Y`);
+      eq(act(ctx({ mode: "freeform", tool }), K("KeyN")), "∅", `${tool} 动作外 N`);
+      eq(act(ctx({ mode: "freeform", tool }), K("KeyZ", "z", { shift: true })), "view.zoomExtents", `${tool} 动作外 Shift+Z`);
+      for (const k of ["x", "y", "z", "n", "t"]) {
+        eq(act(ctx({ mode: "freeform", tool, gesture: true }), K(`Key${k.toUpperCase()}`)), `axis.press:${k}`, `${tool} 手势中 ${k}`);
+        eq(act(ctx({ mode: "freeform", tool, gesture: true }), K(`Key${k.toUpperCase()}`, k, { shift: true })), `axis.press:${k}:shift`, `${tool} 手势中 Shift+${k}`);
+      }
     }
-    eq(act(ctx({ mode: "freeform", tool: "select" }), K("KeyY")), "lock.arm:y", "选择工具先锁 Y 下一下生效");
+    eq(act(ctx({ mode: "freeform", tool: "select" }), K("KeyT")), "tool.key:t:tape", "动作外 T 照旧是卷尺");
   });
   it("硬表面：X = 橡皮（工具键）；G = 建组件；L = 选连着的一块、Shift+L = 拿掉（Blender；user 11-13 批，画线只剩 K）", () => {
     eq(act(ctx({}), K("KeyX")), "tool.key:x:erase"); eq(act(ctx({}), K("KeyG")), "component.make"); eq(act(ctx({}), K("KeyL")), "select.linked");
@@ -48,17 +51,17 @@ describe("键表：什么时候按 X 是什么意思", () => {
     eq(act(ctx({ mirrorSession: true }), K("Enter", "Enter")), "mirror.apply");
     eq(act(ctx({ typingWants: (e) => e.key === "5" }), K("Digit5", "5")), "typing.key");
     eq(act(ctx({}), K("ArrowRight", "ArrowRight")), "lock.key:x"); eq(act(ctx({}), K("Tab", "Tab", { shift: true })), "grid.toggle");
-    eq(act(ctx({ mode: "freeform", tool: "select" }), K("ArrowRight", "ArrowRight")), "lock.arm:x", "自由建模拿着选择工具 = 先锁");
+    eq(act(ctx({ mode: "freeform", tool: "select" }), K("ArrowRight", "ArrowRight")), "lock.key:x", "自由建模拿着选择工具的方向键先锁拿掉了（锁的一轮第二步），落到全局的方向键锁（第三步两边一起退）");
     eq(act(ctx({ mode: "freeform", tool: "move", lockStyle: "axis" }), K("ArrowRight", "ArrowRight")), "lock.key:x", "吃锁的工具 = 直接锁");
   });
   it("栈的形状：自由建模 + 操作工具 + 手势中 = 全局 / 工作台 / 工具 / 手势 / 数值小窗", () => {
-    eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > tool:ops > gesture > typing");
-    eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: false, mirrorSession: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > tool:ops > mirror-session > typing > freeform:pick", "不在手势里：打字层（数值小窗）在镜像会话下面；1 / 2 / 3 拾取层压在它上面（没在打字时，v0.17.48）");
+    eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > gesture > typing");
+    eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: false, mirrorSession: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > mirror-session > typing > freeform:pick", "不在手势里：打字层（数值小窗）在镜像会话下面；1 / 2 / 3 拾取层压在它上面（没在打字时，v0.17.48）");
   });
-  it("披露：按住修饰键时这一层有什么（modifierChords）——自由建模 Ctrl 有环切 / 倒角；硬表面 Shift+Z = 缩放到全部、操作工具里 = 面锁；披露的每一条 = 真按下去生效的那条", () => {
+  it("披露：按住修饰键时这一层有什么（modifierChords）——自由建模 Ctrl 有环切 / 倒角；硬表面和自由建模动作外 Shift+Z 都 = 缩放到全部（操作工具层拿掉了）；披露的每一条 = 真按下去生效的那条", () => {
     const ff = ctx({ mode: "freeform", tool: "move" }), ctrl = modifierChords(ff, "ctrl").map((x) => x.chord), shift = modifierChords(ff, "shift");
     eq(ctrl.includes("ctrl+r") && ctrl.includes("ctrl+b"), true, ctrl.join(","));
-    eq(shift.find((x) => x.chord === "shift+z")?.label, "面锁 XY", "操作工具里 Shift+Z = 面锁（操作工具层压过自由建模层）");
+    eq(shift.find((x) => x.chord === "shift+z")?.label, "缩放到全部", "自由建模拿着移动、动作外 Shift+Z = 缩放到全部（统筹 11-13）");
     // 不变量：披露的每一条 = 真按下去生效的那条（resolveKey 同一条）
     const evt = (ch: string): KeyEvt => { const p = ch.split("+"), n = p[p.length - 1]; return { key: n === "space" ? " " : n, code: /^[a-z]$/.test(n) ? `Key${n.toUpperCase()}` : /^[0-9]$/.test(n) ? `Digit${n}` : n, shift: p.includes("shift"), ctrl: p.includes("ctrl"), alt: p.includes("alt") }; };
     for (const c of [ff, ctx({}), ctx({ mode: "freeform", tool: "select", anySelection: true, actableSelection: true }), ctx({ mode: "freeform", tool: "move", gesture: true })]) for (const m of ["shift", "ctrl", "alt"] as const) for (const x of modifierChords(c, m)) { const r = resolveKey(c, evt(x.chord)); eq(r !== null && r !== "swallow" ? r.label : String(r), x.label, `${c.mode}/${c.tool} ${x.chord}`); }
@@ -78,7 +81,7 @@ describe("键表：什么时候按 X 是什么意思", () => {
     eq(README_SECTIONS.find((x) => x.id === "keys")?.body, KEYS_TABLE, "帮助页「快捷键」= 生成的表");
   });
   it("肌肉记忆冲突（UX15）：同一个键在会来回切的几个地方意思不同 = 只许是登记过、等 user 拍的那几个；登记了但已经不冲突的 = 该删", () => {
-    eq(meaningOf("lock.arm:x"), meaningOf("lock.axis:x")); eq(meaningOf("lock.key:z:plane"), meaningOf("lock.arm:z:plane")); eq(meaningOf("tool.key:s:scale"), meaningOf("modal:scale"));
+    eq(meaningOf("lock.key:x"), meaningOf("axis.press:x")); eq(meaningOf("lock.key:z:plane"), meaningOf("axis.press:z:shift")); eq(meaningOf("tool.key:s:scale"), meaningOf("modal:scale"));
     const now = muscleConflicts(), known = new Set(Object.keys(KNOWN_CONFLICTS));
     const fresh = [...now].filter(([ch]) => !known.has(ch)).map(([ch, m]) => `${ch}: ${[...m].map(([k, v]) => `${k}@${v.join("/")}`).join(" | ")}`);
     eq(fresh.join("; "), "", "新冒出来的肌肉记忆冲突（想清楚、登记进 KNOWN_CONFLICTS、告诉 user）");
@@ -92,12 +95,14 @@ describe("手势中打数（S Z 0）", () => {
   const typing = (buf: string) => ctx({ mode: "freeform", tool: "scale", gesture: true, lockStyle: "axis", typingWants: (e: KeyEvt) => e.key === "Enter" || e.key === "Backspace" || quantityKey({ q: "factor" }, buf, e.key) });
   const k = (key: string): KeyEvt => ({ key, code: /^[0-9]$/.test(key) ? `Digit${key}` : /^[a-z]$/i.test(key) ? `Key${key.toUpperCase()}` : key, shift: false, ctrl: false, alt: false });
   it("S（键盘起手）→ Z = 锁 Z → 0 = 打数 → 回车 = 打数层收（编辑器当「定」）", () => {
-    const z = resolveKey(typing(""), k("z")); eq(z && z !== "swallow" ? z.action : null, "lock.key:z");
+    const z = resolveKey(typing(""), k("z")); eq(z && z !== "swallow" ? z.action : null, "axis.press:z");
     const zero = resolveKey(typing(""), k("0")); eq(zero && zero !== "swallow" ? zero.action : null, "typing.key");
     const en = resolveKey(typing("0"), k("Enter")); eq(en && en !== "swallow" ? en.action : null, "typing.key");
   });
   it("单位字只在有数之后进（长度：先打 1 再打 m；空的时候 m = 照旧是别的键）；退格不漏到下层的「删除选区」", () => {
     eq(quantityKey({ q: "length" }, "", "m"), false); eq(quantityKey({ q: "length" }, "1.5", "m"), true); eq(quantityKey({ q: "length" }, "1", "z"), false);
+    // N / T 也是轴键：单位还没开始打时归轴（「G 2 N」= 打了 2 再锁法线）；打了单位的头一个字之后照旧当单位（1in、1ft）
+    eq(quantityKey({ q: "length" }, "1", "n"), false); eq(quantityKey({ q: "length" }, "1", "t"), false); eq(quantityKey({ q: "length" }, "1i", "n"), true); eq(quantityKey({ q: "length" }, "1f", "t"), true);
     const bs = resolveKey(typing(""), k("Backspace")); eq(bs && bs !== "swallow" ? bs.action : null, "typing.key");
   });
   it("读法 = 单位文本框同一个 parseQuantity：倍数 0 / 50%、角度 -45°、长度 1.5cm / 3'6\"", () => {

@@ -118,7 +118,7 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
     label.textContent = tgt === "gesture" ? "打数" : st.prompt;   // 手势进行中：同一颗胶囊 = 打数的回显 + 小键盘入口（触屏「按一下弹」）
     field.textContent = buf || (tgt === "gesture" ? "…" : st.echo || "…");
     field.classList.toggle("typing", !!buf);
-    quick.hidden = !(tgt === "gesture" && editor.typedQuantityTag() === "factor" && editor.axisLock !== null);   // 只在缩放手势锁了轴时出（Fable：锁了轴才出）
+    quick.hidden = !(tgt === "gesture" && editor.typedQuantityTag() === "factor" && editor.axisConstraintNow().kind === "line");   // 只在缩放手势锁了轴时出（Fable：锁了轴才出；轴键按出来的线也算，锁的一轮第二步）
     pad.hidden = !padOpen || !tgt;
     if (!pad.hidden) renderUnits();
   };

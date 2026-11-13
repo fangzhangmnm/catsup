@@ -100,7 +100,7 @@ const quickShown = () => page.evaluate(() => { const q = document.querySelector(
 await page.keyboard.press("s"); await page.waitForTimeout(80);
 res.four = { started: await page.evaluate(() => ({ active: globalThis.__catsup.editor.isGestureActive(), tool: globalThis.__catsup.editor.tool })), quickBeforeLock: await quickShown() };
 await page.keyboard.press("x"); await page.waitForTimeout(80);
-res.four.lock = await page.evaluate(() => globalThis.__catsup.editor.axisLock ?? null);
+res.four.lock = await page.evaluate(() => { const k = globalThis.__catsup.editor.axisConstraintNow(); return k.kind === "line" && Math.abs(Math.abs(k.dir.x) - 1) < 1e-9 ? "x" : JSON.stringify(k); });   // 手势里按的 X = 轴键那份（锁的一轮第二步），不进按钮锁
 res.four.quickAfterLock = await quickShown();
 res.four.labels = await page.evaluate(() => [...document.querySelectorAll(".vcb-quick button")].map((x) => x.textContent).join(" "));
 if (res.four.quickAfterLock) { await page.click(".vcb-quick button:has-text('0')"); await page.waitForTimeout(80); }

@@ -213,12 +213,13 @@ function parseFactor(text: string): number | { error: string } {
 /**
  * 打字时这个键能不能接进这一段量的文字（键盘起手里打数用；和 parseQuantity 是同一张「这个量怎么写」）：
  * 数字 / 小数点 / 正负号永远能；单位那几个字只在已经有数之后（长度 m c i n f t ' " 空格 /，角度 ° d e g r a，倍数 %）。
- * X / Y / Z 永远不接（它们是锁轴，打到一半也能锁，Blender 同款）。
+ * X / Y / Z 永远不接（它们是锁轴，打到一半也能锁，Blender 同款）。N / T 也是轴键（锁的一轮第二步）：单位还没开始打（缓冲里还没有字母）时不接、归轴；
+ * 已经打了单位的头一个字（in 的 i、ft 的 f）之后照旧当单位。代价：手势里打不出以 n 开头的单位（nm）——没有以 t 开头的单位。
  */
 export function quantityKey(tag: QuantityTag, buf: string, key: string): boolean {
   if (key.length !== 1) return false;
   if (/^[0-9.\-+]$/.test(key)) return true;
-  if (!/[0-9]/.test(buf) || /^[xyz]$/i.test(key)) return false;
+  if (!/[0-9]/.test(buf) || /^[xyz]$/i.test(key) || (/^[nt]$/i.test(key) && !/[^0-9.\-+ ]/.test(buf))) return false;
   const units = tag.q === "length" ? /^[mcinftkupglesµμ'" \/米厘毫公千微纳英尺寸里]$/i : tag.q === "angle" ? /^[°degra度]$/i : tag.q === "factor" ? /^%$/ : /^[a-z:'"\/ ]$/i;
   return units.test(key);
 }

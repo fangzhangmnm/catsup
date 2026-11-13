@@ -10,6 +10,12 @@
 //     没在手势里（先锁好、下一下生效）= 下一下要动的东西的变换中心（这把工具对选区做事、而且有选区）；都没有 = 不画（芯片上那枚亮着已经说了锁着）。
 //   · 面锁 = 面里的两根轴（锁 XY = 画 X 和 Y 两根）；锁「按下那张面」= 那张面里两根互相垂直的线，中性色。
 // 纯数据：零 DOM / three / 内核（controller 文件夹的规矩，守卫 test/stance.test.ts）；渲染器只管把线画长、画在最上面（render3.ts lockLines）。
+// 2026-11-13 锁的一轮第二步（Claude Opus 5.5）：画什么改成看「约束」（controller/axis-constraint.ts 的四种：沿线 / 在面里 / 面里一个方向），不再只认 X / Y / Z 和「那张面」。
+//   按钮锁读成约束 = lockConstraint；轴键按出来的本来就是约束。颜色：线和坐标架某根轴平行（门槛 = feel.ts AXIS_PARALLEL_DEG，和语法模块同一个）= 那根轴的颜色，
+//   不平行的那根被锁住的方向 = "dir"（品红，aux.ts axisDir；统筹 11-13）；面里撑开的另一根不平行 = 中性。
+
+import type { AxisConstraint } from "./axis-constraint.ts";
+import { AXIS_PARALLEL_DEG } from "./feel.ts";
 
 export interface V3 { readonly x: number; readonly y: number; readonly z: number }
 export type LockAxisId = "x" | "y" | "z";
@@ -17,8 +23,8 @@ export type LockAxisId = "x" | "y" | "z";
 export interface LockNow { readonly axis: LockAxisId | null; readonly plane: LockAxisId | "face" | null; readonly planeN: V3 | null }
 /** 上下文坐标架的三根轴（世界；可能带缩放，这里归一）。 */
 export interface LockFrame { readonly x: V3; readonly y: V3; readonly z: V3 }
-/** 一根线：过 through、沿 dir（单位长，两头都画）；color = 哪根轴的颜色（n = 中性：锁的是一张斜面）。 */
-export interface LockLine { readonly through: V3; readonly dir: V3; readonly color: LockAxisId | "n" }
+/** 一根线：过 through、沿 dir（单位长，两头都画）；color = 哪根轴的颜色（dir = 锁住的方向不和任何一根轴平行；n = 中性：斜面里撑开的另一根）。 */
+export interface LockLine { readonly through: V3; readonly dir: V3; readonly color: LockAxisId | "dir" | "n" }
 
 const norm = (v: V3): V3 => { const l = Math.hypot(v.x, v.y, v.z) || 1; return { x: v.x / l, y: v.y / l, z: v.z / l }; };
 const cross = (a: V3, b: V3): V3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
@@ -28,17 +34,28 @@ export function lockThrough(gesture: boolean, anchor: V3 | null, pivot: V3 | nul
   return gesture ? anchor ?? pivot : pivot;
 }
 
-/** 锁着什么 → 画哪几根线（没锁 / 没有过的点 = []）。 */
-export function lockLines(lock: LockNow, frame: LockFrame, through: V3 | null): LockLine[] {
-  if (!through) return [];
-  if (lock.axis) return [{ through, dir: norm(frame[lock.axis]), color: lock.axis }];
-  if (lock.plane && lock.plane !== "face") {
-    const others = (["x", "y", "z"] as const).filter((a) => a !== lock.plane);
-    return others.map((a) => ({ through, dir: norm(frame[a]), color: a }));
-  }
-  if (lock.plane === "face" && lock.planeN) {
-    const n = norm(lock.planeN), ref = Math.abs(n.z) < 0.9 ? frame.z : frame.x, u = norm(cross(n, ref)), v = norm(cross(n, u));
-    return [{ through, dir: u, color: "n" }, { through, dir: v, color: "n" }];
-  }
-  return [];
+const AXES = ["x", "y", "z"] as const;
+const COS_PAR = Math.cos((AXIS_PARALLEL_DEG * Math.PI) / 180);
+const dot = (a: V3, b: V3): number => a.x * b.x + a.y * b.y + a.z * b.z;
+/** 这根方向和坐标架哪根轴平行（同向反向都算）；都不平行 = null。 */
+function frameAxisOf(d: V3, frame: LockFrame): LockAxisId | null { const u = norm(d); return AXES.find((a) => Math.abs(dot(u, norm(frame[a]))) >= COS_PAR) ?? null; }
+
+/** 按钮锁（编辑器每把工具记着的那份）读成约束：锁轴 = 沿坐标架那根轴；锁轴面 = 法向是那根轴的面；锁「按下那张面」= 那张面；没锁 = 不限制。 */
+export function lockConstraint(lock: LockNow, frame: LockFrame): AxisConstraint {
+  if (lock.axis) return { kind: "line", dir: norm(frame[lock.axis]) };
+  if (lock.plane && lock.plane !== "face") return { kind: "plane", normal: norm(frame[lock.plane]) };
+  if (lock.plane === "face" && lock.planeN) return { kind: "plane", normal: norm(lock.planeN) };
+  return { kind: "free" };
+}
+
+/** 现在被限制成什么 → 画哪几根线（不限制 / 没有过的点 = []）。沿线 = 一根；在面里 = 面里两根；面里一个方向 = 那个方向一根 + 面里和它垂直的一根。 */
+export function constraintLines(c: AxisConstraint, frame: LockFrame, through: V3 | null): LockLine[] {
+  if (!through || c.kind === "free") return [];
+  const along = (d: V3, other: "dir" | "n"): LockLine => ({ through, dir: norm(d), color: frameAxisOf(d, frame) ?? other });
+  if (c.kind === "line") return [along(c.dir, "dir")];
+  if (c.kind === "planeDir") return [along(c.dir, "dir"), along(cross(c.normal, c.dir), "n")];
+  const na = frameAxisOf(c.normal, frame);
+  if (na) return AXES.filter((a) => a !== na).map((a) => ({ through, dir: norm(frame[a]), color: a }));   // 轴面 = 另外两根轴（组件里跟着组件的轴歪）
+  const n = norm(c.normal), ref = Math.abs(n.z) < 0.9 ? frame.z : frame.x, u = norm(cross(n, ref)), v = norm(cross(n, u));
+  return [along(u, "n"), along(v, "n")];
 }

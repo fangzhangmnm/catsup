@@ -23,11 +23,8 @@ export function openContextMenuAt(editor: Editor, hud: HudModel, x: number, y: n
   const mk = editor.selectionMakeup();
   const items = (): HudItem[] => (!hasHit && !editor.hasAnySelection() ? menuItems(hud, "empty") : mk.instances > 0 && !mk.geometry && mk.groups === 0 ? objectMenuItems(hud) : menuItems(hud, "selection", { groups: mk.groups > 0 }));
   if (!items().length) return;
-  let anchor = document.getElementById("ctxAnchor") as HTMLElement | null;
-  if (!anchor) { anchor = document.createElement("div"); anchor.id = "ctxAnchor"; document.body.appendChild(anchor); }
-  anchor.style.left = `${cx}px`; anchor.style.top = `${cy}px`;
   openPopupMenu({
-    anchor,
+    anchor: anchorAt(cx, cy),
     items: () => foldSubmenus(items()),
     onPick: (id) => { hud.pick(id); },
   });
@@ -66,8 +63,24 @@ export function openSubmenuAt(hud: HudModel, btn: HTMLElement, label: string): v
   const items = (): PopupMenuItem[] => submenuItems(hud, label);
   if (!items().length) return;
   const r = btn.getBoundingClientRect();
+  openPopupMenu({ anchor: anchorAt(r.left, r.top), items, onPick: (id) => { hud.pick(id); } });
+}
+
+/**
+ * 动作外按 X（键表 delete.menu；统筹 11-13 按 user「动作里外」那条线定，锁的一轮第二步）：在光标处弹「删除 / 溶解」，不立刻删、也不是不做。
+ * 溶解只在网格体里选着边 / 点（没有面）时露：网格体面的溶解、硬表面的溶解都没有现成的命令（照统筹「没有现成的就先不放那一项」，已报统筹）。没有选区 = 不弹。
+ */
+export function openDeleteMenuAt(editor: Editor, cx: number, cy: number): void {
+  if (!editor.hasAnySelection()) return;
+  const dissolve = editor.activeKind() === "mesh" && !editor.hasFaceSelection() && (editor.hasGeometrySelection() || editor.hasPointSelection());
+  const items: PopupMenuItem[] = [{ id: "delete", label: "删除", icon: "trash-can" }, ...(dissolve ? [{ id: "dissolve", label: "溶解", hint: "边两侧的面并成一张、二度点去掉" }] : [])];
+  openPopupMenu({ anchor: anchorAt(cx, cy), items: () => items, onPick: (id) => { editor.deleteSelection(id === "dissolve"); } });
+}
+
+/** 右键 / 子菜单 / 小菜单共用的 0×0 锚点：挪到 (x, y)（client 坐标）再弹。 */
+function anchorAt(x: number, y: number): HTMLElement {
   let anchor = document.getElementById("ctxAnchor") as HTMLElement | null;
   if (!anchor) { anchor = document.createElement("div"); anchor.id = "ctxAnchor"; document.body.appendChild(anchor); }
-  anchor.style.left = `${r.left}px`; anchor.style.top = `${r.top}px`;
-  openPopupMenu({ anchor, items, onPick: (id) => { hud.pick(id); } });
+  anchor.style.left = `${x}px`; anchor.style.top = `${y}px`;
+  return anchor;
 }

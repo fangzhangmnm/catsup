@@ -19,6 +19,7 @@ import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import { BoxDrag, adoptPress, clickSelect, pressKindOf, pressTarget, selectionTarget, type Target as SelTarget } from "./selecting.ts";
 import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
+import { moveLock } from "../../controller/axis-apply.ts";
 import type { Op } from "../ops.ts";
 import type { SnapKind } from "../solver.ts";
 import type { ViewState } from "../view-state.ts";
@@ -141,8 +142,8 @@ export class MeshPullTool implements ToolHandler {
   private motion(ctx: ToolCtx): { off: Pt3; along?: undefined } | { along: number; off?: undefined } | null {
     const pivot = this.pivotW, grab = this.grabW, s0 = this.start, s1 = this.cur, t = this.t;
     if (!pivot || !grab || !s0 || !s1 || !t) return null;
-    // 锁：键盘锁轴 / 锁面 > 这一下按着的手柄箭头 > 不锁；吸附 = 抓住的点落到目标上（再按方向约束投影）
-    const kAx = ctx.axisLockDir(), kPn = ctx.planeLockNormal(), keyed = !!(kAx || kPn), ax = keyed ? kAx : this.grip?.axis ?? null, pn = keyed ? kPn : this.grip?.plane ?? null;
+    // 锁：轴键 / 按钮锁（ctx.axisConstraint 照一维那族读 = moveLock）> 这一下按着的手柄箭头 > 不锁；吸附 = 抓住的点落到目标上（再按方向约束投影）
+    const k = moveLock(ctx.axisConstraint()), keyed = !!(k.axis || k.plane), ax = keyed ? k.axis : this.grip?.axis ?? null, pn = keyed ? k.plane : this.grip?.plane ?? null;
     const snap = !!(this.snapT && this.handleW), typed = ctx.typed();
     // W-13：没吸附 = 两条光标射线 → 位移（锁面交「过 P0、法向 n 的平面」，抓住的点跟手；锁轴 = FM18 投影；不锁 = 过 P0 正对按下那条射线的平面）
     const dr = snap ? null : dragDelta(this.r0!, ctx.frame().ray(s1.x, s1.y, ctx.vp()), grab, { axis: ax, plane: pn }, this.maxLen(ctx, grab));

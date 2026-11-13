@@ -74,4 +74,31 @@ user 定的：
 
 ## 五、施工记录
 
-（小弟写）
+（Catsup小弟 = Claude Opus 5.5 写）
+
+### 第一步：语法模块 + 对照表（v0.19.110，main 5d6aeb21）
+`src/controller/axis-constraint.ts`（axisBegin / axisPress / axisConstraint / axisDescribe，状态不透明）+ `test/axis-constraint.test.ts` 对照表 40 格（统筹对过表、补三行、改两处说法）；平行门槛 `feel.ts AXIS_PARALLEL_DEG = 1°`。还没接到界面上。
+
+### 第二步：自由建模接上（v0.19.111，分支 axis-freeform）
+做了什么：
+- 手势层 X / Y / Z / N / T（加 Shift）→ `axis.press` → `editor/axis-keys.ts`（解析方向、寿命 = 一个动作）→ 语法模块。工具只问 `ctx.axisConstraint()`（轴键那份 ?? 按钮锁那份），照自己那一族读 `controller/axis-apply.ts`（设计稿 2.3 那张表：移动 / 挤出 = moveLock、旋转 = rotateLock、缩放 = scaleLock）。自由建模的移动 / 旋转 / 缩放 / 沿法线 / 变换（`mesh-transform.ts`）和挤出（`mesh-pull.ts`）接上。
+- 锁线改成按约束画（`lock-guide.ts constraintLines`）：平行于坐标架某根轴 = 那根轴的颜色；锁住的方向不平行 = 新颜色常量 `aux.ts axisDir`（品红 0xd6249f，颜色只有 user 能判、可能改）；面里撑开的另一根不平行 = 中性。按钮锁读成约束 = `lockConstraint`，老的 `lockLines` 拿掉（老格子的输出照旧，测试里钉着）。
+- 拿掉：键表操作工具层（手势外 X / Y / Z 先锁）、自由建模层 Y / Z 和方向键先锁、`Editor.armLock`、`setTool` 里「选择上先按好的锁交给下一把」那段（选择不吃锁，先锁拿掉以后它上面不会再有锁）。全局层的方向键锁（A9）留到第三步两边一起退。
+- 动作外按 X = 光标处弹「删除 / 溶解」（`context-menu.ts openDeleteMenuAt`；`Editor.deleteSelection(dissolve)` → 网格体 `meshDelete` 的 dissolve 旗，和橡皮 Shift 同一条）。自由建模原来的「X = 立刻删除」同一刀换掉；动作外 Y / Z / N 不响应、Shift+Z 落到全局 = 缩放到全部（统筹第 1 条）。
+- 网格整格（统筹第 3 条）：自由建模沿不平行于轴的线不落格——现在自由建模的移动本来就不按锁落格，这一步没加任何取整。第三步硬表面要照「沿线长度取整（走『长度一律取整』那个现成入口）」做；那一条是**统筹照「硬表面的结果是说得出来的数」读的，user 没逐字说**。
+
+计划之内我自己定的几处（统筹看一眼，不对就改）：
+1. **手势里打数时的 N / T**：单位字母里有 n、t（in、ft、nm）。改成单位还没开始打（缓冲里还没有字母）时 N / T 归轴（「G 2 N」= 打了 2 再锁法线），打了单位的头一个字之后照旧当单位（1in、1ft 都打得出）。代价：手势里打不出 nm（以 n 开头的单位只有它；没有以 t 开头的单位）。`units.ts quantityKey`，数值小窗不受影响。
+2. **溶解只在网格体里选着边 / 点（没有面）时露**：网格体面的溶解（几张面并一张）没有现成命令（现成的 dissolve 对面 = 删面），照「没有现成的就先不放那一项」不放。硬表面这一步没碰。
+3. **两份锁并存时把轴键全按掉**（X 再 X）：回到按钮锁着的那份，提示行说「轴键都取消了：回到按钮锁着的那个」；按钮没锁就说「不限制」。
+4. **提示行那句话一直挂在手势读数后面**（「移动 12 cm ｜ 沿 X」）：只写一次会被下一帧的预演读数盖掉。取不到面 / 边的原因也挂着，直到再按轴键或动作结束。
+5. **斜面里撑开的那两根线**：其中一根正好平行于某根轴时也用那根轴的颜色（例：Shift+N 按在绕 Y 倾斜的斜面上 = 一根绿 + 一根中性）。老的「锁那张面」只有在这种巧合下颜色会变，别的输出不变。
+6. **轴键按出来的不点亮右上角按钮**（按钮只显示按钮锁那份）；空心框的样子是第四步。
+7. **手势里按 Esc 还会顺手解掉按钮锁**（老行为，`main.ts escape`）：没动，第四步「锁不记忆」一起理。
+
+要统筹知道的：
+- 键位冲突登记（`keymap.ts KNOWN_CONFLICTS`）：Shift+Z 那条删了（自由建模动作外不再是锁面，两边都 = 缩放到全部，已经不冲突，守卫要求删）；X 那条改了说法（硬表面 = 橡皮 · 自由建模 = 动作外弹删除 / 溶解小菜单）。这六条是 user 10-29 拍过「保持现状」的，删的是已经不冲突的那条，没有新增。
+- 自由建模拿着选择按方向键：先锁拿掉以后落到全局层的方向键锁，选择不吃锁 = 提示「这把工具没有方向锁 / 面锁」，第三步方向键退掉以后就什么都不发生了。
+- `ai-docs/20261113-keymap-decisions.md`（键位现行表，统筹的页）里 X 那一行要不要跟着改，统筹定。
+
+验：单测 `test/axis-apply.test.ts`（新，表的 4 × 3 格）、`test/lock-guide.test.ts`（+N / T 颜色、按钮锁读成约束）、`test/keymap.test.ts`（手势里五个键加 Shift、动作外 X / Y / N / Shift+Z、打数时 N / T）；全套 2778 过。探针新 `probe-axis-freeform`（21 格：X 再 X、Shift+Z、斜面 N、Shift+N 再 X、旋转里 T、空处 N、动作外 X 弹菜单 / 溶解 / 删除、动作外 Y）；改了四个过时的（`probe-mesh-keymap` ②⑥、`probe-mesh-flatten` ④、`probe-mfd` ②、`probe-tool-locks` ⑧⑨）；照旧绿：mesh-transform / mesh-pull / mesh-handles / lock-line / axis-lock / plane-lock / ipad-pen。

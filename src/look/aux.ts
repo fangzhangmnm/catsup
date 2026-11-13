@@ -25,6 +25,7 @@ const STANDARD_PALETTE = {
   scrub: PALETTE.edgeHot,   // 刮擦 / 悬停将删
   warn: PALETTE.edgeWarn,   // 检查：微折软边
   axisX: PALETTE.axisX, axisY: PALETTE.axisY, axisZ: PALETTE.axisZ,   // 参考轴（小三轴 / 刻度 / 锁轴线 / 轴向吸附）：画风可以换（Tron = 主色调）
+  axisDir: 0xd6249f,        // 锁线的方向不和坐标架任何一根轴平行（N / T 按出来的）：品红（SketchUp 平行 / 垂直提示线那一色；统筹 11-13 定，颜色只有 user 能判、可能改）
   gizmoX: PALETTE.axisX, gizmoY: PALETTE.axisY, gizmoZ: PALETTE.axisZ,   // 变换 gizmo 的 XYZ：操作用的通用语言，不跟画风走
   construct: 0x8b5cf6,      // 构造类：量角器圈、充能点
   chargedExt: 0xd4d0f5,     // 充能边的淡延长线

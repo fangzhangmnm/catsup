@@ -3,7 +3,7 @@
 // 「X 我的建议是在选择模式下面x才是删除？move模式相当于blender帮你自动按G，所以这个时候x永远路由到轴」。
 //
 // 做法（Blender 键表分层 / Emacs minor-mode 键表那派，不是状态机、不是 when 条件表）：
-//   · 每一层 = 一张小表「和弦 → 动作」；层有：全局、工作台（自由建模）、工具（操作工具：移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线）、手势中、镜像会话、数值小窗、步行三阶段。
+//   · 每一层 = 一张小表「和弦 → 动作」；层有：全局、工作台（自由建模）、手势中、镜像会话、数值小窗、步行三阶段。（「操作工具层」2026-11-13 拿掉：轴键只在动作里管用，锁的一轮第二步。）
 //   · 每次按键从编辑器现状**算出**压着哪几层（layersOf，纯函数，没有转移），从顶往下找第一个绑了这个和弦的层（resolve）。
 //   · 层是加法不是乘法；「什么时候」= 现在栈里有什么。层内偶尔用 when 谓词（有没有选区 / 在不在走路），尽量少。
 //   · 这个文件零 DOM、零编辑器 import（只认和弦和一个只读上下文）；动作是字符串 id，app 层（main.ts）按 id 做事。守卫 test/keymap.test.ts。
@@ -95,38 +95,26 @@ export const FREEFORM: Layer = {
     B("shift+a", "tool.key:shift+a:create", "拉出"), B("shift+d", "mesh.duplicateMove", "复制并接着挪（Blender Shift+D）", (c) => !c.gesture && c.actableSelection),
     B("o", "soft.toggle", "软选择 开 / 关"), B("[", "soft.smaller", "软半径 小一点"), B("]", "soft.bigger", "软半径 大一点"),   // Blender O；[ ] = WeebPaint 调笔刷粗细同款（user 10-28 夜「weebpaint的slider」）   // Blender 的「添加」= 这里的新建工具（user 10-28 晚「Shift+A 同意」）
     B("shift+h", "hide.others", "藏起没选中的（Blender Shift+H；H = 藏选中的、Alt+H = 全部显示在全局层）", (c) => !c.gesture),   // 统筹 11-13
-    B("x", "delete.ifAny", "删除"),   // 选择工具里 X = 删除（操作工具层在上面把 X 接走 = 轴，UX17）
-    B("y", "lock.arm:y", "先锁 Y", (c) => !c.gesture), B("z", "lock.arm:z", "先锁 Z", (c) => !c.gesture),
-    B("shift+y", "lock.arm:y:plane", "先锁面 XZ", (c) => !c.gesture), B("shift+z", "lock.arm:z:plane", "先锁面 XY", (c) => !c.gesture),
+    // 动作外按 X = 在光标处弹小菜单「删除 / 溶解」（拿着什么工具都一样；统筹 11-13 按 user「动作里外」那条线定，原来的「X = 立刻删除」和操作工具里的「先锁」同一刀换掉）。
+    // 动作外 Y / Z 不响应（Shift+Z 落到全局层 = 缩放到全部）；动作里 X / Y / Z / N / T 归手势层 = 轴。
+    B("x", "delete.menu", "删除 / 溶解（光标处弹小菜单）"),
     B("alt+s", "modal:shrink", "沿法线（键盘起手）"), B("alt+w", "modal:shrink", "沿法线（键盘起手）"),
     B("ctrl+r", "mesh.loopCutArm", "环切（下一下点边）"), B("ctrl+b", "modal:offset:bevel", "倒角（键盘起手）"), B("ctrl+shift+b", "modal:offset:bevelVerts", "倒角（点）（键盘起手）"),
-    // 拿着不吃锁的工具（选择）按方向键 = 先锁好、下一下生效；吃锁的工具落到全局层的 lockKey
-    ...(["arrowright", "arrowleft", "arrowup"] as const).map((k, i) => B(k, `lock.arm:${"xyz"[i]}`, `先锁 ${"XYZ"[i]}`, (c) => !c.gesture && !c.lockStyle)),
-    ...(["arrowright", "arrowleft", "arrowup"] as const).map((k, i) => B(`shift+${k}`, `lock.arm:${"xyz"[i]}:plane`, `先锁面`, (c) => !c.gesture && !c.lockStyle)),
   ],
 };
 
-/** 操作工具层（自由建模的移动 / 旋转 / 缩放 / 变换 / 挤出 / 插入 / 沿法线）：= Blender 帮你自动按了 G，所以 X / Y / Z 永远 = 轴（手势里锁、手势外先锁）。 */
-export const OP_TOOLS: ReadonlySet<Tool> = new Set<Tool>(["move", "rotate", "scale", "transform", "pp", "offset", "shrink"]);
-export const TOOL_OPS: Layer = {
-  id: "tool:ops",
-  bindings: [
-    B("x", "lock.axis:x", "锁 X"), B("y", "lock.axis:y", "锁 Y"), B("z", "lock.axis:z", "锁 Z"),
-    B("shift+x", "lock.axis:x:plane", "面锁 YZ"), B("shift+y", "lock.axis:y:plane", "面锁 XZ"), B("shift+z", "lock.axis:z:plane", "面锁 XY"),
-  ],
-};
-
-/** 手势中（自由建模）：X / Y / Z 锁轴、Shift = 锁面（Blender 同款）。 */
+/** 手势中（自由建模）：轴键 = 编辑器 axisPress → 语法模块 controller/axis-constraint.ts（单按 = 要这个方向、加 Shift = 垂直于它的面、同一个键再按 = 取消；
+ *  设计稿 ai-docs/20261113-axis-constraint-module-design.md，锁的一轮第二步）。N = 按键那一刻光标下那张面的法线、T = 光标下那条边。别的层不绑这几个键当轴。 */
+const AXIS_KEY_NAMES: readonly (readonly [string, string, string])[] = [["x", "沿 X", "只在 YZ 面里"], ["y", "沿 Y", "只在 XZ 面里"], ["z", "沿 Z", "只在 XY 面里"], ["n", "沿光标下那张面的法线", "只在光标下那张面里"], ["t", "沿光标下那条边", "只在垂直于光标下那条边的面里"]];
 export const GESTURE: Layer = {
   id: "gesture",
   bindings: [
-    B("x", "lock.key:x", "锁 X"), B("y", "lock.key:y", "锁 Y"), B("z", "lock.key:z", "锁 Z"),
-    B("shift+x", "lock.key:x:plane", "面锁 YZ"), B("shift+y", "lock.key:y:plane", "面锁 XZ"), B("shift+z", "lock.key:z:plane", "面锁 XY"),
+    ...AXIS_KEY_NAMES.flatMap(([k, one, plane]) => [B(k, `axis.press:${k}`, one), B(`shift+${k}`, `axis.press:${k}:shift`, plane)]),
     B("g", "move.slideToggle", "这一次沿边滑（Blender G G）", (c) => c.tool === "move"),
   ],
 };
 /** 手势中打数（Blender「S Z 0」= 缩放、锁 Z、打 0、回车；user 10-28 晚「这也是一个新的模式」）：它说要就给它——数字 / 小数点 / 正负号、有数之后的单位字、退格、回车。
- *  X / Y / Z 它不要（单位里没有这三个字母）→ 落到下面的手势层照旧锁轴，打到一半也能锁。读法和单位文本框同一个（units.ts parseQuantity / quantityKey）。 */
+ *  X / Y / Z 它不要（单位里没有这三个字母）、N / T 在单位还没开始打时不要（units.ts quantityKey）→ 落到下面的手势层照旧当轴，打到一半也能锁。读法和单位文本框同一个（units.ts parseQuantity / quantityKey）。 */
 export const TYPING: Layer = { id: "typing", bindings: [B("*", "typing.key", "打数", (c, e) => c.typingWants(e))] };
 /** 自由建模的拾取范围（Blender 1 / 2 / 3；user 10-29「mesh模式里面123对应单选点线面。然后什么是都可以选？」；按法一处定 = pick-kinds.ts）：
  *  压在「刚做完一步」的数值小窗上面——没在打字时数字键归它（Blender 做完一步按 1 / 2 / 3 照样换点边面；改刚才那一步走右下角的马后炮）；
@@ -149,7 +137,6 @@ export function layersOf(c: KeyContext): Layer[] {
   const out: Layer[] = [GLOBAL];
   const freeform = c.mode === "freeform" && !c.walking;
   if (freeform) out.push(FREEFORM);
-  if (freeform && OP_TOOLS.has(c.tool)) out.push(TOOL_OPS);
   if (freeform && c.gesture) out.push(GESTURE);
   if (c.gesture) out.push(TYPING);   // 手势中：打数压在手势层上面（数字 / 单位先给它，X Y Z 不是量的字、照旧锁轴）
   if (c.mirrorSession) out.push(MIRROR);
@@ -213,8 +200,7 @@ export function chordLabel(ch: Chord): string {
 export const LAYER_DOCS: Readonly<Record<string, { title: string; when: string }>> = {
   global: { title: "到处都在", when: "" },
   "workbench:freeform": { title: "自由建模", when: "在网格体里" },
-  "tool:ops": { title: "自由建模 · 拿着操作工具", when: "移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线" },
-  gesture: { title: "自由建模 · 手势进行中", when: "按下了还没落定" },
+  gesture: { title: "自由建模 · 手势进行中", when: "按下了还没落定（轴键只管这一下：落定 / 取消就没了；同一个键再按 = 取消它）" },
   "freeform:pick": { title: "自由建模 · 拾取范围", when: "在网格体里、没在打数时（Blender 的 1 / 2 / 3）" },
   typing: { title: "打数", when: "手势进行中直接打（移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线；S Z 0 = 沿 Z 压平；回车 / 点一下 = 定，退格改，Esc 取消）；或刚做完一步、右下角小窗亮着时打数字按精确值重做" },
   "mirror-session": { title: "镜像会话", when: "硬表面「镜像…」把手出来时" },
@@ -222,7 +208,7 @@ export const LAYER_DOCS: Readonly<Record<string, { title: string; when: string }
   "walk:place": { title: "步行 · 放置", when: "点地面落人之前" },
   "walk:fps": { title: "步行", when: "键盘归走路：WASD 走、空格跳，别的只认下面这几个" },
 };
-export const ALL_LAYERS: readonly Layer[] = [GLOBAL, FREEFORM, TOOL_OPS, GESTURE, TYPING, PICK, MIRROR, WALK_EDIT, WALK_PLACE, WALK_FPS];
+export const ALL_LAYERS: readonly Layer[] = [GLOBAL, FREEFORM, GESTURE, TYPING, PICK, MIRROR, WALK_EDIT, WALK_PLACE, WALK_FPS];
 /**
  * 快捷键表（数据 → 文字；帮助页「快捷键」一节就是它）：每层一节、每条 = 和弦（给人看的写法）+ 做什么。工具键的名字由调用方给（左柱那张表的中文，keymap 不认识中文工具名）。
  * 同一层里同一个和弦只列一次（when 分情况的几条合成一行，用「 / 」连）。"*"（数值小窗吃一切）写成一句话。
@@ -293,9 +279,9 @@ export function toolKeyText(mode: ModeId, tool: Tool, inMode?: (t: Tool) => bool
 
 // ---------- 肌肉记忆冲突（账本 UX15，user 10-28「其实玩游戏最怕的就是两个魂系游戏，一个的x是紧急躲避，一个的x是喝药」）----------
 // 原则：同一个键在会来回切的几个地方意思不许不同；没有孟婆汤，就让冲突看得见、逐条拍。守卫 test/keymap.test.ts：新冒出来的冲突 = 红；下面登记的 = 已知、等 user 拍。
-/** 肌肉记忆层面的「意思」：锁轴的几种时机（马上锁 / 先锁下一下 / 手势中锁）算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */
+/** 肌肉记忆层面的「意思」：锁轴的两条路（方向键 / 按钮的 lock.key、动作里的轴键 axis.press）算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */
 export function meaningOf(action: string): string {
-  const lock = /^lock\.(?:arm|key|axis):([xyz])(:plane)?$/.exec(action);
+  const lock = /^(?:lock\.key|axis\.press):([xyz])(:plane|:shift)?$/.exec(action);
   if (lock) return `锁 ${lock[1].toUpperCase()}${lock[2] ? " 面" : ""}`;
   const tool = /^tool\.key:[^:]+:(.+)$/.exec(action), modal = /^modal:([a-z]+)/.exec(action);
   const verb = tool?.[1] ?? modal?.[1];
@@ -337,7 +323,6 @@ export const KNOWN_CONFLICTS: Readonly<Record<Chord, string>> = {
   g: "硬表面 = 建组件（SketchUp）· 自由建模 = 抓起来移动（Blender）",
   k: "硬表面 = 画线 · 自由建模 = 切割（user 10-29「brep里面K也是线，先这样弄一下，之后可以好好理」：画线本来就能切开面，算同一个「切」的手感）",
   r: "硬表面 = 矩形 · 自由建模 = 旋转（Blender）",
-  x: "硬表面 = 橡皮（轮换）· 自由建模选择 = 删除 · 自由建模操作工具 = 锁 X（UX17 user 拍的）",
-  "shift+z": "硬表面 = 缩放到全部 · 自由建模 = 锁面 XY（Blender）",
+  x: "硬表面 = 橡皮（轮换）· 自由建模 = 动作外弹「删除 / 溶解」小菜单（动作里 = 轴；统筹 11-13，锁的一轮第二步）",
 };
 

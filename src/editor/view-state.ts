@@ -81,7 +81,7 @@ export interface ViewState {
   /** 组件原点（DT86）：组件里另摆了坐标架、和原点不在一处时，原点处画一个淡小三轴（披露「现在是两个」）；同上画法、半透明。 */
   originAxes?: readonly Frame[] | null;
   /** 锁看得见：锁着的轴 / 面里的两根轴（过锚点或变换中心；controller/lock-guide.ts）。透视画在最上面。 */
-  lockLines?: readonly { readonly through: Pt3; readonly dir: Pt3; readonly color: "x" | "y" | "z" | "n" }[] | null;
+  lockLines?: readonly { readonly through: Pt3; readonly dir: Pt3; readonly color: "x" | "y" | "z" | "dir" | "n" }[] | null;
   /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
   /** parts = 只画这几样（自由建模的手柄按工具分家：移动 = 箭头 + 平面块 + 中心、旋转 = 环 + 中心、缩放 = 方块 + 平面块 + 中心；tools/mesh-handles.ts）；不给 = 全画（硬表面的变换工具）。 */
   xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; cube?: number; cubeHalf?: number; plane?: number; planeHalf?: number; uniform?: Pt3 | null; hot: string | null; parts?: readonly ("arrows" | "rings" | "cubes" | "planes" | "center")[] } | null;

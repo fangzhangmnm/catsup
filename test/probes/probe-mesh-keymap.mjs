@@ -1,6 +1,6 @@
 // 自由建模的 Blender 键位 + 删除（2026-10-27 Claude Opus 5.5；user「然后能不能blender 快捷键无缝接上」）：网格体盒子里——
-// ① 选顶面按 G：光标一动顶面跟着走（不用按下）、点一下落定；Ctrl+Z 回来 ② G 中按 Z = 锁 Z ③ G 中 Esc / 右键 = 取消 ④ 没选区按 G = 只切到移动工具
-// ⑤ 选顶面按 E = 挤出跟鼠标 ⑥ X 删选中的面 ⑦ 选两个对角点按 J = 连线 ⑧ Ctrl+R 再点一条竖边 = 环切 ⑨ 删除工具点一张面 = 删、Shift 点一条边 = 溶解。
+// ① 选顶面按 G：光标一动顶面跟着走（不用按下）、点一下落定；Ctrl+Z 回来 ② G 中按 Z = 只沿 Z（轴键那份，editor.axisConstraintNow；锁的一轮第二步）③ G 中 Esc / 右键 = 取消 ④ 没选区按 G = 只切到移动工具
+// ⑤ 选顶面按 E = 挤出跟鼠标 ⑥ X = 光标处弹「删除 / 溶解」、点删除 = 删选中的面（统筹 11-13 起 X 不再立刻删） ⑦ 选两个对角点按 J = 连线 ⑧ Ctrl+R 再点一条竖边 = 环切 ⑨ 删除工具点一张面 = 删、Shift 点一条边 = 溶解。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-keymap.mjs [地址]
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -41,7 +41,7 @@ const res = await page.evaluate(async () => {
   out.gDone = { moved: topZ() !== 1 || m().verts().some((v) => { const p = m().pt(v); return p.z === 1 && (Math.abs(Math.abs(p.x) - 0.5) > 1e-9 || Math.abs(Math.abs(p.y) - 0.5) > 1e-9); }), active: e.isGestureActive(), sel: e.selection.faces.size };
   kd("z", { ctrl: true }); await sleep(40); out.gUndo = JSON.stringify(stat()) === JSON.stringify(st0) && topZ() === 1;
   // ② G + Z 锁
-  await hover(P(0.5, 0.5, 1)); kd("g"); await sleep(20); kd("z"); await sleep(10); out.zLock = e.axisLock;
+  await hover(P(0.5, 0.5, 1)); kd("g"); await sleep(20); kd("z"); await sleep(10); { const k = e.axisConstraintNow(); out.zLock = k.kind === "line" && Math.abs(Math.abs(k.dir.z) - 1) < 1e-9 ? "z" : JSON.stringify(k); }
   for (let i = 1; i <= 6; i++) { fire("pointermove", s0.x + 8 * i, s0.y - 8 * i, 0); await sleep(15); }
   fire("pointerdown", s0.x + 48, s0.y - 48, 1); await sleep(10); fire("pointerup", s0.x + 48, s0.y - 48, 0); await sleep(40);
   out.zOnly = m().verts().filter((v) => m().pt(v).z > 1.001).length === 4 && m().verts().every((v) => { const p = m().pt(v); return Math.abs(Math.abs(p.x) - 0.5) < 1e-9 && Math.abs(Math.abs(p.y) - 0.5) < 1e-9; });
@@ -62,7 +62,7 @@ const res = await page.evaluate(async () => {
   out.eDone = { df: stat().f - st0.f, sel: e.selection.faces.size, topUp: topZ() > 1 };
   kd("z", { ctrl: true }); await sleep(40);
   // ⑥ X 删选中的面
-  await selTop(); kd("x"); await sleep(30); out.xDel = { df: stat().f - st0.f }; kd("z", { ctrl: true }); await sleep(40);
+  await selTop(); kd("x"); await sleep(40); document.querySelector('.popup-menu [data-menu-id="delete"]')?.click(); await sleep(30); out.xDel = { df: stat().f - st0.f }; kd("z", { ctrl: true }); await sleep(40);
   // ⑦ J：选两个对角点（点一个、Shift 点另一个）
   e.setTool("select"); e.deselectAll(); await sleep(400); await click(P(0, 0, 1)); await sleep(400);
   { const s = px(P(1, 1, 1)); fire("pointermove", s.x, s.y, 0); await sleep(10); fire("pointerdown", s.x, s.y, 1, true); await sleep(10); fire("pointerup", s.x, s.y, 0, true); await sleep(40); }

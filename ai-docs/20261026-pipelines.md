@@ -1380,3 +1380,11 @@ freedOp：每个步开始就在的网格体 —— History.meshBefore（这一�
 - 挪点之后的 180° 自动并（`moveVertices` 末尾，只看挪过的点的邻边）和转回硬表面并共面三角形（`meshToBrepWith`，全部边）都调这一个判定：软边、恰两张不同的膜、同一平面、两侧材质相同、藏没藏相同、边本身没藏。
 - 碰多少东西不变：每条候选边多比两侧材质和藏没藏（常数次查表）。
 - `setHidden` 里物件和面 / 边写在同一条 = 拒（撤销分档看到 instance 只记骨架）。
+
+## 追记 2026-11-13（锁的一轮第二步「自由建模接上」，Claude Opus 5.5）：动作里的轴键
+- **按键**：键表手势层 `axis.press:<键>[:shift]`（只在自由建模、动作里；X / Y / Z / N / T）→ `main.ts` → `Editor.axisPress` → `editor/axis-keys.ts AxisKeys.press`（解析方向：X / Y / Z = 上下文坐标架；N = `pickFace`（看得见的世界）那张面的法线；T = `pickAt` 只拾边）→ 语法模块 `controller/axis-constraint.ts axisPress` → `refreshGesture`（预演马上跟着变）。碰多少东西：一次拾取（屏幕索引那一格）+ 常数，不随模型涨。取不到面 / 边 = 状态不变、说原因。
+- **工具要约束**：`ctx.axisConstraint()` = `Editor.axisConstraintNow()` = 轴键那份 ?? 按钮锁那份（`lock-guide.ts lockConstraint`）→ 工具按自己那一族读（`controller/axis-apply.ts`：移动 / 挤出 = moveLock、旋转 = rotateLock、缩放 = scaleLock）→ 工具原来认的 `{ axis, plane }` 那一对 → `dragDelta` / 绕轴转 / `scaleAlong` 一行没改。硬表面的工具这一步还走老的 `applyLock`（第三步换）。
+- **寿命**：取消手势 / 一子步做完 / 键盘起手时明着丢；直接语法的工具落定不经过那几处，所以 `now()` / `note()` 每次先问动作还在不在，不在当场丢（下一个动作带不过去）。
+- **画**：`lockGuide` → `constraintLines`（线和坐标架某根轴平行 = 那根轴的颜色；锁住的方向不平行 = `axisDir` 品红；面里撑开的另一根不平行 = 中性）。提示行：`axisDescribe` 那句挂在手势读数后面（`computeLive` 拼提示行时取 `AxisKeys.note()`）。
+- **动作外 X**：键表自由建模层 `delete.menu` → `main.ts`（光标位置 = 画布 pointermove 记的 client 坐标）→ `context-menu.ts openDeleteMenuAt`（删除；网格体里选着边 / 点时多一项溶解）→ `Editor.deleteSelection(dissolve)` → 网格体 `meshDelete`（`dissolve` 旗，和橡皮 Shift 同一条）。
+- **拿掉的**：键表操作工具层（`TOOL_OPS`）、自由建模层的 Y / Z / 方向键先锁、`Editor.armLock`、`setTool` 里把选择上的锁交给下一把的那段；`ToolCtx.axisLockDir / planeLockNormal` 换成 `axisConstraint`。

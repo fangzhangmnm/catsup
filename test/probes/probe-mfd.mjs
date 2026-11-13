@@ -1,6 +1,6 @@
 // 键名芯片（MFD；账本 UX19；app/mfd.ts + controller/chips.ts；created 2026-10-28 by Claude Opus 5.5；2026-10-28 晚按 user「实时响应按键 / 有context才显示 / ipad不显示键位」改）。
 // ⓪ 开机闲着 = 整排不出 ① 选择工具闲着不出；按住 Shift = Shift 那枚出来并亮、松开收 ② 自由建模移动、有选区闲着 = 不出（锁不在芯片里了，白模 W-6 搬到右上角；修饰键要按住才出）；
-// 按 X 键 = 锁 X、右上角「X」亮；点右上角「Y」= 真锁 Y（和按 Y 键同一条）、Y 亮 X 不亮 ③ 拖着没松 = Shift，没有锁、没有取消（松手就是决定）④ 鼠标下能收起（按住 Shift 让它露出来再点）、收起记住
+// 按 X 键 = 光标处弹「删除 / 溶解」、不锁、右上角都不亮（统筹 11-13：动作外 X 不是轴，锁的一轮第二步）；Esc 收起；点右上角「Y」= 真锁 Y、Y 亮 X 不亮 ③ 拖着没松 = Shift，没有锁、没有取消（松手就是决定）④ 鼠标下能收起（按住 Shift 让它露出来再点）、收起记住
 // ⑤ 没按过实体键盘的一页、碰过笔：收起钮不见、不印键名；有选区 = 修饰键开关；点「吸附」= 锁住（亮）、真的当 Shift 用；换工具 = 放开。跑法：python3 -m http.server 8765 后 node test/probes/probe-mfd.mjs [截图路径]
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -42,6 +42,8 @@ await page.keyboard.press("x"); await page.waitForTimeout(80);
 r.afterKeyX = await chips();
 const lockBtns = () => page.evaluate(() => [...document.querySelectorAll(".gizmo-lock")].filter((b) => !b.closest("[hidden]")).map((b) => b.textContent + (b.classList.contains("on") ? "*" : "")).join(" "));
 r.lockAfterKeyX = await page.evaluate(() => globalThis.__catsup.editor.axisLock ?? null); r.btnsAfterKeyX = await lockBtns();
+r.menuAfterKeyX = await page.evaluate(() => [...document.querySelectorAll(".popup-menu [data-menu-id]")].map((x) => x.dataset.menuId).join(","));
+await page.keyboard.press("Escape"); await page.waitForTimeout(60); r.menuAfterEsc = await page.evaluate(() => !!document.querySelector(".popup-menu"));
 await page.click(".gizmo-lock.lock-y:not(.lock-plane)"); await page.waitForTimeout(80);
 r.lockAfterTap = await page.evaluate(() => globalThis.__catsup.editor.axisLock ?? null);
 r.btnsAfterTapY = await lockBtns();
@@ -81,7 +83,7 @@ r.errs = errs;
 console.log(JSON.stringify(r, null, 1));
 const noKbd = (s) => s.every((x) => x.split(":")[1].split(",").every((c) => c.startsWith("|")));
 const ok = r.boot.hidden && r.selectIdle.hidden && !r.shiftHeld.hidden && r.shiftHeld.slots.length === 1 && /^shift:Shift\|.+\*$/.test(r.shiftHeld.slots[0]) && r.shiftUp.hidden
-  && r.moveIdleSel.hidden && r.afterKeyX.hidden && r.lockAfterKeyX === "x" && /(^| )X\*/.test(r.btnsAfterKeyX) && !/(^| )Y\*/.test(r.btnsAfterKeyX)
+  && r.moveIdleSel.hidden && r.afterKeyX.hidden && r.lockAfterKeyX === null && !/\*/.test(r.btnsAfterKeyX) && r.menuAfterKeyX.startsWith("delete") && !r.menuAfterEsc
   && r.lockAfterTap === "y" && /(^| )Y\*/.test(r.btnsAfterTapY) && !/(^| )X\*/.test(r.btnsAfterTapY) && r.afterTapY.hidden
   && !r.dragging.slots.some((s) => s.startsWith("lock:")) && r.dragging.slots.some((s) => s === "shift:Shift|吸附") && !r.dragging.slots.some((s) => s.startsWith("cancel:"))
   && r.collapsed.collapsed && r.collapsed.slots.length === 0 && (r.pref === null || r.pref.includes("0"))
