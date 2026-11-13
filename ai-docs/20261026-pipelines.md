@@ -1112,10 +1112,15 @@ paintPlaceOf(画)：有那一列的定义里号最小的那个（画板宽高、
 startPaint：表里加一行（fit = density / size）→ 内核 addColumn(uv, kind "uv") → 每张面 setFaceValues（铺法 layout.ts 最后一步 quantizeUv）→ 贴图行 layout = { uvSet } → 材质 → 换材质
 补面（meshLayoutPaint）：读 s.uvSets 那一行；fit 不认识 / 行里有不认识的 freed = 这套排法什么都不自动动（uvSetAutoPlaces）
 存：documentFromScene → doc.uvSets = 表 + 每个网格体 columns = 内核所有列（按 kind；写的门口查：uv 列在表里没有那一行 = 内部出错、抛）
-    → encodeMeshItem：有列 = 盖 CATSUP_mesh 3.0 + columns[{ guid, kind, arity, data: bufferView int32（uv = ×1024，没有 = −2³¹）, …行里不认识的键 }]；没有 = 照旧 1.2（逐字节和以前一样）
+    → encodeMeshItem：有列 = 盖 CATSUP_mesh 3.0 + columns；没有 = 照旧 1.2（逐字节和以前一样）
+       uv 列打包成通道（packUvChannels；统筹 11-13 改，原来一套排法一列）：每张面把它有位置的排法按 GUID 字典序排，第 k 个进第 k 个通道；
+       通道 = { kind: uv, arity: 2, sets（这个通道里出现的 GUID，字典序；空列的 GUID 进第 0 个通道）, faceSet（每面 int32 下标，−1 = 没有）, data（每角 int32 ×1024，没有 = −2³¹） }；
+       通道数 = 一张面同时在几套上的最大值（平时 1）。别的种类的列 = { guid, kind, arity, data（float32）, …不认识的键 }，照内存的先后
     → 顶层 CATSUP_uvsets 1.0 { list }（表空 = 不写，extensionsUsed 也不列）；贴图表的拍子按内容盖：有挂在排法上的画 1.3 / 有平铺的画 1.2 / 别的 1.1
 读：CATSUP_uvsets 比这一版新 = 拒开；readUvSetRows：坏的一行、同号的几行不认，记 uvSetRowsDropped
-    → decodeMeshItem → readColumns（整列不认 / 整面没有，记 uvDropped）；以前的 uvSets 键（2.x）= 不带回、记 oldUvColumns（门口只这一处；没有「2.x 按老的算」）
+    → decodeMeshItem → readColumns：别的种类整列不认 / 整面没有；uv 通道 readUvChannel 展开回按排法分的列（sets 里每个 GUID 一列、有面引用就填值）——
+      通道坏 = 这个通道不认；下标越界 / sets 那一项不是 GUID、「有没有位置」和角上对不上、同一张面同一套写两次 = 那张面没有；都记 uvDropped。
+      以前的 uvSets 键（2.x）= 不带回、记 oldUvColumns（门口只这一处；没有「2.x 按老的算」）。读回来内核里 uv 列按 GUID 字典序建（存之前是开始画的先后；先后不是语义）
     → paintReadChecks：uv 列在表里没有那一行 → 这一列不认；角落在画布外 → 这张面在这一列上写成没有；画挂的排法不在表里 → 孤儿；
       贴图行还是以前的 { definition, uvSet } → 这一版不当画、原样带回、记 oldPaintFormat；走画的面没位置 → 记一笔
     → sceneFromDocument：表进 Scene.uvSets、列原样进内核（读进来的已经是整格的 1/1024）
@@ -1125,6 +1130,6 @@ startPaint：表里加一行（fit = density / size）→ 内核 addColumn(uv, k
 身份层：新条目种类 UVSET（entry-kinds.ts uvSetRef；粘贴不覆盖目标的行）；贴图 / 定义的引用里加上它；比内容按列（entry-canon.ts）
 ```
 
-- 碰多少东西：存 / 读随「角数 × 列数」涨（一遍扫，和 1-2½ 一样），排法表随行数；不随画板大小涨。量化是铺法输出和取样各一步乘除，不加遍数。
+- 碰多少东西：存 / 读随「角数 × 通道数」涨（平时一个通道；打包时每张面排一下它在的几套），排法表随行数；不随画板大小涨。量化是铺法输出和取样各一步乘除，不加遍数。
 - 拿旧版本真代码读新文件（`scripts/old-reader-check.mjs`，默认读者加了 v0.19.79 = 2d62e36a；判「带不带贴图坐标」改成看排法表 / uv 列，「认不认识」改成和这一版的网格体大版本比）：三个旧读者都过——v0.19.79：带画 105 份全部拒开（格式太新，报 CATSUP_mesh 3 > 2）、不带的 116 份打开再存逐字节一样（换种子 400 份：205 / 216 同样）。
 - **还随整个模型涨的点**：没有新的。

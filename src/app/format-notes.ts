@@ -28,7 +28,7 @@ export const READ_NOTE_SAY: { readonly [K in keyof Required<FormatReadNotes>]: S
     const byDef = new Map<string, string[]>();
     for (const x of v) {
       const set = x.uvSet ? `「${x.uvSet.name || x.uvSet.guid.slice(0, 8)}」` : "";
-      const what = x.faces ? `贴图坐标${set}上有 ${x.faces} 张面${UV_WHY[x.why]}，这些面在这一套上按没有位置处理` : `有一套贴图坐标${set}${UV_WHY[x.why]}，整套不认`;
+      const what = x.faces ? `贴图坐标${set}上有 ${x.faces} 张面${UV_WHY[x.why]}，这些面在这一套上按没有位置处理` : x.uvSet ? `有一套贴图坐标${set}${UV_WHY[x.why]}，整套不认` : `有一段贴图坐标${UV_WHY[x.why]}，这一段不认`;
       const k = x.def.name || x.def.guid; byDef.set(k, [...(byDef.get(k) ?? []), what]);
     }
     return [...byDef].map(([d, items]) => `「${d}」的贴图坐标有坏的地方（模型本身一点没少）：${items.join("；")}。再存盘会把这些坏的部分去掉`);
@@ -86,6 +86,8 @@ const UV_WHY: Record<UvDropWhy, string> = {
   "not-a-list": "（整份角上的列的格式不对）", "not-an-object": "（格式不对）", "bad-guid": "（身份号缺了或不对）", "bad-kind": "（种类或每角几个数不对）",
   "no-data": "（角上的数找不到）", "bad-length": "（角上的数个数和模型对不上）", "duplicate-guid": "（和同一个物件的另一列用了同一个身份号）", "no-row": "（排法表里没有这一套）",
   "partial-corners": "的角一半有坐标一半没有", "non-finite-corners": "的角坐标不是有限的数", "off-canvas-corners": "的角落在画布外面",
+  "bad-sets": "（对照表的格式不对）", "bad-face-set": "指的那一套对不上（对照表里没有那一项、或者那一项不是身份号）",
+  "face-set-mismatch": "的「有没有位置」和角上的坐标对不上", "same-set-twice": "在同一套上写了两次（后一次不认）",
 };
 /** 排法表的一行读不了的原因（uvSetRowsDropped 用）。 */
 const UV_ROW_WHY: Record<UvRowWhy, string> = {

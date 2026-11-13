@@ -329,7 +329,7 @@ export function sceneFingerprint(s: Scene): string {
   for (const d of [...s.defs.values()].sort((a, b) => label(a.id).localeCompare(label(b.id)))) {
     if (d.body.kind === "mesh") {
       const m = d.body.kernel, rows = new Map([...s.uvSets].filter(([g]) => m.hasColumn(g))), raw = m.toSnapshot();   // 贴图坐标（1-2½；施工单十八：排法表在场景层，取这个网格体有列的那几行）：列的身份号是现铸的，不进指纹，换成那一套的名字；每套的宽高密度另记
-      const snap = raw.columns ? { ...raw, columns: raw.columns.map((c) => ({ ...c, guid: `uv:${rows.get(c.guid)?.name ?? "?"}` })) } : raw;
+      const snap = raw.columns ? { ...raw, columns: raw.columns.map((c) => ({ ...c, guid: `uv:${rows.get(c.guid)?.name ?? "?"}` })).map((c) => [JSON.stringify(c, (_k, v) => (ArrayBuffer.isView(v) ? Array.from(v as unknown as ArrayLike<number>).map(String) : v)), c] as const).sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0)).map((x) => x[1]) } : raw;   // 列的先后不进指纹（施工单十八第 1 刀：uv 通道读回来按排法 GUID 的字典序建列，存之前是开始画的先后；先后不是语义）
       const uv = [...rows.values()].map((u) => `${u.name} ${u.width}x${u.height}@${u.pxPerM}`).sort().join(" | ");
       parts.push(`def ${label(d.id)} kind=mesh slots=${d.body.materialSlots.join(",")}${uv ? ` uvSets=${uv}` : ""}: ${JSON.stringify(snap)} faceFlags=${m.faces().map((f) => m.faceFlags[f]).join(",")}`); for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`); continue; }
     const b = s.brep(d.id);

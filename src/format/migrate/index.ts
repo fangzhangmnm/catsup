@@ -119,8 +119,9 @@ import { definitionsV6toV7, type MigrationCtx } from "./definitions.ts";
 // 排法表搬到场景这一层（2026-11-13，Claude Opus 5.5；施工单 ai-docs/20261111-paint-workorders-18.md 第三、五节，统筹定的格式）：
 //   CATSUP_uvsets      1.0（新的顶层扩展，可选；表空 = 不写）：{ version, list: [ { guid, name, width, height, pxPerM, fit, freed?, …别的键 } ] }（format/uvset-table.ts）。
 //                      major 比本版新 = 拒开（不学桌面态那几个例外：建模的每一步都要碰它）。
-//   CATSUP_mesh        3.0（major）：uvSets 键没了，换成 columns[ { guid, kind, arity, data: { bufferView, count }, …别的键 } ]（mesh-payload.ts）。kind = uv：arity 2、
-//                      每角两个 32 位有符号整数、单位 1/1024 格、没有值 = 两个 −2147483648；别的 kind：每角 arity 个 32 位浮点、NaN = 没有值。
+//   CATSUP_mesh        3.0（major）：uvSets 键没了，换成 columns[ … ]（mesh-payload.ts 头注释是全文）。kind = uv 的一项 = 一个通道
+//                      { kind, arity: 2, sets: [排法 GUID…], faceSet（每面一个下标，−1 = 没有）, data（每角两个 32 位有符号整数、1/1024 格、没有 = 两个 −2147483648） }，
+//                      通道数 = 一张面同时在几套排法上的最大值（统筹 11-13 改，原来是一套排法一列）；别的 kind：{ guid, kind, arity, data（每角 arity 个 32 位浮点、NaN = 没有）, …别的键 }。
 //                      照旧的例外：不带列的网格体盖 1.2（MESH_STAMP_NO_UV），逐字节不变 = 没画过的文件旧版本照常开；带列的盖 3.0；2.0 / 2.1 不再写。
 //                      **不做迁移**（第五节，user 11-13「舍去历史包袱」）：现行格式只有「排法表 + 列」一种。读到 2.x 的网格体：链上那一步 2 → 3 只改版本号（链式升级的机制
 //                      要求每个 major 有一步；它不碰内容，和 1 → 2 一样）；载荷里的 uvSets 键现行格式里没有 = 读的门口不带回 + 记一笔（mesh-payload.ts），没有「2.x 按老的算」。
@@ -194,7 +195,8 @@ export interface FormatReadNotes { /** 文件里写了身份、但重复或不�
 /** 排法表的一行读不了的原因。 */
 export type UvRowWhy = "not-a-list" | "not-an-object" | "bad-guid" | "bad-size" | "bad-density" | "bad-fit" | "duplicate-guid";
 /** 角上的列坏了的一处（施工单十八：为什么 = 整个 columns 不是列表 / 这一列的身份号、种类、角上的数那一段不对 / 几列同一个身份号 / uv 列的号在排法表里没有 / 面的角一半有数一半没有、不是有限数、落在画布外面）。 */
-export type UvDropWhy = "not-a-list" | "not-an-object" | "bad-guid" | "bad-kind" | "no-data" | "bad-length" | "duplicate-guid" | "no-row" | "partial-corners" | "non-finite-corners" | "off-canvas-corners";
+export type UvDropWhy = "not-a-list" | "not-an-object" | "bad-guid" | "bad-kind" | "no-data" | "bad-length" | "duplicate-guid" | "no-row" | "partial-corners" | "non-finite-corners" | "off-canvas-corners"
+  | "bad-sets" | "bad-face-set" | "face-set-mismatch" | "same-set-twice";   // 后四种 = uv 通道（mesh-payload.ts readUvChannel）
 export interface UvDropNote { readonly def: { readonly guid: string; readonly name: string }; readonly uvSet: { readonly guid: string; readonly name: string } | null; readonly faces: number; readonly why: UvDropWhy }
 export const emptyReadNotes = (): FormatReadNotes => ({ newerMinor: [], newerPatch: [] });
 
