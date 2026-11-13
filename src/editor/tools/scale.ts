@@ -10,7 +10,7 @@ import { closestOnAxis } from "../camera.ts";
 import { intentAllows1D } from "../intent.ts";
 import { type Xform, applyPt, scalingAbout, scalingAlong } from "../../scene/xform.ts";
 import { moveTargetsSelection } from "../tools.ts";
-import { gestureMinLen } from "../gesture-consts.ts";
+import { GEOM_MIN_LEN, gestureMinLen } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
@@ -53,7 +53,7 @@ export class ScaleTool implements ToolHandler {
       [{ x: mid.x, y: max.y, z: mid.z }, { x: mid.x, y: min.y, z: mid.z }, F.y], [{ x: mid.x, y: min.y, z: mid.z }, { x: mid.x, y: max.y, z: mid.z }, scale3(F.y, -1)],
       [{ x: mid.x, y: mid.y, z: max.z }, { x: mid.x, y: mid.y, z: min.z }, F.z], [{ x: mid.x, y: mid.y, z: min.z }, { x: mid.x, y: mid.y, z: max.z }, scale3(F.z, -1)],
     ];
-    for (const [pc, ac, axis] of faces) { const p = W(pc), anchor = W(ac); if (ctx.frame().distBetween(p, anchor, ctx.vp()) >= ctx.eps().drag) out.push({ kind: "face", p, anchor, axis }); }   // 手柄在屏幕上离锚点只有几个像素就不给（拖一个像素倍数就飞了；统筹 11-12：手感，按屏幕像素）
+    for (const [pc, ac, axis] of faces) { const p = W(pc), anchor = W(ac); if (dist3(p, anchor) >= GEOM_MIN_LEN) out.push({ kind: "face", p, anchor, axis }); }   // 这根轴上盒子厚度为 0 = 没有这对面心柄：几何的事，看几何容差（v0.19.72 误判成屏幕像素：正视图里前后两个面心叠在屏幕同一点，前后那对柄被丢了，probe-transform ②）
     return out;
   }
 

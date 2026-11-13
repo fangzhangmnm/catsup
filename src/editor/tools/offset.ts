@@ -11,7 +11,7 @@ import type { DrawPlane } from "../pick.ts";
 import { offsetRing } from "../offset.ts";
 import { circleOfFace, curveSpecToLocal, offsetCircleSpec } from "../tools.ts";
 import { intentAllows1D } from "../intent.ts";
-import { nearestStep } from "../increments.ts";
+import { gridSnap, snapIsGridOnly } from "../increments.ts";
 import { fmtLen } from "../units.ts";
 import { GEOM_MIN_LEN, gestureMinLen, longEnough } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
@@ -25,6 +25,7 @@ const projectThrough = (p: Pt3, c: Pt3, n: Pt3): Pt3 => { const d = dot3(sub3(p,
 export class OffsetTool implements ToolHandler {
   readonly tool = "offset" as const;
   readonly grammar = "steps" as const;
+  private zeroSay: string | null = null;   // 整格取整得 0：不动、live 说这一句
   private face: FaceId | null = null;       // 活动池本地 id
   private plane: DrawPlane | null = null;   // 世界系
   private inward: Pt3 | null = null;        // 面内内法向（世界系）
@@ -87,26 +88,16 @@ export class OffsetTool implements ToolHandler {
     let d = dot3(sub3(q, anchor), this.inward);
     let label: string | undefined;
     // 落格：只在没吸到几何（裸落 / 格点 / 整数长度 / 面上）时接管；吸到别的端点 / 中点 / 边照旧（偏移到某个点是正经用法）
-    const weak = kind === null || kind === "grid-point" || kind === "increment" || kind === "on-face";
-    // 格点吸附（有效开关 = ctx.grid().on，按住 Shift 反过来）：绝对格线（内法向与栅格轴平行时）+ 从边起的整格，屏距最近、在吸附圈内才咬（2026-10-25：以前是硬取整）
-    const g = ctx.grid(), s0 = g.snap;
-    if (weak && g.on && s0 > 0) {
-      const cands: { d: number; abs: boolean }[] = [{ d: nearestStep(d, s0), abs: false }];
-      const F = ctx.contextFrame();
-      for (const ax of [F.x, F.y, F.z] as GPt3[]) {
-        const dd = dot3(this.inward, ax);
-        if (Math.abs(Math.abs(dd) - 1) > 1e-6) continue;
-        const c0 = dot3(sub3(anchor, F.origin), ax);
-        cands.push({ d: (nearestStep(c0 + d * dd, s0) - c0) / dd, abs: true });
-        break;
-      }
-      let best: { d: number; abs: boolean; q: Pt3; px: number } | null = null;
-      for (const c of cands) {
-        if (Math.abs(c.d) <= 1e-9 || Math.sign(c.d) !== Math.sign(d || c.d)) continue;
-        const q2 = add3(anchor, scale3(this.inward, c.d)), px = ctx.frame().distTo(s.x, s.y, q2, ctx.vp());
-        if (px <= ctx.snapPx() && (!best || px < best.px)) best = { ...c, q: q2, px };
-      }
-      if (best) { d = best.d; q = best.q; kind = best.abs ? "grid-point" : "increment"; label = `${best.abs ? "格线" : "整格"} · ${fmtLen(Math.abs(d))}`; }
+    const weak = snapIsGridOnly(kind);
+    // 整格（有效开关 = ctx.grid().on，按住 Shift 反过来）：没吸到具体的东西 = 偏移距离一律取吸附长度的整数倍（gridSnap；统筹 11-12 / user 11-13「一律取整」，
+    //   10-25 那版「绝对格线 / 从边起的整格，屏距在吸附圈内才咬」作废）。取整得 0 = 不动、提示再拖远一点（live 说）。
+    const g = ctx.grid();
+    this.zeroSay = null;
+    if (weak && g.on && g.snap > 0) {
+      const k = gridSnap.length(freeO && Number.isFinite(dFree) ? dFree : d, g);   // 取整的是光标真实的距离：求解器给的格点 / 整数长度（从按下的点量，离得近才咬）不能先把它挪走，不然缩小时差一格
+      d = k; q = add3(anchor, scale3(this.inward, k));
+      if (k !== 0) { kind = "increment"; label = `整格 · ${fmtLen(Math.abs(k))}`; }
+      else { kind = null; this.zeroSay = gridSnap.zeroHint(g, fmtLen); }
     }
     this.dist = d;
     ctx.setSnap(kind ? { ...sn, kind, p: q, ...(label ? { label, hints: [{ a: anchor, b: q, axis: "i" as const }] } : {}) } : null);
@@ -121,6 +112,7 @@ export class OffsetTool implements ToolHandler {
     return { op: "addEdges", at: ctx.activePool(), segs: segs.map(([p, q]) => [ctx.toLocal(p), ctx.toLocal(q)]), ...(spec ? { curve: curveSpecToLocal((pt) => ctx.toLocal(pt), spec) } : {}) };
   }
   live(ctx: ToolCtx, preview: PreviewOp): string {
+    if (this.face !== null && this.zeroSay) return `偏移｜${this.zeroSay}`;
     if (this.face === null || !longEnough(ctx, ctx.anchor() ?? ctx.cursor() ?? { x: 0, y: 0, z: 0 }, this.dist)) return "";
     const op = this.opFor(ctx, this.dist);
     if (op) preview(op);

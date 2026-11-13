@@ -1,6 +1,7 @@
 // tools/rotate.ts —— 旋转工具的手势模块：steps 语法，点三下（圆心 → 参考方向 → 角度；#23 user「旋转和move对齐」），拖着也能落定。
 // 从 editor.ts 原样搬出（刀 ② B，行为零变更）：圆心落在膜上 → 转轴 = 膜法向，否则画面平面法向；参考点吸附过；
 // 角度：轴向咬合先于 15° 档（user 2026-10-24「旋转的时候坐标轴方向也有snap」），意图门（反向的点吸附不合法）。created 2026-10-24 by Claude Fable 5.1
+import { gridSnap, snapIsGridOnly } from "../increments.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 import { cross3, dist3, dot3, len3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
@@ -16,7 +17,7 @@ import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 
 /** 旋转的意图死区（弧度）：半度以内还看不出转向。量角器角度咬合：步长（度）与咬合半宽（度）。 */
-const ANGLE_DEAD = 0.5 * Math.PI / 180, ANGLE_STEP_DEG = 15, ANGLE_SNAP_DEG = 1.5;
+const ANGLE_DEAD = 0.5 * Math.PI / 180, AXIS_SNAP_DEG = 1.5;   // AXIS_SNAP_DEG = 参考方向和坐标轴平行的角度窗（「具体的东西」）；15° 档归 gridSnap、一律取整（11-12 起没有窗）
 const projectThrough = (p: Pt3, c: Pt3, n: Pt3): Pt3 => { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); };
 
 export class RotateTool implements ToolHandler {
@@ -84,14 +85,14 @@ export class RotateTool implements ToolHandler {
     let q = projectThrough(sn.p, c, ax);
     let kind = sn.kind;
     if (kind !== null && freeR && len3(sub3(freeR, c)) >= gestureMinLen(ctx, c) && ctx.intentOn(s, travel) && !intentAllows1D(angOf(freeR), angOf(q), ANGLE_DEAD)) { q = freeR; kind = null; }
+    if (kind !== null && snapIsGridOnly(kind) && freeR) { q = freeR; kind = null; }   // 格点 / 整数长度 / 面上不是「具体的东西」：角度看光标真实的方向，再一律取 15°
     const b = sub3(q, c);
     if (len3(b) < gestureMinLen(ctx, c)) return;   // 光标离圆心不到几个像素：角度没意义（屏幕上的手感，统筹 11-12）
     let ang = angOf(q);
-    const step = ANGLE_STEP_DEG * Math.PI / 180, near = Math.round(ang / step) * step;
     // 轴向咬合先于 15° 档（user 2026-10-24「旋转的时候坐标轴方向也有snap」）：参考方向转到与上下文某轴平行时吸住
-    const axHit = kind === null ? axisAlignAngle(c, ax, this.ref, ctx.contextFrame(), ang, ANGLE_SNAP_DEG) : null;
+    const axHit = kind === null ? axisAlignAngle(c, ax, this.ref, ctx.contextFrame(), ang, AXIS_SNAP_DEG) : null;
     if (axHit) { ang = axHit.ang; ctx.setSnap({ p: q, kind: `axis-${axHit.axis}` as SnapKind }); }
-    else if (kind === null && ctx.grid().on && Math.abs(ang - near) <= ANGLE_SNAP_DEG * Math.PI / 180) { ang = near; ctx.setSnap({ p: q, kind: "h-stop" }); }   // 15° 档 = 格点吸附（user「15是grid合理」；按住 Shift 反过来）
+    else if (kind === null && ctx.grid().on) { ang = gridSnap.angle(ang, ctx.grid()); ctx.setSnap({ p: q, kind: "h-stop" }); }   // 15° 档 = 格点吸附（user「15是grid合理」；按住 Shift 反过来）
     else ctx.setSnap(kind ? { ...sn, kind, p: q } : null);
     this.angle = ang;
     ctx.setCursor(q);

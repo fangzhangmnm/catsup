@@ -3,9 +3,9 @@
 //   圆心弧（Arc）：圆心 C → 起点 A（定半径）→ 转角度（量角器弧预演，15° Shift 咬合，可转过 180°）；扇形（Pie）：圆心弧 + 两条半径闭合成面。
 // 都是三下；第一下定平面（rectFirstPlane）。构造 / 落定共用 arc-build.ts（数值小窗改半径 / 角度 / 段数也走它）。
 // 提示带步骤字 ①/③（A34；user「也不知道到第几步了」）。0.10 两点弧 2026-10-24 Claude Fable 5.1；四模式同日重写。
+import { gridSnap } from "../increments.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 import { dist3, dot3, scale3, sub3 } from "../../kernel/geom.ts";
-import { applyPt, rotationAbout } from "../../scene/xform.ts";
 import { rayPlane } from "../camera.ts";
 import { rectFirstPlane, type DrawPlane } from "../pick.ts";
 import { arcToolTargets, sweepAngle, unwrapAngle } from "../tools.ts";
@@ -17,7 +17,6 @@ import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handle
 import type { ViewState } from "../view-state.ts";
 
 const projectThrough = (p: Pt3, c: Pt3, n: Pt3): Pt3 => { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); };
-const STEP = (Math.PI / 180) * 15;
 
 export class ArcTool implements ToolHandler {
   readonly tool = "arc" as const;
@@ -63,11 +62,11 @@ export class ArcTool implements ToolHandler {
     const ray = ctx.frame().ray(sx, sy, ctx.vp());
     return rayPlane(ray.origin, ray.dir, pl.plane.n, pl.plane.d);
   }
-  /** 圆心弧：指针 → 扫角（连续化；格点吸附开着 = 15° 一档、离得近才咬，按住 Shift 反过来）。 */
+  /** 圆心弧：指针 → 扫角（连续化；格点吸附开着 = 15° 一律取整，按住 Shift 反过来）。 */
   private sweepFrom(ctx: ToolCtx, q: Pt3): number {
     const raw = sweepAngle(this.p1!, this.p2!, q, this.plane!.plane.n);
     let s = unwrapAngle(this.sweep, raw);
-    if (ctx.grid().on) { const k = Math.round(s / STEP) * STEP; if (ctx.frame().distBetween(q, applyPt(rotationAbout(this.p1!, this.plane!.plane.n, k - s), q), ctx.vp()) <= ctx.snapPx()) s = k; }
+    if (ctx.grid().on) s = gridSnap.angle(s, ctx.grid());   // 15° 一律取整（gridSnap；10-25 那版屏距近才咬作废）
     return s;
   }
 

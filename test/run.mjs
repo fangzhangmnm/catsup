@@ -108,6 +108,7 @@ import "./flatten.test.ts";   // 压平的纯函数：scaleAlong / 压到镜像�
 import "./textures-table.test.ts";   // 贴图成为独立的条目：老样本搬表 / 写两遍一样 / 导出不变 / 共用一张图 / 不认识的种类 / 清理 / 跨文件粘贴 / 撤销 / 守卫（贴图主线 1-0½，2026-11-10 Opus）
 import "./save-faithfulness.test.ts";   // 存盘忠实度：设置改了算改过 / 读时悬空引用记账 / 写时兜底留痕（统筹 11-12，清点页 ai-docs/20261112-save-faithfulness-audit.md；2026-11-12 Opus）
 import "./gesture-thresholds.test.ts";   // 工具里不许再有写死的世界长度门槛：动没动按屏幕像素、吸到的只看几何（统筹 11-12，B；2026-11-12 Opus）
+import "./grid-snap.test.ts";   // 整格吸附的唯一入口 gridSnap：长度 / 角度一律取整（user 11-13「一律取整同意」）+ 工具不许自己取整（2026-11-12 Opus）
 import "./touch-stick.test.ts";   // 吃鸡式虚拟摇杆的数学：死区 / 冲刺 / 浮动底座（FM142，2026-10-28 Opus）
 import "./pick-nonplanar.test.ts";   // 网格体面不平时角点不被自己的邻面挡住（user 10-27「有些侧面的点选不中」，2026-10-27 Opus）
 import "./mesh-primitives.test.ts";   // 右键新建的基本体 + addMeshObject（2026-10-27 Opus）   // 插入：面内插一圈 + op 撤销（2026-10-27 Opus）   // 拉：边 / 点挤出 + meshExtrude op + 撤销（2026-10-27 Opus）   // 注册表两道接缝：三种单位 + 路由型动作「挪」+ meshMove 撤销记录（2026-10-27 Fable）

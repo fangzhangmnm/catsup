@@ -7,7 +7,7 @@
 import { gestureMinLen } from "../gesture-consts.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 import { add3, dot3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
-import { nearestStep } from "../increments.ts";
+import { gridSnap, snapIsGridOnly } from "../increments.ts";
 import { applyDir, invert } from "../../scene/xform.ts";
 import { rayPlane } from "../camera.ts";
 import { rectFirstPlane, type DrawPlane, type Snap3 } from "../pick.ts";
@@ -63,6 +63,7 @@ export class TapeTool implements ToolHandler {
   private b: Pt3 | null = null;
 
   active(): boolean { return this.stage > 0; }
+  private zeroSay: string | null = null;   // 线模式整格取整得 0：不留线、提示再拖远一点
   private minL = 0;   // 这一处「拉开了没有」的门槛：track 里按屏幕像素算好（gestureMinLen；统筹 11-12，不再写死 1 厘米）
   cancel(): void { this.stage = 0; this.plane = null; this.start = this.b = null; }
   sample(): Record<string, number> { return {}; }
@@ -82,6 +83,7 @@ export class TapeTool implements ToolHandler {
       return;
     }
     const b = this.b ?? this.start!.p;
+    if (this.zeroSay) { ctx.hint(`卷尺：${this.zeroSay}`); return; }   // 整格取整得 0：不留线，等人拖远一点再点
     const res = tapeResult(this.start!, b, gestureMinLen(ctx, this.start!.p));
     if (ctx.modelLocked()) {   // 演示锁：卷尺照量，不留线（只读工具全部能用，user 11-05）
       ctx.hint(res.make === "through" || !(res.d > 0) ? "锁着，不留参考线" : `距离 ${fmtLen(res.d)} · 锁着，不留参考线`);
@@ -110,18 +112,18 @@ export class TapeTool implements ToolHandler {
     const view = ctx.live();
     let sn = ctx.applyLock(ctx.snap(view, s.x, s.y, { plane: this.plane!, anchor: this.start.p, alignSources: ctx.alignSources(), hand: ctx.hand(view) }), s.x, s.y);   // A9 轴锁
     // 整格（user 2026-10-25「卷尺的线模式和点模式应该都同时可以接incremental snap」）：点模式 = 求解器从起点量（沿线 / 自由都有）；
-    // 线模式（平行参考线）量的是垂直偏移 → 这里把偏移咬到整格，离得近才咬
-    //   偏移从光标真实落点量（不从格点量：斜边上绝对格点给的偏移没意义），离整格近就咬；吸到端点 / 边这些几何照旧
+    // 线模式（平行参考线）量的是垂直偏移 → 一律取吸附长度的整数倍（gridSnap；统筹 11-12 / user 11-13「一律取整」，10-25 那版离得近才咬作废）
+    //   偏移从光标真实落点量（不从格点量：斜边上绝对格点给的偏移没意义）；吸到端点 / 边这些几何照旧。取整得 0 = 不留线（不是「共线参考线」：人是拖开了的）
     const g = ctx.grid(), pl = this.plane!.plane;
-    if (g.on && (sn.kind === null || sn.kind === "increment" || sn.kind === "grid-point" || sn.kind === "on-face")) {
+    this.zeroSay = null;
+    if (g.on && (snapIsGridOnly(sn.kind) || (sn.kind?.startsWith("axis-") ?? false))) {   // 轴线方向的推断只定方向、不定偏移距离：照样取整
       const ray = ctx.frame().ray(s.x, s.y, ctx.vp()), raw = rayPlane(ray.origin, ray.dir, pl.n, pl.d) ?? sn.p;
-      const r = tapeResult(this.start, raw, gestureMinLen(ctx, this.start.p)), step = g.snap;
-      if (r.make === "line" && r.d > 0 && step > 0) {
-        const k = nearestStep(r.d, step);
-        if (k > 0) {
-          const wdir = normalize3(sub3(r.p, this.start.p)), b2 = add3(add3(this.start.p, scale3(wdir, k)), sub3(raw, r.p));
-          if (ctx.frame().distTo(s.x, s.y, b2, ctx.vp()) <= ctx.snapPx()) sn = { p: b2, kind: "increment", label: `整格偏移 ${fmtLen(k)}`, hints: [{ a: this.start.p, b: add3(this.start.p, scale3(wdir, k)), axis: "i" }] };
-        }
+      const r = tapeResult(this.start, raw, gestureMinLen(ctx, this.start.p));
+      if (r.make === "line" && r.d > 0 && g.snap > 0) {
+        const k = gridSnap.length(r.d, g);
+        const wdir = normalize3(sub3(r.p, this.start.p)), b2 = add3(add3(this.start.p, scale3(wdir, k)), sub3(raw, r.p));
+        if (k > 0) sn = { p: b2, kind: "increment", label: `整格偏移 ${fmtLen(k)}`, hints: [{ a: this.start.p, b: add3(this.start.p, scale3(wdir, k)), axis: "i" }] };
+        else { sn = { p: raw, kind: null }; this.zeroSay = gridSnap.zeroHint(g, fmtLen); }
       }
     }
     this.b = sn.p; if (this.start) this.minL = gestureMinLen(ctx, this.start.p);
@@ -131,6 +133,7 @@ export class TapeTool implements ToolHandler {
 
   live(): string {
     if (this.stage !== 1 || !this.start || !this.b) return "";
+    if (this.zeroSay) return `卷尺｜${this.zeroSay}`;
     const r = tapeResult(this.start, this.b, this.minL || undefined);
     return r.make === "line" ? `偏移 ${fmtLen(r.d)}` : r.make === "through" ? `过两点 · ${fmtLen(r.d)}` : r.make === "point" ? `距 ${fmtLen(r.d)}` : `距离 ${fmtLen(r.d)}`;
   }

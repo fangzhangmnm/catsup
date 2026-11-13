@@ -1,20 +1,15 @@
-// protractor-geom.ts —— 量角器的纯几何（0.11 尺规纪元 ⑥，2026-10-24，Claude Fable 5.1）：绕轴的有向角、15° 咬合、转出方向。不 import editor.ts。
+// protractor-geom.ts —— 量角器的纯几何（0.11 尺规纪元 ⑥，2026-10-24，Claude Fable 5.1）：绕轴的有向角、转出方向（15° 档归 gridSnap）。不 import editor.ts。
 import type { Pt3 } from "../kernel/kernel.ts";
 import { add3, cross3, dot3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
 import type { Frame } from "../scene/xform.ts";
 
 /** 与旋转工具同一套手感：15° 一档，离档 ≤ 1.5° 吸上去；参考点离圆心至少 1 cm。 */
-export const PROT_STEP_DEG = 15, PROT_SNAP_DEG = 1.5, PROT_MIN = 0.01;
+export const PROT_SNAP_DEG = 1.5, PROT_MIN = 0.01;   // PROT_SNAP_DEG = 和坐标轴平行的角度窗（「具体的东西」）；15° 档归 increments.ts gridSnap、一律取整（2026-11-12 起没有窗）
 
 /** 点 q 相对参考方向（center→ref）绕 axis 的有向角（弧度，右手）。 */
 export function angleAbout(center: Pt3, axis: Pt3, ref: Pt3, q: Pt3): number {
   const a = sub3(ref, center), b = sub3(q, center);
   return Math.atan2(dot3(cross3(a, b), axis), dot3(a, b));
-}
-/** 咬合到 step 的整数倍（只在 |差| ≤ snap 时）。 */
-export function detent(ang: number, stepDeg = PROT_STEP_DEG, snapDeg = PROT_SNAP_DEG): { ang: number; snapped: boolean } {
-  const step = (stepDeg * Math.PI) / 180, near = Math.round(ang / step) * step;
-  return Math.abs(ang - near) <= (snapDeg * Math.PI) / 180 ? { ang: near, snapped: true } : { ang, snapped: false };
 }
 /** 参考方向绕 axis 转 ang 后的单位方向（Rodrigues；ref 先投到轴的垂面）。 */
 export function rotateDir(center: Pt3, axis: Pt3, ref: Pt3, ang: number): Pt3 {

@@ -1,5 +1,8 @@
 // tools/protractor.ts —— 量角器（SU Protractor）：0.11 尺规纪元 ⑥（2026-10-24，Claude Fable 5.1；设计稿 §4）。
 // 三下：圆心（定平面 = 转轴）→ 参考方向 → 转到角度（15° 咬合 + VCB 度数）→ 过圆心的**角度参考线**。预演复用旋转工具的量角器圆环。
+import { dot3 } from "../../kernel/geom.ts";
+import { rayPlane } from "../camera.ts";
+import { gridSnap, snapIsGridOnly } from "../increments.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 import { add3, dist3, normalize3, scale3 } from "../../kernel/geom.ts";
 import { applyDir, invert } from "../../scene/xform.ts";
@@ -8,7 +11,7 @@ import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
-import { PROT_MIN, angleAbout, axisAlignAngle, detent, projectToAxisPlane, rotateDir } from "../protractor-geom.ts";
+import { PROT_MIN, angleAbout, axisAlignAngle, projectToAxisPlane, rotateDir } from "../protractor-geom.ts";
 
 const fmtDeg = (rad: number): string => `${((rad * 180) / Math.PI).toFixed(1)}°`;
 
@@ -78,7 +81,10 @@ export class ProtractorTool implements ToolHandler {
       ctx.setSnap(sn); ctx.setCursor(projectToAxisPlane(sn.p, this.center, this.axis()));
       return;
     }
-    const sn = this.snapAt(ctx, s.x, s.y, false);
+    const sn0 = this.snapAt(ctx, s.x, s.y, false);
+    // 格点 / 整数长度 / 面上不是「具体的东西」：角度看光标真实的方向（射线和转轴平面的交点），再一律取 15°（gridSnap）
+    const ray = ctx.frame().ray(s.x, s.y, ctx.vp()), raw = snapIsGridOnly(sn0.kind) ? rayPlane(ray.origin, ray.dir, this.axis(), dot3(this.axis(), this.center)) : null;
+    const sn = raw ? { ...sn0, p: raw, kind: null } : sn0;
     const q = projectToAxisPlane(sn.p, this.center, this.axis());
     if (dist3(q, this.center) < PROT_MIN) return;
     let ang = angleAbout(this.center, this.axis(), this.ref!, q);
@@ -87,7 +93,7 @@ export class ProtractorTool implements ToolHandler {
     if (sn.kind === null) {
       const ax = axisAlignAngle(this.center, this.axis(), this.ref!, ctx.contextFrame(), ang);   // 轴向先于 15° 档
       if (ax) { ang = ax.ang; axisKind = `axis-${ax.axis}`; }
-      else if (ctx.grid().on) { const d = detent(ang); ang = d.ang; this.snappedDetent = d.snapped; }   // 15° 档 = 格点吸附（user「15是grid合理」；按住 Shift 反过来）
+      else if (ctx.grid().on) { ang = gridSnap.angle(ang, ctx.grid()); this.snappedDetent = true; }   // 15° 档 = 格点吸附（user「15是grid合理」；按住 Shift 反过来）
     }
     this.angle = ang;
     ctx.setSnap(axisKind ? { p: q, kind: axisKind } : this.snappedDetent ? { p: q, kind: "h-stop" } : sn);

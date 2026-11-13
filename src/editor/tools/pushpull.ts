@@ -1,6 +1,7 @@
 // tools/pushpull.ts —— 推拉工具的手势模块：steps 语法（点面 → 移动定高度 → 再点 / 松手落定）。从 editor.ts 原样搬出（刀 ② B，行为零变更）。
 // 双通道吸附：光标通道（世界 = 按下时的模型，源面原位不透明；不吸轴）+ 高度通道（停靠集 pp-stops：0 / 同柱平行面 / 参考几何高度 + 整数长度）。
 // 意图门：自由高度的符号 = 推 / 拉意图，反号候选不合法；0.10 护栏：曲面的一片不许推拉。created 2026-10-24 by Claude Fable 5.1
+import { gridSnap } from "../increments.ts";
 import type { FaceId, Pt3, VertexId } from "../../kernel/kernel.ts";
 import { add3, dot3, len3, scale3, sub3 } from "../../kernel/geom.ts";
 import { ringVidsTolerant } from "../../kernel/face-lifecycle.ts";
@@ -131,10 +132,10 @@ export class PushPullTool implements ToolHandler {
         // 吸附的两种不许混（统筹 11-12，user「但吸附只在整厘米附近几个像素才咬 这里数学确实应该完全错了」）：吸到具体的东西（上面的停靠点、别的面的高度）= 孤立的目标，按光标离它几个屏幕像素判；
         //   吸到整格 = 目标铺满整条线，正确的运算是取整 h := s · round(h / s)，对任何 h 都做、没有「够不够近」、结果不随缩放变。两种都在时光标正指着的东西优先（上面先判），否则取整。
         } else if (grid.on && grid.snap > 0) {   // 开着吸附 = 一律取吸附长度的整数倍（统筹 11-12，做小零件：以前离整格近才咬，放大看时中间一大段停在哪就是哪）；Shift 反过来 = ctx.grid() 已是有效值；键入的数不走这里
-          const step = grid.snap, r = Math.round(this.h / step) * step || 0;   // || 0：-0 当 0
+          const r = gridSnap.length(this.h, grid);   // 整格吸附唯一入口（increments.ts）
           this.h = r; fromSnap = true;
           if (r !== 0) { ref = `｜整数长度 ${fmtLen(r)}`; ctx.setSnap({ p: add3(anc, scale3(n, this.h)), kind: "increment", label: `整数长度 ${fmtLen(r)}` }); }
-          else ref = `｜不到半格（${fmtLen(step / 2)}），再拖远一点`;   // 取整是 0：不长东西、松手不提交（统筹 11-12 定的表现）
+          else ref = `｜${gridSnap.zeroHint(grid, fmtLen)}`;   // 取整是 0：不长东西、松手不提交（统筹 11-12 定的表现）
         }
       }
     }

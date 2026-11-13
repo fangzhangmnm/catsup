@@ -12,7 +12,7 @@ import { rayPlane } from "../camera.ts";
 import { cameraPlane, drawPlaneAt, rectFirstPlane, type SnapKind } from "../pick.ts";
 import { applyDir, applyPt, rotationAbout, scalingAbout, scalingAlong, scalingAlongAxes, translation, type Xform } from "../../scene/xform.ts";
 import { moveTargetsSelection, unwrapAngle } from "../tools.ts";
-import { INCREMENT_DEG, nearestStep } from "../increments.ts";
+import { gridSnap } from "../increments.ts";
 import { type XformGizmo, type XformGrab, type XformHandle, XG_UNIFORM_OFFSET_PX, axisOf, dragMove, dragRotate, dragScale, grabXform, hitXformGizmo, isPlaneHandle, planeAxes, xformGizmoGeom } from "../transform-gizmo.ts";
 import { fmtDeg, fmtLen } from "../units.ts";
 import { longEnough, SNAP_LABELS } from "../gesture-consts.ts";
@@ -196,11 +196,8 @@ export class TransformTool implements ToolHandler {
     let kind: SnapKind | null = null, label: string | undefined, at: Pt3 | null = null;
     if (sn.kind && POINT_KINDS.has(sn.kind)) { t = dot3(sub3(sn.p, grabPt), a); kind = sn.kind; at = sn.p; label = `${SNAP_LABELS[sn.kind] ?? sn.kind} → ${ax.toUpperCase()} 轴`; }
     else {
-      const g = ctx.grid(), step = g.snap;
-      if (g.on && step > 0) {
-        const k = nearestStep(t, step);
-        if (Math.abs(k) > 1e-9 && ctx.frame().distBetween(add3(grabPt, scale3(a, t)), add3(grabPt, scale3(a, k)), ctx.vp()) <= ctx.snapPx()) { t = k; kind = "increment"; label = `整格 ${fmtLen(Math.abs(k))}`; }
-      }
+      const g = ctx.grid();   // 整格：移动距离一律取吸附长度的整数倍（gridSnap；10-25 那版屏距近才咬作废）。取整得 0 = 不动
+      if (g.on && g.snap > 0) { t = gridSnap.length(t, g); kind = "increment"; label = t !== 0 ? `整格 ${fmtLen(Math.abs(t))}` : gridSnap.zeroHint(g, fmtLen); }
     }
     this.dist = t;
     const cur = add3(grabPt, scale3(a, t));
@@ -214,10 +211,7 @@ export class TransformTool implements ToolHandler {
     if (raw === null) return;
     let ang = unwrapAngle(this.angle, raw), snapped = false;
     const ray = ctx.frame().ray(s.x, s.y, ctx.vp()), q = rayPlane(ray.origin, ray.dir, G.axis, dot3(G.axis, G.g0.origin));
-    if (ctx.grid().on && q) {
-      const step = (INCREMENT_DEG * Math.PI) / 180, k = Math.round(ang / step) * step;
-      if (ctx.frame().distBetween(q, applyPt(rotationAbout(G.g0.origin, G.axis, k - ang), q), ctx.vp()) <= ctx.snapPx()) { ang = k; snapped = true; }
-    }
+    if (ctx.grid().on) { ang = gridSnap.angle(ang, ctx.grid()); snapped = true; }   // 15° 一律取整（gridSnap；10-25 那版屏距近才咬作废）
     this.angle = ang;
     if (q) ctx.setCursor(q);
     ctx.setSnap(snapped && q ? { p: q, kind: "h-stop", label: fmtDeg(ang) } : null);
@@ -235,6 +229,9 @@ export class TransformTool implements ToolHandler {
     } else {
       let bestD = ctx.snapPx();
       for (const v of SCALE_SNAPS) { const d = ctx.frame().distTo(s.x, s.y, add3(G.g0.origin, scale3(G.axis, v * G.t0)), ctx.vp()); if (d <= bestD) { bestD = d; f = v; snapped = true; } }
+      // 预设倍率是「具体的东西」（按屏幕像素，正指着它 = 它优先）；没指着时：抓点离变换中心的长度一律取吸附长度的整数倍（gridSnap；统筹 11-12）。取整得 0 = 不动（×1）
+      const g = ctx.grid();
+      if (!snapped && g.on && g.snap > 0 && G.t0 > 0) { const k = gridSnap.length(f * G.t0, g); f = k !== 0 ? k / G.t0 : 1; snapped = k !== 0; }
     }
     this.factor = f;
     const cur = G.handle === "su" ? G.g0.origin : add3(G.g0.origin, scale3(G.axis, f * G.t0));

@@ -10,8 +10,7 @@ import { closestOnAxis, rayPlane } from "../camera.ts";
 import { cameraPlane, rectFirstPlane, type DrawPlane, type SnapKind } from "../pick.ts";
 import { rrectDirAt, rrectSegments } from "../tools.ts";
 import { axisAlignAngle } from "../protractor-geom.ts";
-import { applyPt, rotationAbout } from "../../scene/xform.ts";
-import { INCREMENT_DEG, nearestStep } from "../increments.ts";
+import { gridSnap } from "../increments.ts";
 import { fmtDeg, fmtLen } from "../units.ts";
 import { SNAP_LABELS, gestureMinLen, longEnough } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
@@ -81,10 +80,7 @@ export class RRectTool implements ToolHandler {
       th = angOf(w); this.len = Math.hypot(w.x, w.y, w.z);
       const ax = axisAlignAngle(b, e, add3(b, u0), ctx.contextFrame(), th, AXIS_SNAP_DEG);
       if (ax) { th = ax.ang; kind = `axis-${ax.axis}` as SnapKind; }
-      else if (ctx.grid().on) {
-        const step = (INCREMENT_DEG * Math.PI) / 180, k = Math.round(th / step) * step;
-        if (ctx.frame().distBetween(q, applyPt(rotationAbout(b, e, k - th), q), ctx.vp()) <= ctx.snapPx()) { th = k; kind = "h-stop"; }
-      }
+      else if (ctx.grid().on) { th = gridSnap.angle(th, ctx.grid()); kind = "h-stop"; }   // 15° 一律取整（gridSnap；10-25 那版屏距近才咬作废）
     } else return;
     this.theta = th;
     this.c = add3(b, scale3(rrectDirAt(a, b, this.plane!.plane.n, th), Math.max(this.len, gestureMinLen(ctx, b))));   // 定角度时第二边还没长：预览画一截几个像素长的（以前写死 1 厘米）
@@ -102,8 +98,8 @@ export class RRectTool implements ToolHandler {
     const sn = ctx.snap(view, sx, sy, { plane: cameraPlane(ctx.frame(), b), anchor: b, alignSources: ctx.alignSources(), hand: ctx.hand(view) });
     if (sn.kind && POINT_KINDS.has(sn.kind)) { w = dot3(sub3(sn.p, b), d); kind = sn.kind; at = sn.p; label = `${SNAP_LABELS[sn.kind] ?? sn.kind} → 长度`; }
     else {
-      const g = ctx.grid(), step = g.snap;
-      if (g.on && step > 0) { const k = nearestStep(w, step); if (Math.abs(k) > 1e-9 && ctx.frame().distBetween(add3(b, scale3(d, w)), add3(b, scale3(d, k)), ctx.vp()) <= ctx.snapPx()) { w = k; kind = "increment"; label = `整格 ${fmtLen(Math.abs(k))}`; } }
+      const g = ctx.grid();   // 整格：长度一律取吸附长度的整数倍（gridSnap；10-25 那版屏距在吸附圈内才咬作废）。取整得 0 = 第二边没长，live 不出东西
+      if (g.on && g.snap > 0) { w = gridSnap.length(w, g); if (w !== 0) { kind = "increment"; label = `整格 ${fmtLen(Math.abs(w))}`; } else label = gridSnap.zeroHint(g, fmtLen); }
     }
     this.len = w;
     this.c = add3(b, scale3(d, w));
