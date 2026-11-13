@@ -110,6 +110,9 @@ const drag = async (pts) => { await page.mouse.move(box.x + pts[0].x, box.y + pt
 const line = async (x0, x1, y) => { const a = await scr(x0, y), b = await scr(x1, y), pts = []; for (let i = 0; i <= 12; i++) pts.push({ x: a.x + ((b.x - a.x) * i) / 12, y: a.y + ((b.y - a.y) * i) / 12 }); return pts; };
 const px = () => S((g) => { const b = globalThis.__catsup.paint.boards.get(g); if (!b) return "没有画板"; const d = b.wp.exportData(); let h = 2166136261; for (const n of d.nodes) if (n.pixels) for (const v of n.pixels.bytes) { h ^= v; h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); }, tex);
 const p0 = await px(), h0 = await S(() => globalThis.__catsup.editor.history.position());
+// 新文件默认拿草稿笔（v0.19.77，user 11-13「默认草稿笔」）；这一份探针下面按「先拿普通笔」写的（⑥½ 再换草稿笔），所以先换成普通笔（2026-11-13 Opus：v0.19.77 后这里没换 = ⑥½ 两条红）
+check(await S(() => globalThis.__catsup.paint.brushes.current("paintPen")) === "sketch", "新文件默认拿的是草稿笔");
+await S(() => { globalThis.__catsup.editor.config.set("paintPen", "brush", "pen"); });
 await S(() => { globalThis.__catsup.editor.config.set("paintPen", "size", 30); });
 await drag(await line(0.15, 0.85, 0.5));
 const p1 = await px(), h1 = await S(() => globalThis.__catsup.editor.history.position());
@@ -187,7 +190,7 @@ const pickBrush = async (label) => {
 const brushNow = () => S(() => { const C = globalThis.__catsup, c = C.editor.config; return { cur: C.paint.brushes.current("paintPen"), knobs: ["size", "opacity", "hardness"].map((k) => c.get("paintPen", k)).join(" / "), max: C.paint.brushes.sizeMax("paintPen"), field: document.querySelector('.strip-select.select-field[aria-label="笔"]')?.dataset.value ?? null, label: document.querySelector('.strip-select.select-field[aria-label="笔"] .select-field-label')?.textContent ?? null }; });
 await S(() => { globalThis.__catsup.editor.setTool("paintPen"); }); await frames(1);
 const bk0 = await brushNow();
-check(bk0.cur === "pen" && bk0.field === "pen" && bk0.label === "笔", `工具条上有带文字的「笔」下拉，现在 = ${bk0.label}`, JSON.stringify(bk0));
+check(bk0.cur === "pen" && bk0.field === "pen" && bk0.label === "平涂", `工具条上有带文字的「笔」下拉，现在 = ${bk0.label}（普通笔 v0.19.69 起叫「平涂」）`, JSON.stringify(bk0));
 await pickBrush("草稿笔");
 const bk1 = await brushNow();
 check(bk1.cur === "sketch" && bk1.knobs === "6 / 1 / 0.75" && bk1.max === 80 && bk1.label === "草稿笔", `下拉选草稿笔：旋钮 = 它的初值（${bk1.knobs}）、大小上限 ${bk1.max}`, JSON.stringify(bk1));
@@ -197,7 +200,7 @@ await S(() => { const c = globalThis.__catsup.editor.config; c.set("paintPen", "
 const p6s = await px();
 await drag(await line(0.25, 0.75, 0.55));
 check(await px() !== p6s, "草稿笔画得上");
-await pickBrush("笔");
+await pickBrush("平涂");
 check((await brushNow()).knobs === pen6b.pen.join(" / "), `换回普通笔：它自己的旋钮回来了（${pen6b.pen.join(" / ")}）`);
 await pickBrush("草稿笔");
 check((await brushNow()).knobs === "40 / 0.7 / 0.75", "再换草稿笔：它的也还在（40 / 0.7 / 0.75）");
@@ -251,7 +254,7 @@ await page.waitForFunction(() => !document.getElementById("galleryFull").hidden)
 await page.click("#galleryNew");
 await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden);
 const pen9 = await S(() => { const C = globalThis.__catsup, c = C.editor.config; return { pen: ["size", "opacity", "hardness"].map((k) => c.get("paintPen", k)).join(" / "), color: C.paint.color.get().map((v) => Math.round(v * 255)).join(","), desk: C.session.paintDesk ?? null }; });
-check(pen9.pen === "12 / 1 / 0.8" && pen9.color === "26,26,26" && pen9.desk === null, `新文件：笔回默认（${pen9.pen}、颜色 ${pen9.color}），桌面态里没有 paint`, JSON.stringify(pen9));
+check(pen9.pen === "6 / 1 / 0.75" && pen9.color === "26,26,26" && pen9.desk === null, `新文件：笔回默认 = 草稿笔记录里的初值（${pen9.pen}、颜色 ${pen9.color}），桌面态里没有 paint`, JSON.stringify(pen9));
 await S(async () => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z });
   const B = [[0, 0], [1, 0], [1, 1], [0, 1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], 1), P(d[0], d[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); }
