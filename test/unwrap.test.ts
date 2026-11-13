@@ -5,7 +5,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel, F_SEAM } from "../src/mesh/mesh-kernel.ts";
 import { addPrimitive } from "../src/mesh/ops/index.ts";
-import { GROWN } from "../src/mesh/corner-columns.ts";
+import { GROWN } from "../src/mesh/columns.ts";
 import { unwrap, svd2, type ChartUnwrap } from "../src/mesh/unwrap.ts";
 import { autoSeams } from "../src/mesh/auto-seams.ts";
 

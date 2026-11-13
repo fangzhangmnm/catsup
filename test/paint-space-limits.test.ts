@@ -2,7 +2,7 @@
 // 清单和行为 = ai-docs/20261111-paint-workorders-14.md 1-4c 施工记录「容量清单」。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { SoftSpaceGpu } from "../src/paint/space-gpu-soft.ts";
 import { SpaceLayer, cellTable, packCell, checkLayerLimits, MAX_TRIS, MAX_POLYS, MAX_CANVAS_SIDE } from "../src/paint/space-layer.ts";
 import { SpacePathPlacer } from "../src/paint/space-path.ts";
@@ -14,6 +14,7 @@ import { sampleOffset } from "../src/paint/texel-table.ts";
 import { tipReach, sphereTriDist } from "../src/paint/tip-reach.ts";
 import type { InkTip } from "../src/paint/tip-truth.ts";
 import { P, boxMesh, gridMesh, laidOut, targetOf } from "./paint-space-kit.ts";
+import { placeOn, uvAtOf, uvOf, slotsOf } from "./uv-kit.ts";
 
 const ngon = (n: number): MeshKernel => { const m = new MeshKernel(); m.addFace(Array.from({ length: n }, (_, i) => m.addVertex(P(Math.cos((2 * Math.PI * i) / n), Math.sin((2 * Math.PI * i) / n), 0))), -1, FRESH); return m; };
 const startTri = (g: TargetGeo, p: { x: number; y: number; z: number }): number => { let b = -1, bd = Infinity; for (let t = 0; t < g.grid.face.length; t++) { const d = sphereTriDist(p.x, p.y, p.z, g.wpos, 9 * t); if (d < bd) { bd = d; b = t; } } return b; };
@@ -72,8 +73,7 @@ describe("画画路径上的容量上限（1-4c）", () => {
   it("一颗笔尖下同一块画布多边形挂几张面不设上限（施工单十八第 0 刀；以前最多 8）：64 张叠在一起、贴图坐标一样的面，一颗笔尖全罩住 → 画得上、= 标准答案", () => {
     const N = 64, m = new MeshKernel(), q = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)];
     for (let k = 0; k < N; k++) m.addFace(q.map((p) => m.addVertex(P(p.x, p.y, p.z + k * 1e-4))), -1, FRESH);
-    m.addColumn({ guid: "uv", arity: 2, kind: "uv" });
-    for (const f of m.faces()) m.setFaceValues(f, "uv", [4, 4, 36, 4, 36, 36, 4, 36]);
+    for (const f of m.faces()) placeOn(m, f, "uv", [4, 4, 36, 4, 36, 36, 4, 36]);
     const gpu = new SoftSpaceGpu(), t = { ...targetOf(m, { guid: "uv", width: 40, height: 40, pxPerM: 32 }) }, g = buildTargetGeo(t);
     eq(g.table.polys.length, 1, "64 张面并成同一块"); eq(g.table.polyFaces[0].length, N);
     const tip: InkTip = { x: 0.5, y: 0.5, z: 0, r: 0.2, alpha: 1 }, L = new SpaceLayer(gpu, g, 0, { hardness: 0.5, color: [1, 1, 1], accum: "max", origin: tip });

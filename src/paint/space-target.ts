@@ -62,7 +62,7 @@ export function buildTargetGeo(target: PaintTarget): TargetGeo {
   const table = buildTexelTable(target.canvas.width, target.canvas.height, paintFaces(m, target.uvSet), target.gap ?? 4);
   const wpos = new Float64Array(9 * n), wnorm = new Float64Array(3 * n), texelLen = new Float64Array(n), vids = new Int32Array(3 * n);
   for (let t = 0; t < n; t++) {
-    const f = grid.face[t], ring = m.faceVerts(f), uv = m.cornerValues(f, target.uvSet);
+    const f = grid.face[t], ring = m.faceVerts(f), uv = m.uvAt(f, target.uvSet);
     for (let k = 0; k < 3; k++) {
       const p = applyPt(X, { x: grid.pos[9 * t + 3 * k], y: grid.pos[9 * t + 3 * k + 1], z: grid.pos[9 * t + 3 * k + 2] });
       wpos[9 * t + 3 * k] = p.x; wpos[9 * t + 3 * k + 1] = p.y; wpos[9 * t + 3 * k + 2] = p.z;

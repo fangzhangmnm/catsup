@@ -2,7 +2,7 @@
 // 第 0 层（v0.18.41）钉「绝不删空」；第 4 / 5 层（v0.18.45）钉 isSymmetric 的真值表、对称化带裸线 / 孤点 / 隐藏、随机步每步对称。原来写的是：强行对称自己绝不把模型删空（「看不出动的是哪边、默认 + 那半」碰上「+ 那半是空的」= 11-09 真 app 里 6 张面 → 0）。
 // 对称检查是独立写的（不调 isSymmetric：它本身就是要审的对象）：纯按位置比点 / 面 / 边（不认编号），照定理的条文。后面几层的断言接着往这个文件里加。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { F_HIDDEN, F_SOFT, FF_HIDDEN } from "../src/mesh/mesh-kernel.ts";
 import { addBox, deleteFaces, extrudeAndOffset, flipFaces, insetFaces, loopCut, moveVerts, setEdgeFlags, setFaceMaterial } from "../src/mesh/ops/index.ts";

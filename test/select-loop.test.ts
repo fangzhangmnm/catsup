@@ -1,6 +1,6 @@
 // mesh/select-loop.ts：Alt 点边 = 环 / 洞（2026-10-28 Claude Opus 5.5；user「alt 点边可以选择洞还是环，然后有镜像的时候环的算法要小心一点」）。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox, loopCut } from "../src/mesh/ops/index.ts";
 import { symmetrize } from "../src/mesh/mirror.ts";

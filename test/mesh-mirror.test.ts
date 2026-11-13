@@ -1,7 +1,7 @@
 // 网格体镜像（mesh/mirror.ts；2026-10-28 Claude Opus 5.5；纪元账本 FM23 / FM39 / FM134 / FM136）。
 // 标准答案：中缝切开的盒子 = 每个点都找得到对面；挪一个点对面跟着镜、中缝上的点钉回镜像面；强行对称以后两边严格镜像、封闭、朝向一致；对称对齐只动选中的。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox, loopCut, mergeVerts, splitEdge } from "../src/mesh/ops/index.ts";
 import { bisectPlane, mirrorPairs, mirrorMoves, sideOfChange, straddlingFaces, symmetrize, snapToSymmetry } from "../src/mesh/mirror.ts";

@@ -4,7 +4,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { MeshView } from "../src/mesh/mesh-view.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { addBox } from "../src/mesh/ops/index.ts";
 import { buildFaceRec } from "../src/editor/pool-mesh.ts";
 import { faceTriangles } from "../src/editor/face-triangles.ts";

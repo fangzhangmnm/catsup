@@ -1,7 +1,7 @@
 // 空间里的笔：标准答案（贴图主线 1-4a 第四节 + 第六节测试 9 的格子那一半、测试 11 铺法换掉结果不变；审后补：块边上的格子）。created 2026-11-11 by Claude Opus 5.5
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { buildTargetGeo, type TargetGeo } from "../src/paint/space-target.ts";
 import { sphereTriDist, tipReach } from "../src/paint/tip-reach.ts";
 import { strokeTruth, tipCellsInPoly } from "../src/paint/tip-truth.ts";
@@ -10,12 +10,13 @@ import { positionOnFace, samplePoint, SAMPLE_Q } from "../src/paint/texel-table.
 import { stampFalloff } from "../src/paint/kernel/src/backend/gl/stamp-falloff.ts";
 import { P, RAW, brush, gridMesh, laidOut, pinhole, rng, targetOf } from "./paint-space-kit.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
+import { cloneUv, placeOn, uvAtOf } from "./uv-kit.ts";
 
 describe("标准答案（1-4a 测试 9：镜像的两半每一格只算一次、取最近的）", () => {
   it("两半贴图坐标一样、笔尖压在中缝上：每一格 = 两半各自算的里面浓的那个（距离取近的）", () => {
     const m = new MeshKernel(), v = [P(-1, 0, 0), P(0, 0, 0), P(0, 1, 0), P(-1, 1, 0), P(1, 0, 0), P(1, 1, 0)].map((p) => m.addVertex(p));
     const L = m.addFace([v[0], v[1], v[2], v[3]], -1, FRESH), R = m.addFace([v[4], v[5], v[2], v[1]], -1, FRESH), uv = laidOut(m, "uv", [L], { density: 60 });
-    { const lv = m.cornerValues(L, "uv")!, at = (i: number) => [lv[2 * i], lv[2 * i + 1]]; m.setFaceValues(R, "uv", [...at(0), ...at(3), ...at(2), ...at(1)]); }
+    { const lv = uvAtOf(m, L, "uv")!, at = (i: number) => [lv[2 * i], lv[2 * i + 1]]; placeOn(m, R, "uv", [...at(0), ...at(3), ...at(2), ...at(1)]); }
     const g = buildTargetGeo(targetOf(m, uv)), tip = { x: 0.1, y: 0.5, z: 0, r: 0.4, alpha: 0.8 };
     const trisOf = (f: number) => Array.from({ length: g.grid.face.length }, (_, t) => t).filter((t) => g.grid.face[t] === f);
     const both = tipCellsInPoly(g, 0, [...trisOf(L), ...trisOf(R)], tip, 0.5), onlyL = tipCellsInPoly(g, 0, trisOf(L), tip, 0.5), onlyR = tipCellsInPoly(g, 0, trisOf(R), tip, 0.5);
@@ -30,19 +31,18 @@ describe("标准答案（1-4a 测试 11：铺法换掉，结果不变）", () =>
   function warped(m: MeshKernel, from: string, to: string, seed: number): { guid: string; width: number; height: number; pxPerM: number } {
     const r = rng(seed), W = 1600, gap = 6, blocks: { f: number; v: number[] }[] = [];
     for (const f of m.faces()) {
-      const v = Array.from(m.cornerValues(f, from)!), n = v.length / 2;
+      const v = Array.from(uvAtOf(m, f, from)!), n = v.length / 2;
       let cx = 0, cy = 0; for (let i = 0; i < n; i++) { cx += v[2 * i] / n; cy += v[2 * i + 1] / n; }
       const sx = 0.32 * Math.pow(10, r()), sy = sx * (0.6 + r() * 0.8), k = (r() - 0.5) * 0.8;   // 0.32 … 3.2 倍：密度差到十倍
       const w: number[] = []; for (let i = 0; i < n; i++) { const x = v[2 * i] - cx, y = v[2 * i + 1] - cy; w.push(sx * x + k * sx * y, sy * y); }
       blocks.push({ f, v: w });
     }
-    m.addColumn({ guid: to, arity: 2, kind: "uv" });
     let x = gap, y = gap, rowH = 0;
     for (const b of blocks) {
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (let i = 0; i < b.v.length; i += 2) { x0 = Math.min(x0, b.v[i]); x1 = Math.max(x1, b.v[i]); y0 = Math.min(y0, b.v[i + 1]); y1 = Math.max(y1, b.v[i + 1]); }
       if (x + (x1 - x0) + gap > W) { x = gap; y += rowH + gap; rowH = 0; }
-      m.setFaceValues(b.f, to, b.v.map((c, i) => (i % 2 === 0 ? c - x0 + x : c - y0 + y)));
+      placeOn(m, b.f, to, b.v.map((c, i) => (i % 2 === 0 ? c - x0 + x : c - y0 + y)));
       x += x1 - x0 + gap; rowH = Math.max(rowH, y1 - y0);
     }
     return { guid: to, width: W, height: Math.ceil(y + rowH + gap), pxPerM: 0 };
@@ -74,8 +74,8 @@ describe("标准答案（1-4a 测试 11：铺法换掉，结果不变）", () =>
   const mesh = () => gridMesh(6, 2, (x, y) => 0.2 * Math.sin(1.7 * x) * Math.cos(1.3 * y));
 
   it("随机的表面点：每份铺法上那一点所在格的值 = 直接拿那一格的位置按定义算（差 ≤ 1e-4）；两份铺法差不过「点到各自格子位置的距离 × 曲线最陡的斜率」", () => {
-    const m = mesh(), uv1 = laidOut(m, "uv1", m.faces(), { density: 60 }), uv2 = warped(m, "uv1", "uv2", 3), hardness = 0.4;
-    const A = paint(m, uv1, hardness), B = paint(m, uv2, hardness), r = rng(9);
+    const m = mesh(), uv1 = laidOut(m, "uv1", m.faces(), { density: 60 }), m2 = cloneUv(m), uv2 = warped(m2, "uv1", "uv2", 3), hardness = 0.4;   // 一张面只能在一套上：第二套铺在拷贝上
+    const A = paint(m, uv1, hardness), B = paint(m2, uv2, hardness), r = rng(9);
     eq(A.tips.length, B.tips.length, "两份铺法上的笔尖一样");
     const rad = A.tips[0].size / 2, slope = 1.5 / (rad - hardness * rad);   // smoothstep 最陡 1.5 / 过渡带宽（浓度 ≤ 1）
     let checked = 0, inked = 0;
@@ -93,8 +93,8 @@ describe("标准答案（1-4a 测试 11：铺法换掉，结果不变）", () =>
     assert(checked > 1800 && inked > 120, `查了 ${checked} 个点，其中 ${inked} 个有墨`);
   });
   it("硬度是一的笔：线在模型上的宽度，两份铺法只差各自的一格", () => {
-    const m = mesh(), uv1 = laidOut(m, "uv1", m.faces(), { density: 60 }), uv2 = warped(m, "uv1", "uv2", 5);
-    const A = paint(m, uv1, 1), B = paint(m, uv2, 1);
+    const m = mesh(), uv1 = laidOut(m, "uv1", m.faces(), { density: 60 }), m2 = cloneUv(m), uv2 = warped(m2, "uv1", "uv2", 5);
+    const A = paint(m, uv1, 1), B = paint(m2, uv2, 1);
     for (const x0 of [-0.3, 0.1, 0.4]) {
       const width = (S: typeof A) => { let n = 0, len = 0; const N = 600, y0 = -0.5, y1 = 0.5;
         for (let i = 0; i < N; i++) { const y = y0 + ((i + 0.5) * (y1 - y0)) / N, z = 0.2 * Math.sin(1.7 * x0) * Math.cos(1.3 * y);
@@ -123,7 +123,7 @@ describe("标准答案（1-4a 审后补：块边上多归的格子）", () => {
     const uv = laidOut(m, "uv", m.faces(), { density: 40 }), g = buildTargetGeo(targetOf(m, uv)), t = g.table, hardness = 0.3;
     eq(t.polys.length, 2, "折角两边各成一块");
     // 这张面上：画布坐标 → 世界（面是平的、铺法是仿射的：拿面上三个角解出来，不经过格子表）
-    const toWorld = (f: number) => { const c = m.cornerValues(f, "uv")!, w = m.faceVerts(f).map((k) => m.pt(k));
+    const toWorld = (f: number) => { const c = uvAtOf(m, f, "uv")!, w = m.faceVerts(f).map((k) => m.pt(k));
       const e1 = [c[2] - c[0], c[3] - c[1]], e2 = [c[4] - c[0], c[5] - c[1]], det = e1[0] * e2[1] - e1[1] * e2[0];
       return (x: number, y: number): Pt3 => { const dx = x - c[0], dy = y - c[1], a = (dx * e2[1] - dy * e2[0]) / det, b = (e1[0] * dy - e1[1] * dx) / det;
         return P(w[0].x + a * (w[1].x - w[0].x) + b * (w[2].x - w[0].x), w[0].y + a * (w[1].y - w[0].y) + b * (w[2].y - w[0].y), w[0].z + a * (w[1].z - w[0].z) + b * (w[2].z - w[0].z)); }; };

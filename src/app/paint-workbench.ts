@@ -21,7 +21,8 @@ import { SpaceFillStroke, fillAimOf } from "../paint/space-fill.ts";
 import { buildTriGrid, pickSurface, type TriGrid } from "../paint/surface-pick.ts";
 import { applyDir, applyPt, invert } from "../scene/xform.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
-import { paintPlaceOf, uvColumnsOf } from "../scene/paint.ts";
+import { paintPlaceOf } from "../scene/paint.ts";
+import { uvMesh, type UvMesh } from "../scene/uv.ts";
 import type { PaintColor, Rgb } from "./paint-color.ts";
 import type { SpacePrep } from "../paint/space-prep.ts";
 import { isPaintTool } from "../editor/tool-ids.ts";
@@ -98,7 +99,7 @@ export class PaintWorkbench {
     this.d.boards.setEditing(this.paintsOn(def));   // 只醒着正在编辑的这个物件上的画（施工单十九第 3 刀）；换了物件 = 上一个的画在这一帧准备的末尾睡下
     if (key !== this.entered) {
       this.entered = key;
-      this.grid(body.kernel);   // 三角格子先算好
+      this.grid(uvMesh(body.kernel, body.uvSetSlots));   // 三角格子先算好
       for (const g of this.paintsOn(def)) if (this.d.boards.stateOf(S, g) === "cold") void this.d.boards.warm(S, g).then(() => e.draw()).catch(() => { /* 只能看不能画：warm 自己说了 */ });
     }
     this.keepPrepared(def);
@@ -124,10 +125,10 @@ export class PaintWorkbench {
     this.lastPrepMs = this.d.prep.ensure(targets);
   }
 
-  private grid(k: MeshKernel): TriGrid {
-    const rev = (k as unknown as { rev: number }).rev, hit = this.grids.get(k);
+  private grid(m: UvMesh): TriGrid {
+    const k = m.kernel, rev = k.rev, hit = this.grids.get(k);
     if (hit && hit.rev === rev) return hit.grid;
-    const grid = buildTriGrid(k as never);
+    const grid = buildTriGrid(m);
     this.grids.set(k, { rev, grid });
     return grid;
   }
@@ -137,17 +138,17 @@ export class PaintWorkbench {
     const e = this.d.editor, S = e.sceneRef, def = S.defOfContext(e.context), body = S.def(def).body;
     if (body.kind !== "mesh") return { why: "硬表面的物件不能画：先转成网格体" };
     const k = body.kernel, X = invert(S.xformOfContext(e.context)), r = e.cam.ray(x, y, e.vp()), o = applyPt(X, r.origin), dir = applyDir(X, r.dir);
-    const anyUv = uvColumnsOf(k)[0] ?? "";
-    const hit = pickSurface(k as never, this.grid(k), anyUv, o, dir);
+    const m = uvMesh(k, body.uvSetSlots), anyUv = body.uvSetSlots[0] ?? "";
+    const hit = pickSurface(m, this.grid(m), anyUv, o, dir);
     if (!hit) return null;
     const fp = S.facePaint(def, k.faceMat[hit.face]);
     if (!fp) {
       const m = S.materialOfSlot(def, k.faceMat[hit.face]), tp = m ? S.tiledPaintOf(m) : null;
       if (tp) return { why: tiledOnlyInWindow(tp.textureDoc.name || m!.name) };   // 平铺的画（施工单二十一第 3 刀第二节第 6 条）：不画、说原因
-      if (!uvColumnsOf(k).length) return { why: NOT_STARTED, start: true };
+      if (!body.uvSetSlots.length) return { why: NOT_STARTED, start: true };
       return { face: hit.face, color: m ? [m.color[0], m.color[1], m.color[2]] : [0.84, 0.84, 0.84] };
     }
-    const h2 = fp.uvSet.guid === anyUv ? hit : pickSurface(k as never, this.grid(k), fp.uvSet.guid, o, dir);
+    const h2 = fp.uvSet.guid === anyUv ? hit : pickSurface(m, this.grid(m), fp.uvSet.guid, o, dir);
     return { tex: fp.textureDoc.guid, cell: h2 && h2.inPaint ? h2.cell : null, face: hit.face };
   }
 

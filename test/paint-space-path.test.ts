@@ -2,7 +2,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox, addPrimitive } from "../src/mesh/ops/index.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { SpaceStroke, type SpaceCamera } from "../src/paint/space-stroke.ts";
 import { sphereTriDist } from "../src/paint/tip-reach.ts";
 import type { TargetGeo } from "../src/paint/space-target.ts";

@@ -70,7 +70,7 @@ export interface BrepBody {
 export type UvSetRow = UvSetDoc;   // 形状 = 文件里排法表的一行（format/document.ts UvSetDoc：guid / name / width / height / pxPerM / fit 必写 / freed / extra）
 /** 这套排法会不会自动给新面找地方 / 自己长大：fit 认得、行里没有带着不认识的 freed（形状不对的 freed 当不认识的键带回，施工单十八 3.1）。 */
 export const uvSetAutoPlaces = (r: UvSetRow): boolean => (r.fit === "density" || r.fit === "size") && !(r.extra && typeof r.extra.json === "object" && r.extra.json !== null && "freed" in (r.extra.json as Record<string, unknown>));
-export interface MeshBody { readonly kind: "mesh"; kernel: MeshKernel; materialSlots: number[]; }
+export interface MeshBody { readonly kind: "mesh"; kernel: MeshKernel; materialSlots: number[]; /** 贴图坐标的速查表：短代号 → 排法 GUID（施工单十八第 1½ 刀；scene/uv.ts）。 */ uvSetSlots: Guid[]; }
 export type Body = BrepBody | MeshBody;   // card 2026-10-24 sunset（body-kind.ts 头注释）
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
 export interface Definition {
@@ -188,7 +188,7 @@ export class Scene {
     if (!d || d.body.kind !== "mesh" || !this.uvSets.size) return null;
     const m = this.materialOfSlot(defId, slot), p = m ? paintIn(this.textures, m) : null;
     const row = p ? this.uvSets.get(p.uvSet) : undefined;
-    return row && d.body.kernel.hasColumn(row.guid) ? { textureDoc: p!.textureDoc, uvSet: row } : null;
+    return row && d.body.uvSetSlots.includes(row.guid) ? { textureDoc: p!.textureDoc, uvSet: row } : null;   // 这个网格体在那一套上（速查表里有它；施工单十八第 1½ 刀）
   }
   /** 「这个材质用哪张图」（那个口；全仓问这个，不读材质里的字段）：颜色那一槽的第一张、而且是带尺寸的原图；不是 = null（按底色画）。查表，每张面都会问。 */
   colorMapOf(m: Material): ColorMap | null { return colorMapIn(this.textures, m); }
@@ -326,7 +326,7 @@ export class Scene {
         const groups = new Map<GroupId, Group>();
         for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, guid: g.guid, parent: g.parent, axes: g.axes, kernel: g.kernel, guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
         body = { kind: "brep", kernel: d.body.kernel, groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides), ...(d.body.drawFrame ? { drawFrame: d.body.drawFrame } : {}) };
-      } else body = { kind: "mesh", kernel: d.body.kernel, materialSlots: [...d.body.materialSlots] };
+      } else body = { kind: "mesh", kernel: d.body.kernel, materialSlots: [...d.body.materialSlots], uvSetSlots: [...d.body.uvSetSlots] };
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { ...i });
       s.defs.set(id, { id: d.id, guid: d.guid, name: d.name, body, instances, nextInst: d.nextInst });
@@ -359,7 +359,7 @@ export class Scene {
         const groups = new Map<GroupId, Group>();
         for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, guid: g.guid, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
         body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides), ...(d.body.drawFrame ? { drawFrame: d.body.drawFrame } : {}) };   // Frame 按不可变对待
-      } else body = { kind: "mesh", kernel: d.body.kernel.clone(), materialSlots: [...d.body.materialSlots] };   // mesh 内核深拷（列式 = 几次 slice）
+      } else body = { kind: "mesh", kernel: d.body.kernel.clone(), materialSlots: [...d.body.materialSlots], uvSetSlots: [...d.body.uvSetSlots] };   // mesh 内核深拷（列式 = 几次 slice）
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, guid: i.guid, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) });
       s.defs.set(id, { id: d.id, guid: d.guid, name: d.name, body, instances, nextInst: d.nextInst });

@@ -4,7 +4,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel, F_SEAM } from "../src/mesh/mesh-kernel.ts";
 import { addBox, addPrimitive } from "../src/mesh/ops/index.ts";
-import { GROWN } from "../src/mesh/corner-columns.ts";
+import { GROWN } from "../src/mesh/columns.ts";
 import { autoSeams, chartShapes } from "../src/mesh/auto-seams.ts";
 
 const P = (x: number, y: number, z: number) => ({ x, y, z });

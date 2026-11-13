@@ -5,11 +5,15 @@
 //   选边 → 只给留着的那半补位置 → 丢掉的那半还有走画没位置的 = 即使形状已经对称也补一次对称化（镜过去的面照抄位置）→ 丢掉的那半从不占画布。
 // 「开始画」在强行对称下先只留留着那半的面（upkeepRewrite）：铺之前就不给马上要被删的面占地方。
 // 放不下的张数、并面丢了画的张数接到提示行上（和强行对称的那几句同一个出口）。预演（拖动中的影子）不走这里：新面松手前照底色显示。
+// 施工单十八第 1½ 刀（属性规程第二½节：用到某个意思的那一层每步之后自己读报告、自己检查）：内核只报告哪几列在来源之间对不上，
+//   「并出来贴图坐标接不上 = 没有位置」在这里判（scene/uv.ts uvLosses），拿掉位置走 meshLayoutPaint 的 drop，进同一步、撤销一起撤。
+//   报告的寿命：每次提交前把上一步没人取的丢掉（upkeepSnapshot）；提交后一开始就拿（后面补进同一步的指令在影子内核上跑，换回来时报告也跟着换）。
 import type { Op } from "./ops.ts";
 import { type ForceEnv, type ForcePaintHook, type ForceSnaps, forceAfter, forceSideFor, forceSnapshot, forcesOn } from "./mirror-force.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { MIRROR_TOL, coordOf, type MirrorAxis } from "../mesh/mirror.ts";
 import { unplacedPaintFaces } from "../scene/paint.ts";
+import { uvLosses } from "../scene/uv.ts";
 
 /** 收尾自己会提交的指令：它们之后不再收尾（免得套自己）。 */
 const UPKEEP_OPS: ReadonlySet<string> = new Set(["meshLayoutPaint", "meshSymmetrize"]);
@@ -36,6 +40,7 @@ export function upkeepRewrite(env: ForceEnv, op: Op): Op {
 
 /** 提交前记（取代原来只记强行对称的那一份）。 */
 export function upkeepSnapshot(env: ForceEnv, op: Op): UpkeepSnaps | null {
+  for (const d of env.scene.defs.values()) if (d.body.kind === "mesh") d.body.kernel.takeReport();   // 上一步没人取的报告丢掉（规程第六节的寿命）
   const force = forceSnapshot(env, op);
   if (UPKEEP_OPS.has(op.op)) return force ? { force, paint: new Map() } : null;
   const paint = new Map<number, { rev: number; seq: number }>();
@@ -54,9 +59,15 @@ export function upkeepAfter(env: ForceEnv, op: Op, snaps: UpkeepSnaps, commit: (
   const pendingOf = (def: number): number[] => (live(def) ? [...unplacedPaintFaces(env.scene, def, touched(def)).values()].flat() : []);
   const layoutIn = (def: number, faces: readonly number[]): void => { if (faces.length) commit({ op: "meshLayoutPaint", def, faces: [...faces].sort((a, b) => a - b) }); };
   const handled = new Set<number>();
-  // 并面丢了画的张数先拿走：后面补进同一步的指令（补位置 / 对称化）各自在内核的影子上跑、换回来的时候这个数会被换掉
+  // 内核的报告先拿走：后面补进同一步的指令（补位置 / 对称化）各自在内核的影子上跑、换回来的时候报告会被换掉。
+  // 并出来贴图坐标接不上的面：先拿掉位置（一条只拿掉、不铺的 meshLayoutPaint），后面的补位置 / 对称化照常把它们当「还没有位置」
   let dropped = 0;
-  for (const [def, sn] of snaps.paint) if (live(def) && env.scene.mesh(def).kernel.rev !== sn.rev) dropped += env.scene.mesh(def).kernel.takeDroppedFaces();
+  for (const [def, sn] of snaps.paint) {
+    if (!live(def) || env.scene.mesh(def).kernel.rev === sn.rev) continue;
+    const k = env.scene.mesh(def).kernel, { drop, lost } = uvLosses(k, k.takeReport());
+    dropped += lost;
+    if (drop.length) commit({ op: "meshLayoutPaint", def, faces: [], drop });
+  }
   if (snaps.force) {
     const hook: ForcePaintHook = {
       pending: (def) => pendingOf(def).length > 0,
@@ -84,7 +95,7 @@ export function upkeepAfter(env: ForceEnv, op: Op, snaps: UpkeepSnaps, commit: (
       const row = env.scene.uvSets.get(g);
       if (fs.length && row && row.fit !== "density") fixed.add(`${row.width} × ${row.height}`);
     }
-    k.takeDroppedFaces();   // 收尾自己的指令（补位置 / 对称化）不会丢画；有也已经数过了，清零免得留到下一步
+    k.takeReport();   // 收尾自己的指令（补位置 / 对称化）的报告：不会丢画，清掉免得留到下一步
   }
   if (unplaced) notes.push(`有 ${unplaced} 张面在画布上放不下，先照底色显示${fixed.size ? `（这张画定的是 ${[...fixed].join("、")}，不自己变大）` : ""}`);
   if (dropped) notes.push(`有 ${dropped} 张面的画没带过来（并面时两边的位置对不上）`);

@@ -5,7 +5,7 @@ import { atlasOutline, type AtlasMesh } from "../src/paint/atlas-outline.ts";
 
 /** 假网格体：面 = 点编号的环 + 角上的坐标（格）。 */
 function fake(faces: Record<number, { v: number[]; uv: number[] }>): AtlasMesh {
-  return { faceVerts: (f) => faces[f].v, cornerValues: (f) => (faces[f] ? Float32Array.from(faces[f].uv) : null) };
+  return { faceVerts: (f) => faces[f].v, uvAt: (f) => (faces[f] ? Float32Array.from(faces[f].uv) : null) };
 }
 const segs = (a: Float32Array): number => a.length / 4;
 

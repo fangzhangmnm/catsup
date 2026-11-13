@@ -7,6 +7,7 @@ import { uvSetAutoPlaces, type DefId, type Scene } from "../scene/scene.ts";
 import { COLOR_CHANNEL, COLOR_VALUE, paintIn } from "../format/document.ts";
 import { gapForCanvas, layoutAppend, layoutFaces } from "../paint/layout.ts";
 import { unplacedPaintFaces } from "../scene/paint.ts";
+import { onUvSet, placeFace, unplaceFace, uvMesh } from "../scene/uv.ts";
 
 export type PaintOutcome = null | { readonly rejected: string } | { readonly target: string };
 type StartPaint = Extract<Op, { op: "startPaint" }>;
@@ -29,7 +30,7 @@ function paintMeshFaces(s: Scene, def: DefId, faces: readonly number[], material
     const m = s.materials[material];
     if (!m) return { target: `material ${material}` };
     const p = paintIn(s.textures, m);
-    if (p && !k.hasColumn(p.uvSet)) return { rejected: OTHER_DEF_PAINT };   // 这个网格体不在那张画的排法上（施工单十八第 1 刀：判法换成看列，行为照旧——放开是第 3 刀）
+    if (p && !onUvSet(d.body.uvSetSlots, p.uvSet)) return { rejected: OTHER_DEF_PAINT };   // 这个网格体不在那张画的排法上（施工单十八第 1 刀：判法换成看列，行为照旧——放开是第 3 刀）
   }
   const slot = material === null ? -1 : s.slotFor(def, material);
   for (const f of faces) k.setFaceMat(f, slot);
@@ -49,7 +50,7 @@ export function applyStartPaint(s: Scene, op: StartPaint): PaintOutcome {
   if (d.body.kind !== "mesh") return { rejected: "开始画只能用在网格体上（硬表面的面不能画：先把它转成网格体）" };
   const b = d.body, k = b.kernel, faces = [...new Set(op.faces)].filter((f) => k.hasF(f)).sort((a, c) => a - c);
   if (!faces.length) return { rejected: "开始画：这些面一张都不在了，没有可画的面" };
-  const uvTaken = s.uvSets.has(op.uvSet) || k.hasColumn(op.uvSet);
+  const uvTaken = s.uvSets.has(op.uvSet) || onUvSet(b.uvSetSlots, op.uvSet);
   const taken = [uvTaken ? `贴图坐标 ${op.uvSet}` : "", s.textures.has(op.textureGuid) ? `贴图 ${op.textureGuid}` : "", s.materials.some((m) => m.guid === op.materialGuid) ? `材质 ${op.materialGuid}` : ""].filter(Boolean);
   if (taken.length) return { rejected: `开始画：这些身份已经有了（${taken.join("、")}），换新的再来` };
   // 没给密度 = 画布 canvas 见方里找最大密度（缺 = 1024）；留的格数跟着画布走（1024 = 4，和以前一样）；铺法缺 = 一张面一块（施工单十五：缺的时候和以前逐位相同）
@@ -58,8 +59,7 @@ export function applyStartPaint(s: Scene, op: StartPaint): PaintOutcome {
   const r = layoutFaces(k, faces, byDensity ? { density: op.density, style, squarish: true } : op.density !== undefined ? { density: op.density, gap, style } : { base, gap, style });
   if (!r.ok) return { rejected: `开始画：铺不下——${r.reason}` };
   // 查完了，动手
-  k.addColumn({ guid: op.uvSet, arity: 2, kind: "uv" });
-  for (const [f, v] of r.values) k.setFaceValues(f, op.uvSet, v);
+  for (const [f, v] of r.values) placeFace(k, b.uvSetSlots, f, op.uvSet, v);   // 唯一的写口（scene/uv.ts）；面原来在别的套上 = 盖掉（动作那一层数出来、说一句）
   s.uvSets.set(op.uvSet, Object.freeze({ guid: op.uvSet, name: op.names.uvSet, width: r.width, height: r.height, pxPerM: r.density, fit: byDensity ? "density" : "size" }));
   s.addTexture({ guid: op.textureGuid, name: op.names.paint, value: COLOR_VALUE, content: { kind: "layered", ora: null }, layout: { uvSet: op.uvSet } });
   const mi = s.addMaterial({ guid: op.materialGuid, name: op.names.material, color: [op.color[0], op.color[1], op.color[2]], channels: { [COLOR_CHANNEL]: [op.textureGuid] } });
@@ -77,13 +77,15 @@ export function applyStartPaint(s: Scene, op: StartPaint): PaintOutcome {
 export function applyMeshLayoutPaint(s: Scene, op: MeshLayoutPaint): PaintOutcome {
   const d = s.defs.get(op.def);
   if (!d || d.body.kind !== "mesh") return { target: `definition ${op.def} (not a mesh)` };
-  const k = d.body.kernel, pending = unplacedPaintFaces(s, op.def, op.faces ?? null);
+  const b = d.body, k = b.kernel;
+  for (const f of op.drop ?? []) if (k.hasF(f)) unplaceFace(k, b.uvSetSlots, f);   // 收尾读内核报告：并面时贴图坐标对不上的，先拿掉
+  const pending = unplacedPaintFaces(s, op.def, op.faces ?? null);
   for (const g of [...pending.keys()].sort()) {
     const row = s.uvSets.get(g)!;
     if (!uvSetAutoPlaces(row)) continue;   // fit 不认识 / 行里带着不认识的 freed：这套排法什么都不自动动（施工单十八 3.1）
-    const r = layoutAppend(k, g, [], pending.get(g)!, { width: row.width, height: row.height }, row.pxPerM, { partial: true, gap: gapForCanvas(row.width), grow: row.fit === "density" });   // 补面也按那张画布的宽留格（施工单十五第四节）；按总大小开的画布不长大（施工单十六第四节）
+    const r = layoutAppend(uvMesh(k, b.uvSetSlots), g, [], pending.get(g)!, { width: row.width, height: row.height }, row.pxPerM, { partial: true, gap: gapForCanvas(row.width), grow: row.fit === "density" });   // 补面也按那张画布的宽留格（施工单十五第四节）；按总大小开的画布不长大（施工单十六第四节）
     if (!r.ok) continue;   // partial 不会走到这里（放不下的进 unplaced）
-    for (const [f, v] of r.values) k.setFaceValues(f, g, v);
+    for (const [f, v] of r.values) placeFace(k, b.uvSetSlots, f, g, v);
     if (r.height !== row.height) s.uvSets.set(g, Object.freeze({ ...row, height: r.height }));
   }
   return null;

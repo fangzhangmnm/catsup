@@ -6,7 +6,7 @@ import type { Command, MeshUnit } from "../commands/command.ts";
 import { mintGuid } from "../../format/guid.ts";
 import { PALETTE } from "../../minccino/palette.ts";
 import type { Scene } from "../../scene/scene.ts";
-import { paintPlaceOf, uvColumnsOf } from "../../scene/paint.ts";
+import { paintPlaceOf } from "../../scene/paint.ts";
 
 const FACE_GREY: [number, number, number] = [((PALETTE.face >> 16) & 255) / 255, ((PALETTE.face >> 8) & 255) / 255, (PALETTE.face & 255) / 255];
 
@@ -18,7 +18,7 @@ export function facesToStart(s: Scene, u: Pick<MeshUnit, "def" | "sel">): number
   const body = s.def(u.def).body;
   if (body.kind !== "mesh") return [];
   const k = body.kernel, slots = k.faceMat, painted = (f: number): boolean => s.facePaint(u.def, slots[f]) !== null;
-  const picked = u.sel && u.sel.faces.size ? [...u.sel.faces] : uvColumnsOf(k).length || k.faces().some(painted) ? [] : k.faces();
+  const picked = u.sel && u.sel.faces.size ? [...u.sel.faces] : body.uvSetSlots.length || k.faces().some(painted) ? [] : k.faces();
   return picked.filter((f) => k.hasF(f) && !painted(f));
 }
 

@@ -10,7 +10,7 @@ const clean = (k: MeshKernel, where: string): void => { const bad = k.check(); e
 const sameShape = (a: MeshKernel, b: MeshKernel): boolean => JSON.stringify(a.toSnapshot()) === JSON.stringify(b.toSnapshot());
 
 /**
- * 带三列的内核（贴图主线 1-2 测试 E，2026-11-10 Claude Opus 5.5；2026-11-13 第 1½ 刀照属性规程改成通用的列，列名都是测试自己起的）：
+ * 带三列的内核（测试 E，2026-11-10 Claude Opus 5.5；2026-11-13 第 1½ 刀照属性规程改成通用的列，列名都是测试自己起的）：
  * 角上一列盖住全部面（"all"，每角 2 个连续小数）、角上一列只给一半的面写值（"half"，每角 3 个，隔一张给一张，别的留缺省值）、
  * 面上一列整数（"tag"，并成不一致回缺省值）。只在「凭空来的、没给值」的面上按位置填值（各条测试搭底子用的就是这种）；算子新建的面照它们自己的来历。
  * 整套原样再跑一遍：每步之后的自检带上 (M7)。
@@ -192,4 +192,4 @@ describe(title, () => {
 });
 }
 kernelSuite("mesh 内核：不变量与算子", () => new MeshKernel());
-kernelSuite("mesh 内核：带两列再跑一遍（一列盖全部、一列盖一半；贴图主线 1-2 测试 E）", () => new ColMesh());
+kernelSuite("mesh 内核：带三列再跑一遍（角上一列盖全部、角上一列盖一半、面上一列整数；测试 E）", () => new ColMesh());

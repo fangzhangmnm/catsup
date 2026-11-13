@@ -7,7 +7,7 @@ import type { Body, BrepBody, DefId, MeshBody, Scene } from "./scene.ts";
 import { reachableDefs } from "./resources.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 import { MeshKernel, F_SOFT, F_SMOOTH, F_HIDDEN, F_WIRE, FF_HIDDEN } from "../mesh/mesh-kernel.ts";
-import { FRESH } from "../mesh/corner-columns.ts";
+import { FRESH } from "../mesh/columns.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import { BUILTIN_BACK_SLOT } from "./builtin-materials.ts";
 import { edgeSoft, keepLookUnderAngle } from "../mesh/edge-smooth.ts";
@@ -134,7 +134,7 @@ export function brepToMesh(b: BrepBody): MeshBody {
   addBrepPool(m, b.kernel, isBack);
   for (const g of [...b.groups.values()].sort((x, y) => x.id - y.id)) addBrepPool(m, g.kernel, isBack);
   keepLookUnderAngle(m, 30);   // 默认平滑 = 按角度 30°（FM129）；SU 里本来硬、夹角又小于 30° 的边手标成棱 = 转过来样子不变，之后新长的几何跟着默认平滑走
-  return { kind: "mesh", kernel: m, materialSlots: [...b.materialSlots] };
+  return { kind: "mesh", kernel: m, materialSlots: [...b.materialSlots], uvSetSlots: [] };
 }
 /** p 落在三角形 abc 里（p 已知在它的平面上；重心坐标都 ≥ −容差）。 */
 const inTriangle = (p: Pt3, a: Pt3, b: Pt3, c: Pt3): boolean => {

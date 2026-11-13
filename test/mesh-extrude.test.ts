@@ -1,7 +1,7 @@
 // 拉（自由建模的挤出；2026-10-27 Claude Opus 5.5）：边 / 点的挤出 + extrudeAndOffset + meshExtrude op + 撤销往返。
 // 不变量：挤出后 MeshKernel.check() 干净；边挤出的新面和原来那张面在共用边上方向相反（法向一致）；同一份内核 + 同一组参数 → 同一批新 id（重放确定）。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel, F_WIRE } from "../src/mesh/mesh-kernel.ts";
 import { addBox, extrudeEdges, extrudeVerts, extrudeAndOffset, extrudeAlongNormals, extrudeNormalDirs } from "../src/mesh/ops/index.ts";
 import { Scene } from "../src/scene/scene.ts";

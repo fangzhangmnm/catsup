@@ -366,7 +366,7 @@ const d11 = await mkBox("甲", 0); await frames(2);
 await page.locator('button:has-text("开始画")').first().click();
 await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-label")].filter((l) => /\d+ × \d+$/.test(l.firstChild?.textContent ?? "")).length === 5 && !document.getElementById("sheet").hidden);
 await sizeRow(page, "256 × 256").click(); await frames(2);
-const uv11 = await S((d) => { const u = ((S0) => [...S0.uvSets.values()].find((u) => S0.mesh(d).kernel.hasColumn(u.guid)))(globalThis.__catsup.editor.sceneRef); return u ? `${u.width}x${u.height}` : null; }, d11);
+const uv11 = await S((d) => { const u = ((S0) => [...S0.uvSets.values()].find((u) => S0.mesh(d).uvSetSlots.includes(u.guid)))(globalThis.__catsup.editor.sceneRef); return u ? `${u.width}x${u.height}` : null; }, d11);
 check(uv11 === "256x256", `选 256 = 画布 256 见方（${uv11}）`);
 await mkBox("乙", 3); await frames(2);
 // 没画过的物件上落笔：不自动弹面板，提示行说一句、按钮闪一下
@@ -416,7 +416,7 @@ await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .s
 const rows15 = await sheetRows();
 check(!rows15[0].disabled && /放不下时画布会变大/.test(rows15[0].note), `按一格多大开的画：「${rows15[0].label}」点得了（${rows15[0].note}）`);
 await page.locator("#sheetChoices .sheet-row").first().click(); await frames(2);
-const add12 = await S(([d, side]) => { const C = globalThis.__catsup, S0 = C.editor.sceneRef, k = S0.mesh(d).kernel, uv = [...S0.uvSets.keys()].find((g) => S0.mesh(d).kernel.hasColumn(g)); return { sheet: !document.getElementById("sheet").hidden, painted: side.every((f) => S0.facePaint(d, k.faceMat[f]) !== null && !!k.cornerValues(f, uv)), paints: [...S0.textures.values()].filter((t) => t.content.kind === "layered").length }; }, [d15, side15]);
+const add12 = await S(([d, side]) => { const C = globalThis.__catsup, S0 = C.editor.sceneRef, k = S0.mesh(d).kernel, uv = [...S0.uvSets.keys()].find((g) => S0.mesh(d).uvSetSlots.includes(g)); return { sheet: !document.getElementById("sheet").hidden, painted: side.every((f) => S0.facePaint(d, k.faceMat[f]) !== null && !!C.paint.uv.at(d, f, uv)), paints: [...S0.textures.values()].filter((t) => t.content.kind === "layered").length }; }, [d15, side15]);
 check(!add12.sheet && add12.painted && add12.paints === paints15, "点了：不出面板，那两张面进了这个物件那张画（有坐标），没多出一张画", JSON.stringify(add12));
 void top12;
 
@@ -427,7 +427,7 @@ await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .s
 await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .sheet-row-note")].every((n) => !/在算/.test(n.textContent)), null, { timeout: 20000 });
 const cm = (await sheetRows()).find((r) => /^一格 1 ?(\.0 )?cm/.test(r.label));
 await page.locator("#sheetChoices .sheet-row", { hasText: cm.label }).first().click(); await frames(2);
-const got13 = await S((d) => { const u = ((S0) => [...S0.uvSets.values()].find((u) => S0.mesh(d).kernel.hasColumn(u.guid)))(globalThis.__catsup.editor.sceneRef); return u ? { w: u.width, h: u.height, d: u.pxPerM, fit: u.fit ?? null } : null; }, d13);
+const got13 = await S((d) => { const u = ((S0) => [...S0.uvSets.values()].find((u) => S0.mesh(d).uvSetSlots.includes(u.guid)))(globalThis.__catsup.editor.sceneRef); return u ? { w: u.width, h: u.height, d: u.pxPerM, fit: u.fit ?? null } : null; }, d13);
 check(!!got13 && got13.fit === "density" && Math.abs(got13.d - 100) < 1e-9 && got13.h <= got13.w && cm.note.startsWith(`画布 ${got13.w} × ${got13.h}`), `一格 1 cm：每米 ${got13?.d} 格、画布 ${got13?.w} × ${got13?.h}（面板上那行写的「${cm.note}」）、记了 fit = density`, JSON.stringify(got13));
 const d14 = await mkBox("戊", 12); await frames(2);
 await page.locator('button:has-text("开始画")').first().click();
@@ -440,7 +440,7 @@ await page.fill("#sheetInput", "0.01 mm"); await page.click("#sheetConfirm");
 const e2 = await S(() => ({ err: document.getElementById("sheetError").hidden ? "" : document.getElementById("sheetError").textContent, open: !document.getElementById("sheet").hidden }));
 check(e1.open && !!e1.err && e2.open && /太大了/.test(e2.err), `填错 / 太细：不关、说原因（「${e1.err}」「${e2.err}」）`);
 await page.fill("#sheetInput", "3 mm"); await page.click("#sheetConfirm"); await frames(2);
-const got14 = await S((d) => { const u = ((S0) => [...S0.uvSets.values()].find((u) => S0.mesh(d).kernel.hasColumn(u.guid)))(globalThis.__catsup.editor.sceneRef); return u ? { w: u.width, h: u.height, d: u.pxPerM, fit: u.fit ?? null } : null; }, d14);
+const got14 = await S((d) => { const u = ((S0) => [...S0.uvSets.values()].find((u) => S0.mesh(d).uvSetSlots.includes(u.guid)))(globalThis.__catsup.editor.sceneRef); return u ? { w: u.width, h: u.height, d: u.pxPerM, fit: u.fit ?? null } : null; }, d14);
 check(!!got14 && got14.fit === "density" && Math.abs(got14.d - 1000 / 3) < 1e-6 && got14.h <= got14.w, `自己填 3 mm：每米 ${got14?.d?.toFixed(2)} 格、画布 ${got14?.w} × ${got14?.h}`, JSON.stringify(got14));
 
 console.log("\n⑬ 每帧读数的小角标（1-4d 第 1 条）：工具条「读数」开 → 角标露、画一笔各段有数；出画画工作台藏；关着不记");

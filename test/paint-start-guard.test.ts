@@ -4,6 +4,8 @@
 //   ③ 「带着画的面现在还搬不了」的判断只有一个函数（scene/paint.ts paintMoveBlocked），第六节那几处 + 统筹 11-10 加的两处都调它。
 //   ④ 写盘：贴图坐标 1-2½ 起真的写（内核里有一列、贴图坐标表里没有那一行 = 内部出了错，整份写盘抛）；分层的贴图没有字节照旧抛（1-8 换成真的写之前不许悄悄丢）。
 //   ⑤ 收尾只有一条路：编辑器 commitIn 用 upkeepRewrite / upkeepSnapshot / upkeepAfter，不再直接调 forceSnapshot / forceAfter。
+//   ⑦ 贴图坐标只经 scene/uv.ts（施工单十八第 1½ 刀）：内核问列 / 取值 / 写值的口（cornerValues / faceValue / setCornerValues / setFaceValue / hasColumn / columnDef）在 src 里只有 src/mesh/ 和 scene/uv.ts 调（整张面搬到别的内核时整列照搬的 columnDefs / columnsOf / ensureColumns 不认意思，不在此列）；
+//      那两列的名字只在 scene/uv.ts 出现。起因：拿排法的 GUID 当列名去问内核类型上过得去、永远拿到 null（第 1½ 刀施工时抓到渲染那边一处、测试里一处）。
 import { describe, it, eq, assert } from "./runner.mjs";
 const { readdirSync, readFileSync, statSync } = (await import("node:fs" as string)) as { readdirSync(p: string): string[]; readFileSync(p: string, enc: string): string; statSync(p: string): { isDirectory(): boolean } };
 const { join } = (await import("node:path" as string)) as { join(...p: string[]): string };
@@ -44,7 +46,7 @@ describe("开始画：守卫（1-3b）", () => {
   it("④ 写盘：贴图坐标真的写（documentFromScene 不再对 uvSets 抛，只对「内核里有、表里没有的列」抛）；分层的贴图没有字节照旧抛（writeTextureRow）", () => {
     const sd = code(join("src", "format", "scene-doc.ts")), fn = sd.indexOf("export function documentFromScene(");
     assert(fn > 0 && !/uvSets\.size\) throw new Error\(/.test(sd.slice(fn, fn + 1200)), "documentFromScene 不再对 uvSets 抛（1-2½）");
-    assert(/columnDefs\(\)\) if \(c\.kind === "uv" && !scene\.uvSets\.has\(c\.guid\)\) throw new Error\(/.test(sd.slice(fn, fn + 1200)), "documentFromScene 开头对「内核里有 uv 列、场景的排法表里没有那一行」抛（施工单十八）");
+    assert(/for \(const g of d\.body\.uvSetSlots\) if \(!scene\.uvSets\.has\(g\)\) throw new Error\(/.test(sd.slice(fn, fn + 1200)), "documentFromScene 开头对「网格体在某套排法上、场景的排法表里没有那一行」抛（施工单十八第 1½ 刀：看速查表）");
     assert(/kind === "layered" && c\.ora === null\) throw new Error\(/.test(code(join("src", "format", "texture-table.ts"))), "writeTextureRow 对没有字节的画抛");
   });
   it("⑥ definitionToDoc 的调用点是一张白名单（1-2½ 起它带着贴图坐标，但贴图坐标跟着定义搬到别处要铸新身份、把画的 layout 对上，那是 1-3d：新加调用点的人先想清楚这条路会不会把同一套坐标的身份复制一份——1-3b 审后补）", () => {
@@ -68,5 +70,17 @@ describe("开始画：守卫（1-3b）", () => {
     const ed = code(join("src", "editor", "editor.ts"));
     for (const w of ["upkeepRewrite(", "upkeepSnapshot(", "upkeepAfter("]) assert(ed.includes(w), `editor.ts 用 ${w}`);
     for (const w of ["forceSnapshot(", "forceAfter("]) assert(!ed.includes(w), `editor.ts 不直接用 ${w}`);
+  });
+  it("⑦ 贴图坐标只经 scene/uv.ts：内核取值 / 写值的口在 src 里只有 src/mesh/ 和 scene/uv.ts 调；那两列的名字只在 scene/uv.ts 出现", () => {
+    const uv = join("src", "scene", "uv.ts"), mesh = join("src", "mesh") + "/";
+    const hits: string[] = [], names: string[] = [];
+    for (const f of files) {
+      if (f === uv) continue;
+      const c = code(f);
+      if (!f.startsWith(mesh) && /\.(cornerValues|faceValue|setCornerValues|setFaceValue|hasColumn|columnDef)\(/.test(c)) hits.push(f);
+      if (/["'`]uv-(set|at)["'`]/.test(c)) names.push(f);
+    }
+    eq(hits.join(" | "), "", "src/mesh/ 和 scene/uv.ts 之外问了内核的列");
+    eq(names.join(" | "), "", "那两列的名字出现在 scene/uv.ts 之外");
   });
 });

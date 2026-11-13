@@ -2,11 +2,12 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox } from "../src/mesh/ops/index.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { buildTargetGeo, type TargetGeo } from "../src/paint/space-target.ts";
 import { sphereTriDist, tipReach, type Reach } from "../src/paint/tip-reach.ts";
 import { P, gridMesh, laidOut, rng, targetOf } from "./paint-space-kit.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
+import { placeOn, uvAtOf, uvOf, slotsOf } from "./uv-kit.ts";
 
 /** 离 p 最近的三角形（格子里的编号）。 */
 const triAt = (g: TargetGeo, p: Pt3): number => { let b = -1, bd = Infinity; for (let t = 0; t < g.grid.face.length; t++) { const d = sphereTriDist(p.x, p.y, p.z, g.wpos, 9 * t); if (d < bd) { bd = d; b = t; } } return b; };
@@ -59,7 +60,7 @@ describe("笔尖碰到哪些三角形（1-4a 测试 9 + 10：镜像和复制挂�
     const m = new MeshKernel(), v = [P(-1, 0, 0), P(0, 0, 0), P(0, 1, 0), P(-1, 1, 0), P(1, 0, 0), P(1, 1, 0)].map((p) => m.addVertex(p));   // 中缝上两个点两半共用
     const L = m.addFace([v[0], v[1], v[2], v[3]], -1, FRESH), R = m.addFace([v[4], v[5], v[2], v[1]], -1, FRESH);
     const uv = laidOut(m, "uv", [L]);
-    { const lv = m.cornerValues(L, "uv")!, at = (i: number) => [lv[2 * i], lv[2 * i + 1]]; m.setFaceValues(R, "uv", [...at(0), ...at(3), ...at(2), ...at(1)]); }   // 镜过去的面 = 照抄（对应表倒过来：R 的环 4·5·2·1 ↔ L 的 0·3·2·1）
+    { const lv = uvAtOf(m, L, "uv")!, at = (i: number) => [lv[2 * i], lv[2 * i + 1]]; placeOn(m, R, "uv", [...at(0), ...at(3), ...at(2), ...at(1)]); }   // 镜过去的面 = 照抄（对应表倒过来：R 的环 4·5·2·1 ↔ L 的 0·3·2·1）
     const g = buildTargetGeo(targetOf(m, uv));
     eq(g.table.polys.length, 1, "两半并成一块");
     const r = tipReach([g], { x: 0, y: 0.5, z: 0, r: 0.3 }, [{ ti: 0, tri: triAt(g, P(-0.01, 0.5, 0)) }]), polys = r.get(0)!;

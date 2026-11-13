@@ -1,15 +1,15 @@
 // scene/paint.ts —— 画在场景这一层的问法（贴图主线 1-3b，施工单 ai-docs/20261110-paint-workorders-8.md）。created 2026-11-10 by Claude Opus 5.5
 // 哪些面走画（Scene.facePaint 是那一个问法，这里是它的批量用法）、规矩自检、哪些走画的面还没有位置、「带着画的面现在还搬不了」那个唯一的拒绝判断。
 // 不认识编辑器、不改场景：改场景的只有三条指令（editor/paint-ops.ts）。
-import type { DefId, Material, Scene, UvSetRow } from "./scene.ts";
+import type { DefId, Material, MeshBody, Scene, UvSetRow } from "./scene.ts";
 import { paintIn, tiledPaintIn, UV_CANVAS_EPS, type TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
-import type { MeshKernel } from "../mesh/mesh-kernel.ts";
+import { hasUvColumns, uvAt, uvBoxes, uvCodeOf } from "./uv.ts";
 
-/** 网格体上种类是 uv 的列（贴图坐标；GUID = 场景排法表里那一行的号；施工单十八 3.2）。 */
-export const uvColumnsOf = (k: MeshKernel): string[] => k.columnDefs().filter((c) => c.kind === "uv").map((c) => c.guid);
-/** 这个网格体带不带贴图坐标（有没有 uv 列；从画换走的面角上的数还留着，所以和「有没有面走画」不是一回事）。 */
-const hasUv = (k: MeshKernel): boolean => k.columnDefs().some((c) => c.kind === "uv");
+/** 这个网格体在哪几套排法上（网格体上的速查表；施工单十八第 1½ 刀起 = MeshBody.uvSetSlots，scene/uv.ts）。 */
+export const uvSetsOf = (b: MeshBody): readonly Guid[] => b.uvSetSlots;
+/** 这个网格体带不带贴图坐标（速查表空不空；从画换走的面位置还留着，所以和「有没有面走画」不是一回事。第 2 刀拿掉这个信号）。 */
+const hasUv = (b: MeshBody): boolean => b.uvSetSlots.length > 0;
 
 /** 第六节那几种动作碰到走画的面时的原因（拒绝之后场景一个字节不变）。 */
 export const PAINT_CANT_MOVE = "这些面上有画：带着画的面现在还不能并进别的物件、分出去、做成唯一、复制粘贴、炸开或者转成硬表面（这个功能还没做）";   // 人话（贴图主线 1-7 第 7 条）
@@ -17,7 +17,7 @@ export const PAINT_CANT_MOVE = "这些面上有画：带着画的面现在还不
 /** 这张面走哪一套贴图坐标（走画 = 那一套的 GUID；不走 = null）。 */
 export function paintUvOf(s: Scene, def: DefId, f: number): Guid | null {
   const b = s.defs.get(def)?.body;
-  if (!b || b.kind !== "mesh" || !hasUv(b.kernel) || !b.kernel.hasF(f)) return null;
+  if (!b || b.kind !== "mesh" || !hasUv(b) || !b.kernel.hasF(f)) return null;
   return s.facePaint(def, b.kernel.faceMat[f])?.uvSet.guid ?? null;
 }
 
@@ -33,7 +33,7 @@ export function paintPlaceOf(s: Scene, texture: Guid): { def: DefId; uvSet: UvSe
     if (!p || p.textureDoc.guid !== texture) continue;
     const row = s.uvSets.get(p.uvSet);
     if (!row) return null;
-    for (const d of [...s.defs.values()].sort((a, c) => a.id - c.id)) if (d.body.kind === "mesh" && d.body.kernel.hasColumn(row.guid)) return { def: d.id, uvSet: row, material: m };
+    for (const d of [...s.defs.values()].sort((a, c) => a.id - c.id)) if (d.body.kind === "mesh" && d.body.uvSetSlots.includes(row.guid)) return { def: d.id, uvSet: row, material: m };
     return null;
   }
   return null;
@@ -52,21 +52,22 @@ export function boardPlaceOf(s: Scene, texture: Guid): BoardPlace | null {
 }
 
 /**
- * 规矩（进场景的自检，和 MeshKernel.check() 一起跑；1-3b 第一节，施工单十八改成从列这一头看）：这个网格体上每一条 uv 列，场景的排法表里有同 GUID 的那一行、
- * 每角两个数、这一列上有值的角都落在那张画布里（横 0 到宽、纵 0 到高）。返回毛病（空 = 好）。
+ * 规矩（进场景的自检，和 MeshKernel.check() 一起跑；施工单十八第 1½ 刀改成看速查表和代号）：速查表里每个号在场景的排法表里有那一行、画布宽高是正整数；
+ * 每张面的代号在 −1…速查表长度之间；有位置的面角都落在那张画布里（横 0 到宽、纵 0 到高）。返回毛病（空 = 好）。
  */
 export function paintIssues(s: Scene, def: DefId): string[] {
   const b = s.def(def).body;
   if (b.kind !== "mesh") return [];
-  const bad: string[] = [], k = b.kernel, cols = new Map(k.columnDefs().filter((c) => c.kind === "uv").map((c) => [c.guid, c.arity]));
-  for (const [guid, ar] of cols) {
+  const bad: string[] = [], k = b.kernel, slots = b.uvSetSlots;
+  for (const guid of slots) {
     const row = s.uvSets.get(guid);
-    if (!row) { bad.push(`uv column ${guid}: the scene has no uvSet row with this GUID`); continue; }
+    if (!row) { bad.push(`uvSetSlots ${guid}: the scene has no uvSet row with this GUID`); continue; }
     if (!(Number.isInteger(row.width) && Number.isInteger(row.height) && row.width > 0 && row.height > 0)) bad.push(`uvSet ${row.guid}: canvas ${row.width} × ${row.height} is not a positive whole size`);
-    if (ar !== 2) { bad.push(`uvSet ${row.guid}: column has ${ar} numbers per corner, not 2`); continue; }
-    const box = k.columnBoxes(row.guid), eps = UV_CANVAS_EPS;   // 读文件的收口用同一个数
+    const box = uvBoxes(k, slots, guid), eps = UV_CANVAS_EPS;   // 读文件的收口用同一个数
     for (let i = 0; i < box.length; i += 4) if (box[i] < -eps || box[i + 1] < -eps || box[i + 2] > row.width + eps || box[i + 3] > row.height + eps) { bad.push(`uvSet ${row.guid}: a face has corners outside the ${row.width} × ${row.height} canvas`); break; }
   }
+  if (new Set(slots).size !== slots.length) bad.push(`uvSetSlots: the same uvSet appears twice`);
+  if (hasUvColumns(k)) for (const f of k.faces()) { const c = uvCodeOf(k, f); if (!(Number.isInteger(c) && c >= -1 && c < slots.length)) { bad.push(`face ${f}: uv code ${c} is outside −1…${slots.length - 1}`); break; } }
   return bad;
 }
 /** 网格体的全部自检：内核的不变量 + 画的规矩。 */
@@ -81,13 +82,13 @@ export function meshBodyIssues(s: Scene, def: DefId): string[] {
  */
 export function unplacedPaintFaces(s: Scene, def: DefId, candidates: Iterable<number> | null): Map<Guid, number[]> {
   const out = new Map<Guid, number[]>(), b = s.defs.get(def)?.body;
-  if (!b || b.kind !== "mesh" || !hasUv(b.kernel)) return out;
+  if (!b || b.kind !== "mesh" || !hasUv(b)) return out;
   const k = b.kernel, seen = new Set<number>();
   for (const f of candidates ?? k.faces()) {
     if (seen.has(f)) continue;
     seen.add(f);
     const g = paintUvOf(s, def, f);
-    if (g === null || k.cornerValues(f, g)) continue;
+    if (g === null || uvAt(k, b.uvSetSlots, f, g)) continue;
     const list = out.get(g) ?? [];
     list.push(f); out.set(g, list);
   }
@@ -115,7 +116,7 @@ export type PaintMove =
 export function paintMoveBlocked(s: Scene, what: PaintMove): string | null {
   if ("def" in what) {
     const b = s.defs.get(what.def)?.body;
-    if (!b || b.kind !== "mesh" || !hasUv(b.kernel)) return null;
+    if (!b || b.kind !== "mesh" || !hasUv(b)) return null;
     if (!what.faces) return PAINT_CANT_MOVE;
     for (const f of what.faces) if (paintUvOf(s, what.def, f) !== null) return PAINT_CANT_MOVE;
     return null;

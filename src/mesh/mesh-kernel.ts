@@ -364,7 +364,7 @@ export class MeshKernel {
 
   // ---------------- 派生：三角化（约束 Delaunay，format/triangulate.ts），改过才重算
   /**
-   * 一张面切成哪几个三角形（下标 = 环上的位置，按面自己的绕向；FM130）。**网格体的面切三角形全仓只从这里来**（贴图主线 1-3a 第一节，2026-11-10）：
+   * 一张面切成哪几个三角形（下标 = 环上的位置，按面自己的绕向；FM130）。**网格体的面切三角形全仓只从这里来**（2026-11-10 起：别处要用面的三角形都从这里拿）：
    * 内核的 triangles()、导出、屏幕上画的（MeshView.faceTriangles → pool-mesh.ts buildFaceRec）、选中高亮 / OBJ（editor/face-triangles.ts）。
    * 以前屏幕上那条路用视图的平面自己另切，四点共圆的面（正方形、长方形）两条对角线一样好，两条路可能选得不一样。O(这张面的点数)。
    */
@@ -459,7 +459,7 @@ export class MeshKernel {
     // (M7) 列的数组装得下所有的角 / 所有的面
     for (const c of this.cornerCols) if (c.data.length < this.loopCount * c.arity) bad.push(`corner column ${c.id}: array shorter than the corners`);
     for (const c of this.faceCols) if (c.data.length < this.fCount) bad.push(`face column ${c.id}: array shorter than the faces`);
-    // (M7½) 带 quantum 的角上的列：每张活面上的值 × quantum 是整数（这列数的格子；施工单十八第四节起贴图坐标就是 1024）
+    // (M7½) 带 quantum 的角上的列：每张活面上的值 × quantum 是整数（这列数的格子，由声明给）
     for (const c of this.cornerCols) {
       const qn = c.def.quantum;
       if (qn === undefined) continue;

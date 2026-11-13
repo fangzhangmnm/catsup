@@ -9,18 +9,18 @@ import { layoutFaces } from "../src/paint/layout.ts";
 import { buildTexelTable, paintFaces, polyRunsOf, type TexelTable } from "../src/paint/texel-table.ts";
 import { SPACE_FILL, fillAimOf } from "../src/paint/space-fill.ts";
 import { SoftSpaceGpu } from "../src/paint/space-gpu-soft.ts";
+import { placeOn, uvAtOf, uvOf, slotsOf } from "./uv-kit.ts";
 
 const UV = "uv";
 /** 一个铺好的盒子（六张面）；twin = 把第 1 张面的贴图坐标抄给第 2 张（= 镜像两半 / 复制出来的面：同一块画布多边形）。 */
 function box(twin = false): { k: MeshKernel; t: TexelTable } {
   const k = new MeshKernel();
   addBox(k, { x: 0, y: 0, z: 0 }, { x: 0.7, y: 0.5, z: 0.9 });
-  k.addColumn({ guid: UV, arity: 2, kind: "uv" });
   const lay = layoutFaces(k, k.faces(), { density: 30 });
   if (!lay.ok) throw new Error(lay.reason);
-  for (const [f, v] of lay.values) k.setFaceValues(f, UV, [...v]);
-  if (twin) { const [a, b] = k.faces(); k.setFaceValues(b, UV, [...k.cornerValues(a, UV)!]); }
-  return { k, t: buildTexelTable(lay.width, lay.height, paintFaces(k, UV), 4) };
+  for (const [f, v] of lay.values) placeOn(k, f, UV, [...v]);
+  if (twin) { const [a, b] = k.faces(); placeOn(k, b, UV, [...uvAtOf(k, a, UV)!]); }
+  return { k, t: buildTexelTable(lay.width, lay.height, paintFaces(uvOf(k), UV), 4) };
 }
 
 describe("油漆桶：每块多边形有哪些格（polyRunsOf）", () => {

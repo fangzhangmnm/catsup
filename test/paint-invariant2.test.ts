@@ -7,12 +7,13 @@ import { PAINT_UNDO_KIND } from "../src/paint/boards.ts";
 import { buildTexelTable, paintFaces } from "../src/paint/texel-table.ts";
 import type { Op } from "../src/editor/ops.ts";
 import { rig } from "./paint-undo-kit.ts";
+import { uvAt, uvMesh } from "../src/scene/uv.ts";
 
 /** 跑一遍场景，返回新面那几格里有旧画的格数（0 = 不变量 2 成立）和说明。 */
 function scenario(): { leaked: number; cells: number; say: string } {
   const r = rig(1), def = r.defs[0], tex = r.startPaint(def);
-  const mesh = () => r.cur().mesh(def), uvOf = () => mesh().kernel.columnDefs().find((c) => c.kind === "uv")!.guid;
-  const table = () => { const row = r.cur().uvSets.get(uvOf())!; return buildTexelTable(row.width, row.height, paintFaces(mesh().kernel, uvOf()), 4); };
+  const mesh = () => r.cur().mesh(def), uvOf = () => mesh().uvSetSlots[0];
+  const table = () => { const row = r.cur().uvSets.get(uvOf())!; return buildTexelTable(row.width, row.height, paintFaces(uvMesh(mesh().kernel, mesh().uvSetSlots), uvOf()), 4); };
   // ① 有主的格全画满
   const t0 = table(), b = r.boards.ensure(r.cur(), tex), W = b.width, H = b.height, px = new Uint8Array(W * H * 4);
   for (let c = 0; c < W * H; c++) if (t0.owner[c] >= 0) { px[4 * c] = 200; px[4 * c + 1] = 40; px[4 * c + 2] = 40; px[4 * c + 3] = 255; }
@@ -22,7 +23,7 @@ function scenario(): { leaked: number; cells: number; say: string } {
   r.h.commitRecords("b", { title: "画一笔" }, r.boards.takePending().map((data) => ({ kind: PAINT_UNDO_KIND, data })));
   r.boards.sync(r.cur());
   // ② 删掉画布上排在最左上的那张面（它的位置最先被补面的铺法看到）
-  const k = mesh().kernel, uv = uvOf(), minCorner = (f: number): number => { const v = k.cornerValues(f, uv)!; let m = Infinity; for (let i = 0; i < v.length; i += 2) m = Math.min(m, v[i] + v[i + 1] * 1e4); return m; };
+  const k = mesh().kernel, uv = uvOf(), minCorner = (f: number): number => { const v = uvAt(k, mesh().uvSetSlots, f, uv)!; let m = Infinity; for (let i = 0; i < v.length; i += 2) m = Math.min(m, v[i] + v[i + 1] * 1e4); return m; };
   const F = k.faces().reduce((a, c) => (minCorner(c) < minCorner(a) ? c : a)), ring = k.faceVerts(F);
   r.commit({ op: "meshDelete", def, faces: [F] } as Op);
   const before = new Set(mesh().kernel.faces());   // 删完之后的面（补出来的新面会复用被删那张的编号：按删完之后比）

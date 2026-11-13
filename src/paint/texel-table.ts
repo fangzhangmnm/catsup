@@ -11,7 +11,7 @@
 //      用它的公式在取样点上算。镜像的两半、复制出来的面各用各的三角形。取样点压在两个三角形的公共边 / 公共点上时哪个算出来都一样；在多边形的边上时和怎么切无关。
 // · 花费：每块多边形只扫它的包围盒（向外扩间隔的一半），按行扫——随所有块的面积涨，不随画布涨（只有两张 宽 × 高 的表要清零）。取样点现算（多边形的几个角）。
 import type { Pt3 } from "../kernel/geom.ts";
-import { UV_Q } from "../mesh/corner-columns.ts";
+import { UV_Q } from "../scene/uv.ts";
 
 /** 一个三角形：tri = 这张面的第几个三角形（MeshKernel.faceTriangles 的先后；落点 surface-pick.ts 返回同一个号）、三个角的贴图坐标（格）和空间位置。 */
 export interface PaintTri { readonly face: number; readonly tri: number; readonly uv: readonly [number, number, number, number, number, number]; readonly pos: readonly [Pt3, Pt3, Pt3] }
@@ -40,13 +40,14 @@ export interface PaintMesh {
   faceVerts(f: number): number[];
   pt(v: number): Pt3;
   faceTriangles(f: number): readonly (readonly [number, number, number])[];
-  cornerValues(f: number, guid: string): Float32Array | null;
+  /** 这张面在排法 uvSet 上的坐标；不在 = null（scene/uv.ts uvMesh；施工单十八第 1½ 刀起不直接问内核）。 */
+  uvAt(f: number, uvSet: string): Float32Array | null;
 }
 /** 这个网格体走 guid 这一列的所有面（角上没有值的面不算），按面的编号。三角形 = 第一节那一套（MeshKernel.faceTriangles）。 */
 export function paintFaces(m: PaintMesh, guid: string): PaintFace[] {
   const out: PaintFace[] = [];
   for (const f of m.faces()) {
-    const v = m.cornerValues(f, guid);
+    const v = m.uvAt(f, guid);
     if (!v) continue;
     const vs = m.faceVerts(f), tris: PaintTri[] = [];
     m.faceTriangles(f).forEach(([a, b, c], tri) => tris.push({ face: f, tri, uv: [v[2 * a], v[2 * a + 1], v[2 * b], v[2 * b + 1], v[2 * c], v[2 * c + 1]], pos: [m.pt(vs[a]), m.pt(vs[b]), m.pt(vs[c])] }));

@@ -1,7 +1,7 @@
 // 环切能滑、能切几圈（W-8，2026-11-10 Claude Opus 5.5）：位置沿整圈量在同一侧；N 圈均分；t = 0.5 时和以前一样。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { loopCut, loopCuts } from "../src/mesh/ops/index.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 

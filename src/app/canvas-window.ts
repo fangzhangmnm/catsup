@@ -25,6 +25,7 @@ import { inputGate } from "./input-dom.ts";
 import { mountImageView } from "./ui/image-view.ts";
 import { createBareFloatWin } from "./ui/bare-float-win.ts";
 import type { PopupMenuItem } from "./ui/popup-menu.ts";
+import { uvMesh } from "../scene/uv.ts";
 
 /** 接缝在小窗里的颜色 = 三维里接缝线的颜色（施工单二十二 B）。 */
 const SEAM_CSS = `#${PALETTE.edgeAccent.toString(16).padStart(6, "0")}`;
@@ -218,7 +219,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     if (nk !== key) {
       key = nk; outlines++;
       const on = k.faces().filter((f) => S.facePaint(def!, k.faceMat[f])?.textureDoc.guid === tex);
-      outline = atlasOutline(k, p.uvSet.guid, on, p.uvSet.width, p.uvSet.height, (a, b) => { const e = k.edgeOf(a, b); return e >= 0 && k.hasFlag(e, F_SEAM); });
+      outline = atlasOutline(uvMesh(k, body.uvSetSlots), p.uvSet.guid, on, p.uvSet.width, p.uvSet.height, (a, b) => { const e = k.edgeOf(a, b); return e >= 0 && k.hasFlag(e, F_SEAM); });
       view.setLines(outline.thin, outline.thick, { lines: outline.seam, color: SEAM_CSS });
       view.setRings((id) => outline?.rings.get(id));
       if (hover !== null && !outline.rings.has(hover)) hover = null;
@@ -291,7 +292,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     const body = editor.sceneRef.def(def!).body;
     const c = document.createElement("canvas"); c.width = W; c.height = H;
     if (body.kind === "mesh") {
-      const t = buildTexelTable(W, H, paintFaces(body.kernel, uvSet), 4), img = new ImageData(W, H), px = img.data;
+      const t = buildTexelTable(W, H, paintFaces(uvMesh(body.kernel, body.uvSetSlots), uvSet), 4), img = new ImageData(W, H), px = img.data;
       for (let i = 0; i < W * H; i++) {
         const o = t.owner[i], x = i % W, y = (i / W) | 0;
         if (o < 0) { const v = (x + y) & 1 ? 200 : 235; px[4 * i] = px[4 * i + 1] = px[4 * i + 2] = v; }

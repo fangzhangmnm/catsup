@@ -86,7 +86,7 @@ function helpers() {
   H.paint = (def, o = {}) => {
     const k = Sc().mesh(def).kernel, tex = g(), uv = g();
     e.commitOp({ op: "startPaint", def, faces: k.faces(), uvSet: uv, textureGuid: tex, materialGuid: g(), names: { uvSet: "UV", paint: o.name ?? "画", material: o.name ?? "画" }, color: [0.3, 0.5, 0.7], ...(o.density ? { density: o.density } : {}) });
-    const info = C.paint.ensure(tex), place = Sc().mesh(def).kernel.hasColumn(uv) ? Sc().uvSets.get(uv) : undefined;   // 排法表在场景层（施工单十八第 1 刀；以前读网格体身上的 uvSets，那以后这里一直是空）
+    const info = C.paint.ensure(tex), place = Sc().mesh(def).uvSetSlots.includes(uv) ? Sc().uvSets.get(uv) : undefined;   // 排法表在场景层（施工单十八第 1 刀；以前读网格体身上的 uvSets，那以后这里一直是空）
     return { tex, faces: k.faces().length, tris: k.faces().reduce((n, f) => n + k.faceTriangles(f).length, 0), width: info.width, height: info.height, pxPerM: place?.pxPerM ?? null };
   };
   /** 最大的整数密度，铺出来的格数不超过 cells（铺法宽度定死 1024，只长高度）。 */

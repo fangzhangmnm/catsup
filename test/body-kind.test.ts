@@ -21,7 +21,7 @@ describe("body kind: 对象层 / 内容层", () => {
   it("mesh 身体：没有内核（kernelOf 抛）、内核 op 拒（OpTargetError）、hasPool 对根成立对 group 不成立、WorldView 给它开槽、clone 保留 kind", () => {
     const s = new Scene(sceneBox());
     const card = s.mintDef("网格", new Kernel());
-    card.body = { kind: "mesh", kernel: meshFromTriangles({ positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), indices: new Uint32Array([0, 1, 2]) }).kernel, materialSlots: [] };
+    card.body = { kind: "mesh", kernel: meshFromTriangles({ positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), indices: new Uint32Array([0, 1, 2]) }).kernel, materialSlots: [], uvSetSlots: [] };
     s.mintInstance(s.root, null, card.id, [1, 0, 0, 3, 0, 1, 0, 0, 0, 0, 1, 0]);
     eq(s.kindOf(card.id), "mesh");
     let threw = false; try { s.kernelOf({ def: card.id, group: null }); } catch { threw = true; } assert(threw, "kernelOf 该抛");

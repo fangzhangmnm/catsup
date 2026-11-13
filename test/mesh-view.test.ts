@@ -2,7 +2,7 @@
 // 契约 scene/kernel-view.ts 由 mesh/mesh-view.ts 真做（记录 = 内核事实、平面 = 环的绕向、自己的改动日志）；WorldView 给 mesh 池开槽；渲染缓存 pool-mesh 对它全量 + 增量；
 // brep → mesh 出多边形面（封闭壳朝外、带洞的面三角化且内部边软 + 平滑）；三角汤往返；clone / castDefinition op。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 import { MeshKernel, F_SOFT, F_SMOOTH, FF_HIDDEN } from "../src/mesh/mesh-kernel.ts";

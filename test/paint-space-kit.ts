@@ -1,6 +1,6 @@
 // 空间里的笔（贴图主线 1-4a）测试共用的东西：针孔相机、给网格体铺一套贴图坐标、目标、笔。不叫 .test.ts（测试文件之间不许互相 import）。created 2026-11-11 by Claude Opus 5.5
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { layoutFaces } from "../src/paint/layout.ts";
 import type { PaintTarget } from "../src/paint/space-target.ts";
 import type { SpaceCamera } from "../src/paint/space-stroke.ts";
@@ -8,6 +8,7 @@ import { resolveBrush } from "../src/paint/kernel/src/common/resolved-brush.ts";
 import type { ResolvedBrush } from "../src/paint/kernel/src/common/resolved-brush.ts";
 import { IDENTITY, type Xform } from "../src/scene/xform.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
+import { placeOn, uvAtOf, uvOf, slotsOf } from "./uv-kit.ts";
 
 export const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 const sub = (a: Pt3, b: Pt3): Pt3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }), add = (a: Pt3, b: Pt3): Pt3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
@@ -29,14 +30,13 @@ export function pinhole(eye: Pt3, target: Pt3, fovDeg = 50, W = 1000, H = 800, o
 
 /** 给网格体铺一套贴图坐标（1-3a layoutFaces），写进 guid 那一列。 */
 export function laidOut(m: MeshKernel, guid = "uv", faces = m.faces(), o: { density?: number; maxSize?: number } = {}): { guid: string; width: number; height: number; pxPerM: number } {
-  m.addColumn({ guid, arity: 2, kind: "uv" });
   const r = layoutFaces(m, faces, { ...(o.density !== undefined ? { density: o.density } : {}), maxSize: o.maxSize ?? 4096 });
   if (!r.ok) throw new Error(`layout: ${r.reason}`);
-  for (const [f, v] of r.values) m.setFaceValues(f, guid, v);
+  for (const [f, v] of r.values) placeOn(m, f, guid, v);
   return { guid, width: r.width, height: r.height, pxPerM: r.density };
 }
 export function targetOf(m: MeshKernel, uv: { guid: string; width: number; height: number; pxPerM: number }, o: { id?: string; xform?: Xform; walks?: (f: number) => boolean; pxPerM?: number } = {}): PaintTarget {
-  return { id: o.id ?? "t", mesh: m, xform: o.xform ?? IDENTITY, uvSet: uv.guid, pxPerM: o.pxPerM ?? uv.pxPerM, canvas: { width: uv.width, height: uv.height }, walks: o.walks ?? (() => true) };
+  return { id: o.id ?? "t", mesh: uvOf(m), xform: o.xform ?? IDENTITY, uvSet: uv.guid, pxPerM: o.pxPerM ?? uv.pxPerM, canvas: { width: uv.width, height: uv.height }, walks: o.walks ?? (() => true) };
 }
 /** 一支笔（屏幕上 size 像素大；间距 0.1；不随压感变；没有起收笔渐细）。resolveBrush 只收 预设 / 大小 / 浓度 / 颜色，别的字段在解析出来的那份上盖。 */
 export const brush = (o: Partial<ResolvedBrush> = {}): ResolvedBrush => ({ ...resolveBrush({ size: o.size ?? 8, color: "#203040" }), spacing: 0.1, flow: 1, opacity: 1, sizeCoeff: 0, flowCoeff: 0, opaCoeff: 0, pressureGamma: 1, pressureLPF: 0, taperIn: 0, taperOut: 0, streamline: 0, stabilization: 0, ...o }) as ResolvedBrush;

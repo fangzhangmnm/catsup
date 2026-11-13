@@ -4,7 +4,7 @@
 // 面里面的格子逐格比：差不超过 1/255；取最大 / 叠加 × 软笔 / 硬笔各一遍。对不上 = 某一步的次序或舍入不一样（报给统筹，不放宽）。
 import { describe, it, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { SoftSpaceGpu } from "../src/paint/space-gpu-soft.ts";
 import { SpaceLayer } from "../src/paint/space-layer.ts";
 import { buildTargetGeo } from "../src/paint/space-target.ts";

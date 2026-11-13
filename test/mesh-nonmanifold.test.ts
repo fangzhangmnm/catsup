@@ -1,7 +1,7 @@
 // 非流形 / 重复面的两道护栏（created 2026-10-29 by Claude Opus 5.5；user 10-29 日志「loopCut: edge 18 has 4 faces」：合并 3 个点 + 强行对称之后，选东西时右键菜单数「环切」抛成脚本错误）。
 // ① 环切从一条被 ≥ 3 张面共用的边 / 裸线起手 = 交回空结果（「切不出一圈」），不抛 ② 并点后变成一模一样的两张面（点集相同）= 留一张；原来就有的重复不碰
 import { describe, it, eq, assert } from "./runner.mjs";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { loopCut, mergeVerts } from "../src/mesh/ops/index.ts";
 

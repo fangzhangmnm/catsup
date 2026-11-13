@@ -93,6 +93,8 @@ import { mountPaintSliders } from "./paint-sliders.ts";
 import type { SpacePaintDeps } from "../paint/space-paint.ts";
 import { PAINT_STEP_LABELS } from "../editor/step-labels.ts";   // 画板登记处（贴图主线 1-3c）：一张贴图一块画板；这一张只有调试钩子 __catsup.paint 建
 import { meshBodyIssues, paintPlaceOf } from "../scene/paint.ts";
+import { placeFace, uvAt, uvBoxes, uvMesh } from "../scene/uv.ts";
+import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { buildTriGrid, pickSurface } from "../paint/surface-pick.ts";   // 调试钩子 __catsup.paint.cellAt：1-3a 的落点
 import { applyDir, applyPt, invert } from "../scene/xform.ts";
 // 调试钩子 __catsup.paint.lab（贴图主线 1-4b）：探针在页面里拿三维的空间层那几块（薄层、软件版、名单、找面、真显卡版）对拍；没有界面入口
@@ -2738,6 +2740,15 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
     /** 读数那一组的两个开关（统筹 11-11）：探针用——setPath = 角标「走法」那一下、check = 跑一次核对（true = 都对上）、state = 现在的开关。 */
     diag: { setPath: (p: typeof displayDiag.path) => setDisplayPath(p, displayDiag.check), setCheck: (on: boolean) => { displayDiag.check = on; displayDiag.penUp = false; }, check: () => runPaintCheck(), detail: () => paintCheckDetail(), state: () => ({ ...displayDiag }), log: () => debugLogText() },
     boards: paintBoards,
+    /** 贴图坐标（施工单十八第 1½ 刀：网格体的速查表 + 面上的代号 + 角上的坐标，只经 scene/uv.ts）：探针在页面里问 / 搭。 */
+    uv: {
+      sets: (def: number): string[] => [...editor.sceneRef.mesh(def as never).uvSetSlots],
+      at: (def: number, f: number, g: string): number[] | null => { const b = editor.sceneRef.mesh(def as never), v = uvAt(b.kernel, b.uvSetSlots, f, g); return v ? Array.from(v) : null; },
+      boxes: (def: number, g: string): number[] => { const b = editor.sceneRef.mesh(def as never); return Array.from(uvBoxes(b.kernel, b.uvSetSlots, g)); },
+      /** 不在场景里的内核（探针自己建的）：放位置 / 看成读坐标的那几块要的样子。slots = 探针自己留着的速查表。 */
+      place: (k: MeshKernel, slots: string[], f: number, g: string, at: ArrayLike<number>): void => { placeFace(k, slots, f, g, at); },
+      view: (k: MeshKernel, slots: string[]) => uvMesh(k, slots),
+    },
     ensure: (guid?: string) => { const g = guid ?? [...editor.sceneRef.textures.keys()].find((t) => paintPlaceOf(editor.sceneRef, t)); if (!g) throw new Error("no placed paint in this scene"); const b = paintBoards.ensure(editor.sceneRef, g); editor.draw(); return { guid: g, width: b.width, height: b.height }; },
     fill: (guid: string, rgba: ArrayLike<number>) => { const b = paintBoards.get(guid); if (!b) throw new Error(`no board for ${guid}`); paintBoards.load(guid, { width: b.width, height: b.height, nodes: [{ name: "Layer 1", visible: true, opacity: 1, mode: "source-over", clippingMask: false, lockAlpha: false, pixels: { rect: { x: 0, y: 0, w: b.width, h: b.height }, bytes: new Uint8ClampedArray(rgba) } }] }); editor.draw(); },
     list: () => paintBoards.guids().map((g) => ({ guid: g, width: paintBoards.get(g)!.width, height: paintBoards.get(g)!.height })),
@@ -2815,9 +2826,9 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
       const S = editor.sceneRef, place = paintPlaceOf(S, guid), body = place ? S.def(place.def).body : null;
       const slot = place ? editor.worldGeom().slots.find((s) => s.pool.def === place.def && s.pool.group === null) : undefined;   // 按世界里的槽找（嵌在组件里的也找得到，1-4c）
       if (!place || !body || body.kind !== "mesh" || !slot) return null;
-      const k = body.kernel, r = editor.cam.ray(sx, sy, editor.vp()), X = invert(slot.xform);
-      if (!cellAtGrid || cellAtGrid.k !== k || cellAtGrid.rev !== k.rev) cellAtGrid = { k, rev: k.rev, grid: buildTriGrid(k) };   // 探针一格一格问：格子按网格体 + 修改号留着
-      const hit = pickSurface(k, cellAtGrid.grid, place.uvSet.guid, applyPt(X, r.origin), applyDir(X, r.dir));
+      const k = body.kernel, m = uvMesh(k, body.uvSetSlots), r = editor.cam.ray(sx, sy, editor.vp()), X = invert(slot.xform);
+      if (!cellAtGrid || cellAtGrid.k !== k || cellAtGrid.rev !== k.rev) cellAtGrid = { k, rev: k.rev, grid: buildTriGrid(m) };   // 探针一格一格问：格子按网格体 + 修改号留着
+      const hit = pickSurface(m, cellAtGrid.grid, place.uvSet.guid, applyPt(X, r.origin), applyDir(X, r.dir));
       return hit && hit.inPaint ? { face: hit.face, cell: hit.cell, uv: hit.uv } : hit ? { face: hit.face } : null;
     },
   }, locomotion, vr, hud, session, hand, galleryHost, refs: refHost, crash: crashStore, test: { openConfirmSheet, openInputSheet, toggleHelp, toggleMatSheet, openDebugLogSheet, openSyncGate, withBusy, inputGate },

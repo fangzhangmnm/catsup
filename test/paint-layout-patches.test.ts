@@ -2,7 +2,7 @@
 // 叠没叠用一个和铺法无关的查法：在画布上撒点（每格 4 × 4），数每个点落在几张面里（严格在里面）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { addBox } from "../src/mesh/ops/build.ts";
 import { layoutFaces, patchesOf, gapForCanvas, PATCH_MAX_DEG, PATCH_MIN_FILL, type Block } from "../src/paint/layout.ts";
 import { buildTexelTable, type PaintFace } from "../src/paint/texel-table.ts";

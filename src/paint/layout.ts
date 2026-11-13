@@ -10,18 +10,21 @@
 //   留给后面的种子（按种子的方向量；只看几何，不看画布大小）；② 片的朝向取包围盒最小的：候选 = 片外沿上每条边的方向，一样小留种子最长的边（两张面以上的片才换；
 //   只有一张面的片不动，和「一张面一块」逐位相同）。
 import type { Pt3 } from "../kernel/geom.ts";
-import { quantizeUv } from "../mesh/corner-columns.ts";
+import { quantizeUv } from "../scene/uv.ts";
 
-/** 铺法要的那一点内核（MeshKernel 满足；测试可以给假的）。 */
-export interface LayoutMesh {
+/** 铺法要的那一点几何（MeshKernel 满足；测试可以给假的）。开始画（layoutFaces）只要这些。 */
+export interface LayoutGeom {
   facePts(f: number): Pt3[];
   faceNormal(f: number): Pt3;
-  cornerValues(f: number, guid: string): Float32Array | null;
-  /** 可选（MeshKernel 有）：这一列上有值的每张面的包围盒 [横小, 纵小, 横大, 纵大, …]。有它 = 补面时「哪里被占着」一趟扫完（不按 placed 逐张拷值）。 */
-  columnBoxes?(guid: string): ArrayLike<number>;
   /** 连成片要（MeshKernel 有）：环上的点编号（认公共的边）、显示用的那套三角形（角的下标；查压平后叠没叠）。 */
   faceVerts?(f: number): number[];
   faceTriangles?(f: number): readonly (readonly [number, number, number])[];
+}
+/** 补面（layoutAppend）还要问贴图坐标：这张面在排法 guid 上的坐标（不在 = null）、哪里被占着（scene/uv.ts uvMesh 满足；施工单十八第 1½ 刀起不再直接问内核）。 */
+export interface LayoutMesh extends LayoutGeom {
+  uvAt(f: number, uvSet: string): Float32Array | null;
+  /** 可选：在这一套上有位置的每张面的包围盒 [横小, 纵小, 横大, 纵大, …]。有它 = 补面时「哪里被占着」一趟扫完（不按 placed 逐张拷值）。 */
+  uvBoxes?(uvSet: string): ArrayLike<number>;
 }
 export interface LayoutOptions {
   /** 每米多少格。不给 = 画布定成 base 见方，二分找出能放下的最大密度（精确到每米一格）。 */
@@ -70,7 +73,7 @@ function areaOf(pts: readonly Pt3[]): number {
   return area;
 }
 /** 一张面压平用的方向：e = 最长那条边的方向（一样长取环上靠前的）、t = n × e（单位长）。退化（面积是零 / 摆不出方向）= null。flatten 和连成片的种子共用这一份。 */
-function frameOf(m: LayoutMesh, f: number): { e: Pt3; t: Pt3; bl: number } | null {
+function frameOf(m: LayoutGeom, f: number): { e: Pt3; t: Pt3; bl: number } | null {
   const pts = m.facePts(f), n = pts.length;
   let best = -1, bl = 0;
   for (let i = 0; i < n; i++) { const a = pts[i], b = pts[(i + 1) % n], l = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z); if (l > bl + EPS) { bl = l; best = i; } }
@@ -82,7 +85,7 @@ function frameOf(m: LayoutMesh, f: number): { e: Pt3; t: Pt3; bl: number } | nul
   return { e, t: { x: t0.x / tl, y: t0.y / tl, z: t0.z / tl }, bl };
 }
 /** 一组面按同一个方向（e, t）压平之后：每张面的角在块里的坐标（左上角 = 0,0）+ 块的宽高。一张面的时候就是以前的「一张面一块」（同一串算式，逐位相同）。 */
-function flattenAll(m: LayoutMesh, faces: readonly number[], fr: { e: Pt3; t: Pt3 }, density: number): { w: number; h: number; uvs: Map<number, Float64Array> } {
+function flattenAll(m: LayoutGeom, faces: readonly number[], fr: { e: Pt3; t: Pt3 }, density: number): { w: number; h: number; uvs: Map<number, Float64Array> } {
   const { e, t } = fr, uvs = new Map<number, Float64Array>();
   let minU = Infinity, minV = Infinity, maxU = -Infinity, maxV = -Infinity;
   for (const f of faces) {
@@ -98,7 +101,7 @@ function flattenAll(m: LayoutMesh, faces: readonly number[], fr: { e: Pt3; t: Pt
   return { w: ceilCells(maxU - minU), h: ceilCells(maxV - minV), uvs };
 }
 /** 一张面摆平之后（还没放到画布上）：角在块里的坐标（左上角 = 0,0）+ 块的宽高。退化的面（面积是零 / 摆不出方向）占一格、角都在格子中心。 */
-function flatten(m: LayoutMesh, f: number, density: number): { w: number; h: number; uv: Float64Array } {
+function flatten(m: LayoutGeom, f: number, density: number): { w: number; h: number; uv: Float64Array } {
   const fr = frameOf(m, f);
   if (!fr) { const uv = new Float64Array(2 * m.facePts(f).length); uv.fill(0.5); return { w: 1, h: 1, uv }; }
   const r = flattenAll(m, [f], fr, density);
@@ -108,7 +111,7 @@ function flatten(m: LayoutMesh, f: number, density: number): { w: number; h: num
 /** 排的单位：一张面一块（frame = null：照 flatten），或者一片（种子的方向，整片一块）。 */
 interface Unit { readonly seed: number; readonly faces: readonly number[]; readonly frame: { e: Pt3; t: Pt3 } | null }
 const unitsByFace = (faces: readonly number[]): Unit[] => faces.map((f) => ({ seed: f, faces: [f], frame: null }));
-function placeUnit(m: LayoutMesh, u: Unit, density: number): { w: number; h: number; uvs: Map<number, Float64Array> } {
+function placeUnit(m: LayoutGeom, u: Unit, density: number): { w: number; h: number; uvs: Map<number, Float64Array> } {
   if (!u.frame) { const r = flatten(m, u.seed, density); return { w: r.w, h: r.h, uvs: new Map([[u.seed, r.uv]]) }; }
   return flattenAll(m, u.faces, u.frame, density);
 }
@@ -119,7 +122,7 @@ function placeUnit(m: LayoutMesh, u: Unit, density: number): { w: number; h: num
  * 试的先后会改结果，按编号就和面的编号有关了；按远近长还让片更圆、更满）。邻面在这批面里、还没归片、不是退化的、每个三角形和片压平到的面夹角小于 maxDeg、
  * 压平之后不和片里已有的面叠在一起（共边共点不算）、收了之后片不太空（minFill），就收进来；被拒的面以后从别的邻面再碰到会再试。退化的面各自一片（照 flatten 占一格）。
  */
-export function patchesOf(m: LayoutMesh, faces: readonly number[], opts: { readonly maxDeg?: number; readonly minFill?: number; readonly orient?: "box" | "seed" } = {}): Unit[] {
+export function patchesOf(m: LayoutGeom, faces: readonly number[], opts: { readonly maxDeg?: number; readonly minFill?: number; readonly orient?: "box" | "seed" } = {}): Unit[] {
   const maxDeg = opts.maxDeg ?? PATCH_MAX_DEG, minFill = opts.minFill ?? PATCH_MIN_FILL, orient = opts.orient ?? "box";
   if (!m.faceVerts || !m.faceTriangles) throw new Error("patchesOf: mesh lacks faceVerts / faceTriangles");
   const fv = m.faceVerts.bind(m), ft = m.faceTriangles.bind(m);
@@ -242,7 +245,7 @@ class PatchFill {
  * 片的朝向取包围盒最小的（施工单十六第三节）：在种子的平面里（法向 nS）转，候选 = 片外沿上每条边（只属于片里一张面的边）的方向；
  * 包围盒按片的凸包算。比种子的方向（最长的边）严格小才换，一样小留种子的——所以结果只会比原来紧、不会更松。新的 t = nS × e（和原来同一个手性，不会镜像）。
  */
-function tightFrame(m: LayoutMesh, members: readonly number[], fr: { e: Pt3; t: Pt3 }, nS: Pt3, fv: (f: number) => number[]): { e: Pt3; t: Pt3 } {
+function tightFrame(m: LayoutGeom, members: readonly number[], fr: { e: Pt3; t: Pt3 }, nS: Pt3, fv: (f: number) => number[]): { e: Pt3; t: Pt3 } {
   const P: [number, number][] = [], uses = new Map<string, number>(), dirs: [number, number][] = [];
   for (const f of members) { const vs = fv(f); for (let i = 0; i < vs.length; i++) { const a = vs[i], b = vs[(i + 1) % vs.length], k = a < b ? `${a},${b}` : `${b},${a}`; uses.set(k, (uses.get(k) ?? 0) + 1); } }
   for (const f of members) {
@@ -305,7 +308,7 @@ function pack(sizes: readonly { face: number; w: number; h: number }[], W: numbe
 const order = <T extends { face: number; w: number; h: number }>(xs: T[]): T[] => xs.sort((a, b) => b.h - a.h || b.w - a.w || a.face - b.face);
 
 /** 按一个密度试着铺：画布宽 W、高的上限 maxH。units = 排的单位（一张面一块 / 一片一块）；块的 face = 那一块的种子。 */
-function tryDensity(m: LayoutMesh, units: readonly Unit[], density: number, W: number, gap: number, maxH: number): { blocks: Block[]; values: Map<number, Float64Array>; height: number } | null {
+function tryDensity(m: LayoutGeom, units: readonly Unit[], density: number, W: number, gap: number, maxH: number): { blocks: Block[]; values: Map<number, Float64Array>; height: number } | null {
   const flat = new Map(units.map((u) => [u.seed, placeUnit(m, u, density)] as const));
   const sizes = order(units.map((u) => ({ face: u.seed, w: flat.get(u.seed)!.w, h: flat.get(u.seed)!.h })));
   const at = pack(sizes, W, gap, maxH);
@@ -321,7 +324,7 @@ function tryDensity(m: LayoutMesh, units: readonly Unit[], density: number, W: n
 }
 
 /** 给一批面铺贴图坐标（一张面一块）。不改内核：values = 每张面每个角的 [横, 纵, 横, 纵…]（格）。 */
-export function layoutFaces(m: LayoutMesh, faces: readonly number[], opts: LayoutOptions = {}): LayoutResult {
+export function layoutFaces(m: LayoutGeom, faces: readonly number[], opts: LayoutOptions = {}): LayoutResult {
   const gap = Math.max(0, Math.round(opts.gap ?? 4)), maxSize = opts.maxSize ?? 4096, base = opts.base ?? 1024;
   const fs = [...new Set(faces)].sort((a, b) => a - b);
   if (!fs.length) return { ok: true, width: base, height: 256, density: opts.density ?? 0, blocks: [], values: new Map() };
@@ -357,7 +360,7 @@ function widthsUpTo(maxSize: number): number[] { const out = [128]; for (let w =
  * 按一格多大铺（施工单十六第四节）：密度定了，画布取接近正方形、够用的最小宽高——宽从小往大试（留的格数跟着这个宽走 = gapForCanvas），
  * 排完的高（往上取到步长）不超过宽就是它；宽高不必是 2 的幂。试到上限都放不下 = 说原因。
  */
-function squarish(m: LayoutMesh, units: readonly Unit[], d: number, maxSize: number, what: string, faceCount: number): LayoutResult {
+function squarish(m: LayoutGeom, units: readonly Unit[], d: number, maxSize: number, what: string, faceCount: number): LayoutResult {
   const flat = units.map((u) => ({ face: u.seed, ...placeUnit(m, u, d) })), widest = flat.reduce((a, b) => (b.w > a.w ? b : a));
   let last: { W: number; H: number } | null = null;
   for (const W of widthsUpTo(maxSize)) {
@@ -392,9 +395,9 @@ export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly numbe
     if (recompute) rerun(j0, j1);
   };
   const box = (x0: number, y0: number, x1: number, y1: number): void => mark(Math.floor(x0), Math.floor(y0), Math.max(Math.floor(x0) + 1, Math.ceil(x1)), Math.max(Math.floor(y0) + 1, Math.ceil(y1)), false);
-  if (m.columnBoxes) { const b = m.columnBoxes(guid); for (let i = 0; i + 3 < b.length; i += 4) box(b[i], b[i + 1], b[i + 2], b[i + 3]); }   // 这一列上有值的面全算占着（不管它现在走不走画）
+  if (m.uvBoxes) { const b = m.uvBoxes(guid); for (let i = 0; i + 3 < b.length; i += 4) box(b[i], b[i + 1], b[i + 2], b[i + 3]); }   // 在这一套上有位置的面全算占着（不管它现在走不走画）
   else for (const f of placed) {
-    const v = m.cornerValues(f, guid);
+    const v = m.uvAt(f, guid);
     if (!v) continue;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (let i = 0; i < v.length; i += 2) { x0 = Math.min(x0, v[i]); x1 = Math.max(x1, v[i]); y0 = Math.min(y0, v[i + 1]); y1 = Math.max(y1, v[i + 1]); }
@@ -415,7 +418,7 @@ export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly numbe
     }
     return null;
   };
-  const done = new Set(placed), fs = [...new Set(add)].filter((f) => !done.has(f) && !m.cornerValues(f, guid)).sort((a, b) => a - b);   // 已经有值的不动
+  const done = new Set(placed), fs = [...new Set(add)].filter((f) => !done.has(f) && !m.uvAt(f, guid)).sort((a, b) => a - b);   // 已经有值的不动
   const sizes = order(fs.map((f) => ({ face: f, ...flatten(m, f, density) })));
   let H = canvas.height;
   const blocks: Block[] = [], values = new Map<number, Float64Array>(), unplaced: number[] = [];

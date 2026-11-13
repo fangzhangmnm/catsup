@@ -54,9 +54,9 @@ const res = await page.evaluate(async () => {
   {
     const MK = m.constructor, k64 = new MK(), N = 64, FRESH = { kind: "fresh" }, q = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)];
     for (let k = 0; k < N; k++) k64.addFace(q.map((p) => k64.addVertex(P(p.x, p.y, p.z + k * 1e-4))), -1, FRESH);
-    k64.addColumn({ guid: "uv64", arity: 2 });
-    for (const f of k64.faces()) k64.setFaceValues(f, "uv64", [4, 4, 36, 4, 36, 36, 4, 36]);
-    const t64 = { id: "t64", mesh: k64, xform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], uvSet: "uv64", pxPerM: 32, canvas: { width: 40, height: 40 }, walks: () => true };
+    const UV = globalThis.__catsup.paint.uv, sl64 = [];   // 施工单十八第 1½ 刀：贴图坐标只经 scene/uv.ts（调试钩子 paint.uv）
+    for (const f of k64.faces()) UV.place(k64, sl64, f, "uv64", [4, 4, 36, 4, 36, 36, 4, 36]);
+    const t64 = { id: "t64", mesh: UV.view(k64, sl64), xform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], uvSet: "uv64", pxPerM: 32, canvas: { width: 40, height: 40 }, walks: () => true };
     const g64 = L.buildTargetGeo(t64), tip = { x: 0.5, y: 0.5, z: 0.003, r: 0.2, alpha: 0.8 };
     const reach = new Map([[0, new Map([[0, Array.from(g64.grid.face, (_, k) => k)]])]]);   // 叠着的面互不相连：这颗笔尖碰到的三角形直接给全部
     const row = { polys: g64.table.polys.length, faces: g64.table.polyFaces[0]?.length ?? 0, runs: [] };

@@ -6,7 +6,7 @@
 import type { PaintMesh } from "./texel-table.ts";
 
 /** 要的那一点网格体（MeshKernel 满足）：环上的点编号（认公共的边）+ 角上的贴图坐标。 */
-export type AtlasMesh = Pick<PaintMesh, "faceVerts" | "cornerValues">;
+export type AtlasMesh = Pick<PaintMesh, "faceVerts" | "uvAt">;
 export interface AtlasOutline {
   readonly width: number; readonly height: number;
   /** 这张 atlas 上的面（升序）。 */
@@ -31,9 +31,9 @@ export interface AtlasOutline {
 const SAME_UV = 1e-3;   // 格：两张面在同一个点上的坐标差不到这么多 = 连着（不是缝）
 
 export function atlasOutline(m: AtlasMesh, uvSet: string, faces: readonly number[], width: number, height: number, seamAt?: (a: number, b: number) => boolean): AtlasOutline {
-  const fs = [...new Set(faces)].filter((f) => m.cornerValues(f, uvSet)).sort((a, b) => a - b);
+  const fs = [...new Set(faces)].filter((f) => m.uvAt(f, uvSet)).sort((a, b) => a - b);
   const rings = new Map<number, Float32Array>(), verts = new Map<number, number[]>();
-  for (const f of fs) { rings.set(f, Float32Array.from(m.cornerValues(f, uvSet)!)); verts.set(f, m.faceVerts(f)); }
+  for (const f of fs) { rings.set(f, Float32Array.from(m.uvAt(f, uvSet)!)); verts.set(f, m.faceVerts(f)); }
   // 边 → 用它的面（按点编号认）
   const byEdge = new Map<string, { f: number; i: number }[]>(), seamEdge = new Set<string>();
   for (const f of fs) { const vs = verts.get(f)!; for (let i = 0; i < vs.length; i++) { const a = vs[i], b = vs[(i + 1) % vs.length], k = a < b ? `${a},${b}` : `${b},${a}`; const l = byEdge.get(k); if (l) l.push({ f, i }); else { byEdge.set(k, [{ f, i }]); if (seamAt?.(a, b)) seamEdge.add(k); } } }

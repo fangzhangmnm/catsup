@@ -24,7 +24,8 @@ import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, loopC
 import { Kernel } from "../kernel/kernel.ts";
 import { bornFaces, settleNewFaceSides } from "../kernel/face-sides.ts";
 import { MeshKernel } from "../mesh/mesh-kernel.ts";
-import { FRESH } from "../mesh/corner-columns.ts";
+import { mergeUvSlots, remapUvCode } from "../scene/uv.ts";
+import { FRESH } from "../mesh/columns.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
 import { edgesAlongSegs } from "../kernel/curves.ts";
@@ -184,7 +185,7 @@ export type Op =
   /** 给网格体的面换材质（1-3b）：material = 文档材质的下标、null = 默认；可以换成这个定义自己的画，别的定义的画拒绝；从画换走角上的数留着。 */
   | { op: "meshPaintFaces"; def: number; faces: number[]; material: number | null }
   /** 给走画但还没有位置的面补一块（1-3b；每一步做完的收尾补进同一步）：faces = 只看这些（不给 = 全部）。放不下的不拒绝，留着没有值。 */
-  | { op: "meshLayoutPaint"; def: number; faces?: number[] }
+  | { op: "meshLayoutPaint"; def: number; faces?: number[]; /** 先拿掉这些面的位置（每一步的收尾读内核报告：并面时贴图坐标对不上的；施工单十八第 1½ 刀）。 */ drop?: number[] }
   /** 分开（Blender P → 选中）：网格体 def 里这些面搬进一个新的网格体组件，摆在 at 池里、和正在编辑的那一份（instance）同一个变换（世界里不动）。 */
   | { op: "separateObject"; at: PoolRef; instance?: number; def: number; faces: number[]; name: string }   // instance 缺 = 在最外层分（新组件摆在最外层、不变换）
   /** 合并物体（Blender Ctrl+J）：at 池里 sources 这几份网格体的几何换到 target 那一份的坐标里并进它的定义，sources 删掉。 */
@@ -362,7 +363,7 @@ function wrapInMesh(s: Scene, op: Extract<Op, { op: "makeComponent" }>): ApplyRe
   const pts = isel.flatMap((i) => s.pointsOfDef(i.def, i.xform)), origin = pts.length ? bboxMin(pts) : { x: 0, y: 0, z: 0 };
   const T = translation({ x: -origin.x, y: -origin.y, z: -origin.z });
   const def = s.mintDef(op.name, new Kernel());
-  def.body = { kind: "mesh", kernel: new MeshKernel(), materialSlots: [...slots] };
+  def.body = { kind: "mesh", kernel: new MeshKernel(), materialSlots: [...slots], uvSetSlots: [] };
   for (const i of isel) {
     const ni = s.mintInstance(def.id, null, i.def, compose(T, i.xform), i.guid);   // 搬家保身份（ID-2）
     if (i.name !== undefined) ni.name = i.name;
@@ -868,13 +869,13 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (!faces.length) throw new OpTargetError("separate: no faces");
       refusePaintMove(s, { def: op.def, faces });
       const nk = new MeshKernel(), map = new Map<number, number>(), nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = nk.addVertex(k.pt(v)); map.set(v, x); } return x; };
-      nk.ensureColumns(k.columnDefs());   // 整张面原样搬到新内核：列按 GUID 对上、角上的数跟着搬
-      for (const f of faces) nk.addFace(k.faceVerts(f).map(nv), k.faceMat[f], { kind: "fresh", values: k.faceValues(f) });
+      nk.ensureColumns(k.columnDefs());   // 整张面原样搬到新内核：列按 id 对上、面上和角上的数跟着搬（新物件带同一张速查表，贴图坐标的代号原样有效）
+      for (const f of faces) { const v = k.columnsOf(f); nk.addFace(k.faceVerts(f).map(nv), k.faceMat[f], { kind: "fresh", corner: v.corner, face: v.face }); }
       for (const f of faces) for (const e of k.fEdges(f)) { const e2 = nk.edgeOf(map.get(k.edgeA[e])!, map.get(k.edgeB[e])!); if (e2 >= 0) nk.edgeFlags[e2] = k.edgeFlags[e]; }   // 手标（棱 / 平滑）跟着走
       nk.setSmoothDefault(k.smoothDefault);
       deleteSelection(k, { faces }, false);
       const d = s.mintDef(op.name, new Kernel());
-      d.body = { kind: "mesh", kernel: nk, materialSlots: [...src.materialSlots] };   // 带着画的面分不出来（paintMoveBlocked 先拒）：新物件没有贴图坐标的表
+      d.body = { kind: "mesh", kernel: nk, materialSlots: [...src.materialSlots], uvSetSlots: [...src.uvSetSlots] };   // 槽表 / 速查表照拷（带着画的面现在分不出来，paintMoveBlocked 先拒；第 3 刀放开）
       s.mintInstance(op.at.def, op.at.group, d.id, xf);
       return { scene: s, events: [] };
     }
@@ -1031,8 +1032,9 @@ function appendMesh(tb: MeshBody, sb: MeshBody, X: Xform): void {
   const sk = sb.kernel, tk = tb.kernel, map = new Map<number, number>();
   const nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = tk.addVertex(applyPt(X, sk.pt(v))); map.set(v, x); } return x; };
   const slot = (m: number): number => { if (m < 0) return -1; const id = sb.materialSlots[m]; if (id === undefined) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
-  tk.ensureColumns(sk.columnDefs());   // 整张面原样搬到另一个内核：对方有、这边没有的列补上（原有的面全没值），角上的数跟着搬
-  for (const f of sk.faces()) tk.addFace(sk.faceVerts(f).map(nv), slot(sk.faceMat[f]), { kind: "fresh", values: sk.faceValues(f) });
+  const uvCode = mergeUvSlots(tb.uvSetSlots, sb.uvSetSlots);   // 贴图坐标的速查表：和材质槽同一处并进来、搬过来的面重新对号（施工单十八 3.2½ 第 6 条）
+  tk.ensureColumns(sk.columnDefs());   // 整张面原样搬到另一个内核：对方有、这边没有的列补上（原有的面填那一列的 fill），面上和角上的数跟着搬
+  for (const f of sk.faces()) { const v = sk.columnsOf(f); remapUvCode(v.face, uvCode); tk.addFace(sk.faceVerts(f).map(nv), slot(sk.faceMat[f]), { kind: "fresh", corner: v.corner, face: v.face }); }
   for (const e of sk.edges()) {
     if (sk.eFaces(e).length === 0) { tk.ensureEdge(nv(sk.edgeA[e]), nv(sk.edgeB[e])); continue; }
     const e2 = tk.edgeOf(map.get(sk.edgeA[e])!, map.get(sk.edgeB[e])!); if (e2 >= 0) tk.edgeFlags[e2] = sk.edgeFlags[e];
@@ -1071,7 +1073,7 @@ const paintOutcome = (s: Scene, o: PaintOutcome): ApplyResult => { if (o && "rej
 const pastePaintScope = (s: Scene, pp: PastePlan): { defSlots: (readonly (Guid | null)[])[]; replaces: number[]; carriesUv: boolean } => {
   const isDef = (r: { kind: string }): boolean => r.kind === DEFINITION, want = new Set([...pp.plan.create, ...pp.plan.update].filter(isDef).map((r) => r.guid)), upd = new Set(pp.plan.update.filter(isDef).map((r) => r.guid));
   const defs = pp.bundle.docs.filter((d) => d.kind === DEFINITION && want.has((d.doc as DefinitionEntry).def.guid)).map((d) => (d.doc as DefinitionEntry).def);
-  return { defSlots: defs.map((d) => d.materialSlots), replaces: [...s.defs.values()].filter((d) => upd.has(d.guid)).map((d) => d.id), carriesUv: defs.some((d) => !!d.mesh?.columns?.some((c) => c.kind === "uv")) };   // 1-2½：文件形状带着贴图坐标了（施工单十八：uv 列）
+  return { defSlots: defs.map((d) => d.materialSlots), replaces: [...s.defs.values()].filter((d) => upd.has(d.guid)).map((d) => d.id), carriesUv: defs.some((d) => (d.mesh?.uv?.sets.length ?? 0) > 0) };   // 1-2½：文件形状带着贴图坐标了（施工单十八第 1½ 刀：MeshDoc.uv，在至少一套排法上）
 };
 /** 第六节那几种动作的唯一拒绝口（判断在 scene/paint.ts paintMoveBlocked）。 */
 const refusePaintMove = (s: Scene, what: PaintMove): void => { const why = paintMoveBlocked(s, what); if (why) throw new OpRejected(why); };
@@ -1140,7 +1142,7 @@ function applyShelfOp(s: Scene, op: Extract<Op, { op: "shelfPut" | "shelfTake" |
  */
 function explodeAcrossKinds(s: Scene, at: PoolRef, inst: Instance): void {
   const host = s.def(at.def), src = s.def(inst.def), hostMesh = s.kindOf(at.def) === "mesh";
-  const copyBody = (): SceneBody => (src.body.kind === "mesh" ? { ...src.body, kernel: src.body.kernel.clone(), materialSlots: [...src.body.materialSlots] } : src.body);
+  const copyBody = (): SceneBody => (src.body.kind === "mesh" ? { ...src.body, kernel: src.body.kernel.clone(), materialSlots: [...src.body.materialSlots], uvSetSlots: [...src.body.uvSetSlots] } : src.body);
   if (hostMesh) {
     const mb = (src.body.kind === "mesh" ? copyBody() : castBody(src.body, "mesh")) as MeshBody;
     appendMesh(s.mesh(at.def), mb, inst.xform);

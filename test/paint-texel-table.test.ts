@@ -1,12 +1,13 @@
 // 格子归属表、取样点、一格在面上的位置（贴图主线 1-3a 第三节，施工单 ai-docs/20261110-paint-workorders-7.md + Fable 11-10 深夜裁定 B）的性质。created 2026-11-10 by Claude Opus 5.5
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { addBox, extrudeFaces } from "../src/mesh/ops/index.ts";
 import { symmetrize } from "../src/mesh/mirror.ts";
 import { layoutFaces } from "../src/paint/layout.ts";
 import { buildTexelTable, cellPosition, distToPoly, inPoly, nearestOnPoly, paintFaces, positionAt, positionOnFace, samplePoint, sampleOffset, SAMPLE_Q, MAX_GAP, formulaOf, type PaintFace, type TexelTable } from "../src/paint/texel-table.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
+import { placeOn, uvAtOf, uvOf, slotsOf } from "./uv-kit.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 const UV = "uv";
@@ -21,11 +22,10 @@ function painted(seed: number, density = 40): { k: MeshKernel; t: TexelTable; tw
   for (const v of k.faceVerts(pent)) { const p = k.pt(v); k.setPos(v, { ...p, z: p.z + 0.7 }); }
   for (let i = 0; i < 3; i++) k.addFace([P(6 + i, 0, 0), P(6.4 + i, 0.1 * r(), 0.3), P(6.1 + i, 0.6, 0.1)].map((p) => k.addVertex(p)), -1, FRESH);
   const twisted = k.addFace([P(10, 0, 0), P(11, 0, 0.2), P(11, 0.8, 0), P(10, 0.8, 0.25)].map((p) => k.addVertex(p)), -1, FRESH);
-  k.addColumn({ guid: UV, arity: 2, kind: "uv" });
   const lay = layoutFaces(k, k.faces(), { density });
   if (!lay.ok) throw new Error(lay.reason);
-  for (const [f, v] of lay.values) k.setFaceValues(f, UV, [...v]);
-  return { k, t: buildTexelTable(lay.width, lay.height, paintFaces(k, UV), 4), twisted };
+  for (const [f, v] of lay.values) placeOn(k, f, UV, [...v]);
+  return { k, t: buildTexelTable(lay.width, lay.height, paintFaces(uvOf(k), UV), 4), twisted };
 }
 /** 空间点 → 在空间三角形 (A, B, C) 里的重心坐标（投到三角形平面上解）。 */
 function bary3(p: Pt3, A: Pt3, B: Pt3, C: Pt3): [number, number, number] {
@@ -104,7 +104,7 @@ describe("格子归属表、取样点、一格在面上的位置（1-3a 第三�
     assert(n > 20, `查了 ${n} 个点`); assert(t.faces.has(twisted), "扭过的四边形在里面");
   });
   it("③ 取样点在多边形的边上时，结果和怎么切无关：扭过的四边形换另一条对角线，块边上那些格子的位置只差量化挪开的那一点（1-4c）", () => {
-    const { k, t, twisted } = painted(7), fp = t.faces.get(twisted)!, vs = k.faceVerts(twisted), uv = k.cornerValues(twisted, UV)!;
+    const { k, t, twisted } = painted(7), fp = t.faces.get(twisted)!, vs = k.faceVerts(twisted), uv = uvAtOf(k, twisted, UV)!;
     const tri = (a: number, b: number, c: number, i: number): PaintFace["tris"][number] => ({ face: twisted, tri: i, uv: [uv[2 * a], uv[2 * a + 1], uv[2 * b], uv[2 * b + 1], uv[2 * c], uv[2 * c + 1]], pos: [k.pt(vs[a]), k.pt(vs[b]), k.pt(vs[c])] });
     const usesDiag02 = k.faceTriangles(twisted).some((tr) => tr.includes(0) && tr.includes(2));   // 现在切的是 0–2 那条对角线吗（按顶点下标认，角的起点转了也认得出）
     const other = usesDiag02 ? [tri(0, 1, 3, 0), tri(1, 2, 3, 1)] : [tri(0, 1, 2, 0), tri(0, 2, 3, 1)];
@@ -122,11 +122,11 @@ describe("格子归属表、取样点、一格在面上的位置（1-3a 第三�
     assert(n > 20, `块边上查了 ${n} 格`); assert(diffInside > 0, "里面的格子两种切法确实不同（扭过的面）");
   });
   it("④ 镜像的两半指着同一块画布多边形；平的面上两半算出来的位置互为镜像", () => {
-    const k = new MeshKernel(); addBox(k, P(0.3, 0, 0), P(1, 0.4, 0.7)); k.addColumn({ guid: UV, arity: 2, kind: "uv" });
+    const k = new MeshKernel(); addBox(k, P(0.3, 0, 0), P(1, 0.4, 0.7));
     const lay = layoutFaces(k, k.faces(), { density: 40 }); if (!lay.ok) throw new Error(lay.reason);
-    for (const [f, v] of lay.values) k.setFaceValues(f, UV, [...v]);
+    for (const [f, v] of lay.values) placeOn(k, f, UV, [...v]);
     symmetrize(k, 0, 1);
-    const t = buildTexelTable(lay.width, lay.height, paintFaces(k, UV), 4);
+    const t = buildTexelTable(lay.width, lay.height, paintFaces(uvOf(k), UV), 4);
     eq(t.polyFaces.map((fs) => fs.length).join(), "2,2,2,2,2,2", "每块画布多边形正好两张面（这一半 + 镜过去的）");
     let n = 0;
     for (let y = 0; y < t.height; y += 3) for (let x = 0; x < t.width; x += 3) {
@@ -142,7 +142,7 @@ describe("格子归属表、取样点、一格在面上的位置（1-3a 第三�
     const before = k.faces().map((f) => JSON.stringify(k.faceTriangles(f)));
     for (const v of k.verts()) { const p = k.pt(v); k.setPos(v, { x: p.x * 1.3 + 0.1, y: p.y, z: p.z + 0.2 * p.x }); }
     assert(k.faces().some((f, i) => JSON.stringify(k.faceTriangles(f)) !== before[i]), "有面换了对角线");
-    const t2 = buildTexelTable(t.width, t.height, paintFaces(k, UV), 4);
+    const t2 = buildTexelTable(t.width, t.height, paintFaces(uvOf(k), UV), 4);
     eq(t2.owner.every((o, i) => o === t.owner[i]), true, "归属表逐位不变");
     let same = true, moved = false;
     for (let y = 0; y < t.height; y += 3) for (let x = 0; x < t.width; x += 3) {

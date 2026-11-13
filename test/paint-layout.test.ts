@@ -1,10 +1,11 @@
 // 最笨的铺法（贴图主线 1-3a 第二节，施工单 ai-docs/20261110-paint-workorders-7.md）的性质。created 2026-11-10 by Claude Opus 5.5
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { addBox } from "../src/mesh/ops/index.ts";
 import { layoutFaces, layoutAppend, type Block } from "../src/paint/layout.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
+import { placeOn, uvAtOf, uvOf, slotsOf } from "./uv-kit.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 const rng = (seed: number): (() => number) => { let s = seed >>> 0 || 1; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; };
@@ -94,20 +95,19 @@ describe("铺法（1-3a 第二节）", () => {
   });
   it("给新面补一块：已经铺好的角一个数都不变；新块放在空着的地方、不和谁挨太近；放不下就往下加高（256 的倍数）", () => {
     const { k } = planarMesh(9), all = k.faces(), first = all.slice(0, 6), later = all.slice(6);
-    k.addColumn({ guid: "uv", arity: 2, kind: "uv" });
     const r0 = layoutFaces(k, first, { density: 60 });
     assert(r0.ok, "铺得下"); if (!r0.ok) return;
-    for (const [f, v] of r0.values) k.setFaceValues(f, "uv", [...v]);
-    const before = first.map((f) => [...k.cornerValues(f, "uv")!].join());
-    const r1 = layoutAppend(k, "uv", first, later, { width: r0.width, height: r0.height }, 60);
+    for (const [f, v] of r0.values) placeOn(k, f, "uv", [...v]);
+    const before = first.map((f) => [...uvAtOf(k, f, "uv")!].join());
+    const r1 = layoutAppend(uvOf(k), "uv", first, later, { width: r0.width, height: r0.height }, 60);
     assert(r1.ok, "补得上"); if (!r1.ok) return;
-    eq(first.map((f) => [...k.cornerValues(f, "uv")!].join()).join("|"), before.join("|"), "已有的不变");
+    eq(first.map((f) => [...uvAtOf(k, f, "uv")!].join()).join("|"), before.join("|"), "已有的不变");
     eq(r1.height % 256, 0); assert(r1.height >= r0.height, "只会加高");
     eq(blocksOk([...r0.blocks, ...r1.blocks], r1.width, r1.height, 4), "");
     // 放不下：补一张 6 米见方的面（每米 60 格 = 360 格，比哪儿空着的都大）→ 在最下面接着放、画布往下加高
     const big = k.addFace([P(20, 0, 0), P(26, 0, 0), P(26, 6, 0), P(20, 6, 0)].map((p) => k.addVertex(p)), -1, FRESH);
     const H0 = 256 * Math.ceil((Math.max(...r0.blocks.map((b) => b.y + b.h)) + 4) / 256);
-    const tight = layoutAppend(k, "uv", first, [big], { width: r0.width, height: H0 }, 60);
+    const tight = layoutAppend(uvOf(k), "uv", first, [big], { width: r0.width, height: H0 }, 60);
     assert(tight.ok, "加高后补得上"); if (!tight.ok) return;
     const nb = tight.blocks[0];
     assert(tight.height % 256 === 0 && tight.height > H0 && nb.y + nb.h + 4 <= tight.height, `加高了（${H0} → ${tight.height}）`);
@@ -124,10 +124,9 @@ describe("铺法（1-3a 第二节）", () => {
     eq(b.width, 128); eq(b.height % 128, 0, `高 ${b.height} 是 128 的倍数`); assert(b.height >= 128 && b.height < 1024, `高 ${b.height}`);
     // 补面：先铺一半，再补另一半，加高按 128 的倍数
     const half = faces.slice(0, Math.floor(faces.length / 2)), rest = faces.slice(half.length);
-    k.addColumn({ guid: "uvs", arity: 2, kind: "uv" });
     const c = layoutFaces(k, half, { base: 128 }); if (!c.ok) throw new Error(c.reason);
-    for (const [f, v] of c.values) k.setFaceValues(f, "uvs", [...v]);
-    const d = layoutAppend(k, "uvs", half, rest, { width: 128, height: 128 }, c.density * 3);
+    for (const [f, v] of c.values) placeOn(k, f, "uvs", [...v]);
+    const d = layoutAppend(uvOf(k), "uvs", half, rest, { width: 128, height: 128 }, c.density * 3);
     assert(d.ok, d.ok ? "" : d.reason); if (!d.ok) return;
     eq(d.height % 128, 0, `补面后高 ${d.height} 是 128 的倍数`); assert(d.height > 128, "放不下就加高");
   });

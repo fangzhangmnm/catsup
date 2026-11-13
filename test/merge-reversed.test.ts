@@ -1,7 +1,7 @@
 // 修复「合并重合反向面」（repairs/merge-reversed/plan.ts）。created 2026-11-06 by Claude Opus 5.5
 // 钉的是 user 要的结果：合完环切切得动、平滑跨得过去、封闭的朝外；转换永远不合（user 11-04「修复可以合并，导入导出的时候机械透明」）；材质不同的不并，报数。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { deleteFaces, loopCut, recalcNormals } from "../src/mesh/ops/index.ts";
 import { meshViewOf } from "../src/mesh/mesh-view.ts";

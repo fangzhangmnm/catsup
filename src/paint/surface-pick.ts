@@ -11,7 +11,8 @@ export interface PickMesh {
   faceVerts(f: number): number[];
   pt(v: number): Pt3;
   faceTriangles(f: number): readonly (readonly [number, number, number])[];
-  cornerValues(f: number, guid: string): Float32Array | null;
+  /** 这张面在排法 uvSet 上的坐标；不在 = null（scene/uv.ts uvMesh；施工单十八第 1½ 刀起不直接问内核）。 */
+  uvAt(f: number, uvSet: string): Float32Array | null;
   isFaceHidden?(f: number): boolean;
 }
 /** 均匀格子：所有（没藏起来的）三角形的角（每个 9 个数）、属于哪张面、是那张面的第几个三角形、角在环上的位置，加上格子到三角形的登记表。 */
@@ -106,7 +107,7 @@ export function castRay(g: TriGrid, o: Pt3, d: Pt3): { tri: number; t: number; u
 export function pickSurface(m: PickMesh, g: TriGrid, guid: string, o: Pt3, d: Pt3): PickResult {
   const h = castRay(g, o, d);
   if (!h) return null;
-  const f = g.face[h.tri], pos = { x: o.x + d.x * h.t, y: o.y + d.y * h.t, z: o.z + d.z * h.t }, v = m.cornerValues(f, guid);
+  const f = g.face[h.tri], pos = { x: o.x + d.x * h.t, y: o.y + d.y * h.t, z: o.z + d.z * h.t }, v = m.uvAt(f, guid);
   if (!v) return { face: f, inPaint: false, pos, t: h.t };
   const w: [number, number, number] = [1 - h.u - h.v, h.u, h.v], c = [g.corner[3 * h.tri], g.corner[3 * h.tri + 1], g.corner[3 * h.tri + 2]];
   const uv: [number, number] = [w[0] * v[2 * c[0]] + w[1] * v[2 * c[1]] + w[2] * v[2 * c[2]], w[0] * v[2 * c[0] + 1] + w[1] * v[2 * c[1] + 1] + w[2] * v[2 * c[2] + 1]];

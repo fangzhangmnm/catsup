@@ -13,7 +13,8 @@ import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import { perf } from "./perf-stats.ts";
 import type { MarkLayout } from "./highlight.ts";
-import { uvColumnsOf } from "../scene/paint.ts";
+import type { MeshKernel } from "../mesh/mesh-kernel.ts";
+import { uvAt } from "../scene/uv.ts";
 
 const srgb = (hex: number): readonly [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 /** 烤进顶点的颜色（= 以前后端 chunkStyle 给的同一套数：面 sRGB 浮点、线线性）。 */
@@ -182,7 +183,7 @@ export class EditorStreamProvider implements StreamProvider {
 
   private env(scene: Scene, defId: number, thick: boolean): PoolMeshEnv {
     const cullBack = !this.editing || this.styled();   // 演示锁 = 没有正在编辑的那一层
-    const body = scene.def(defId).body, paintOn = !!this.paint && body.kind === "mesh" && uvColumnsOf(body.kernel).length > 0;   // 有画板登记处、而且这个定义有贴图坐标：才问每张面
+    const body = scene.def(defId).body, paintOn = !!this.paint && body.kind === "mesh" && body.uvSetSlots.length > 0;   // 有画板登记处、而且这个定义有贴图坐标：才问每张面
     const num = (o: object): number => { let u = this.matUids.get(o); if (u === undefined) { u = this.nextMatUid++; this.matUids.set(o, u); } return u; };
     const uid = (m: Material | undefined): string => { if (!m) return "0"; const map: object | null = m === BUILTIN_BACK ? null : scene.colorMapOf(m) ?? this.tiledImage(scene, m); return map ? `${num(m)}t${num(map)}` : `${num(m)}`; };   // 平铺的画：画板的图出现 / 换了（冷 → 热）= 签名变 = 重建（顶点色白 / 底色跟着换）   // 材质指的图换了（粘贴「更新」那张贴图）= 签名变 = 重建，块交出新的材质引用
     return {
@@ -204,13 +205,13 @@ export class EditorStreamProvider implements StreamProvider {
    * 有一个角没有位置 = 这张面还没铺上 = 按底色画。
    */
   private paintOf(scene: Scene, defId: number, k: KernelView, fid: number, m: Material): { values: ArrayLike<number>; w: number; h: number; key: string } | null {
-    const mk = (k as { mesh?: { faceMat: ArrayLike<number>; cornerValues(f: number, guid: string): Float32Array | null } }).mesh;
-    if (!mk) return null;
+    const mk = (k as { mesh?: MeshKernel }).mesh, body = scene.def(defId).body;
+    if (!mk || body.kind !== "mesh") return null;
     const fp = scene.facePaint(defId, mk.faceMat[fid]);
     if (!fp || scene.materialOfSlot(defId, mk.faceMat[fid]) !== m) return null;
     const bd = this.paint?.board(fp.textureDoc.guid);
     if (!bd) return null;
-    const v = mk.cornerValues(fid, fp.uvSet.guid);
+    const v = uvAt(mk, body.uvSetSlots, fid, fp.uvSet.guid);   // 施工单十八第 1½ 刀：贴图坐标只经 scene/uv.ts 问（预演的影子内核 + 场景里那张速查表）
     if (!v) return null;
     for (let i = 0; i < v.length; i++) if (!Number.isFinite(v[i])) return null;
     return { values: v, w: bd.width, h: bd.height, key: fp.textureDoc.guid };
