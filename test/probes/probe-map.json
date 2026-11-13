@@ -55,6 +55,7 @@
   { "when": ["src/mesh/edge-mark-rules.ts", "src/mesh/edge-smooth.ts", "src/mesh/mesh-view.ts", "src/editor/pool-mesh.ts", "src/editor/stream-provider.ts", "src/editor/mesh-edits/", "src/paint/atlas-outline.ts", "src/app/canvas-window.ts", "src/app/ui/image-view.ts", "src/minccino/palette.ts"], "probes": ["probe-seams.mjs"], "why": "接缝（施工单二十二 A / B）：右键标接缝、自由建模 / 画画里画成红线、表面工作台和锁着时不画、画布小窗里接缝那组线、撤销回去" },
   { "when": ["src/app/"], "probes": ["probe-rail.mjs", "probe-menu-tabs.mjs", "probe-context.mjs", "probe-hierarchy.mjs"], "why": "界面壳（菜单、左柱、层级窗）" },
   { "when": ["src/player/", "src/app/vr.ts", "src/app/locomotion.ts", "src/app/touch-controls.ts"], "probes": ["probe-walk.mjs", "probe-walk-pen.mjs", "probe-touch-stick.mjs", "probe-xr-fake.mjs"], "why": "步行 / VR" },
-  { "when": ["index.html", "service-worker.js", "boot-guard.js", "styles.css", "manifest.webmanifest", "scripts/build.sh"], "probes": ["probe-hover.mjs", "probe-factory-reset.mjs", "probe-moved-notice.mjs"], "why": "壳：页面、离线缓存、构建（另外跑 npm run smoke）" }
+  { "when": ["index.html", "service-worker.js", "boot-guard.js", "styles.css", "manifest.webmanifest", "scripts/build.sh"], "probes": ["probe-hover.mjs", "probe-factory-reset.mjs", "probe-moved-notice.mjs"], "why": "壳：页面、离线缓存、构建（另外跑 npm run smoke）" },
+  { "when": ["src/app/object-window.ts", "src/app/attribute-names.ts", "src/scene/attribute-list.ts", "src/app/ui/popup-menu.ts"], "probes": ["probe-element-page.mjs"], "why": "物体窗口「元素」页（属性地基轮 3½ 第一版：只看）：几何个数、每一列一行（中文名 + 原名、类型、个数、大小）、分组先后点 → 边 → 面 → 角、记住停在哪一页、硬表面没有层时一行灰字" }
  ]
 }

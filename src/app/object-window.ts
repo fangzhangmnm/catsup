@@ -14,8 +14,12 @@ import { foldSubmenus } from "./context-menu.ts";
 import { MACHINES, type Machine } from "./machine-window.ts";
 import type { MenuSpec } from "./ui/menu-window.ts";
 import type { MirrorAxis, MirrorMode } from "../mesh/mirror.ts";
+import { brepAttributeList, meshAttributeList, type AttributeRow } from "../scene/attribute-list.ts";
+import { brepAttrName, bytesSay, meshAttrName, typeSay } from "./attribute-names.ts";
 
 export type ObjectTarget = Exclude<MenuTarget, "selection">;
+/** 两页（属性地基轮 3½，统筹 11-13 深夜：照 user 定的叫法）：物体 = 字段 + 物件级动词 + 机器；元素 = 这个物体身上有哪些元素属性（只读）。记住上次停在哪一页。 */
+const OBJECT_TABS = [{ id: "object", label: "物体" }, { id: "elements", label: "元素" }] as const;
 // 强行对称排第一 = 主入口（user 10-28「就是水杉和blender那种啊，强行对称」）；镜像编辑 = 只挪点的那种（Blender 编辑模式的 X 镜像）
 const MIRROR_MODES: readonly { id: "off" | MirrorMode; label: string; hint: string }[] = [
   { id: "off", label: "关", hint: "不镜" },
@@ -33,7 +37,11 @@ export function objectWindowMenu(editor: Editor, hud: HudModel, target: ObjectTa
   // 不分页签（user 10-30「物件的清理碎渣为什么不放到修复面板里面，那样物件就不需要分tab了。然后可以恢复成菜单的样式而不是浮窗」）：
   // 字段 + 物件级动词，下面每台露着的机器一行「<机器>面板…」= 开那块板（九条修复连同清理碎渣都在板上，不在这里再列一遍）
   return {
-    items: () => [...objectWindowItems(editor, target), ...machines.map((m, i): PopupMenuItem<string> => ({ id: `machine:${m.id}:board`, label: `${m.label}面板…`, icon: m.icon, ...(i === 0 ? { separatorBefore: true } : {}) }))],
+    tabs: OBJECT_TABS, tabKey: "objectWindow",
+    items: () => [
+      ...[...objectWindowItems(editor, target), ...machines.map((m, i): PopupMenuItem<string> => ({ id: `machine:${m.id}:board`, label: `${m.label}面板…`, icon: m.icon, ...(i === 0 ? { separatorBefore: true } : {}) }))].map((it) => ({ ...it, tab: "object" })),
+      ...objectElementItems(editor, target),
+    ],
     onPick: (id) => {
       if (id.startsWith("machine:")) {   // 机器页：「修复面板…」= 开那台机器的板；别的 = 在这一层上跑那条指令（窗口不关，好接着修）
         const [, mid, ...rest] = id.split(":"), m = machines.find((x) => x.id === mid), cmd = rest.join(":");
@@ -70,5 +78,34 @@ export function objectWindowItems(editor: Editor, target: ObjectTarget): PopupMe
   // 放置表 objectWindow 面上现在能做的（转换种类 / 细分 / 默认平滑 ›）
   const acts = editor.withMenuTarget(target, () => editor.commandMenu("objectWindow"));
   out.push(...foldSubmenus(acts.map((m): HudItem => ({ id: `action:${m.id}`, label: m.label, icon: m.icon, ...(m.submenu ? { submenu: m.submenu } : {}) }))));
+  return out;
+}
+
+/** 「元素」页的分组先后 = 几何那一行的先后（统筹 11-13 深夜：点 → 边 → 面 → 角）；没有列的组不出。 */
+const ELEMENT_GROUPS: readonly { readonly on: AttributeRow["on"] | "point"; readonly title: string; readonly unit: string }[] = [
+  { on: "point", title: "点上", unit: "个" }, { on: "edge", title: "边上", unit: "条" }, { on: "face", title: "面上", unit: "张" }, { on: "corner", title: "角上", unit: "个" },
+];
+/**
+ * 「元素」页（属性地基轮 3½ 第一版：只看；删、改名、加一列在第二版）：几何个数一行 + 每一列一行（名字、类型、个数、大小），按挂在哪分组。
+ * 网格体的行带小灰字原名（名字就是键）；硬表面的行不带（那套还没搬上属性表）、层是稀疏存的（「有 N 条 / 张」、大小「—」）。纯函数：探针 / 测试也能问。
+ */
+export function objectElementItems(editor: Editor, target: ObjectTarget): PopupMenuItem<string>[] {
+  const tab = "elements", def = soleDef(editor, target);
+  if (def === undefined) return [{ id: "el:none", label: "选了好几个物体：元素页一次只看一个", note: true, tab }];
+  const s = editor.sceneRef, mesh = editor.kindOfDef(def) === "mesh";
+  const list = mesh ? meshAttributeList(s.mesh(def).kernel) : brepAttributeList(s.brep(def).kernel), g = list.geometry;
+  const geo = [`点 ${g.points}`, `边 ${g.edges}`, `面 ${g.faces}`, ...(g.corners !== null ? [`角 ${g.corners}`] : []), `不挂面的线 ${g.wires}`].join(" · ");
+  const out: PopupMenuItem<string>[] = [{ id: "el:geometry", label: geo, readout: { cells: [] }, tab }];
+  if (!list.rows.length) { out.push({ id: "el:empty", label: "还没有元素属性", note: true, tab }); return out; }
+  out.push({ id: "el:head", label: "", readout: { cells: ["类型", "个数", "大小"] }, tab });
+  for (const grp of ELEMENT_GROUPS) {
+    const rows = list.rows.filter((r) => r.on === grp.on)
+      .map((r) => ({ r, name: mesh ? meshAttrName(r.id) : { label: brepAttrName(r.on as "edge" | "face", r.id), code: null } }))
+      .sort((a, b) => a.name.label.localeCompare(b.name.label, "zh") || a.r.id.localeCompare(b.r.id));
+    rows.forEach(({ r, name }, i) => out.push({
+      id: `el:${r.on}:${r.id}`, label: name.label, tab, ...(i === 0 ? { sectionBefore: grp.title } : {}),
+      readout: { code: name.code, cells: [typeSay(r.type), r.sparse ? `有 ${r.count} ${grp.unit}` : String(r.count), r.bytes === null ? "—" : bytesSay(r.bytes)] },
+    }));
+  }
   return out;
 }

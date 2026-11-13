@@ -49,6 +49,7 @@
   "probe-erase-red.mjs": {"state":"green"},
   "probe-eraser-inverse.mjs": {"state":"green"},
   "probe-erasers.mjs": {"state":"green"},
+  "probe-element-page.mjs": {"state":"green"},
   "probe-export.mjs": {"state":"green","redline":true},
   "probe-extrude-feel.mjs": {"state":"green"},
   "probe-factory-reset.mjs": {"state":"green"},

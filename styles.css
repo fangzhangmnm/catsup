@@ -419,6 +419,12 @@ body.doc-locked .walk-btn[data-edits] { opacity: .45; }
 #tip .tip-ref .sep { opacity: .35; }
 /* 弹出菜单的「纯文字说明」（B43 参考页）和下拉行（当前值 ▾） */
 .menu-note { padding: 3px 12px; font-size: 11.5px; line-height: 1.45; color: var(--muted); white-space: normal; max-width: 300px; }
+/* 只读的数据行（物体窗口「元素」页，属性地基轮 3½）：名字（+ 小灰字原名）在左，几格数靠右对齐 */
+.menu-readout { display: flex; align-items: baseline; gap: 10px; padding: 3px 12px; font-size: 12.5px; line-height: 1.5; }
+.menu-readout-name { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu-readout-code { margin-left: 6px; font-size: 10.5px; color: var(--muted); font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.menu-readout-cell { flex: 0 0 auto; min-width: 3.2em; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.menu-readout-type { min-width: 4.6em; }
 .menu-field .menu-value { position: relative; max-width: 52%; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; padding: 3px 20px 3px 8px; border: 1px solid rgba(0,0,0,.14); border-radius: 6px; }
 .menu-field .menu-value::after { content: ""; position: absolute; right: 7px; top: 50%; margin-top: -2px; border: 4px solid transparent; border-top-color: currentColor; border-bottom-width: 0; opacity: .6; }
 .menu-field.is-open .menu-value { border-color: var(--accent); color: var(--accent); }
