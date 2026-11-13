@@ -375,6 +375,21 @@ function squarish(m: LayoutGeom, units: readonly Unit[], d: number, maxSize: num
 }
 
 /**
+ * 一块贴图坐标占哪些格（全仓判「占着」只有这一个函数：补面时哪里被占着、空出来的地方记多大、记的时候盖没盖住，施工单十八第 2 刀，统筹 11-13 深夜）：
+ * 坐标的外包框往外取到整格，至少一格。返回 [x0, y0, x1, y1)，单位格。
+ */
+export function cellRect(x0: number, y0: number, x1: number, y1: number): [number, number, number, number] {
+  const a = Math.floor(x0), b = Math.floor(y0);
+  return [a, b, Math.max(a + 1, Math.ceil(x1)), Math.max(b + 1, Math.ceil(y1))];
+}
+/** 一张面角上的坐标（x, y, x, y…）占哪些格（cellRect 的外包框）。 */
+export function cornersRect(v: ArrayLike<number>): [number, number, number, number] {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i + 1 < v.length; i += 2) { x0 = Math.min(x0, v[i]); x1 = Math.max(x1, v[i]); y0 = Math.min(y0, v[i + 1]); y1 = Math.max(y1, v[i + 1]); }
+  return cellRect(x0, y0, x1, y1);
+}
+
+/**
  * 给新面补一块（以后加面用）：已经铺好的面（在 guid 这一列上有值的）一个数都不变；新面各铺一块，放在画布上空着的地方（左上优先），放不下就把画布往下加高
  * （256 的倍数；画布比 256 窄时按画布宽度的倍数）。坐标的单位是格、不是零到一的比例，所以加高不会动到已有的东西。
  * 怎么找空（1-3b 改，Claude Opus 5.5，2026-11-10：原来每补一张面都把「每块的右边 / 下边」当候选全排一遍、逐块比，四万面的网格体补十张面要 0.2 秒、随面数涨）：
@@ -382,7 +397,7 @@ function squarish(m: LayoutGeom, units: readonly Unit[], d: number, maxSize: num
  *   从上到下、从左到右找第一个放得下的地方。每行记着「从这格往右连着几格空」，找的时候只看这个数。代价随画布大小涨、不随面数涨（只有收集已有块那一步随面数涨）。
  * partial（meshLayoutPaint 用）：加到上限还放不下的面不铺、记进 unplaced，其余照铺；不给 = 放不下就整个不铺、说原因（1-3a 的行为）。
  */
-export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly number[], add: readonly number[], canvas: { width: number; height: number }, density: number, opts: Omit<LayoutOptions, "density" | "base"> & { readonly partial?: boolean; /** 画布能不能往下长（缺 = 能；施工单十六第四节：按总大小开的画 = 不能，fit = "size"）。 */ readonly grow?: boolean } = {}): LayoutResult {
+export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly number[], add: readonly number[], canvas: { width: number; height: number }, density: number, opts: Omit<LayoutOptions, "density" | "base"> & { readonly blocked?: ArrayLike<number>; readonly partial?: boolean; /** 画布能不能往下长（缺 = 能；施工单十六第四节：按总大小开的画 = 不能，fit = "size"）。 */ readonly grow?: boolean } = {}): LayoutResult {
   const gap = Math.max(0, Math.round(opts.gap ?? 4)), maxSize = opts.maxSize ?? 4096, W = canvas.width;
   const C = Math.max(1, Math.ceil(W / 256)), gw = Math.ceil(W / C), gh = Math.ceil(Math.max(maxSize, canvas.height) / C);
   const occ = new Uint8Array(gw * gh), run = new Int32Array(gw * gh);   // run[j·gw + i] = 第 j 行从第 i 格往右连着几格空
@@ -394,7 +409,8 @@ export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly numbe
     for (let j = j0; j < j1; j++) occ.fill(1, j * gw + i0, j * gw + i1);
     if (recompute) rerun(j0, j1);
   };
-  const box = (x0: number, y0: number, x1: number, y1: number): void => mark(Math.floor(x0), Math.floor(y0), Math.max(Math.floor(x0) + 1, Math.ceil(x1)), Math.max(Math.floor(y0) + 1, Math.ceil(y1)), false);
+  const box = (x0: number, y0: number, x1: number, y1: number): void => { const r = cellRect(x0, y0, x1, y1); mark(r[0], r[1], r[2], r[3], false); };
+  if (opts.blocked) { const b = opts.blocked; for (let i = 0; i + 3 < b.length; i += 4) mark(b[i], b[i + 1], b[i + 2], b[i + 3], false); }   // 也算占着（已经是整格）：空出来的地方（可能留着旧画）、别的物件在这套排法上的面（施工单十八第 2 刀）
   if (m.uvBoxes) { const b = m.uvBoxes(guid); for (let i = 0; i + 3 < b.length; i += 4) box(b[i], b[i + 1], b[i + 2], b[i + 3]); }   // 在这一套上有位置的面全算占着（不管它现在走不走画）
   else for (const f of placed) {
     const v = m.uvAt(f, guid);

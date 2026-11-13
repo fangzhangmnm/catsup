@@ -5,7 +5,7 @@ import type { PoolRef, Scene } from "../scene/scene.ts";
 import type { BrepSnapshot } from "../kernel/kernel.ts";
 
 /** 只记骨架（内核没动）的 op：复现包「上一步」的内核 = 现在这份。 */
-const SKELETON_ONLY: ReadonlySet<string> = new Set(["setMeshMirror", "transformInstance", "placeInstance", "eraseInstance", "moveInstance", "purgeMaterials", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "addTexture", "purgeTextures", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
+const SKELETON_ONLY: ReadonlySet<string> = new Set(["setMeshMirror", "transformInstance", "placeInstance", "eraseInstance", "moveInstance", "purgeMaterials", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "addTexture", "purgeTextures", "setFreed", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
 
 /** 没有 / 池不是 brep → null。按记录倒推，不重放指令流（v0.15.32）。 */
 export function lastStepOf(history: History<unknown>, scene: Scene): { op: Op; brep: BrepSnapshot; pool: PoolRef } | null {

@@ -90,7 +90,7 @@ export class StepFlipError extends Error {
 interface Entry { kind: string; data: unknown; bytes: number }
 
 const KERNEL_OPS = new Set<Op["op"]>(["addEdges", "eraseEdges", "eraseFaces", "eraseSelection", "move", "pushpull", "followme", "absorb", "weldEdges", "dissolveVertices", "explodeCurves", "setEdgeLayers", "paintFaces", "flipFaceSides", "plugin", "mirror", "setHidden"]);
-const SKELETON_OPS = new Set<Op["op"]>(["setMeshMirror", "transformInstance", "placeInstance", "eraseInstance", "purgeDefs", "purgeMaterials", "moveInstance", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "addTexture", "purgeTextures", "setAxes", "setDrawFrame", "castDefinition", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
+const SKELETON_OPS = new Set<Op["op"]>(["setMeshMirror", "transformInstance", "placeInstance", "eraseInstance", "purgeDefs", "purgeMaterials", "moveInstance", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "addTexture", "purgeTextures", "setFreed", "setAxes", "setDrawFrame", "castDefinition", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
 /** mesh 族的 op：改一个网格体的内核（寻址 = 定义）。加一种内核 = 加一个集合 + 一种记录；以后种类多了把「怎么记」挂到 KindDef 上。 */
 const MESH_OPS = new Set<Op["op"]>(["meshMove", "meshExtrude", "meshKnife", "meshLoopCut", "meshDelete", "meshInset", "meshAddPrimitive", "meshEdgeMarks", "meshSmoothDefault", "meshBevel", "meshBevelVerts", "meshSymmetrize", "meshSymmetrySnap", "meshSubdivide", "meshMerge", "meshDuplicate", "meshFill", "meshFlip", "startPaint", "meshPaintFaces", "meshLayoutPaint"]);   // 画的三条（1-3b）：内核整表 + 骨架（uvSets / 贴图 / 材质 / 槽表）一起记
 export type OpTier = "kernel" | "mesh" | "skeleton" | "scene";
@@ -190,6 +190,29 @@ export class History<M = unknown> {
   canRedo(): boolean { return this.cursor < this.ops.length; }
   depth(): number { return this.ops.length; }
   position(): number { return this.cursor; }
+  /**
+   * 第 from 条指令起（到现在）某个定义第一次被改之前的那份网格体（施工单十八第 2 刀：收尾比这一步前后、记空出来的地方；只读，不延长那份的寿命——它本来就是撤销记录）。
+   * 找法：最早一条网格体档的记录（影子 = 那一下之前的表）或整场景档的快照（深拷）；都没有、只有骨架快照 = 这一步没换过它的表：定义还在 = unchanged，
+   * 定义这一步没了 = 骨架快照里共用的那份（没人再改过它）。slots = 那时的速查表（网格体档的记录不带：速查表只往后加，用现在的）。
+   */
+  /** 定义这一步没了时它的速查表：这一步里任何一份场景快照里的（速查表只往后加，哪一份都一样能翻代号）。 */
+  private slotsInStep(def: DefId, from: number): readonly string[] {
+    for (let i = Math.max(0, from); i < this.cursor; i++) for (const e of this.entries[i] ?? []) { if (e.kind !== "scene") continue; const d = (e.data as SceneRec).snapshot.defs.get(def); if (d && d.body.kind === "mesh") return [...d.body.uvSetSlots]; }
+    return [];
+  }
+  meshBefore(def: DefId, from: number): { kind: "unchanged" } | { kind: "absent" } | { kind: "mesh"; kernel: MeshKernel; slots: readonly string[] | null } {
+    let shared: { kernel: MeshKernel; slots: readonly string[] } | null = null, sawScene = false;
+    for (let i = Math.max(0, from); i < this.cursor; i++) for (const e of this.entries[i] ?? []) {
+      if (e.kind === "mesh" && (e.data as MeshRec).def === def) return { kind: "mesh", kernel: (e.data as MeshRec).kernel, slots: this.current.defs.get(def)?.body.kind === "mesh" ? null : this.slotsInStep(def, from) };
+      if (e.kind !== "scene") continue;
+      const r = e.data as SceneRec, d = r.snapshot.defs.get(def);
+      if (!r.skeleton) { if (!d || d.body.kind !== "mesh") return { kind: "absent" }; return { kind: "mesh", kernel: d.body.kernel, slots: [...d.body.uvSetSlots] }; }
+      if (!sawScene) { sawScene = true; shared = d && d.body.kind === "mesh" ? { kernel: d.body.kernel, slots: [...d.body.uvSetSlots] } : null; }
+    }
+    const live = this.current.defs.get(def);
+    if (live && live.body.kind === "mesh") return { kind: "unchanged" };
+    return shared ? { kind: "mesh", ...shared } : { kind: "absent" };
+  }
   log(): readonly Op[] { return this.ops; }
   /** 撤销记录占的字节（估计）。 */
   /** 现在占多少字节（还能撤的那一段）。字节会变的成分现问一遍、顺手记下（volatileBytes）。 */

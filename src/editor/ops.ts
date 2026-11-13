@@ -120,6 +120,8 @@ export type Op =
   | { op: "addTiledPaint"; textureGuid: Guid; materialGuid: Guid; name: string; ora: Uint8Array; sizeM: [number, number]; color: [number, number, number] }
   /** 清理没人用的贴图（用户在资源页点了「清理」才跑）：全家唯一删贴图的地方（守卫 test/textures-table.test.ts）；还有材质指着 / 素材架收着 = 整条拒绝。 */
   | { op: "purgeTextures"; textures: Guid[] }
+  /** 排法表几行的空出来的地方换成新的清单（施工单十八第 2 刀：只由每一步的收尾补进同一步，editor/paint-freed.ts；四个一组、单位格；空 = 去掉这个键）。 */
+  | { op: "setFreed"; rows: { uvSet: Guid; freed: number[] }[] }
   /** 边层开关（软化 / 硬化 / 隐藏…）：这些边打上 / 去掉若干层。 */
   | { op: "setEdgeLayers"; at: PoolRef; edges: EdgeKey[]; layers: string[]; on: boolean }
   /** 油漆桶：这些面涂文档材质 material（null = 回默认）；槽号在该 definition 里解析 / 新开。 */
@@ -674,6 +676,14 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       s.addMaterial({ guid: op.materialGuid, name: op.name, color: [op.color[0], op.color[1], op.color[2]], channels: { [COLOR_CHANNEL]: [op.textureGuid] } });
       return { scene: s, events: [] };
     }
+    case "setFreed": {
+      for (const r of op.rows) if (!s.uvSets.has(r.uvSet)) throw new OpTargetError(`setFreed: uvSet ${r.uvSet}`);
+      for (const r of op.rows) {
+        const { freed: _was, ...rest } = s.uvSets.get(r.uvSet)!;
+        s.uvSets.set(r.uvSet, Object.freeze(r.freed.length ? { ...rest, freed: Object.freeze([...r.freed]) } : rest));
+      }
+      return { scene: s, events: [] };
+    }
     case "purgeTextures": {
       if (s.texturesFrozen) throw new OpRejected(TEXTURES_FROZEN);
       if (s.shelfFrozen) throw new OpRejected(SHELF_FROZEN_PURGE);
@@ -1010,6 +1020,7 @@ export function describeOp(op: Op): string {
     case "addTexture": return `addTexture "${op.name}" ${op.mimeType} ${op.bytes?.length ?? 0}B ${op.sizeM.join("x")}m`;
     case "addTiledPaint": return `addTiledPaint "${op.name}" ${op.ora?.length ?? 0}B ${op.sizeM.join("x")}m`;
     case "purgeTextures": return `purgeTextures ${op.textures.length}`;
+    case "setFreed": return `setFreed ${op.rows.length}`;
     case "flipFaceSides": return `flipFaceSides n=${op.faces.length}${at}`;
     case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${op.sides ? ` sides=${op.sides.filter((x) => x === 0).length}+/${op.sides.filter((x) => x === 1).length}-` : ""}${at}`;
     case "setEdgeLayers": return `setEdgeLayers n=${op.edges.length} ${op.on ? "+" : "-"}${op.layers.join(",")}${at}`;

@@ -26,7 +26,7 @@ import { GuideSelection } from "./guide-selection.ts";
 import { describeEvent } from "./describe-event.ts";
 import { snapHoldTol } from "./snap-hysteresis.ts";
 import { type ForceEnv, forceSideFor, forcesOn, originNeedsAsk } from "./mirror-force.ts";
-import { type UpkeepSnaps, upkeepAfter, upkeepRewrite, upkeepSnapshot } from "./paint-upkeep.ts";   // 每一步做完的收尾 = 强行对称 + 画的位置（1-3b）
+import { type FreedBase, type UpkeepSnaps, freedBaseline, freedOp, upkeepAfter, upkeepRewrite, upkeepSnapshot } from "./paint-upkeep.ts";   // 每一步做完的收尾 = 强行对称 + 画的位置（1-3b）
 import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, mirrorTwins, withMirrorCounterparts, pickSide, sideLabel, sideOfElements, trySymmetrize } from "../mesh/mirror.ts";
 import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts"; import { HIDE_EDGE, edgeMark, faceMaterial } from "../mesh/reserved-columns.ts";   // 保留名 material_index（属性地基轮 3b）
 import { marqueeScreen, areaTest, type ScreenArea } from "./marquee.ts";
@@ -353,7 +353,7 @@ export class Editor {
   /** 这一步已提交了几条 / 有没有失败过（一步 = 原子：中途有一条失败 → 这一步已提交的全部回滚、剩下的不再执行；2026-10-26）。 */
   private stepOps = 0;
   private stepFailed = false; private stepReason: { text: string; refused: boolean } | null = null; private stepBumped = false; private _docRevision = 0; private _settingsRev = 0;   // 一步全有或全无（统筹 11-13）：reason = 第一次被拒 / 出错的原因，收尾时写回状态栏；bumped = 这一步里换过场景，成功收尾时 docRevision 才加
-  private stepTouched = false;                   // 这一步里会话（选区 / 上下文）被写过（写口 clearSel / setCtx / afterSelect 标）
+  private stepTouched = false; private freedBase: FreedBase | null = null;   // stepTouched = 这一步里会话（选区 / 上下文）被写过（写口 clearSel / setCtx / afterSelect 标）
   private stepBefore: Session | null = null;     // 这一步开始前的会话（手势按下时点选的那份延后到落定那一步）
   private stepLabel: StepLabel | undefined;      // 这一步的标签（提示行「撤销：建组」）
   private deferredBefore: Session | null = null; // 手势中改的选区：等手势落定那一步一起封（SU：按下选中 + 拖 = 一步）
@@ -1024,9 +1024,9 @@ export class Editor {
   }
   /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
   private step<T>(fn: (pass: StepPass) => T, label?: StepLabel): T {
-    if (this.stepDepth++ === 0) { this.history.checkParked("step"); this.mirrorNote = ""; this.mirrorNoteShown = false; this.mirrorDeferred = false; this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; this.stepReason = null; this.stepBumped = false; this.stepTouched = false; this.stepBefore = this.deferredBefore ?? this.sessionSnap(); this.stepLabel = label; }
+    if (this.stepDepth++ === 0) { this.freedBase = freedBaseline(this.scene, this.history); this.history.checkParked("step"); this.mirrorNote = ""; this.mirrorNoteShown = false; this.mirrorDeferred = false; this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; this.stepReason = null; this.stepBumped = false; this.stepTouched = false; this.stepBefore = this.deferredBefore ?? this.sessionSnap(); this.stepLabel = label; }
     else if (label && !this.stepLabel) this.stepLabel = label;
-    try { return fn(STEP_PASS); }
+    try { const out = fn(STEP_PASS); if (this.stepDepth === 1 && this.stepHasOp && !this.stepFailed && this.freedBase) { const fo = freedOp(this.scene, this.history, this.freedBase); if (fo) this.commitIn(STEP_PASS, fo); } return out; }   // 最外层收口之前：空出来的地方（施工单十八第 2 刀，paint-freed.ts）
     finally { if (--this.stepDepth === 0) this.closeStep(); }
   }
   /**

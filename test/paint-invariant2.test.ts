@@ -1,13 +1,14 @@
 // 施工单十八第二节不变量 2：一张面新得到的位置，那几格在每个图层里都是空的。created 2026-11-13 by Claude Opus 5.5（施工单十八第 0 刀）
-// 现在不成立：补面时「哪里被占着」只算这个网格体里现在有值的面（layoutAppend），删掉画过的面之后，新面会落在旧画上。第 2 刀（freed）修。
-// 这条是棘轮：检查照真的写；现在红 = 记成待办（带上红的细节），不让全套红；哪天变绿了 = 这条测试红，提醒「第 2 刀修好了，把它改成正式的检查」（去掉棘轮那一层）。
+// 第 0 刀写的时候不成立（补面时「哪里被占着」只算现在有值的面，删掉画过的面之后新面会落在旧画上）；第 2 刀修好：每一步的收尾把丢了位置的旧框记进排法表那一行的 freed
+//   （editor/paint-freed.ts），补面把 freed 当占着。这套测试的撤销栈不走编辑器那层：删面那一步照编辑器的做法显式补上收尾（freedBaseline → freedOp → 同一步）。棘轮已去掉，改成正式检查。
 // 场景：盒子开始画 → 归属表里有主的格全画满（不透明）→ 删掉画布上排在最左上的那张面 → 把洞补上 → 把画的材质给新面（收尾给它补位置）→ 新面那几格里有没有旧画。
-import { describe, it, assert, todo } from "./runner.mjs";
+import { describe, it, assert } from "./runner.mjs";
 import { PAINT_UNDO_KIND } from "../src/paint/boards.ts";
 import { buildTexelTable, paintFaces } from "../src/paint/texel-table.ts";
 import type { Op } from "../src/editor/ops.ts";
 import { rig } from "./paint-undo-kit.ts";
 import { uvAt, uvMesh } from "../src/scene/uv.ts";
+import { freedBaseline, freedOp } from "../src/editor/paint-freed.ts";
 
 /** 跑一遍场景，返回新面那几格里有旧画的格数（0 = 不变量 2 成立）和说明。 */
 function scenario(): { leaked: number; cells: number; say: string } {
@@ -25,7 +26,11 @@ function scenario(): { leaked: number; cells: number; say: string } {
   // ② 删掉画布上排在最左上的那张面（它的位置最先被补面的铺法看到）
   const k = mesh().kernel, uv = uvOf(), minCorner = (f: number): number => { const v = uvAt(k, mesh().uvSetSlots, f, uv)!; let m = Infinity; for (let i = 0; i < v.length; i += 2) m = Math.min(m, v[i] + v[i + 1] * 1e4); return m; };
   const F = k.faces().reduce((a, c) => (minCorner(c) < minCorner(a) ? c : a)), ring = k.faceVerts(F);
+  const base = freedBaseline(r.cur(), r.h);
   r.commit({ op: "meshDelete", def, faces: [F] } as Op);
+  const fo = freedOp(r.cur(), r.h, base);   // 编辑器在这一步最外层收口之前做的（Editor.step）
+  if (!fo) return { leaked: -1, cells: 0, say: "删掉画过的面之后没有记空出来的地方（收尾的判法漏了）" };
+  r.commit(fo, true);
   const before = new Set(mesh().kernel.faces());   // 删完之后的面（补出来的新面会复用被删那张的编号：按删完之后比）
   // ③ 补洞：新面带画的材质，收尾给它补位置
   const k1 = mesh().kernel, ringEdges = ring.map((v, i) => k1.edgeOf(v, ring[(i + 1) % ring.length]));   // 测试盒子每张面背后还有一张（边上挂四张）：按一圈边补，不按一圈点
@@ -54,6 +59,5 @@ function scenario(): { leaked: number; cells: number; say: string } {
 describe("不变量 2：新面的位置上没有旧画（施工单十八；第 2 刀修）", () => {
   const r = scenario();
   it("场景搭得起来（新面一张、有位置）", () => assert(r.leaked >= 0 && r.cells > 0, r.say));
-  if (r.leaked > 0) todo(`不变量 2 现在不成立（第 2 刀 freed 修）：${r.say}`);
-  else it("不变量 2 成立了：第 2 刀修好了 → 把这条的棘轮去掉、改成正式的检查", () => assert(false, `已经成立：${r.say}`));
+  it("不变量 2：新面那几格每个图层都是空的（删掉的面的旧位置进了 freed，补面不往上放）", () => assert(r.leaked === 0, r.say));
 });

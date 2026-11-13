@@ -18,8 +18,9 @@ import { unplacedPaintFaces } from "../scene/paint.ts";
 import { hadPaint, uvLosses } from "../scene/uv.ts";
 import type { FaceReport, GoneFace, GoneWhy } from "../mesh/mesh-kernel.ts";
 
+export { freedBaseline, freedOp, type FreedBase } from "./paint-freed.ts";   // 每一步最外层的收尾：记空出来的地方（施工单十八第 2 刀；编辑器从这里一起拿）
 /** 收尾自己会提交的指令：它们之后不再补位置（免得套自己）；只说这一条里没了的面。 */
-const UPKEEP_OPS: ReadonlySet<string> = new Set(["meshLayoutPaint", "meshSymmetrize"]);
+const UPKEEP_OPS: ReadonlySet<string> = new Set(["meshLayoutPaint", "meshSymmetrize", "setFreed"]);
 /** 提交前记下的：强行对称那份 + 每个网格体内核的版本号和改动日志的号。 */
 export interface UpkeepSnaps { readonly force: ForceSnaps | null; readonly paint: ReadonlyMap<number, { readonly rev: number; readonly seq: number }> }
 
