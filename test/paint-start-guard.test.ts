@@ -82,5 +82,8 @@ describe("开始画：守卫（1-3b）", () => {
     }
     eq(hits.join(" | "), "", "src/mesh/ 和 scene/uv.ts 之外问了内核的列");
     eq(names.join(" | "), "", "那两列的名字出现在 scene/uv.ts 之外");
+    // 读坐标的那几种接口（TargetMesh / PaintMesh / PickMesh / LayoutMesh / AtlasMesh / UvMesh）不许强转出来：只能是 uvMesh 给的视图（以前 paint-targets / 画画工作台强转内核，类型上过得去、跑起来没有 uvAt）
+    const casts = files.filter((f) => /as (unknown as|never)[^;\n]*\b(TargetMesh|PaintMesh|PickMesh|LayoutMesh|AtlasMesh|UvMesh)\b|\b(TargetMesh|PaintMesh|PickMesh|LayoutMesh|AtlasMesh|UvMesh)\b[^;\n]*\bas (unknown as|never)\b/.test(code(f)));
+    eq(casts.join(" | "), "", "强转出了读坐标的接口");
   });
 });
