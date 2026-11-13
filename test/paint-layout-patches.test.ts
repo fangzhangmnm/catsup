@@ -53,11 +53,12 @@ function blocksApart(blocks: readonly Block[], gap: number): string {
   for (let i = 0; i < blocks.length; i++) for (let j = i + 1; j < blocks.length; j++) { const a = blocks[i], b = blocks[j]; if (!(a.x + a.w + gap <= b.x || b.x + b.w + gap <= a.x || a.y + a.h + gap <= b.y || b.y + b.h + gap <= a.y)) return `块 ${a.face} 和块 ${b.face} 离得不够 ${gap} 格`; }
   return "";
 }
-/** 每张面每条边：画布上的长 ÷（空间里的长 × 密度）的最小 / 最大。 */
-function stretch(m: MeshKernel, values: ReadonlyMap<number, Float64Array>, d: number): { lo: number; hi: number } {
-  let lo = Infinity, hi = -Infinity;
-  for (const [f, v] of values) { const p = m.facePts(f), n = p.length; for (let i = 0; i < n; i++) { const j = (i + 1) % n, w = Math.hypot(p[j].x - p[i].x, p[j].y - p[i].y, p[j].z - p[i].z); if (w < 1e-9) continue; const c = Math.hypot(v[2 * j] - v[2 * i], v[2 * j + 1] - v[2 * i + 1]) / (w * d); lo = Math.min(lo, c); hi = Math.max(hi, c); } }
-  return { lo, hi };
+/** 每张面每条边：画布上的长 ÷（空间里的长 × 密度）的最小 / 最大。tol = 量化带来的最大偏差（施工单十八第四节：贴图坐标最后一步量化到 1/1024 格 = 每个角每个轴最多差 1/2048 格，
+ *  一条边两头 = 长度最多差 2√2 / 2048 格；折成比 = 这个数 ÷ 这条边在画布上应有的格数）。判「零拉伸」「在 [cos 门槛, 1] 以内」都放宽这一点。 */
+function stretch(m: MeshKernel, values: ReadonlyMap<number, Float64Array>, d: number): { lo: number; hi: number; tol: number } {
+  let lo = Infinity, hi = -Infinity, tol = 0;
+  for (const [f, v] of values) { const p = m.facePts(f), n = p.length; for (let i = 0; i < n; i++) { const j = (i + 1) % n, w = Math.hypot(p[j].x - p[i].x, p[j].y - p[i].y, p[j].z - p[i].z); if (w < 1e-9) continue; const c = Math.hypot(v[2 * j] - v[2 * i], v[2 * j + 1] - v[2 * i + 1]) / (w * d); lo = Math.min(lo, c); hi = Math.max(hi, c); tol = Math.max(tol, (2 * Math.SQRT2) / 2048 / (w * d)); } }
+  return { lo, hi, tol: tol + 1e-9 };
 }
 const setsOf = (m: MeshKernel, faces: number[]): string => patchesOf(m, faces).map((u) => [...u.faces].sort((a, b) => a - b).join(",")).sort().join(" | ");
 
@@ -73,7 +74,7 @@ describe("开始画的铺法：按朝向连成片（施工单十五）", () => {
       eq(r.blocks.length, 6, `${base}：六片`);
       const a = audit(r.values, r.width, r.height), s = stretch(m, r.values, r.density);
       eq(a.overlap + a.outside, 0, `${base}：不叠、都在画布里`); eq(blocksApart(r.blocks, gap), "");
-      assert(Math.abs(s.lo - 1) < 1e-9 && Math.abs(s.hi - 1) < 1e-9, `${base}：零拉伸 ${s.lo}…${s.hi}`);
+      assert(Math.abs(s.lo - 1) < s.tol && Math.abs(s.hi - 1) < s.tol, `${base}：零拉伸 ${s.lo}…${s.hi}（量化容差 ${s.tol}）`);
     }
   });
   it("起伏的网格：连成少数几片；每条边的拉伸在 [cos 门槛, 1] 以内；不叠；片之间隔够格", () => {
@@ -82,7 +83,7 @@ describe("开始画的铺法：按朝向连成片（施工单十五）", () => {
     assert(r.ok, r.ok ? "" : r.reason); if (!r.ok) return;
     assert(r.blocks.length < m.faces().length / 4, `${m.faces().length} 张面连成 ${r.blocks.length} 片`);
     const s = stretch(m, r.values, r.density), cos = Math.cos((PATCH_MAX_DEG * Math.PI) / 180);
-    assert(s.lo >= cos - 1e-9 && s.hi <= 1 + 1e-9, `拉伸 ${s.lo.toFixed(4)}…${s.hi.toFixed(4)}，只许 [${cos.toFixed(4)}, 1]`);
+    assert(s.lo >= cos - s.tol && s.hi <= 1 + s.tol, `拉伸 ${s.lo.toFixed(4)}…${s.hi.toFixed(4)}，只许 [${cos.toFixed(4)}, 1]（量化容差 ${s.tol}）`);
     const a = audit(r.values, r.width, r.height);
     eq(a.overlap + a.outside, 0, `叠了 ${a.overlap} 个点、出界 ${a.outside} 个角`); eq(blocksApart(r.blocks, 2), "");
   });
@@ -90,7 +91,7 @@ describe("开始画的铺法：按朝向连成片（施工单十五）", () => {
     const m = hills(8, 2, (x, y) => 0.9 * x * y), r = layoutFaces(m, m.faces(), { base: 512, gap: 2, style: "patches" });
     assert(r.ok, r.ok ? "" : r.reason); if (!r.ok) return;
     const s = stretch(m, r.values, r.density), cos = Math.cos((PATCH_MAX_DEG * Math.PI) / 180);
-    assert(s.lo >= cos - 1e-9 && s.hi <= 1 + 1e-9, `拉伸 ${s.lo.toFixed(4)}…${s.hi.toFixed(4)}，只许 [${cos.toFixed(4)}, 1]`);
+    assert(s.lo >= cos - s.tol && s.hi <= 1 + s.tol, `拉伸 ${s.lo.toFixed(4)}…${s.hi.toFixed(4)}，只许 [${cos.toFixed(4)}, 1]（量化容差 ${s.tol}）`);
     eq(audit(r.values, r.width, r.height).overlap, 0);
   });
   it("螺旋坡道（两圈）：朝向都差不多，但压平后会叠 → 分成几片、谁都不叠", () => {
@@ -159,7 +160,7 @@ describe("连成片收紧（施工单十六第三节）", () => {
     const a = fillOf(tight.values, fs), b = fillOf(seed.values, fs);
     assert(a > b + 0.05, `转了以后满 ${a.toFixed(3)}，按种子摆 ${b.toFixed(3)}`);
     const s = stretch(m, tight.values, tight.density);
-    assert(Math.abs(s.lo - 1) < 1e-9 && Math.abs(s.hi - 1) < 1e-9, `平的带子零拉伸 ${s.lo}…${s.hi}`);
+    assert(Math.abs(s.lo - 1) < s.tol && Math.abs(s.hi - 1) < s.tol, `平的带子零拉伸 ${s.lo}…${s.hi}（量化容差 ${s.tol}）`);
   });
   it("转了朝向只会更紧：起伏网格每一片，按包围盒最小摆的满 ≥ 按种子摆的满", () => {
     const m = hills(12, 2, (x, y) => 0.3 * Math.sin(2 * x + y)), fs = m.faces();

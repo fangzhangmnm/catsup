@@ -20,7 +20,7 @@ const planesOf = (k: MeshKernel, f: number): string[] => { const ps = k.facePts(
 const planeOf = (k: MeshKernel, f: number): string | null => planesOf(k, f)[0] ?? null;
 /** 盒子 + 一列：每张面一个自己的一次函数（随机系数），角上的值 = 函数在角的位置上的值。 */
 function paintedBox(seed: number): { k: MeshKernel; fn: Map<string, Lin> } {
-  const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); k.addColumn({ guid: UV, arity: 2 });
+  const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); k.addColumn({ guid: UV, arity: 2, kind: "test" });
   const r = rng(seed), fn = new Map<string, Lin>();
   for (const f of k.faces()) {
     const c = Array.from({ length: 8 }, () => r() * 4 - 2), lin: Lin = (p) => [c[0] * p.x + c[1] * p.y + c[2] * p.z + c[3], c[4] * p.x + c[5] * p.y + c[6] * p.z + c[7]];
@@ -134,7 +134,7 @@ describe("角上的列：B 照抄 / C 新面空白", () => {
     assert(err <= 1e-4, `缩小的原面最大差 ${err}`);
   });
   it("强行对称：镜过去的面照抄（同一个位置镜过去的角 = 同样的值）", () => {
-    const k = new MeshKernel(); addBox(k, P(-1, 0, 0), P(1, 1, 1)); k.addColumn({ guid: UV, arity: 2 });
+    const k = new MeshKernel(); addBox(k, P(-1, 0, 0), P(1, 1, 1)); k.addColumn({ guid: UV, arity: 2, kind: "test" });
     for (const f of k.faces()) k.setFaceValues(f, UV, k.facePts(f).flatMap((p) => [p.y + 3 * p.z, 2 * p.x * p.x + p.z]));
     symmetrize(k, 0, 1); clean(k, "强行对称");
     const key = (p: Pt3): string => `${p.x.toFixed(6)},${p.y.toFixed(6)},${p.z.toFixed(6)}`;
@@ -155,7 +155,7 @@ describe("角上的列：B 照抄 / C 新面空白", () => {
 describe("角上的列：D 并面", () => {
   /** 两张四边形共用一条边（1-4）；f(p) 给 A、g(p) 给 B（null = B 没值）。 */
   function twoQuads(f: (p: Pt3) => number[], g: ((p: Pt3) => number[]) | null): { k: MeshKernel; e: number } {
-    const k = new MeshKernel(); k.addColumn({ guid: UV, arity: 2 });
+    const k = new MeshKernel(); k.addColumn({ guid: UV, arity: 2, kind: "test" });
     const v = [P(0, 0, 0), P(1, 0, 0), P(2, 0, 0), P(0, 1, 0), P(1, 1, 0), P(2, 1, 0)].map((p) => k.addVertex(p));
     const a = k.addFace([v[0], v[1], v[4], v[3]], -1, FRESH), b = k.addFace([v[1], v[2], v[5], v[4]], -1, FRESH);
     k.setFaceValues(a, UV, k.facePts(a).flatMap(f));
@@ -199,7 +199,7 @@ describe("角上的列：F 撤销 / 确定性 · 并点取谁 · 搬到别的内
     assert(n > 0, "有含幸存者的面留下来");
   });
   it("整张面搬到另一个内核：列按 GUID 补上（原有的面全没值），角上的数跟着搬", () => {
-    const { k } = paintedBox(23), t = new MeshKernel(); t.addColumn({ guid: "other", arity: 1 });
+    const { k } = paintedBox(23), t = new MeshKernel(); t.addColumn({ guid: "other", arity: 1, kind: "test" });
     addBox(t, P(5, 5, 5), P(6, 6, 6));
     const f = k.faces()[3], map = new Map<number, number>(), nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = t.addVertex(k.pt(v)); map.set(v, x); } return x; };
     t.ensureColumns(k.columnDefs());
@@ -233,7 +233,7 @@ describe("角上的列：守卫", () => {
 describe("角上的列：规矩按构造成立（Fable 审 1-2 加的两处）", () => {
   /** 一张单独的四边形，一列、角上的值 = (x, y)；再放一个在第一条边中点上的点 m（还没进环）。 */
   function quad(): { k: MeshKernel; f: number; v: number[]; m: number } {
-    const k = new MeshKernel(); k.addColumn({ guid: UV, arity: 2 });
+    const k = new MeshKernel(); k.addColumn({ guid: UV, arity: 2, kind: "test" });
     const v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)].map((p) => k.addVertex(p));
     const f = k.addFace(v, -1, FRESH); k.setFaceValues(f, UV, k.facePts(f).flatMap((p) => [p.x, p.y]));
     return { k, f, v, m: k.addVertex(P(0.5, 0, 0)) };

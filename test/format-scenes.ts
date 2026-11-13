@@ -328,7 +328,7 @@ export function sceneFingerprint(s: Scene): string {
   parts.push(`axes ${f3(s.axes.origin)} | ${f3(s.axes.x)} | ${f3(s.axes.y)} | ${f3(s.axes.z)}`);
   for (const d of [...s.defs.values()].sort((a, b) => label(a.id).localeCompare(label(b.id)))) {
     if (d.body.kind === "mesh") {
-      const m = d.body.kernel, rows = d.body.uvSets, raw = m.toSnapshot();   // 贴图坐标（1-2½）：列的身份号是现铸的，不进指纹，换成那一套的名字；每套的宽高密度另记
+      const m = d.body.kernel, rows = new Map([...s.uvSets].filter(([g]) => m.hasColumn(g))), raw = m.toSnapshot();   // 贴图坐标（1-2½；施工单十八：排法表在场景层，取这个网格体有列的那几行）：列的身份号是现铸的，不进指纹，换成那一套的名字；每套的宽高密度另记
       const snap = raw.columns ? { ...raw, columns: raw.columns.map((c) => ({ ...c, guid: `uv:${rows.get(c.guid)?.name ?? "?"}` })) } : raw;
       const uv = [...rows.values()].map((u) => `${u.name} ${u.width}x${u.height}@${u.pxPerM}`).sort().join(" | ");
       parts.push(`def ${label(d.id)} kind=mesh slots=${d.body.materialSlots.join(",")}${uv ? ` uvSets=${uv}` : ""}: ${JSON.stringify(snap)} faceFlags=${m.faces().map((f) => m.faceFlags[f]).join(",")}`); for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`); continue; }

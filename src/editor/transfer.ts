@@ -176,7 +176,7 @@ export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
   const k = new MeshKernel(), vs = p.mesh.verts.map((q) => k.addVertex(q));
   for (const f of p.mesh.faces) k.addFace(f.ring.map((i) => vs[i]), f.mat, FRESH);   // 经过剪贴板：故意不带角上的数（统筹 11-11 定，1-2½）——这里是转成硬表面再贴，硬表面本来就没有角上的数
   for (const e of p.mesh.edges) { const id = k.ensureEdge(vs[e.a], vs[e.b]); k.setEdgeFlags(id, e.flags); }
-  const body = castBody({ kind: "mesh", kernel: k, materialSlots: slots(), uvSets: new Map() }, "brep");
+  const body = castBody({ kind: "mesh", kernel: k, materialSlots: slots() }, "brep");
   const brep = body.kind === "brep" ? body.kernel.toBrep() : undefined;
   // 转硬表面可能新开内置默认背面那一格：对照表跟着长（编号 = 槽号）
   const table = body.materialSlots.map((h, i) => (h === BUILTIN_BACK_SLOT ? BUILTIN_BACK : (p.materials?.[i] ?? BUILTIN_BACK)));

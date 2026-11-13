@@ -12,7 +12,7 @@ const MAT = { guid: "m", name: "画", color: [0.5, 0.5, 0.5] } as unknown as Mat
 function rig(w: number, h: number) {
   const m = new MeshKernel(), P = (x: number, y: number, z: number) => m.addVertex({ x, y, z });
   const a = m.addFace([P(0, 0, 0), P(3, 0, 0.4), P(2.5, 1.5, 0), P(0, 1, 0.2)], 0, FRESH), b = m.addFace([P(5, 0, 0), P(6, 0, 0), P(6, 1, 0), P(5, 1, 0)], 0, FRESH);
-  m.addColumn({ guid: "uv", arity: 2 });
+  m.addColumn({ guid: "uv", arity: 2, kind: "uv" });
   const vals = [2, 3, 40, 5, 37.5, 20, 4, 16];
   m.setFaceValues(a, "uv", vals);
   const env: PoolMeshEnv = {

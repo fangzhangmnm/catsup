@@ -52,7 +52,7 @@ const num = (v: unknown): unknown => (v instanceof Float32Array || v instanceof 
 /** 逐位比用：内核快照（含列）+ uvSets + 槽表 + 材质表 + 贴图表。 */
 const canon = (s: Scene, def: number): string => {
   const b = s.mesh(def);
-  return JSON.stringify({ k: b.kernel.toSnapshot(), uv: [...b.uvSets.entries()], slots: b.materialSlots, mats: s.materials, tex: [...s.textures.entries()] }, (_k, v) => num(v));
+  return JSON.stringify({ k: b.kernel.toSnapshot(), uv: [...s.uvSets.entries()], slots: b.materialSlots, mats: s.materials, tex: [...s.textures.entries()] }, (_k, v) => num(v));
 };
 /** 整个场景（拒绝之后一个字节不变用）。 */
 const sceneCanon = (s: Scene): string => JSON.stringify({ defs: [...s.defs.values()].map((d) => ({ id: d.id, guid: d.guid, name: d.name, kind: d.body.kind, inst: [...d.instances.values()], mesh: d.body.kind === "mesh" ? canon(s, d.id) : null })), mats: s.materials, tex: [...s.textures.keys()] }, (_k, v) => num(v));
@@ -62,19 +62,19 @@ const rejected = (fn: () => unknown, re?: RegExp): string => {
 };
 const valuesOf = (k: MeshKernel, g: string): Map<string, string> => { const out = new Map<string, string>(); for (const f of k.faces()) { const v = k.cornerValues(f, g); if (v) out.set(k.faceVerts(f).join(","), Array.from(v).join(",")); } return out; };
 const boxMesh = (m: MeshKernel): void => { addBox(m, P(0, 0, 0), P(2, 1, 1)); };
-const uvOf = (s: Scene, def: number): string => [...s.mesh(def).uvSets.keys()][0];
+const uvOf = (s: Scene, def: number): string => s.mesh(def).kernel.columnDefs().find((c) => c.kind === "uv")!.guid;   // 施工单十八：排法表在场景层，网格体上是 uv 列
 
 describe("开始画（1-3b 测试 A）", () => {
   it("做完：uvSets 多一行、贴图表多一行（分层、没有字节、layout 指着这个定义和这一套）、材质多一个、这些面走画、每个角有位置、自检没毛病；撤销 / 重做 / 重放逐位", () => {
     const r = rig(boxMesh), faces = r.k().faces(), before = canon(r.s, r.def), t0 = r.s.textures.size, m0 = r.s.materials.length;
     const op = startOp(r.def, faces), sBefore = r.s.clone();
     eq(r.step(op), "", "收尾没话说");
-    const b = r.s.mesh(r.def), row = b.uvSets.get(op.uvSet)!;
-    eq(b.uvSets.size, 1); assert(row && row.width === 1024 && row.height === 1024 && row.pxPerM > 0, `一行：${JSON.stringify(row)}`);
+    const row = r.s.uvSets.get(op.uvSet)!;
+    eq(r.s.uvSets.size, 1); assert(row && row.width === 1024 && row.height === 1024 && row.pxPerM > 0, `一行：${JSON.stringify(row)}`);
     eq(r.s.textures.size, t0 + 1); eq(r.s.materials.length, m0 + 1);
     const tex = r.s.textures.get(op.textureGuid)!;
     eq(tex.content.kind, "layered"); eq((tex.content as { ora: unknown }).ora, null, "新建的画没有字节"); eq(tex.sizeM, undefined, "没有 sizeM");
-    eq(JSON.stringify(tex.layout), JSON.stringify({ definition: r.s.def(r.def).guid, uvSet: op.uvSet }));
+    eq(JSON.stringify(tex.layout), JSON.stringify({ uvSet: op.uvSet }), "layout = { uvSet }（施工单十八 3.3：画挂在排法上，不记定义）");
     eq(JSON.stringify(r.s.materials[m0].channels), JSON.stringify({ color: [op.textureGuid] }));
     for (const f of faces) { eq(paintUvOf(r.s, r.def, f), op.uvSet, `面 ${f} 走画`); assert(r.k().cornerValues(f, op.uvSet), `面 ${f} 有位置`); }
     eq(meshBodyIssues(r.s, r.def).join("；"), "", "自检");
@@ -86,13 +86,13 @@ describe("开始画（1-3b 测试 A）", () => {
   it("给了密度：照这个密度铺、记进那一行；没给 = 1024 见方里放得下的最大密度", () => {
     const r = rig(boxMesh);
     r.step(startOp(r.def, r.k().faces(), { density: 100 }));
-    eq(r.s.mesh(r.def).uvSets.get(uvOf(r.s, r.def))!.pxPerM, 100);
+    eq(r.s.uvSets.get(uvOf(r.s, r.def))!.pxPerM, 100);
   });
   it("画布边长（2026-11-11 开始画时选）：canvas = 256 → 256 见方里放得下的最大密度；不给 = 1024（老指令流重放不变）", () => {
     const a = rig(boxMesh); a.step(startOp(a.def, a.k().faces(), { canvas: 256 }));
-    const ua = a.s.mesh(a.def).uvSets.get(uvOf(a.s, a.def))!;
+    const ua = a.s.uvSets.get(uvOf(a.s, a.def))!;
     const b = rig(boxMesh); b.step(startOp(b.def, b.k().faces()));
-    const ub = b.s.mesh(b.def).uvSets.get(uvOf(b.s, b.def))!;
+    const ub = b.s.uvSets.get(uvOf(b.s, b.def))!;
     eq(`${ua.width}x${ua.height}`, "256x256"); eq(`${ub.width}x${ub.height}`, "1024x1024", "不给 = 1024 见方");
     assert(ua.pxPerM < ub.pxPerM, `256 见方的密度 ${ua.pxPerM} 比 1024 的 ${ub.pxPerM} 小`);
   });
@@ -149,12 +149,12 @@ describe("画布加高（1-3b 测试 C）", () => {
     const faces = r.k().faces();
     r.step(startOp(r.def, [faces[0]], { density: 100, fit: "density" }));   // 1000 × 200 一块：画布 1024 × 256（接近正方形、够用的最小宽高）
     const uv = uvOf(r.s, r.def), mat = r.s.materials.length - 1;
-    eq(r.s.mesh(r.def).uvSets.get(uv)!.height, 256);
+    eq(r.s.uvSets.get(uv)!.height, 256);
     let full = 0;
     for (let i = 1; i < N; i++) {
       const vals = valuesOf(r.k(), uv);
       const note = r.step({ op: "meshPaintFaces", def: r.def, faces: [faces[i]], material: mat });
-      const H = r.s.mesh(r.def).uvSets.get(uv)!.height;
+      const H = r.s.uvSets.get(uv)!.height;
       eq(H % 256, 0, "高是 256 的倍数"); assert(H <= 4096, "不过上限");
       for (const [ring, v] of vals) eq(valuesOf(r.k(), uv).get(ring), v, "已有的角不变");
       eq(r.k().faceMat[faces[i]], r.s.mesh(r.def).materialSlots.indexOf(mat), "建模那一步（换材质）照样做成");
@@ -162,7 +162,7 @@ describe("画布加高（1-3b 测试 C）", () => {
     }
     assert(full > 0, "加到上限之后真的有放不下的");
     eq([...unplacedPaintFaces(r.s, r.def, null).values()].flat().length, full, "放不下的张数对");
-    eq(r.s.mesh(r.def).uvSets.get(uv)!.height, 4096, "到了上限");
+    eq(r.s.uvSets.get(uv)!.height, 4096, "到了上限");
   });
   it("按总大小开的画（缺 fit，施工单十六第四节）：画布不自己变大——加面只在现有宽高里找地方，找不到的先没有位置，提示行说这张画定的是多大", () => {
     const N = 6;
@@ -170,10 +170,10 @@ describe("画布加高（1-3b 测试 C）", () => {
     const faces = r.k().faces();
     r.step(startOp(r.def, [faces[0]], { density: 50 }));   // 老入口：给了密度、没给 fit = 按总大小（500 × 100 一块，画布 1024 × 256：一行两块、两行 = 放得下四块）
     const uv = uvOf(r.s, r.def), mat = r.s.materials.length - 1;
-    eq(r.s.mesh(r.def).uvSets.get(uv)!.fit, undefined, "没记 fit = 按总大小");
+    eq(r.s.uvSets.get(uv)!.fit, "size", "按总大小开的 = fit size（施工单十八：fit 必写）");
     let note = "";
     for (let i = 1; i < N; i++) note = r.step({ op: "meshPaintFaces", def: r.def, faces: [faces[i]], material: mat }) || note;
-    eq(r.s.mesh(r.def).uvSets.get(uv)!.height, 256, "画布没变大");
+    eq(r.s.uvSets.get(uv)!.height, 256, "画布没变大");
     const left = [...unplacedPaintFaces(r.s, r.def, null).values()].flat().length;
     eq(left, 2, "六张面：四张放进去了、两张先没有位置");
     assert(/这张画定的是 1024 × 256，不自己变大/.test(note), `提示行：${note}`);
@@ -181,7 +181,7 @@ describe("画布加高（1-3b 测试 C）", () => {
   it("按一格多大开（fit = density）：画布接近正方形、够用的最小；那一套记 fit；每张面的边长 ÷（空间里的边长 × 密度）都在 [cos 45°, 1]", () => {
     const r = rig(boxMesh), fs = r.k().faces();
     r.step(startOp(r.def, fs, { density: 40, fit: "density", arrange: "patches" }));
-    const uv = uvOf(r.s, r.def), row = r.s.mesh(r.def).uvSets.get(uv)!;
+    const uv = uvOf(r.s, r.def), row = r.s.uvSets.get(uv)!;
     eq(row.fit, "density"); eq(row.pxPerM, 40);
     assert(row.height <= row.width && row.width <= 512, `画布 ${row.width} × ${row.height}`);
     const k = r.k(), cos = Math.cos(Math.PI / 4);
@@ -233,7 +233,7 @@ describe("强行对称（1-3b 测试 E）", () => {
     eq([...unplacedPaintFaces(r.s, r.def, null).values()].flat().length, 0, "走画的面都有位置");
     eq(pairsSame(k, uv).join("；"), "", "两半同一块");
     eq(distinctBoxes(k, uv), plus.length, "丢掉的那半没占画布");
-    eq(r.s.mesh(r.def).uvSets.get(uv)!.pxPerM, (layoutFaces(k0, plus) as { density: number }).density, "密度 = 只铺留着那半时的");
+    eq(r.s.uvSets.get(uv)!.pxPerM, (layoutFaces(k0, plus) as { density: number }).density, "密度 = 只铺留着那半时的");
     assert(isSymmetric(k, 0), "还对称");
     r.undo(); eq(canon(r.s, r.def), before, "一次撤销回到原样");
   });
@@ -336,7 +336,7 @@ describe("拒绝的那几处（1-3b 测试 F）", () => {
     const paintIdx = s2.materials.length - 1, texG = s2.materials[paintIdx].channels!.color[0];
     let s3 = applyOp(s2, { op: "purgeMaterials", materials: [paintIdx] }).scene;
     s3 = applyOp(s3, { op: "purgeTextures", textures: [texG] }).scene;
-    assert(s3.mesh(A).uvSets.size > 0 && !s3.materials.some((m) => paintIn(s3.textures, m)), "只剩贴图坐标，没有画");
+    assert(s3.mesh(A).kernel.columnDefs().some((c) => c.kind === "uv") && !s3.materials.some((m) => paintIn(s3.textures, m)), "只剩贴图坐标，没有画");
     const whole = extractForCopy(s3, { chain: [], group: null }, { faces: [], edges: [] }, [{ kind: "instance", instance: ia }]);
     assert(!!whole && !("blocked" in whole), "整个物件照拷");
     const other = new Scene(), c1 = sceneCanon(other);
@@ -360,7 +360,7 @@ describe("存盘（1-3b 测试 G；1-2½ 起贴图坐标真的写）", () => {
     const r = rig(boxMesh);
     r.step(startOp(r.def, r.k().faces()));
     const doc = documentFromScene(r.s, "画"), md = doc.definitions.find((d) => d.kind === "mesh")!.mesh!;
-    eq(md.uvSets?.length ?? 0, 1, "文件形状带着一套贴图坐标");
+    eq(md.columns?.filter((c) => c.kind === "uv").length ?? 0, 1, "文件形状带着一条 uv 列");
     let msg = ""; try { writeCatsup(doc); } catch (e) { msg = String((e as Error).message); }
     assert(/no bytes/.test(msg) && /should have encoded a blank one/.test(msg), `原因：${msg}`);   // 1-8b 起存盘的钉点先编一份空白的；直接调写盘碰到 null 照旧抛
   });

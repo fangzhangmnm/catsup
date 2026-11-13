@@ -10,6 +10,7 @@
 //   留给后面的种子（按种子的方向量；只看几何，不看画布大小）；② 片的朝向取包围盒最小的：候选 = 片外沿上每条边的方向，一样小留种子最长的边（两张面以上的片才换；
 //   只有一张面的片不动，和「一张面一块」逐位相同）。
 import type { Pt3 } from "../kernel/geom.ts";
+import { quantizeUv } from "../mesh/corner-columns.ts";
 
 /** 铺法要的那一点内核（MeshKernel 满足；测试可以给假的）。 */
 export interface LayoutMesh {
@@ -313,7 +314,7 @@ function tryDensity(m: LayoutMesh, units: readonly Unit[], density: number, W: n
   let bottom = 0;
   sizes.forEach((s, i) => {
     const { x, y } = at[i], fl = flat.get(s.face)!;
-    for (const [f, uv] of fl.uvs) { const v = new Float64Array(uv.length); for (let j = 0; j < v.length; j += 2) { v[j] = uv[j] + x; v[j + 1] = uv[j + 1] + y; } values.set(f, v); }
+    for (const [f, uv] of fl.uvs) { const v = new Float64Array(uv.length); for (let j = 0; j < v.length; j += 2) { v[j] = quantizeUv(uv[j] + x); v[j + 1] = quantizeUv(uv[j + 1] + y); } values.set(f, v); }   // 最后一步量化到 1/1024 格（施工单十八第四节）
     blocks.push({ face: s.face, x, y, w: s.w, h: s.h }); bottom = Math.max(bottom, y + s.h);
   });
   return { blocks, values, height: bottom + gap };
@@ -428,7 +429,7 @@ export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly numbe
       H = Math.max(H, upStep(at.y + s.h + gap, stepOf(W)));
     }
     const v = new Float64Array(s.uv.length);
-    for (let j = 0; j < v.length; j += 2) { v[j] = s.uv[j] + at.x; v[j + 1] = s.uv[j + 1] + at.y; }
+    for (let j = 0; j < v.length; j += 2) { v[j] = quantizeUv(s.uv[j] + at.x); v[j + 1] = quantizeUv(s.uv[j + 1] + at.y); }   // 最后一步量化到 1/1024 格（施工单十八第四节）
     blocks.push({ face: s.face, x: at.x, y: at.y, w: s.w, h: s.h }); values.set(s.face, v);
     mark(at.x, at.y, at.x + s.w, at.y + s.h, true);
   }

@@ -98,7 +98,7 @@ describe("画布加高那一步（1-8a）", () => {
     const r = rig(1), rnd = rng(2), [tex] = r.defs.map((d) => r.startPaint(d, 200, "density")), def = r.defs[0];   // 密度大：画布满得快，挤出几次就要加高（按一格多大开的才长大，施工单十六第四节）
     r.boards.ensure(r.cur(), tex);
     let tries = 0, before = "";
-    const uvH = (): number => [...r.cur().mesh(def).uvSets.values()][0].height;
+    const uvH = (): number => [...r.cur().uvSets.values()][0].height;   // 排法表在场景层（施工单十八）
     for (; tries < 20; tries++) {
       before = r.shot(); const h0 = r.boards.get(tex)!.height, k = r.cur().mesh(def).kernel;
       r.commit({ op: "meshExtrude", def, faces: [k.faces()[tries % k.faces().length]], offset: { x: 0, y: 0, z: 0.5 } } as Op);

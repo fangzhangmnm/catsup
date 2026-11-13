@@ -27,7 +27,7 @@ const BASES: Record<string, () => MeshKernel> = {
   fin: () => { const k = new MeshKernel(), a = k.addVertex(P(0, 0, 0)), b = k.addVertex(P(0, 0, 1)); for (const [x, y] of [[1, 0], [-1, 0.2], [0.1, 1]]) { const c = k.addVertex(P(x, y, 1)), d = k.addVertex(P(x, y, 0)); k.addFace([a, b, c, d], -1, FRESH); } return k; },
   loose: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); const a = k.addVertex(P(3, 0, 0)), b = k.addVertex(P(4, 0, 0)); k.setEdgeFlags(k.ensureEdge(a, b), F_WIRE); k.addVertex(P(5, 5, 5)); return k; },
   mirrorBox: () => { const k = new MeshKernel(); addBox(k, P(-1, 0, 0), P(1, 1, 1)); return k; },
-  columns: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(2, 1, 1)); k.addColumn({ guid: "uv", arity: 2 }); for (const f of k.faces()) k.setFaceValues(f, "uv", k.facePts(f).flatMap((p) => [p.x + p.z, p.y - p.x])); return k; },
+  columns: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(2, 1, 1)); k.addColumn({ guid: "uv", arity: 2, kind: "test" }); for (const f of k.faces()) k.setFaceValues(f, "uv", k.facePts(f).flatMap((p) => [p.x + p.z, p.y - p.x])); return k; },
 };
 const OPS = ["splitEdge", "splitFace", "knife", "loopCut", "inset", "extrudeFaces", "extrudeEdges", "bevel", "mergeVerts", "deleteFaces", "subdivide", "symmetrize", "joinFaces", "dissolveVertex", "flipFaces"] as const;
 

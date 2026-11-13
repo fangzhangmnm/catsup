@@ -145,7 +145,7 @@ describe("画板登记处（1-3c）", () => {
   });
   it("建：大小 = 那一套坐标的画布、底色 = 材质的底色；不是画 = 抛", () => {
     const { s, def, tex } = painted(), port = new SoftGl2Port(), reg = new PaintBoards({ editLocked: () => null,  port: () => port, epoch: () => 0 });
-    const body = s.def(def).body, row = body.kind === "mesh" ? [...body.uvSets.values()][0] : null;
+    const row = [...s.uvSets.values()][0] ?? null;   // 排法表在场景层（施工单十八）
     const b = reg.ensure(s, tex);
     eq([b.width, b.height].join(), [row!.width, row!.height].join(), "大小");
     eq((reg.board(tex)!.image as LiveImage).kind, "live", "活的图");
@@ -169,10 +169,10 @@ describe("画板登记处（1-3c）", () => {
   });
   it("跟着场景里那一套坐标改大小（加高；1-8a 起在提交的收尾里 follow，「准备」里的 sync 不改大小）；签名跟着变", () => {
     const { s, def, tex } = painted(), port = new SoftGl2Port(), reg = new PaintBoards({ editLocked: () => null,  port: () => port, epoch: () => 0 });
-    const b = reg.ensure(s, tex), sig0 = reg.sig(), body = s.def(def).body;
-    if (body.kind !== "mesh") throw new Error("not mesh");
-    const [g, row] = [...body.uvSets][0];
-    body.uvSets.set(g, { ...row, height: row.height + 64 });
+    const b = reg.ensure(s, tex), sig0 = reg.sig();
+    void def;
+    const [g, row] = [...s.uvSets][0];   // 排法表在场景层（施工单十八）
+    s.uvSets.set(g, { ...row, height: row.height + 64 });
     reg.sync(s);
     eq(b.height, row.height, "「准备」里不改大小");
     reg.follow(s);

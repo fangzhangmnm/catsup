@@ -7,13 +7,14 @@ import { materialColorFromFile, textureFromLegacyMaterial } from "./migrate/mate
 import { carryJson, readTextureRow } from "./texture-table.ts";
 import { sliceBin } from "./binary.ts";
 import { decodeBrep, type CatsupBrepJson } from "./brep-codec.ts";
-import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc, TextureDoc } from "./document.ts";
+import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc, TextureDoc, UvSetDoc } from "./document.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { DEFAULT_LAYER, defaultDesk, emptyReferences, menuTabsOf, paintDeskOf, refPanelOf, shelfIsEmpty, type DeskDoc, type LayerDoc, type ReferencesDoc, type ShelfDoc, type ShelfItem } from "./document.ts";
 import { migrateExtension, emptyReadNotes, readStamp, FormatTooNewError, type FormatReadNotes } from "./migrate/index.ts";
 import { BUILTIN_BACK_GUID, BUILTIN_FRONT_GUID, DEFAULT_LAYER_GUID, isGuid, ownGuid, type Guid } from "./guid.ts";
 import { decodeMeshItem } from "./mesh-payload.ts";
 import { paintReadChecks } from "./paint-read.ts";
+import { readUvSetRows } from "./uvset-table.ts";
 import { assertReadableGltfVersion } from "./migrate/gltf/index.ts";
 import { collectBufferViewRefs } from "./carry.ts";
 import { isFinalRecord } from "./final.ts";
@@ -121,6 +122,15 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       texturesRaw = raw;
       notes.texturesTooNew = readStamp(raw);
     }
+  }
+  // 排法表 CATSUP_uvsets（2026-11-13，施工单十八 3.1）：没有 = 空表；major 比本版新 = 拒开（FormatTooNewError 照常抛出去：建模的每一步都要碰它，不学桌面态的例外）。
+  //   坏的行不认、记 notes（uvset-table.ts）；表头上不认识的键原样带回。
+  let uvSets: UvSetDoc[] = [];
+  const uvSetsExtraRaw: Record<string, unknown> = {};
+  if (isObj(exts.CATSUP_uvsets)) {
+    const uj = migrateExtension("CATSUP_uvsets", exts.CATSUP_uvsets as Record<string, unknown>, notes);
+    uvSets = readUvSetRows(uj.list, view, notes);
+    for (const [k, v] of Object.entries(uj)) if (k !== "version" && k !== "minor" && k !== "patch" && k !== "list") uvSetsExtraRaw[k] = v;
   }
   const texKnown = new Set(textures.map((t) => t.guid));
   // 材质：先于定义读（定义 6→7 的迁移要材质的 GUID）。glTF core materials（baseColorFactor）+ CATSUP_material { guid, channels, sizeM（老读者的回声） }。
@@ -244,7 +254,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const topLevel: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(json)) if (!OURS_TOP.has(k)) topLevel[k] = v;
   const extensions: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(exts)) if (k !== "CATSUP_document" && k !== "CATSUP_definitions" && k !== "CATSUP_desk" && k !== "CATSUP_references" && k !== "CATSUP_shelf" && k !== "CATSUP_textures") extensions[k] = v;
+  for (const [k, v] of Object.entries(exts)) if (k !== "CATSUP_document" && k !== "CATSUP_definitions" && k !== "CATSUP_desk" && k !== "CATSUP_references" && k !== "CATSUP_shelf" && k !== "CATSUP_textures" && k !== "CATSUP_uvsets") extensions[k] = v;
   if (texturesRaw) extensions.CATSUP_textures = texturesRaw;   // 贴图表太新：原字节原样写回
   // 桌面态 CATSUP_desk（§5.7）：major 比本版新 → **不拒开**（WeebPaint desk 同款）：原字节进 carry.extensions 原样写回、这边用默认、notes 记一笔；
   // 没有这个扩展（老文件）→ 默认 + 老位置的 document.lastView（§7.2 保留读）。
@@ -309,9 +319,9 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   for (const [k, v] of Object.entries(defsExt)) if (!DEF_KEYS.has(k)) definitionsExtra[k] = v;
 
   const views = new Map<number, Uint8Array>();
-  for (const i of collectBufferViewRefs([topLevel, extensions, documentExtra, definitionsExtra, brepKeep ?? {}, referencesExtraRaw, texturesExtraRaw])) views.set(i, new Uint8Array(view(i)));
+  for (const i of collectBufferViewRefs([topLevel, extensions, documentExtra, definitionsExtra, brepKeep ?? {}, referencesExtraRaw, texturesExtraRaw, uvSetsExtraRaw])) views.set(i, new Uint8Array(view(i)));
   references.extra = referencesExtraRaw;   // 直通的未知键（里面的 bufferView 仍是文件里的旧索引；写入器经 carry.views 重映射）
-  paintReadChecks(definitions, materials, textures, notes);   // 画这一层的收口（1-2½）：别的定义借用单品的画 → 那一格当没有材质；layout 指不到 → 孤儿；走画的面没有位置 → 记一笔
+  paintReadChecks(definitions, materials, textures, uvSets, notes);   // 画这一层的收口（1-2½）：别的定义借用单品的画 → 那一格当没有材质；layout 指不到 → 孤儿；走画的面没有位置 → 记一笔
   const settingsIn = isObj(docExt.settings) ? (docExt.settings as Record<string, unknown>) : {};
   const bake = isObj(docExt.bake) ? (docExt.bake as Record<string, unknown>) : {};
   return {
@@ -328,9 +338,10 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     root: definitions[rootIdx],
     materials,
     textures,
+    uvSets,
     ...(shelf && !shelfIsEmpty(shelf) ? { shelf } : {}),
     ...(thumbnail ? { thumbnail } : {}),
-    carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), ...(Object.keys(texturesExtraRaw).length ? { texturesExtra: texturesExtraRaw } : {}), views },
+    carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), ...(Object.keys(texturesExtraRaw).length ? { texturesExtra: texturesExtraRaw } : {}), ...(Object.keys(uvSetsExtraRaw).length ? { uvSetsExtra: uvSetsExtraRaw } : {}), views },
     ...(Object.values(notes).some((v) => (Array.isArray(v) ? v.length > 0 : !!v)) ? { readNotes: notes } : {}),   // 任何一个键有值就挂上（以前是手写的键名单，新键没补进去 = 记了等于没记；2026-11-12 Opus，存盘忠实度 R1 / R2 撞上的）
   };
 }

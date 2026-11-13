@@ -11,8 +11,8 @@ import { rig } from "./paint-undo-kit.ts";
 /** 跑一遍场景，返回新面那几格里有旧画的格数（0 = 不变量 2 成立）和说明。 */
 function scenario(): { leaked: number; cells: number; say: string } {
   const r = rig(1), def = r.defs[0], tex = r.startPaint(def);
-  const mesh = () => r.cur().mesh(def), uvOf = () => [...mesh().uvSets.keys()][0];
-  const table = () => { const row = mesh().uvSets.get(uvOf())!; return buildTexelTable(row.width, row.height, paintFaces(mesh().kernel, uvOf()), 4); };
+  const mesh = () => r.cur().mesh(def), uvOf = () => mesh().kernel.columnDefs().find((c) => c.kind === "uv")!.guid;
+  const table = () => { const row = r.cur().uvSets.get(uvOf())!; return buildTexelTable(row.width, row.height, paintFaces(mesh().kernel, uvOf()), 4); };
   // ① 有主的格全画满
   const t0 = table(), b = r.boards.ensure(r.cur(), tex), W = b.width, H = b.height, px = new Uint8Array(W * H * 4);
   for (let c = 0; c < W * H; c++) if (t0.owner[c] >= 0) { px[4 * c] = 200; px[4 * c + 1] = 40; px[4 * c + 2] = 40; px[4 * c + 3] = 255; }

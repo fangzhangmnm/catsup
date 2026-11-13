@@ -290,7 +290,7 @@ describe("平铺的画（CATSUP_textures 1.2，施工单二十一第 3 刀）", 
     const g = () => mintGuid(), ora = new Uint8Array([80, 75, 3, 4]);
     const rows: [string, TextureDoc][] = [
       ["image", { guid: g(), name: "图", value: COLOR_VALUE, content: { kind: "image", mimeType: "image/png", bytes: TINY_PNG }, sizeM: [1, 1] }],
-      ["paint", { guid: g(), name: "画", value: COLOR_VALUE, content: { kind: "layered", ora }, layout: { definition: g(), uvSet: g() } }],
+      ["paint", { guid: g(), name: "画", value: COLOR_VALUE, content: { kind: "layered", ora }, layout: { uvSet: g() } }],   // 施工单十八：画的 layout = { uvSet }
       ["tiled", { guid: g(), name: "瓦", value: COLOR_VALUE, content: { kind: "layered", ora }, sizeM: [0.5, 0.25] }],
       ["tiledNew", { guid: g(), name: "新建还没存", value: COLOR_VALUE, content: { kind: "layered", ora: null }, sizeM: [1, 1] }],
       ["other", { guid: g(), name: "更新版的", value: COLOR_VALUE, content: { kind: "other", raw: { json: { kind: "voxel" }, views: new Map() } }, sizeM: [1, 1] }],
@@ -310,7 +310,7 @@ describe("平铺的画（CATSUP_textures 1.2，施工单二十一第 3 刀）", 
   it("组合表每一格（数据契约 sizeM 那一条下面的表）：内容 × 键；正好一个键而且认识才有意思，三个问法各答各的；能写的格写回去键原样在；两个都有 / 都没有 = 进场景就抛、写文件也抛（读那一头拒开另有一条）", () => {
     const g = () => mintGuid(), ora = new Uint8Array([80, 75, 3, 4]);
     const contents: Record<string, TextureDoc["content"]> = { image: { kind: "image", mimeType: "image/png", bytes: TINY_PNG }, layered: { kind: "layered", ora }, other: { kind: "other", raw: { json: { kind: "voxel" }, views: new Map() } } };
-    const layoutOk = (): unknown => ({ definition: g(), uvSet: g() });
+    const layoutOk = (): unknown => ({ uvSet: g() });   // 施工单十八 3.3：正好一个键 uvSet
     const keys: Record<string, () => Partial<TextureDoc>> = { sizeM: () => ({ sizeM: [0.5, 0.25] }), layoutOk: () => ({ layout: layoutOk() }), layoutOdd: () => ({ layout: 7 }), both: () => ({ sizeM: [1, 1], layout: layoutOk() }), neither: () => ({}) };
     // 每格的意思：color = 自由的图、paint = 铺在坐标上的画、tiled = 平铺的画、"" = 没有意思（三个都答不是 = 按底色）。两个都有 / 都没有那两格进不了场景，不问三个问法（统筹 11-13：问法里那一道撤了）
     const want: Record<string, Record<string, string>> = {

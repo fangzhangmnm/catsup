@@ -61,14 +61,14 @@ describe("物件族：转成网格体 / 转回 SU 体", () => {
     const m = new MeshKernel(), { verts, faces } = addBox(m, P(0, 0, 0), P(1, 1, 1));
     m.setPos(verts[0], P(-0.3, -0.3, 0.25));   // 一个角抬起来：三张面不平了
     m.setFaceFlags(faces[1], 1, true);         // 隐藏一张
-    const b = meshToBrep({ kind: "mesh", kernel: m, materialSlots: [], uvSets: new Map() }, 20);
+    const b = meshToBrep({ kind: "mesh", kernel: m, materialSlots: [] }, 20);
     assert(b.kernel.faces().length > 5 && b.kernel.soft.size > 0, `不平的面折成平面块：${b.kernel.faces().length} 张、软边 ${b.kernel.soft.size}`);
     const t0 = performance.now();
     const big = new MeshKernel(), N = 100, ids: number[][] = [];
     for (let i = 0; i <= N; i++) { ids.push([]); for (let j = 0; j <= N; j++) ids[i].push(big.addVertex(P(i, j, Math.sin(i * 0.3) * Math.cos(j * 0.3)))); }
     for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) big.addFace([ids[i][j], ids[i + 1][j], ids[i + 1][j + 1], ids[i][j + 1]], -1, FRESH);
     const t1 = performance.now();
-    const bb = meshToBrep({ kind: "mesh", kernel: big, materialSlots: [], uvSets: new Map() }, 20);
+    const bb = meshToBrep({ kind: "mesh", kernel: big, materialSlots: [] }, 20);
     const ms = performance.now() - t1;
     console.log(`    [量级] meshToBrep：${N * N} 个不平四边形（${2 * N * N} 三角）→ ${bb.kernel.faces().length} 张膜，${Math.round(ms)} ms（建网格 ${Math.round(t1 - t0)} ms）`);
     assert(bb.kernel.faces().length >= N * N, "每个不平四边形至少折成两块");

@@ -21,7 +21,7 @@ function painted(seed: number, density = 40): { k: MeshKernel; t: TexelTable; tw
   for (const v of k.faceVerts(pent)) { const p = k.pt(v); k.setPos(v, { ...p, z: p.z + 0.7 }); }
   for (let i = 0; i < 3; i++) k.addFace([P(6 + i, 0, 0), P(6.4 + i, 0.1 * r(), 0.3), P(6.1 + i, 0.6, 0.1)].map((p) => k.addVertex(p)), -1, FRESH);
   const twisted = k.addFace([P(10, 0, 0), P(11, 0, 0.2), P(11, 0.8, 0), P(10, 0.8, 0.25)].map((p) => k.addVertex(p)), -1, FRESH);
-  k.addColumn({ guid: UV, arity: 2 });
+  k.addColumn({ guid: UV, arity: 2, kind: "uv" });
   const lay = layoutFaces(k, k.faces(), { density });
   if (!lay.ok) throw new Error(lay.reason);
   for (const [f, v] of lay.values) k.setFaceValues(f, UV, [...v]);
@@ -122,7 +122,7 @@ describe("格子归属表、取样点、一格在面上的位置（1-3a 第三�
     assert(n > 20, `块边上查了 ${n} 格`); assert(diffInside > 0, "里面的格子两种切法确实不同（扭过的面）");
   });
   it("④ 镜像的两半指着同一块画布多边形；平的面上两半算出来的位置互为镜像", () => {
-    const k = new MeshKernel(); addBox(k, P(0.3, 0, 0), P(1, 0.4, 0.7)); k.addColumn({ guid: UV, arity: 2 });
+    const k = new MeshKernel(); addBox(k, P(0.3, 0, 0), P(1, 0.4, 0.7)); k.addColumn({ guid: UV, arity: 2, kind: "uv" });
     const lay = layoutFaces(k, k.faces(), { density: 40 }); if (!lay.ok) throw new Error(lay.reason);
     for (const [f, v] of lay.values) k.setFaceValues(f, UV, [...v]);
     symmetrize(k, 0, 1);

@@ -115,6 +115,17 @@ import { definitionsV6toV7, type MigrationCtx } from "./definitions.ts";
 //                      （按一格多大开的：加面放不下时画布照规矩长大）；缺 = 按总大小开的（画布不自己变大）。同一个例外：只有带 fit 的网格体盖 2.1，别的照旧盖 2.0 / 1.2
 //                      （MESH_STAMP_UV_NO_FIT），写出来和以前逐字节一样。老读者（2.0）碰到 2.1 = minor 新：能开能存、提示一次；它不认识 fit、存回去会丢掉
 //                      （贴图坐标那一行只认识的键才读进来）= 那张画变回「按总大小」：画布从此不自己长大，不坏数据。
+//
+// 排法表搬到场景这一层（2026-11-13，Claude Opus 5.5；施工单 ai-docs/20261111-paint-workorders-18.md 第三、五节，统筹定的格式）：
+//   CATSUP_uvsets      1.0（新的顶层扩展，可选；表空 = 不写）：{ version, list: [ { guid, name, width, height, pxPerM, fit, freed?, …别的键 } ] }（format/uvset-table.ts）。
+//                      major 比本版新 = 拒开（不学桌面态那几个例外：建模的每一步都要碰它）。
+//   CATSUP_mesh        3.0（major）：uvSets 键没了，换成 columns[ { guid, kind, arity, data: { bufferView, count }, …别的键 } ]（mesh-payload.ts）。kind = uv：arity 2、
+//                      每角两个 32 位有符号整数、单位 1/1024 格、没有值 = 两个 −2147483648；别的 kind：每角 arity 个 32 位浮点、NaN = 没有值。
+//                      照旧的例外：不带列的网格体盖 1.2（MESH_STAMP_NO_UV），逐字节不变 = 没画过的文件旧版本照常开；带列的盖 3.0；2.0 / 2.1 不再写。
+//                      **不做迁移**（第五节，user 11-13「舍去历史包袱」）：现行格式只有「排法表 + 列」一种。读到 2.x 的网格体：链上那一步 2 → 3 只改版本号（链式升级的机制
+//                      要求每个 major 有一步；它不碰内容，和 1 → 2 一样）；载荷里的 uvSets 键现行格式里没有 = 读的门口不带回 + 记一笔（mesh-payload.ts），没有「2.x 按老的算」。
+//   CATSUP_textures    1.3：画的那一行 layout = { uvSet: GUID }（正好这一个键；document.ts paintLayoutUvSet）。按内容盖：有这种行盖 1.3；只有平铺的画盖 1.2；都没有盖 1.1。
+//                      以前的 { definition, uvSet } 这一版不当画（原样带回、按底色、不能画；打开时说一句，保存之后它们在面上的位置不再保留）。
 
 export interface Stamp { readonly major: number; readonly minor: number; readonly patch: number }
 /** 本版写出的拍子（SSoT）。 */
@@ -127,19 +138,20 @@ export const FORMAT = {
   CATSUP_desk: { major: 1, minor: 6, patch: 0 },   // 1.6（2026-11-12）：paint 按笔记（brushes / active），1.5 的 tools 保留读停止写；1.5（2026-11-11）：可选键 paint（画画工作台的笔）；1.4（2026-11-04）：可选键 exportModel；1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
   CATSUP_references: { major: 1, minor: 0, patch: 0 },
   /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
-  CATSUP_mesh: { major: 2, minor: 1, patch: 0 },   // 2.1（2026-11-11，施工单十六）：贴图坐标的一套上可选键 fit（只有带它的网格体盖 2.1，见 MESH_STAMP_UV_NO_FIT）；2.0（2026-11-11，1-2½）：uvSets 贴图坐标（只有带它的网格体盖 2.0，见 MESH_STAMP_NO_UV）；1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）
+  CATSUP_mesh: { major: 3, minor: 0, patch: 0 },   // 3.0（2026-11-13，施工单十八）：columns 取代 uvSets（排法表搬到顶层 CATSUP_uvsets）   // 2.1（2026-11-11，施工单十六）：贴图坐标的一套上可选键 fit（只有带它的网格体盖 2.1，见 MESH_STAMP_UV_NO_FIT）；2.0（2026-11-11，1-2½）：uvSets 贴图坐标（只有带它的网格体盖 2.0，见 MESH_STAMP_NO_UV）；1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）
   CATSUP_shelf: { major: 1, minor: 0, patch: 0 },   // 1.0（2026-11-04）：素材架（可选扩展）
-  CATSUP_textures: { major: 1, minor: 2, patch: 0 },   // 1.0（2026-11-10）：贴图表（可选扩展）；1.1（2026-11-11，贴图主线 1-8b）：行上可选键 composite = 画的合成图（PNG + 照哪份分层字节做的 + 底色），旧读者当不认识的键原样带回；1.2（2026-11-12，施工单二十一第 3 刀）：「分层内容 + sizeM（没有 layout）」有了意思 = 平铺的画（document.ts tiledPaintIn），形状没变，1.1 的读者读到它 = 不是画也不是原图、按底色显示、原样带回；**按内容盖**：表里有平铺的画才盖 1.2，没有的照旧盖 1.1（TEXTURES_STAMP_NO_TILED），写出来和以前逐字节一样
+  CATSUP_textures: { major: 1, minor: 3, patch: 0 },   // 1.3（2026-11-13，施工单十八）：画的 layout = { uvSet }   // 1.0（2026-11-10）：贴图表（可选扩展）；1.1（2026-11-11，贴图主线 1-8b）：行上可选键 composite = 画的合成图（PNG + 照哪份分层字节做的 + 底色），旧读者当不认识的键原样带回；1.2（2026-11-12，施工单二十一第 3 刀）：「分层内容 + sizeM（没有 layout）」有了意思 = 平铺的画（document.ts tiledPaintIn），形状没变，1.1 的读者读到它 = 不是画也不是原图、按底色显示、原样带回；**按内容盖**：表里有平铺的画才盖 1.2，没有的照旧盖 1.1（TEXTURES_STAMP_NO_TILED），写出来和以前逐字节一样
+  CATSUP_uvsets: { major: 1, minor: 0, patch: 0 },   // 1.0（2026-11-13，施工单十八）：排法表（可选的顶层扩展）
 } as const satisfies Record<string, Stamp>;
 export type CatsupExtension = keyof typeof FORMAT;
-export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references", "CATSUP_mesh", "CATSUP_shelf", "CATSUP_textures"];
+export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references", "CATSUP_mesh", "CATSUP_shelf", "CATSUP_textures", "CATSUP_uvsets"];
 /** 不带贴图坐标的网格体照旧盖的拍子（「只写当前拍」的例外，见头注释 1-2½ 那一节）：和 2.0 之前写出来的逐字节一样。 */
 export const MESH_STAMP_NO_UV: Stamp = { major: 1, minor: 2, patch: 0 };
-/** 带贴图坐标、但没有一套是按密度开的（fit）网格体照旧盖的拍子（施工单十六）：和 2.1 之前写出来的逐字节一样。 */
-export const MESH_STAMP_UV_NO_FIT: Stamp = { major: 2, minor: 0, patch: 0 };
 /** 贴图表里没有平铺的画（document.ts isTiledRow）照旧盖的拍子（施工单二十一第 3 刀，统筹审格式时定 A）：和 1.2 之前写出来的逐字节一样——
  *  文件里没有旧版本不认识的东西，旧版本就不该提示「这是更新版写的」（不然提示成了狼来了）。 */
 export const TEXTURES_STAMP_NO_TILED: Stamp = { major: 1, minor: 1, patch: 0 };
+/** 贴图表里有平铺的画、没有挂在排法上的画（layout = { uvSet }）照旧盖的拍子（施工单十八，同一条「按内容盖」）。 */
+export const TEXTURES_STAMP_TILED: Stamp = { major: 1, minor: 2, patch: 0 };
 /** 各子结构的 major（老名字，读写两端的 too-new 判定与 STEPS 索引都用它）。 */
 export const EXTENSION_VERSIONS: Readonly<Record<CatsupExtension, number>> = Object.fromEntries(CATSUP_EXTENSION_ORDER.map((k) => [k, FORMAT[k].major])) as Record<CatsupExtension, number>;
 /** 写入器盖拍子：`version` 必写；`minor` / `patch` 是可选键（缺 = 0），为 0 时不写——省字节（§3.2「抠」），字节照样确定。 */
@@ -170,12 +182,17 @@ export interface FormatReadNotes { /** 文件里写了身份、但重复或不�
   uvDropped?: UvDropNote[];
   /** 走画的面在那一套上没有位置（照材质的底色显示）：哪个定义、哪一套、几张面。 */
   paintUnplaced?: { def: { guid: string; name: string }; uvSet: { guid: string; name: string }; faces: number }[];
-  /** 接了单品的画的材质被别的定义的槽表引用：那一格这次当没有材质（几格）。再存盘会去掉这些引用。 */
-  foreignPaintSlots?: number;
-  /** 贴图的 layout 指向不存在的定义或那一套：这张贴图当孤儿留着（几张）。 */
-  orphanPaintTextures?: number }
-/** 贴图坐标坏了的一处（为什么：整个 uvSets 不是列表 / 这一套的身份号、宽高、密度、角上的数那一段不对 / 几套同一个身份号 / 面的角一半有数一半没有、不是有限数、落在画布外面）。 */
-export type UvDropWhy = "not-a-list" | "not-an-object" | "bad-guid" | "bad-size" | "bad-density" | "no-loopUv" | "bad-length" | "duplicate-guid" | "partial-corners" | "non-finite-corners" | "off-canvas-corners";
+  /** 画挂的排法不在排法表里：这张贴图当孤儿留着（几张）。 */
+  orphanPaintTextures?: number;
+  /** 排法表（CATSUP_uvsets）里这一版读不了的行：不认（挂在上面的画按底色、指着它的列按没有）；再存盘会去掉。 */
+  uvSetRowsDropped?: { guid: string | null; name: string; why: UvRowWhy }[];
+  /** 旧存法的画（施工单十八第五节：不做迁移）：paints = 贴图行的 layout 还是以前的 { definition, uvSet }；meshes = 网格体载荷里还带着以前的 uvSets 键（不带回）。
+   *  这一版读不了、按底色显示；保存之后它们在面上的位置不再保留。 */
+  oldPaintFormat?: { paints: number; meshes: number } }
+/** 排法表的一行读不了的原因。 */
+export type UvRowWhy = "not-a-list" | "not-an-object" | "bad-guid" | "bad-size" | "bad-density" | "bad-fit" | "duplicate-guid";
+/** 角上的列坏了的一处（施工单十八：为什么 = 整个 columns 不是列表 / 这一列的身份号、种类、角上的数那一段不对 / 几列同一个身份号 / uv 列的号在排法表里没有 / 面的角一半有数一半没有、不是有限数、落在画布外面）。 */
+export type UvDropWhy = "not-a-list" | "not-an-object" | "bad-guid" | "bad-kind" | "no-data" | "bad-length" | "duplicate-guid" | "no-row" | "partial-corners" | "non-finite-corners" | "off-canvas-corners";
 export interface UvDropNote { readonly def: { readonly guid: string; readonly name: string }; readonly uvSet: { readonly guid: string; readonly name: string } | null; readonly faces: number; readonly why: UvDropWhy }
 export const emptyReadNotes = (): FormatReadNotes => ({ newerMinor: [], newerPatch: [] });
 
@@ -225,6 +242,7 @@ const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
   },
   CATSUP_mesh: {
     1: (j) => ({ ...j, version: 2 }),   // 1.x 的形状是 2.0 的子集（没有 uvSets = 没有贴图坐标）：空迁移（1-2½）
+    2: (j) => ({ ...j, version: 3 }),   // 只改版本号（施工单十八：不做迁移；链式升级的机制要求每个 major 有一步）。2.x 的 uvSets 键现行格式里没有：读的门口不带回 + 记一笔（mesh-payload.ts）
   },
 };
 const isPlainObject = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);

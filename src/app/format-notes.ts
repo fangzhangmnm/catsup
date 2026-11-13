@@ -3,7 +3,7 @@
 // 2026-11-11（贴图主线 1-2½，统筹审过时定的）：改成一张表 READ_NOTE_SAY，读入时记下的每一种（FormatReadNotes 的每一个键）都有一行。理由：记了不说等于没记，这类键以后还会加，
 //   靠人记得补一句话靠不住。类型上每个键必须有一行（少了编译不过）；守卫 test/format-notes-guard.test.ts 读源码比对接口的键、每个键造一份样本看它真说出话来（少了 / 不说 = 红）。
 //   唯一故意不说的是 newerPatch（家族纪律：patch 可无脑降，静默），在 SILENT_NOTES 里写明。
-import { fmtStamp, type FormatReadNotes, type UvDropWhy } from "../format/migrate/index.ts";
+import { fmtStamp, type FormatReadNotes, type UvDropWhy, type UvRowWhy } from "../format/migrate/index.ts";
 
 type Say<K extends keyof FormatReadNotes> = (v: NonNullable<FormatReadNotes[K]>) => string[];
 /** 读入时记下的每一种 → 打开之后说的话（空 = 这一次没什么要说）。键的先后 = 说的先后。 */
@@ -34,7 +34,8 @@ export const READ_NOTE_SAY: { readonly [K in keyof Required<FormatReadNotes>]: S
     return [...byDef].map(([d, items]) => `「${d}」的贴图坐标有坏的地方（模型本身一点没少）：${items.join("；")}。再存盘会把这些坏的部分去掉`);
   },
   paintUnplaced: (v) => v.map((x) => `「${x.def.name || x.def.guid}」有 ${x.faces} 张画了的面在贴图坐标「${x.uvSet.name || x.uvSet.guid.slice(0, 8)}」上没有位置，先按材质的底色显示`),
-  foreignPaintSlots: (v) => [`有 ${v} 处别的物件用了只属于某一个物件的画，这次打开那几处当没有材质；再存盘会去掉这些引用`],
+  uvSetRowsDropped: (v) => (v.length ? [`排法表里有 ${v.length} 行这一版读不了（${[...new Set(v.map((x) => UV_ROW_WHY[x.why]))].join("、")}），那几套按没有处理：挂在上面的画按底色显示；再存盘会去掉这几行`] : []),
+  oldPaintFormat: (v) => (v.paints ? [`这份文件里有 ${v.paints} 张旧存法的画，这一版读不了，按底色显示；保存之后它们在面上的位置不再保留`] : v.meshes ? [`这份文件里有 ${v.meshes} 个物件带着旧存法的贴图坐标，这一版读不了；保存之后不再保留`] : []),
   orphanPaintTextures: (v) => [`有 ${v} 张画找不到它铺的那一套贴图坐标，先留着当没人用的（资源页能清）`],
 };
 /** 故意不说的键（每一个写明为什么）。守卫只放过这几个「有值也不说」。 */
@@ -54,7 +55,8 @@ export const LOSSY_NOTES: { readonly [K in keyof Required<FormatReadNotes>]: boo
   unknownTextureKinds: false,
   uvDropped: true,               // 「再存盘会把这些坏的部分去掉」
   paintUnplaced: false,
-  foreignPaintSlots: true,       // 「再存盘会去掉这些引用」
+  uvSetRowsDropped: true,        // 「再存盘会去掉这几行」
+  oldPaintFormat: true,          // 「保存之后它们在面上的位置不再保留」（施工单十八第五节；统筹 11-13 定的字的意思）
   orphanPaintTextures: false,
 };
 /** 这次读入记下的、会丢东西的那几种说的话（没有 = 空）。 */
@@ -79,7 +81,12 @@ export function formatNotesSay(n: FormatReadNotes): string[] {
 }
 /** 贴图坐标坏在哪（uvDropped 用；接在「整套」或「N 张面」后面）。 */
 const UV_WHY: Record<UvDropWhy, string> = {
-  "not-a-list": "（整份贴图坐标的格式不对）", "not-an-object": "（格式不对）", "bad-guid": "（身份号缺了或不对）", "bad-size": "（画布的宽高不是正整数）",
-  "bad-density": "（密度不是正数）", "no-loopUv": "（角上的数找不到）", "bad-length": "（角上的数个数和模型对不上）", "duplicate-guid": "（和同一个物件的另一套用了同一个身份号）",
+  "not-a-list": "（整份角上的列的格式不对）", "not-an-object": "（格式不对）", "bad-guid": "（身份号缺了或不对）", "bad-kind": "（种类或每角几个数不对）",
+  "no-data": "（角上的数找不到）", "bad-length": "（角上的数个数和模型对不上）", "duplicate-guid": "（和同一个物件的另一列用了同一个身份号）", "no-row": "（排法表里没有这一套）",
   "partial-corners": "的角一半有坐标一半没有", "non-finite-corners": "的角坐标不是有限的数", "off-canvas-corners": "的角落在画布外面",
+};
+/** 排法表的一行读不了的原因（uvSetRowsDropped 用）。 */
+const UV_ROW_WHY: Record<UvRowWhy, string> = {
+  "not-a-list": "整张表的格式不对", "not-an-object": "格式不对", "bad-guid": "身份号缺了或不对", "bad-size": "画布的宽高不是 1–16384 的整数",
+  "bad-density": "密度不是正数", "bad-fit": "没写定住的是什么", "duplicate-guid": "两行用了同一个身份号",
 };

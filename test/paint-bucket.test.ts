@@ -15,7 +15,7 @@ const UV = "uv";
 function box(twin = false): { k: MeshKernel; t: TexelTable } {
   const k = new MeshKernel();
   addBox(k, { x: 0, y: 0, z: 0 }, { x: 0.7, y: 0.5, z: 0.9 });
-  k.addColumn({ guid: UV, arity: 2 });
+  k.addColumn({ guid: UV, arity: 2, kind: "uv" });
   const lay = layoutFaces(k, k.faces(), { density: 30 });
   if (!lay.ok) throw new Error(lay.reason);
   for (const [f, v] of lay.values) k.setFaceValues(f, UV, [...v]);

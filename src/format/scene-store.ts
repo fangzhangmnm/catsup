@@ -8,7 +8,8 @@ import { BUILTIN_BACK_GUID, mintGuid, type Guid } from "../identity/guid.ts";
 import { BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import type { DefId, Definition, Material, Scene } from "../scene/scene.ts";
 import type { CatsupDocument, LayerDoc, TextureDoc } from "./document.ts";
-import { DEFINITION, LAYER, MATERIAL, TEXTURE, defRef, layerGuidOfTable, layerRef, materialRef, textureRef, type DefinitionEntry } from "./entry-kinds.ts";
+import { DEFINITION, LAYER, MATERIAL, TEXTURE, UVSET, defRef, layerGuidOfTable, layerRef, materialRef, textureRef, uvSetRef, type DefinitionEntry } from "./entry-kinds.ts";
+import { paintUvSetOfRow, type UvSetDoc } from "./document.ts";
 import { definitionToDoc, materializeDefinitions } from "./scene-doc.ts";
 
 const constantRefs = (): Ref[] => [...KINDS.values()].flatMap((k) => k.constants.map((guid) => ({ kind: k.kind, guid })));
@@ -23,23 +24,26 @@ export function sceneStore(s: Scene): SceneStore {
   const roots = (): Ref[] => [defRef(s.def(s.root).guid), ...s.shelf.items.map((it) => ({ kind: it.kind, guid: it.ref })), ...constantRefs()];
   const refsOf = (r: Ref): Ref[] => {
     if (r.kind === MATERIAL) { const i = mats.get(r.guid), m = i === undefined ? undefined : s.materials[i]; return m ? Object.values(m.channels ?? {}).flatMap((stack) => stack.map(textureRef)) : []; }   // 材质指贴图（2026-11-10）
+    if (r.kind === TEXTURE) { const t = s.textures.get(r.guid), g = t ? paintUvSetOfRow(t) : null; return g ? [uvSetRef(g)] : []; }   // 画指它挂的排法（施工单十八）
     const d = r.kind === DEFINITION ? defs.get(r.guid) : undefined;
     if (!d) return [];
     const out: Ref[] = [];
     for (const m of d.body.materialSlots) { const g = m === BUILTIN_BACK_SLOT ? BUILTIN_BACK_GUID : s.materials[m]?.guid; if (g !== undefined) out.push(materialRef(g)); }
     for (const i of d.instances.values()) { const g = i.layer === undefined ? undefined : layerGuid(i.layer); if (g !== undefined) out.push(layerRef(g)); }
     for (const i of d.instances.values()) { const t = s.defs.get(i.def); if (t) out.push(defRef(t.guid)); }
+    if (d.body.kind === "mesh") for (const c of d.body.kernel.columnDefs()) if (c.kind === "uv") out.push(uvSetRef(c.guid));   // 网格体的 uv 列指排法
     return out;
   };
   const store: SceneStore = {
-    has: (r) => (r.kind === DEFINITION ? defs.has(r.guid) : r.kind === MATERIAL ? mats.has(r.guid) : r.kind === LAYER ? layers.has(r.guid) : r.kind === TEXTURE ? s.textures.has(r.guid) : false),
+    has: (r) => (r.kind === DEFINITION ? defs.has(r.guid) : r.kind === MATERIAL ? mats.has(r.guid) : r.kind === LAYER ? layers.has(r.guid) : r.kind === TEXTURE ? s.textures.has(r.guid) : r.kind === UVSET ? s.uvSets.has(r.guid) : false),
     docOf(r) {
       if (r.kind === DEFINITION) { const d = defs.get(r.guid); return d ? ({ def: definitionToDoc(s, d.id), layerGuid } satisfies DefinitionEntry) : undefined; }
       if (r.kind === MATERIAL) { const i = mats.get(r.guid); return i === undefined ? undefined : s.materials[i]; }
       if (r.kind === TEXTURE) return s.textures.get(r.guid);
+      if (r.kind === UVSET) return s.uvSets.get(r.guid);
       return r.kind === LAYER ? layers.get(r.guid) : undefined;
     },
-    all: (kind: EntryKind) => (kind === DEFINITION ? [...defs.keys()] : kind === MATERIAL ? [...mats.keys()] : kind === LAYER ? [...layers.keys()] : kind === TEXTURE ? [...s.textures.keys()] : []),
+    all: (kind: EntryKind) => (kind === DEFINITION ? [...defs.keys()] : kind === MATERIAL ? [...mats.keys()] : kind === LAYER ? [...layers.keys()] : kind === TEXTURE ? [...s.textures.keys()] : kind === UVSET ? [...s.uvSets.keys()] : []),
     roots,
     refsOf,
     usage(r) { use ??= scan(s, closure(store, roots())); return use.get(refKey(r)) ?? NO_USAGE; },
@@ -70,7 +74,7 @@ function scan(s: Scene, live: readonly Ref[]): ReadonlyMap<string, Usage> {
 /** 纯文档的店（素材导入只读那份文件）。 */
 export function docStore(doc: CatsupDocument): EntryStore {
   const layers = doc.layers ?? [], layerGuid = layerGuidOfTable(layers);
-  const docs = [...doc.definitions.map((def) => ({ kind: DEFINITION, doc: { def, layerGuid } satisfies DefinitionEntry })), ...doc.materials.map((m) => ({ kind: MATERIAL, doc: m as unknown })), ...layers.map((l) => ({ kind: LAYER, doc: l as unknown })), ...(doc.textures ?? []).map((t) => ({ kind: TEXTURE, doc: t as unknown }))];
+  const docs = [...doc.definitions.map((def) => ({ kind: DEFINITION, doc: { def, layerGuid } satisfies DefinitionEntry })), ...doc.materials.map((m) => ({ kind: MATERIAL, doc: m as unknown })), ...layers.map((l) => ({ kind: LAYER, doc: l as unknown })), ...(doc.textures ?? []).map((t) => ({ kind: TEXTURE, doc: t as unknown })), ...(doc.uvSets ?? []).map((u) => ({ kind: UVSET, doc: u as unknown }))];
   return tableStore(docs, [defRef(doc.root.guid), ...(doc.shelf?.items ?? []).map((it) => ({ kind: it.kind, guid: it.ref })), ...constantRefs()], undefined, defRef(doc.root.guid));
 }
 
@@ -84,10 +88,11 @@ export interface Landing { idOf(r: Ref): number | undefined; guidOf(r: Ref): Gui
 export function applyPlan(s: Scene, bundle: Bundle, p: MergePlan): Landing {
   const docs = bundleIndex(bundle), entries: DefinitionEntry[] = [], guidOf = (g: Guid): Guid => p.remint.get(g) ?? g;
   const landed = (r: Ref): unknown => { const doc = docs.get(refKey(r)), k = KINDS.get(r.kind)!; return p.remint.has(r.guid) ? k.remintOwned(k.rewrite(doc, (x) => guidOf(x.guid))) : doc; };
+  for (const r of p.create) if (r.kind === UVSET) { const u = landed(r) as UvSetDoc; s.uvSets.set(u.guid, u); }   // 排法先进表（画和网格体的列指它；永不更新：计划里只会有新建）
   for (const r of p.create) if (r.kind === TEXTURE) s.addTexture(landed(r) as TextureDoc);   // 贴图排在材质前面
   for (const r of p.create) {
     const doc = landed(r);
-    if (r.kind === TEXTURE) continue;
+    if (r.kind === TEXTURE || r.kind === UVSET) continue;
     if (r.kind === MATERIAL) s.addMaterial(doc as Parameters<Scene["addMaterial"]>[0]);
     else if (r.kind === LAYER) s.layers.push({ ...(doc as LayerDoc), id: s.nextLayer++ });
     else if (r.kind === DEFINITION) entries.push(doc as DefinitionEntry);

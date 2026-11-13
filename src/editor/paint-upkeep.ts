@@ -81,7 +81,7 @@ export function upkeepAfter(env: ForceEnv, op: Op, snaps: UpkeepSnaps, commit: (
     if (!handled.has(def)) layoutIn(def, pendingOf(def));
     for (const [g, fs] of unplacedPaintFaces(env.scene, def, touched(def))) {   // 补完还没有位置的 = 画布上放不下的
       unplaced += fs.length;
-      const row = env.scene.mesh(def).uvSets.get(g);
+      const row = env.scene.uvSets.get(g);
       if (fs.length && row && row.fit !== "density") fixed.add(`${row.width} × ${row.height}`);
     }
     k.takeDroppedFaces();   // 收尾自己的指令（补位置 / 对称化）不会丢画；有也已经数过了，清零免得留到下一步

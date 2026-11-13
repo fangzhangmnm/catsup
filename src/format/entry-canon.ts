@@ -27,22 +27,22 @@ function canonBrep(snap: BrepSnapshot, slotGuid: (slot: number) => Guid | null):
   return { ...rest, vertices: c.vertices.map(um), edges: c.edges, faces: byKey(faces, (f) => f.outer.join()), edgeLayers: c.edgeLayers ?? {}, curves };
 }
 
-/** 网格体：点的下标原样（可能有重合的点，按坐标认会把「焊了」和「没焊」判成一样）；面从最小下标起转、面和边标记排序（存盘重开只会换这两样的序）；贴图坐标跟着面转（1-2½）。 */
+/** 网格体：点的下标原样（可能有重合的点，按坐标认会把「焊了」和「没焊」判成一样）；面从最小下标起转、面和边标记排序（存盘重开只会换这两样的序）；角上的列跟着面转（1-2½；施工单十八：列 = columns）。 */
 function canonMesh(m: MeshDoc, slotGuid: (slot: number) => Guid | null): unknown {
-  const { faceStart, faceLen, loopVert, faceMat, faceFlags, edgePairs, edgeFlags, uvSets, ...rest } = m;
-  const sets = byKey(uvSets ?? [], (u) => u.guid);   // 列表顺序没有语义：按身份号排，每张面上的键也按这个序
-  // 每张面从最小下标起转；贴图坐标（1-2½）跟着同一张面、同样转（存盘重开只会换面的序和环的起点，角上的数跟着角走）。这一套上没有位置 = null。
+  const { faceStart, faceLen, loopVert, faceMat, faceFlags, edgePairs, edgeFlags, columns, ...rest } = m;
+  const cols = byKey(columns ?? [], (c) => c.guid);   // 列表顺序没有语义：按身份号排，每张面上的键也按这个序
+  // 每张面从最小下标起转；角上的列跟着同一张面、同样转（存盘重开只会换面的序和环的起点，角上的数跟着角走）。这一列上没有值 = null。
   const faces = Array.from(faceStart, (start, i) => {
     const n = faceLen[i], ring = Array.from(loopVert.subarray(start, start + n));
     let at = 0; for (let k = 1; k < n; k++) if (ring[k] < ring[at]) at = k;
     const turn = <T>(xs: readonly T[], w: number): T[] => [...xs.slice(at * w), ...xs.slice(0, at * w)];
-    const uv: Record<string, number[] | null> = {};
-    for (const u of sets) { const v = Array.from(u.loopUv.subarray(2 * start, 2 * (start + n))); uv[u.guid] = Number.isNaN(v[0]) ? null : turn(v, 2); }
-    return { ring: turn(ring, 1), mat: faceMat[i] >= 0 ? slotGuid(faceMat[i]) : null, flags: faceFlags[i], ...(sets.length ? { uv } : {}) };
+    const col: Record<string, number[] | null> = {};
+    for (const c of cols) { const v = Array.from(c.values.subarray(c.arity * start, c.arity * (start + n))); col[c.guid] = Number.isNaN(v[0]) ? null : turn(v, c.arity); }
+    return { ring: turn(ring, 1), mat: faceMat[i] >= 0 ? slotGuid(faceMat[i]) : null, flags: faceFlags[i], ...(cols.length ? { col } : {}) };
   });
   const edges = Array.from(edgeFlags, (flags, i) => { const a = edgePairs[2 * i], b = edgePairs[2 * i + 1]; return { a: Math.min(a, b), b: Math.max(a, b), flags }; });
-  const meta = byKey(sets.map((u) => ({ guid: u.guid, name: u.name, width: u.width, height: u.height, pxPerM: u.pxPerM, ...(u.fit === "density" ? { fit: u.fit } : {}) })), (u) => u.guid);   // 列表顺序没有语义；fit 缺 = size（施工单十六）
-  return { ...rest, ...(sets.length ? { uvSets: meta } : {}), faces: byKey(faces, (f) => f.ring.join(",")), edges: byKey(edges, (e) => `${e.a},${e.b}`) };
+  const meta = cols.map((c) => ({ guid: c.guid, kind: c.kind, arity: c.arity, ...(c.extra ? { extra: c.extra.json } : {}) }));   // 列的样子（不含值）；排法那一行在场景层，比内容时不归网格体
+  return { ...rest, ...(cols.length ? { columns: meta } : {}), faces: byKey(faces, (f) => f.ring.join(",")), edges: byKey(edges, (e) => `${e.a},${e.b}`) };
 }
 
 export function canonDefinition(d: DefinitionDoc, layerGuid: (code: number) => Guid | undefined): unknown {

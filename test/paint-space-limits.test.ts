@@ -72,7 +72,7 @@ describe("画画路径上的容量上限（1-4c）", () => {
   it("一颗笔尖下同一块画布多边形挂几张面不设上限（施工单十八第 0 刀；以前最多 8）：64 张叠在一起、贴图坐标一样的面，一颗笔尖全罩住 → 画得上、= 标准答案", () => {
     const N = 64, m = new MeshKernel(), q = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)];
     for (let k = 0; k < N; k++) m.addFace(q.map((p) => m.addVertex(P(p.x, p.y, p.z + k * 1e-4))), -1, FRESH);
-    m.addColumn({ guid: "uv", arity: 2 });
+    m.addColumn({ guid: "uv", arity: 2, kind: "uv" });
     for (const f of m.faces()) m.setFaceValues(f, "uv", [4, 4, 36, 4, 36, 36, 4, 36]);
     const gpu = new SoftSpaceGpu(), t = { ...targetOf(m, { guid: "uv", width: 40, height: 40, pxPerM: 32 }) }, g = buildTargetGeo(t);
     eq(g.table.polys.length, 1, "64 张面并成同一块"); eq(g.table.polyFaces[0].length, N);

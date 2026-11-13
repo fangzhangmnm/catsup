@@ -19,9 +19,15 @@ import type { Pt3 } from "../kernel/geom.ts";
 import { triangulateFace } from "../format/triangulate.ts";
 
 /** 一列（内核里的）：data 和 loopVert 平行，长度 ≥ 角的槽数 × arity。 */
-export interface CornerColumn { readonly guid: string; readonly arity: number; data: Float32Array }
+export interface CornerColumn { readonly guid: string; readonly arity: number; readonly kind: string; readonly extra?: unknown; data: Float32Array }
 /** 一列的样子（搬到别的内核时按它补列）。 */
-export interface ColumnDef { readonly guid: string; readonly arity: number }
+/** kind = 这一列是什么：「uv」= 贴图坐标（arity 2；GUID = 场景排法表里那一行的号；单位 = 格，值一律是 1/UV_Q 格的整数倍）；别的种类原样带着走（施工单十八 3.2）。 */
+export interface ColumnDef { readonly guid: string; readonly arity: number; readonly kind: string; /** 文件里这一列不认识的键（不透明，内核不看；读写文件的门口原样带回）。 */ readonly extra?: unknown }
+/** 贴图坐标的量化：1/UV_Q 格（施工单十八第四节：凡是产出贴图坐标的地方，最后一步量化到它；存成整数再读回来逐位相同）。
+ *  和归属表取样点的量化（texel-table.ts SAMPLE_Q）是同一个数：两边都从这里来。 */
+export const UV_Q = 1024;
+/** 一个贴图坐标量化到 1/UV_Q 格（四舍五入；不往整格上凑）。 */
+export const quantizeUv = (x: number): number => Math.round(x * UV_Q) / UV_Q;
 
 /** 面的旧样子。没有列的内核：ring / pts / vals 都是 null（只记材质，几乎不花时间）。 */
 export interface FaceShape {
@@ -85,7 +91,7 @@ export function writeCorners(h: CornerHost, origin: FaceOrigin, ring: readonly n
           const at = origin.from?.[i];
           const j = typeof at === "number" ? at : at === undefined ? of.ring.indexOf(ring[i]) : -1;
           if (j >= 0) { for (let c = 0; c < A; c++) out[base + i * A + c] = v[j * A + c]; continue; }
-          sampleAt(of, v, A, typeof at === "object" ? at : h.pt(ring[i]), out, base + i * A);
+          sampleAt(of, v, A, typeof at === "object" ? at : h.pt(ring[i]), out, base + i * A, col.kind === "uv");
         }
         break;
       }
@@ -119,8 +125,8 @@ export function writeCorners(h: CornerHost, origin: FaceOrigin, ring: readonly n
   return dropped;
 }
 
-/** 在旧样子显示时用的那套三角形上找离 p 最近的点，按那个三角形里的位置插值，写进 out[o …]。全仓唯一一处插值（守卫）。 */
-function sampleAt(of: FaceShape, v: Float32Array, A: number, p: Pt3, out: Float32Array, o: number): void {
+/** 在旧样子显示时用的那套三角形上找离 p 最近的点，按那个三角形里的位置插值，写进 out[o …]。全仓唯一一处插值（守卫）。uv = 贴图坐标那一种列：插出来的值量化到 1/UV_Q 格（施工单十八第四节）。 */
+function sampleAt(of: FaceShape, v: Float32Array, A: number, p: Pt3, out: Float32Array, o: number, uv: boolean): void {
   const P = of.pts!, n = P.length / 3;
   const tris = (of.tris ??= triangulateFace(Array.from({ length: n }, (_, i) => ({ x: P[3 * i], y: P[3 * i + 1], z: P[3 * i + 2] }))));
   let best = Infinity, bt = -1, bu = 0, bv = 0, bw = 0;
@@ -131,7 +137,7 @@ function sampleAt(of: FaceShape, v: Float32Array, A: number, p: Pt3, out: Float3
   }
   if (bt < 0) { for (let c = 0; c < A; c++) out[o + c] = NaN; return; }
   const [a, b, c] = tris[bt];
-  for (let k = 0; k < A; k++) out[o + k] = bu * v[a * A + k] + bv * v[b * A + k] + bw * v[c * A + k];
+  for (let k = 0; k < A; k++) { const x = bu * v[a * A + k] + bv * v[b * A + k] + bw * v[c * A + k]; out[o + k] = uv ? quantizeUv(x) : x; }
 }
 
 /** 点到三角形 (a, b, c) 的最近点：重心坐标 (u, v, w)（和 = 1、都 ≥ 0）+ 距离平方。Ericson《Real-Time Collision Detection》5.1.5。 */

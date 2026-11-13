@@ -41,7 +41,7 @@ const CASES: Record<string, () => MeshKernel> = {
     return k;
   },
   withColumn: () => {
-    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 2, 3)); k.addColumn({ guid: "uv", arity: 2 });
+    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 2, 3)); k.addColumn({ guid: "uv", arity: 2, kind: "test" });
     for (const f of k.faces()) k.setFaceValues(f, "uv", k.facePts(f).flatMap((p) => [p.x * 0.3 + p.z * 0.7 + f, p.y * 0.5 - p.x]));
     return k;
   },

@@ -15,7 +15,7 @@ const sameShape = (a: MeshKernel, b: MeshKernel): boolean => JSON.stringify(a.to
  */
 class ColMesh extends MeshKernel {
   private nFresh = 0;
-  constructor() { super(); this.addColumn({ guid: "all", arity: 2 }); this.addColumn({ guid: "half", arity: 3 }); }
+  constructor() { super(); this.addColumn({ guid: "all", arity: 2, kind: "test" }); this.addColumn({ guid: "half", arity: 3, kind: "test" }); }
   override addFace(ring: readonly number[], mat: number, origin: FaceOrigin): number {
     if (origin.kind === "fresh" && !origin.values) {
       const all = new Float32Array(ring.length * 2), half = new Float32Array(ring.length * 3);

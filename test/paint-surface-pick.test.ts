@@ -20,7 +20,7 @@ function painted(seed: number): { k: MeshKernel; t: TexelTable } {
   for (const v of k.faceVerts(pent)) { const p = k.pt(v); k.setPos(v, { ...p, z: p.z + 0.7 }); }
   for (let i = 0; i < 3; i++) k.addFace([P(6 + i, 0, 0), P(6.4 + i, 0.1 * r(), 0.3), P(6.1 + i, 0.6, 0.1)].map((p) => k.addVertex(p)), -1, FRESH);
   k.addFace([P(10, 0, 0), P(11, 0, 0.2), P(11, 0.8, 0), P(10, 0.8, 0.25)].map((p) => k.addVertex(p)), -1, FRESH);
-  k.addColumn({ guid: UV, arity: 2 });
+  k.addColumn({ guid: UV, arity: 2, kind: "uv" });
   const lay = layoutFaces(k, k.faces(), { density: 40 });
   if (!lay.ok) throw new Error(lay.reason);
   for (const [f, v] of lay.values) k.setFaceValues(f, UV, [...v]);
@@ -64,7 +64,7 @@ describe("落点（1-3a 第四节）", () => {
     assert(n > 20, `查了 ${n} 个点`);
   });
   it("藏起来的面打不中（打穿过去打到后面那张）；打中的面不在这张画上 = 照实返回「打中了，但不在这张画上」；打空 = null", () => {
-    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); k.addColumn({ guid: UV, arity: 2 });
+    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); k.addColumn({ guid: UV, arity: 2, kind: "uv" });
     const lay = layoutFaces(k, k.faces(), { density: 20 }); if (!lay.ok) throw new Error(lay.reason);
     for (const [f, v] of lay.values) k.setFaceValues(f, UV, [...v]);
     const top = k.faces().find((f) => k.facePts(f).every((p) => p.z === 1))!, bottom = k.faces().find((f) => k.facePts(f).every((p) => p.z === 0))!;

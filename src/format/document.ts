@@ -7,7 +7,7 @@ import type { BrepSnapshot, Pt3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform, WORLD_FRAME } from "../scene/xform.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import type { FormatReadNotes } from "./migrate/index.ts";
-import { DEFAULT_LAYER_GUID, mintGuid, type Guid } from "./guid.ts";
+import { DEFAULT_LAYER_GUID, isGuid, mintGuid, type Guid } from "./guid.ts";
 
 export type BakeMode = "wysiwyg" | "engine";
 
@@ -102,20 +102,32 @@ export function colorMapIn(table: ReadonlyMap<Guid, TextureDoc>, m: { readonly c
   const t = g === undefined ? undefined : table.get(g);
   return t && t.content.kind === "image" && t.sizeM ? (t as ColorMap) : null;   // 两个键都有 / 都没有的行进不了场景（读文件拒开、Scene.addTexture 抛、写文件抛），这里不再问一遍（统筹 11-13 撤）
 }
-/** 画：颜色那一槽指着的那张分层的贴图，和它铺在哪个定义的哪一套贴图坐标上（两个 GUID）。 */
-export interface PaintRef { /** 那张分层的贴图（贴图表里那一行；字段不叫 texture：守卫 textures-table 不许「点 texture」这种读法，免得和旧的「材质里装着图」混）。 */ readonly textureDoc: TextureDoc; readonly definition: Guid; readonly uvSet: Guid }
+/** 画：颜色那一槽指着的那张分层的贴图，和它挂在哪套排法上（排法表里那一行的 GUID；施工单十八：排法不属于哪个物件，不再记定义）。 */
+export interface PaintRef { /** 那张分层的贴图（贴图表里那一行；字段不叫 texture：守卫 textures-table 不许「点 texture」这种读法，免得和旧的「材质里装着图」混）。 */ readonly textureDoc: TextureDoc; readonly uvSet: Guid }
 /**
  * 「这个材质是不是画」全仓唯一的问法（贴图主线 1-3b；紧挨着 colorMapIn，和 colorMapIn、tiledPaintIn 三个加在一起是问「颜色那一槽是什么」的全部入口）：颜色那一槽的第一张，内容是分层的，
- * 而且 layout 是 { definition, uvSet } 两个 GUID 字符串 → 那张图和两个 GUID；别的情况 = null。layout 形状不认识的照旧原样带，当它不是画。
+ * 而且 layout 正好是 { uvSet: GUID } 这一个键（CATSUP_textures 1.3，施工单十八 3.3）→ 那张图和那套排法；别的情况 = null（多出别的键、不是 GUID、以前的 { definition, uvSet }：
+ * 这一版不当它是画，照旧原样带回、按底色显示、不能画——以后加「排法的几分之一」靠这一条保住旧版本不乱画）。
  * src/ 里读贴图的 layout 只有这里（守卫 test/paint-start-guard.test.ts；读写文件的 texture-table.ts 只是原样搬运）。
  */
 export function paintIn(table: ReadonlyMap<Guid, TextureDoc>, m: { readonly channels?: Channels }): PaintRef | null {
   const g = m.channels?.[COLOR_CHANNEL]?.[0];
   const t = g === undefined ? undefined : table.get(g);
   if (!t || t.content.kind !== "layered") return null;   // 两个键都有 / 都没有的行进不了场景（同 colorMapIn），这里不再问一遍
-  const l = t.layout as { definition?: unknown; uvSet?: unknown } | null | undefined;
-  if (!l || typeof l !== "object" || typeof l.definition !== "string" || typeof l.uvSet !== "string") return null;
-  return { textureDoc: t, definition: l.definition, uvSet: l.uvSet };
+  return paintLayoutUvSet(t.layout) === null ? null : { textureDoc: t, uvSet: paintLayoutUvSet(t.layout)! };
+}
+/** 贴图行的 layout 是不是「正好一个键 uvSet、值是 GUID」（施工单十八 3.3）：是 = 那个 GUID；不是 = null。读 layout 的形状只经这里和 paintIn。 */
+export function paintLayoutUvSet(layout: unknown): Guid | null {
+  if (!layout || typeof layout !== "object" || Array.isArray(layout)) return null;
+  const keys = Object.keys(layout as Record<string, unknown>), g = (layout as Record<string, unknown>).uvSet;
+  return keys.length === 1 && keys[0] === "uvSet" && typeof g === "string" && isGuid(g) ? g : null;
+}
+/** 这一行（分层的画）挂在哪套排法上：layout 正好是 { uvSet: GUID } = 那个 GUID；别的 = null。按行问的口（写盘盖拍子、身份层、条目仓库用；layout 的形状只在这几个口里读）。 */
+export function paintUvSetOfRow(t: { readonly layout?: unknown }): Guid | null { return paintLayoutUvSet(t.layout); }
+/** 这一行是不是旧存法的画（CATSUP_textures ≤ 1.2：分层、layout 正好 definition、uvSet 两个字符串键；施工单十八第五节：这一版不当画、打开时说一句）。 */
+export function isOldPaintRow(t: TextureDoc): boolean {
+  const l = t.layout;
+  return t.content.kind === "layered" && !!l && typeof l === "object" && !Array.isArray(l) && Object.keys(l).sort().join() === "definition,uvSet" && typeof (l as Record<string, unknown>).definition === "string" && typeof (l as Record<string, unknown>).uvSet === "string";
 }
 /** 平铺的画：颜色那一槽指着的那张分层的贴图，和它在模型上多大（米）。 */
 export interface TiledPaintRef { readonly textureDoc: TextureDoc; readonly sizeM: readonly [number, number] }
@@ -148,16 +160,22 @@ export const DEFAULT_LAYER: LayerDoc = { id: 0, guid: DEFAULT_LAYER_GUID, name: 
 export const defaultLayers = (): LayerDoc[] => [{ ...DEFAULT_LAYER }];
 /** 网格身体载荷（CATSUP_mesh 1.0.0，2026-10-27 M3）：多边形面是真相（三角形只是 bake 的派生物）。positions f64 xyz（米，定义坐标；顶点下标空间）；faceStart / faceLen / loopVert = 每面的顶点环；faceMat −1 = 默认槽；
  *  faceFlags bit0 = 隐藏；edgePairs（成对）+ edgeFlags 只列带标记的边（软 1 / 平滑 2 / 接缝 4 / 隐藏 8 / 裸线 16）。0.14 的三角汤最小形读时迁成这个形（migrate/mesh.ts）。 */
-/** 一套贴图坐标（CATSUP_mesh 2.0；贴图主线 1-2½，契约 ai-docs/20261110-painting-data-contract.md 第五节）。loopUv = 每个角一对 32 位浮点（单位 = 格，画布左上角是原点），和 loopVert 同序、长度 = 2 × loopVert.length；这一套不管的面，它的角写 NaN（明着的「没有」）。 */
-export interface UvSetDoc { guid: Guid; name: string; width: number; height: number; pxPerM: number; loopUv: Float32Array;
-  /** 开的时候定住的是什么（CATSUP_mesh 2.1；施工单十六第四节，user 11-11「如果是指定贴图大小的话，后面自动涨也不好」）：density = 按一格多大开的（加面放不下时画布照规矩长大）；
-   *  缺 = size = 按总大小开的（画布不自己变大，加面只在现有宽高里找地方）。只写 density；读到别的值 = 当 size。 */
-  fit?: "density" }
-/** 一套贴图坐标除了角上的数之外的那几样（内存里 MeshBody.uvSets 的一行就是这个形状）。 */
-export type UvSetMeta = Omit<UvSetDoc, "loopUv">;
+/**
+ * 排法表的一行（顶层扩展 CATSUP_uvsets 1.0；施工单十八 3.1，2026-11-13 Claude Opus 5.5；以前住在网格体的载荷里 = CATSUP_mesh 2.x 的 uvSets，那种写法现行格式里没有）。
+ * 排法不属于哪个物件：网格体上同一个 GUID、种类 uv 的那一列 = 这套排法上每个角的贴图坐标。场景里的 UvSetRow 就是这个形状（scene.ts）。
+ * fit 必写：density = 定密度（画布跟着长）/ size = 定大小（不自己长）；不认识的值原样带回、行为 = 什么都不自动动。freed = 空出来的地方（四个一组，格；缺 = 空；第 2 刀起用）。
+ * extra = 行里不认识的键（连同它们指着的字节原样带回）。条目不可变。
+ */
+export interface UvSetDoc { readonly guid: Guid; readonly name: string; readonly width: number; readonly height: number; readonly pxPerM: number; readonly fit: string; readonly freed?: readonly number[]; readonly extra?: CarriedJson }
+/**
+ * 角上的一列（CATSUP_mesh 3.0 的 columns 一项；施工单十八 3.2）。values = 每个角 arity 个数、和 loopVert 同序、NaN = 这个角没有值（一张面在一列上整面有或整面没有）。
+ * kind = uv：arity 2、单位 = 格（文件里存 1/1024 格的 32 位整数，读进来已经换好）、GUID = 排法表里那一行的号。别的种类：32 位浮点原样，GUID 是这一列自己的号。
+ * extra = 这一项里不认识的键（原样带回）。
+ */
+export interface ColumnDoc { readonly guid: Guid; readonly kind: string; readonly arity: number; readonly values: Float32Array; readonly extra?: CarriedJson }
 /** 角上的数算「在画布里」的容差（读文件的收口和内存里的自检 scene/paint.ts paintIssues 用同一个数：读进来的一定过自检）。 */
 export const UV_CANVAS_EPS = 1e-6;
-export interface MeshDoc { positions: Float64Array; faceStart: Int32Array; faceLen: Int32Array; loopVert: Int32Array; faceMat: Int32Array; faceFlags: Uint8Array; edgePairs: Int32Array; edgeFlags: Uint8Array;  /** 明暗方式（CATSUP_mesh 1.1，2026-10-28 FM129）：缺 = 老文件 = flat（只看手标，和以前逐字一样）。 */ smoothDefault?: { mode: "angle" | "smooth" | "hard"; deg: number }; /** 对称（CATSUP_mesh 1.2，2026-10-28 UX 账本 FM134 / 镜像重做第二刀）：网格体的属性——镜像编辑 / 强行对称 + 镜像面（定义坐标 axis = 0 平面）；缺 = 关。编辑方式那一层，不进撤销。 */ mirror?: { mode: "edit" | "force"; axis: 0 | 1 | 2 }; /** 贴图坐标（CATSUP_mesh 2.0，1-2½）：有 = 这个网格体盖 2.0；缺 / 空 = 照旧盖 1.2（字节和以前一样）。列表顺序没有语义。 */ uvSets?: UvSetDoc[]; }
+export interface MeshDoc { positions: Float64Array; faceStart: Int32Array; faceLen: Int32Array; loopVert: Int32Array; faceMat: Int32Array; faceFlags: Uint8Array; edgePairs: Int32Array; edgeFlags: Uint8Array;  /** 明暗方式（CATSUP_mesh 1.1，2026-10-28 FM129）：缺 = 老文件 = flat（只看手标，和以前逐字一样）。 */ smoothDefault?: { mode: "angle" | "smooth" | "hard"; deg: number }; /** 对称（CATSUP_mesh 1.2，2026-10-28 UX 账本 FM134 / 镜像重做第二刀）：网格体的属性——镜像编辑 / 强行对称 + 镜像面（定义坐标 axis = 0 平面）；缺 = 关。编辑方式那一层，不进撤销。 */ mirror?: { mode: "edit" | "force"; axis: 0 | 1 | 2 }; /** 角上的列（CATSUP_mesh 3.0，施工单十八）：有 = 这个网格体盖 3.0；缺 / 空 = 照旧盖 1.2（字节和以前一样）。列表顺序没有语义。 */ columns?: ColumnDoc[]; }
 /** 参考几何（0.11 尺规纪元；definitions v4）：池本地坐标，id 线 / 点同一空间。 */
 export interface GuidesDoc { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: { id: number; p: Pt3 }[]; /** 参考圆（definitions 6.3，圆规；缺 = 没有）。 */ circles?: { id: number; c: Pt3; n: Pt3; r: number }[]; /** 参考球（definitions 6.3，球规；缺 = 没有）。 */ spheres?: { id: number; c: Pt3; r: number }[] }
 export const emptyGuidesDoc = (): GuidesDoc => ({ lines: [], points: [] });
@@ -188,11 +206,13 @@ export interface CatsupDocument {
   materials: MaterialDoc[];
   /** 贴图表（`CATSUP_textures` 1.0，2026-11-10）：空 = 不写这个扩展。列表顺序没有语义；材质按 GUID 指它。 */
   textures: TextureDoc[];
+  /** 排法表（顶层扩展 CATSUP_uvsets 1.0，施工单十八；空 = 不写）。 */
+  uvSets: UvSetDoc[];
   /** 素材架（`CATSUP_shelf` 1.0，2026-11-04；计划书 §2.8）：缺 = 没有架子。架子上一格 = 引用，放的是 GUID。 */
   shelf?: ShelfDoc;
   thumbnail?: { mimeType: string; bytes: Uint8Array };
   /** round-trip 保真：读到的未知顶层键 / 未知扩展 / extras 原样带回；其中任何 `{ bufferView: N }` 引用的二进制也随 `views` 携带。 */
-  carry: { topLevel: Record<string, unknown>; extensions: Record<string, unknown>; documentExtra: Record<string, unknown>; definitionsExtra: Record<string, unknown>; brepKeep?: Record<string, unknown>; /** CATSUP_textures 扩展层面不认识的键（行里的不在这里，跟着行走）。 */ texturesExtra?: Record<string, unknown>; views: Map<number, Uint8Array> };
+  carry: { topLevel: Record<string, unknown>; extensions: Record<string, unknown>; documentExtra: Record<string, unknown>; definitionsExtra: Record<string, unknown>; /** 排法表（CATSUP_uvsets）表头上不认识的键（原样带回；施工单十八）。 */ uvSetsExtra?: Record<string, unknown>; brepKeep?: Record<string, unknown>; /** CATSUP_textures 扩展层面不认识的键（行里的不在这里，跟着行走）。 */ texturesExtra?: Record<string, unknown>; views: Map<number, Uint8Array> };
   /** 读取时攒的拍子判决（不持久化；newDocument 没有）：哪些子结构比本版新一个 minor（宿主提示一次）、desk 是否太新。 */
   readNotes?: FormatReadNotes;
 }
@@ -332,6 +352,7 @@ export function newDocument(brep: BrepSnapshot, name = "model"): CatsupDocument 
     root,
     materials: [],
     textures: [],
+    uvSets: [],
     carry: { topLevel: {}, extensions: {}, documentExtra: {}, definitionsExtra: {}, views: new Map() },
   };
 }

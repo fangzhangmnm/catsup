@@ -4,6 +4,12 @@
 import type { DefId, Material, Scene, UvSetRow } from "./scene.ts";
 import { paintIn, tiledPaintIn, UV_CANVAS_EPS, type TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
+import type { MeshKernel } from "../mesh/mesh-kernel.ts";
+
+/** 网格体上种类是 uv 的列（贴图坐标；GUID = 场景排法表里那一行的号；施工单十八 3.2）。 */
+export const uvColumnsOf = (k: MeshKernel): string[] => k.columnDefs().filter((c) => c.kind === "uv").map((c) => c.guid);
+/** 这个网格体带不带贴图坐标（有没有 uv 列；从画换走的面角上的数还留着，所以和「有没有面走画」不是一回事）。 */
+const hasUv = (k: MeshKernel): boolean => k.columnDefs().some((c) => c.kind === "uv");
 
 /** 第六节那几种动作碰到走画的面时的原因（拒绝之后场景一个字节不变）。 */
 export const PAINT_CANT_MOVE = "这些面上有画：带着画的面现在还不能并进别的物件、分出去、做成唯一、复制粘贴、炸开或者转成硬表面（这个功能还没做）";   // 人话（贴图主线 1-7 第 7 条）
@@ -11,20 +17,24 @@ export const PAINT_CANT_MOVE = "这些面上有画：带着画的面现在还不
 /** 这张面走哪一套贴图坐标（走画 = 那一套的 GUID；不走 = null）。 */
 export function paintUvOf(s: Scene, def: DefId, f: number): Guid | null {
   const b = s.defs.get(def)?.body;
-  if (!b || b.kind !== "mesh" || !b.uvSets.size || !b.kernel.hasF(f)) return null;
+  if (!b || b.kind !== "mesh" || !hasUv(b.kernel) || !b.kernel.hasF(f)) return null;
   return s.facePaint(def, b.kernel.faceMat[f])?.uvSet.guid ?? null;
 }
 
 /**
- * 这张画铺在哪（画板登记处跟着坐标改大小、垫底色用；贴图主线 1-3c）：贴图表里这一行是画、有材质的颜色那一槽指着它、它铺的那个定义的 uvSets 里有那一套
- * → 定义、那一套、指着它的第一个材质（底色）；差一样 = null。layout 照旧只经 paintIn 读。
+ * 这张画铺在哪（画板登记处跟着坐标改大小、垫底色用；贴图主线 1-3c）：贴图表里这一行是画、有材质的颜色那一槽指着它、它挂的排法在场景的排法表里、有网格体带着那一列
+ * → 那个定义、那一套、指着它的第一个材质（底色）；差一样 = null。layout 照旧只经 paintIn 读。
+ * 施工单十八第 1 刀：排法不属于哪个物件了，「那个定义」= 带着这一列的定义（编号最小的）。带着画的面这一刀还搬不动（paintMoveBlocked 全拒），所以只会有一个；
+ *   第 2 刀改成「所有定义」（每格归谁的表按排法收所有定义的面）。
  */
 export function paintPlaceOf(s: Scene, texture: Guid): { def: DefId; uvSet: UvSetRow; material: Material } | null {
   for (const m of s.materials) {
     const p = paintIn(s.textures, m);
     if (!p || p.textureDoc.guid !== texture) continue;
-    const d = s.defByGuid(p.definition), row = d && d.body.kind === "mesh" ? d.body.uvSets.get(p.uvSet) : undefined;
-    return d && row ? { def: d.id, uvSet: row, material: m } : null;
+    const row = s.uvSets.get(p.uvSet);
+    if (!row) return null;
+    for (const d of [...s.defs.values()].sort((a, c) => a.id - c.id)) if (d.body.kind === "mesh" && d.body.kernel.hasColumn(row.guid)) return { def: d.id, uvSet: row, material: m };
+    return null;
   }
   return null;
 }
@@ -42,17 +52,17 @@ export function boardPlaceOf(s: Scene, texture: Guid): BoardPlace | null {
 }
 
 /**
- * 规矩（进场景的自检，和 MeshKernel.check() 一起跑；1-3b 第一节）：uvSets 表里每一行，内核里有同 GUID、每角两个数的列；这一列上有值的角都落在画布里
- * （横 0 到宽、纵 0 到高）。返回毛病（空 = 好）。
+ * 规矩（进场景的自检，和 MeshKernel.check() 一起跑；1-3b 第一节，施工单十八改成从列这一头看）：这个网格体上每一条 uv 列，场景的排法表里有同 GUID 的那一行、
+ * 每角两个数、这一列上有值的角都落在那张画布里（横 0 到宽、纵 0 到高）。返回毛病（空 = 好）。
  */
 export function paintIssues(s: Scene, def: DefId): string[] {
   const b = s.def(def).body;
   if (b.kind !== "mesh") return [];
-  const bad: string[] = [], k = b.kernel, cols = new Map(k.columnDefs().map((c) => [c.guid, c.arity]));
-  for (const row of b.uvSets.values()) {
+  const bad: string[] = [], k = b.kernel, cols = new Map(k.columnDefs().filter((c) => c.kind === "uv").map((c) => [c.guid, c.arity]));
+  for (const [guid, ar] of cols) {
+    const row = s.uvSets.get(guid);
+    if (!row) { bad.push(`uv column ${guid}: the scene has no uvSet row with this GUID`); continue; }
     if (!(Number.isInteger(row.width) && Number.isInteger(row.height) && row.width > 0 && row.height > 0)) bad.push(`uvSet ${row.guid}: canvas ${row.width} × ${row.height} is not a positive whole size`);
-    const ar = cols.get(row.guid);
-    if (ar === undefined) { bad.push(`uvSet ${row.guid}: the kernel has no column with this GUID`); continue; }
     if (ar !== 2) { bad.push(`uvSet ${row.guid}: column has ${ar} numbers per corner, not 2`); continue; }
     const box = k.columnBoxes(row.guid), eps = UV_CANVAS_EPS;   // 读文件的收口用同一个数
     for (let i = 0; i < box.length; i += 4) if (box[i] < -eps || box[i + 1] < -eps || box[i + 2] > row.width + eps || box[i + 3] > row.height + eps) { bad.push(`uvSet ${row.guid}: a face has corners outside the ${row.width} × ${row.height} canvas`); break; }
@@ -71,7 +81,7 @@ export function meshBodyIssues(s: Scene, def: DefId): string[] {
  */
 export function unplacedPaintFaces(s: Scene, def: DefId, candidates: Iterable<number> | null): Map<Guid, number[]> {
   const out = new Map<Guid, number[]>(), b = s.defs.get(def)?.body;
-  if (!b || b.kind !== "mesh" || !b.uvSets.size) return out;
+  if (!b || b.kind !== "mesh" || !hasUv(b.kernel)) return out;
   const k = b.kernel, seen = new Set<number>();
   for (const f of candidates ?? k.faces()) {
     if (seen.has(f)) continue;
@@ -95,7 +105,7 @@ export type PaintMove =
 /**
  * 「带着画的面现在还搬不了」唯一的判断（1-3b 第六节 + 审后补）：并物件、把面分成新物件、变成独立的、炸开网格体组件、网格体转硬表面、复制 / 粘贴（含跨文件）都调它。
  * · 一摞面：有一张走画 = 拒。
- * · 整个定义：带着贴图坐标（uvSets 不空，不管现在有没有面走画——从画换走的面角上的数还留着）= 拒：1-2½ 起文件形状（definitionToDoc）带着贴图坐标了，
+ * · 整个定义：带着贴图坐标（有 uv 列，不管现在有没有面走画——从画换走的面角上的数还留着）= 拒：1-2½ 起文件形状（definitionToDoc）带着贴图坐标了，
  *   但搬到别处（复制成唯一、粘贴新建、并进别的物件）要给那几套铸新身份、把画的 layout 对上、贴图跟着按值拷，那是 1-3d；在那之前照旧拒，不让两个定义悄悄共用一套坐标的身份。
  * · 粘贴的载荷：散面里有画的材质 = 拒；这一贴要新建（跨文件 / 「断开」铸新身份）或更新的定义，槽表里有画的材质 = 拒（画会落到别的定义里、或者跟着换掉的身体丢了）；
  *   要被「更新」换掉身体的现有定义带着贴图坐标 = 拒；这一贴要新建 / 更新的定义自己带着贴图坐标（哪怕只剩没人引用的那几套）= 拒（1-2½ 起文件形状带着它们：
@@ -105,7 +115,7 @@ export type PaintMove =
 export function paintMoveBlocked(s: Scene, what: PaintMove): string | null {
   if ("def" in what) {
     const b = s.defs.get(what.def)?.body;
-    if (!b || b.kind !== "mesh" || !b.uvSets.size) return null;
+    if (!b || b.kind !== "mesh" || !hasUv(b.kernel)) return null;
     if (!what.faces) return PAINT_CANT_MOVE;
     for (const f of what.faces) if (paintUvOf(s, what.def, f) !== null) return PAINT_CANT_MOVE;
     return null;

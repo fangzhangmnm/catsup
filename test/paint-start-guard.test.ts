@@ -22,10 +22,14 @@ describe("开始画：守卫（1-3b）", () => {
     const READ = /\.layout\b(?!\s*\(|\s*[!=]==\s*undefined)/g;
     const doc = code(join("src", "format", "document.ts")), ats = [...doc.matchAll(READ)].map((m) => m.index!);
     assert(ats.length >= 1, "document.ts 里至少一处（paintIn）");
-    for (const at of ats) { const fn = doc.lastIndexOf("export function paintIn(", at); assert(fn > 0 && !doc.slice(fn, at).includes("\n}\n"), `document.ts 第 ${doc.slice(0, at).split("\n").length} 行那一处在 paintIn 里`); }
+    // 施工单十八：layout 的形状只在 document.ts 这三个口里读（paintIn = 「这个材质是不是画」、paintUvSetOfRow = 「这一行挂在哪套排法上」、isOldPaintRow = 「是不是旧存法的画」）
+    for (const at of ats) { const fn = Math.max(...["export function paintIn(", "export function paintUvSetOfRow(", "export function isOldPaintRow("].map((h) => doc.lastIndexOf(h, at))); assert(fn > 0 && !doc.slice(fn, at).includes("\n}\n"), `document.ts 第 ${doc.slice(0, at).split("\n").length} 行那一处在那三个口里`); }
   });
-  it("② uvSets 只在 paint-ops.ts 里加和改（startPaint 加一行、meshLayoutPaint 换高）；src/format/ 是文件形状那一层（MeshDoc.uvSets，读文件时建、和场景的表无关），不算", () => {
-    eq(hitsOf(/\.uvSets\.(set|delete|clear)\(|\.uvSets\s*=[^=]/g).filter((f) => !f.startsWith(join("src", "format") + "/")).join(","), join("src", "editor", "paint-ops.ts"), "写 uvSets 的文件");
+  it("② 场景的排法表只在 paint-ops.ts 里加和改（startPaint 加一行、meshLayoutPaint 换高）；src/format/ 是读写文件那一层（读文件时建、粘贴落地时新建），scene.ts 只有两处克隆整张拷，不算", () => {
+    const sc = code(join("src", "scene", "scene.ts"));
+    eq([...sc.matchAll(/\.uvSets\.(set|delete|clear)\(|\.uvSets\s*=[^=]/g)].length, [...sc.matchAll(/\.uvSets = new Map\(this\.uvSets\)/g)].length, "scene.ts 里写排法表的只有整张拷（两处克隆）");
+    eq([...sc.matchAll(/\.uvSets = new Map\(this\.uvSets\)/g)].length, 2, "两处：骨架克隆、整份克隆");
+    eq(hitsOf(/\.uvSets\.(set|delete|clear)\(|\.uvSets\s*=[^=]/g).filter((f) => !f.startsWith(join("src", "format") + "/") && f !== join("src", "scene", "scene.ts")).join(","), join("src", "editor", "paint-ops.ts"), "写 uvSets 的文件");
     const src = code(join("src", "editor", "paint-ops.ts")), writes = [...src.matchAll(/\.uvSets\.set\(/g)].length;
     eq(writes, 2, "两处：startPaint、meshLayoutPaint");
   });
@@ -40,7 +44,7 @@ describe("开始画：守卫（1-3b）", () => {
   it("④ 写盘：贴图坐标真的写（documentFromScene 不再对 uvSets 抛，只对「内核里有、表里没有的列」抛）；分层的贴图没有字节照旧抛（writeTextureRow）", () => {
     const sd = code(join("src", "format", "scene-doc.ts")), fn = sd.indexOf("export function documentFromScene(");
     assert(fn > 0 && !/uvSets\.size\) throw new Error\(/.test(sd.slice(fn, fn + 1200)), "documentFromScene 不再对 uvSets 抛（1-2½）");
-    assert(/columnDefs\(\)\) if \(!d\.body\.uvSets\.has\(c\.guid\)\) throw new Error\(/.test(sd.slice(fn, fn + 1200)), "documentFromScene 开头对「内核里有、表里没有的列」抛");
+    assert(/columnDefs\(\)\) if \(c\.kind === "uv" && !scene\.uvSets\.has\(c\.guid\)\) throw new Error\(/.test(sd.slice(fn, fn + 1200)), "documentFromScene 开头对「内核里有 uv 列、场景的排法表里没有那一行」抛（施工单十八）");
     assert(/kind === "layered" && c\.ora === null\) throw new Error\(/.test(code(join("src", "format", "texture-table.ts"))), "writeTextureRow 对没有字节的画抛");
   });
   it("⑥ definitionToDoc 的调用点是一张白名单（1-2½ 起它带着贴图坐标，但贴图坐标跟着定义搬到别处要铸新身份、把画的 layout 对上，那是 1-3d：新加调用点的人先想清楚这条路会不会把同一套坐标的身份复制一份——1-3b 审后补）", () => {

@@ -9,6 +9,8 @@ import { canonicalize } from "../src/format/brep-codec.ts";
 import { headBytesNeeded, extractThumbnail } from "../src/format/peek.ts";
 import { SCENES, SCENE_DOCS, DOC_SAMPLES, fingerprint, sceneFingerprint } from "./format-scenes.ts";
 import { listFixtures, readFixture, hasFixtureDir, listCorpusDirs } from "./fixtures/format/fixtures.mjs";
+import { meshDocFromKernel, kernelFromMeshDoc } from "../src/mesh/mesh-doc.ts";
+import type { Scene } from "../src/scene/scene.ts";
 
 const BUDGET_BYTES: Record<string, number> = { box: 2900, holed: 3100, house: 3100, cylinder: 8400, folded: 3300 };   // holed / house 3000 → 3100（2026-11-13：新文档的 settings 写明单位制 "unitSystem":"metric" 等 ≈ +25 B，实测 3012 / 3024）   // 全部 +200（2026-11-04 身份地基）：实测每份多约 130 B = 定义 guid + root + 默认层 guid + 拍子   // folded（DT87 折线，2026-10-26）：两张三角 + 一层 fold，实测 2980   // box 2600 → 2700（2026-10-25：第六个扩展 CATSUP_desk + document minor 键 ≈ +50 B，实测 2648）   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
 
@@ -185,6 +187,13 @@ describe("format: group / component / 软边 往返（v2，2026-10-21）", () =>
   }
 });
 
+/** 当前场景去掉贴图坐标：每个网格体的 uv 列拿掉、排法表清空（旧存法的画那几个样本只比模型本身用）。 */
+function withoutUv(sc: Scene): Scene {
+  for (const d of sc.defs.values()) if (d.body.kind === "mesh") { const md = meshDocFromKernel(d.body.kernel); delete md.columns; d.body.kernel = kernelFromMeshDoc(md); }
+  sc.uvSets.clear();
+  return sc;
+}
+
 describe("format: 冻结样本语料（立宪 §7；老样本永远能开）", () => {
   const vCur = formatTag();   // 任何一个拍子（major / minor / patch）动了 = 新目录；没冻样本 = 这里红
   const filesCur: string[] = hasFixtureDir(vCur) ? listFixtures(vCur) : [];
@@ -197,7 +206,11 @@ describe("format: 冻结样本语料（立宪 §7；老样本永远能开）", (
       const doc = readCatsup(readFixture(v, f));
       const k = Kernel.fromBrep(doc.root.brep);
       if (SCENES[name]) eq(fingerprint(k), fingerprint(SCENES[name]()), "样本 vs 当前场景");
-      if (SCENE_DOCS[name]) eq(sceneFingerprint(sceneFromDocument(doc)), sceneFingerprint(SCENE_DOCS[name]()), "样本 vs 当前场景（group / component）");
+      if (SCENE_DOCS[name]) {
+        // 旧存法的画（施工单十八第五节：不做迁移）：网格体还是 2.x 写的带画样本，这一版读不了画、按底色——只比模型本身（当前场景去掉 uv 列和排法表），并且要有那句提示
+        if (doc.readNotes?.oldPaintFormat) eq(sceneFingerprint(sceneFromDocument(doc)), sceneFingerprint(withoutUv(SCENE_DOCS[name]())), "旧存法的画：样本 vs 当前场景去掉贴图坐标（模型本身不变）");
+        else eq(sceneFingerprint(sceneFromDocument(doc)), sceneFingerprint(SCENE_DOCS[name]()), "样本 vs 当前场景（group / component）");
+      }
       if (DOC_SAMPLES[name]) {   // 文档级样本：几何同 newDocument 的那份；参考窗目录逐字节、窗的位置（desk.refPanel）都在
         const want = DOC_SAMPLES[name]();
         eq(fingerprint(k), fingerprint(Kernel.fromBrep(want.root.brep)), "样本 vs 当前文档（几何）");

@@ -1,15 +1,18 @@
-// format/entry-kinds.ts —— CatsUp 的四种条目（组件定义 / 材质 / 层 / 贴图）在身份层的声明。政策表 = 设计书 ai-docs/20261104-identity-layer-design.md §3。created 2026-11-04 by Claude Opus 5.5（ID-4a）
+// format/entry-kinds.ts —— CatsUp 的五种条目（组件定义 / 材质 / 层 / 贴图 / 排法）在身份层的声明。政策表 = 设计书 ai-docs/20261104-identity-layer-design.md §3。created 2026-11-04 by Claude Opus 5.5（ID-4a）
 // 贴图独立成条目（材质纪元）= 这里加一份声明 + 文件里一节，不加算法。2026-11-10 落地（贴图主线 1-0½，Claude Opus 5.5）：材质经 channels 指贴图，贴图不指别人。
 import { registerKind, type Ref } from "../identity/kinds.ts";
 import { BUILTIN_BACK_GUID, BUILTIN_FRONT_GUID, DEFAULT_LAYER_GUID, mintGuid, type Guid } from "../identity/guid.ts";
-import type { DefinitionDoc, LayerDoc, MaterialDoc, TextureDoc } from "./document.ts";
+import { paintUvSetOfRow, type DefinitionDoc, type LayerDoc, type MaterialDoc, type TextureDoc, type UvSetDoc } from "./document.ts";
 import { canonDefinition, canonMaterial, canonTexture } from "./entry-canon.ts";
 
-export const DEFINITION = "definition", MATERIAL = "material", LAYER = "layer", TEXTURE = "texture";
+export const DEFINITION = "definition", MATERIAL = "material", LAYER = "layer", TEXTURE = "texture", UVSET = "uvSet";
 export const defRef = (guid: Guid): Ref => ({ kind: DEFINITION, guid });
 export const materialRef = (guid: Guid): Ref => ({ kind: MATERIAL, guid });
 export const layerRef = (guid: Guid): Ref => ({ kind: LAYER, guid });
 export const textureRef = (guid: Guid): Ref => ({ kind: TEXTURE, guid });
+export const uvSetRef = (guid: Guid): Ref => ({ kind: UVSET, guid });
+/** 定义用到的排法（网格体上 uv 列的号；施工单十八 3.4）。 */
+const uvSetsOfDef = (d: DefinitionDoc): Guid[] => (d.mesh?.columns ?? []).filter((c) => c.kind === "uv").map((c) => c.guid);
 
 /** 定义这种条目在图上的样子：文件形状 + 它实例上层代号的那张对照表（层代号是源文件层表的代号，家规「编号只当对照表的代号」；离开那份文件就得带着表走）。 */
 export interface DefinitionEntry { readonly def: DefinitionDoc; readonly layerGuid: (code: number) => Guid | undefined }
@@ -24,9 +27,11 @@ registerKind<DefinitionEntry>({
     for (const g of e.def.materialSlots) if (g !== null) out.push(materialRef(g));
     for (const i of e.def.instances) { const g = i.layer === undefined ? undefined : e.layerGuid(i.layer); if (g !== undefined) out.push(layerRef(g)); }
     for (const i of e.def.instances) out.push(defRef(i.definition));
+    for (const g of uvSetsOfDef(e.def)) out.push(uvSetRef(g));   // 网格体的 uv 列指排法（施工单十八 3.4）
     return out;
   },
-  rewrite: (e, map) => ({ ...e, def: { ...e.def, guid: map(defRef(e.def.guid)), materialSlots: e.def.materialSlots.map((g) => (g === null ? null : map(materialRef(g)))), instances: e.def.instances.map((i) => ({ ...i, definition: map(defRef(i.definition)) })) } }),
+  rewrite: (e, map) => ({ ...e, def: { ...e.def, guid: map(defRef(e.def.guid)), materialSlots: e.def.materialSlots.map((g) => (g === null ? null : map(materialRef(g)))), instances: e.def.instances.map((i) => ({ ...i, definition: map(defRef(i.definition)) })),
+    ...(e.def.mesh?.columns ? { mesh: { ...e.def.mesh, columns: e.def.mesh.columns.map((c) => (c.kind === "uv" ? { ...c, guid: map(uvSetRef(c.guid)) } : c)) } } : {}) } }),
   remintOwned(e) {
     const groups = new Map(e.def.groups.map((g) => [g.guid, mintGuid()])), parent = (g: Guid | null): Guid | null => (g === null ? null : (groups.get(g) ?? null));
     return { ...e, def: { ...e.def, groups: e.def.groups.map((g) => ({ ...g, guid: groups.get(g.guid)!, parent: parent(g.parent) })), instances: e.def.instances.map((i) => ({ ...i, guid: mintGuid(), parent: parent(i.parent) })) } };
@@ -48,10 +53,20 @@ registerKind<TextureDoc>({
   kind: TEXTURE, carry: true, structural: false, overwrite: true, constants: [],   // 跟着用它的材质走；内容不一样 = 和材质一样问（更新 / 留这里的 / 断开）
   guidOf: (t) => t.guid,
   nameOf: (t) => t.name,
-  refs: () => [],   // layout.definition（单品的画）这一版没有入口造它，原样带，不当引用走（施工单（二）「这一张不做的」）
-  rewrite: (t, map) => ({ ...t, guid: map(textureRef(t.guid)) }),
+  refs: (t) => { const g = paintUvSetOfRow(t); return g ? [uvSetRef(g)] : []; },   // 画挂在排法上（layout = { uvSet }，施工单十八 3.4）；别的 layout 形状原样带、不当引用走
+  rewrite: (t, map) => { const g = paintUvSetOfRow(t); return { ...t, guid: map(textureRef(t.guid)), ...(g ? { layout: { uvSet: map(uvSetRef(g)) } } : {}) }; },
   remintOwned: (t) => t,
   canon: canonTexture,
+});
+
+registerKind<UvSetDoc>({
+  kind: UVSET, carry: true, structural: false, overwrite: false, constants: [],   // 施工单十八 3.4：粘贴时永远用目标文件里的那一份（这一张只放行「原件还在」的粘贴；更新和断开等搬画那张单重新定）
+  guidOf: (u) => u.guid,
+  nameOf: (u) => u.name,
+  refs: () => [],   // 排法自己不指别人
+  rewrite: (u, map) => ({ ...u, guid: map(uvSetRef(u.guid)) }),
+  remintOwned: (u) => u,
+  canon: (u) => ({ ...u, extra: u.extra?.json ?? null }),   // 永不更新 = 不比（overwrite: false）；声明齐全
 });
 
 registerKind<LayerDoc>({

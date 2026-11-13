@@ -94,7 +94,7 @@ describe("铺法（1-3a 第二节）", () => {
   });
   it("给新面补一块：已经铺好的角一个数都不变；新块放在空着的地方、不和谁挨太近；放不下就往下加高（256 的倍数）", () => {
     const { k } = planarMesh(9), all = k.faces(), first = all.slice(0, 6), later = all.slice(6);
-    k.addColumn({ guid: "uv", arity: 2 });
+    k.addColumn({ guid: "uv", arity: 2, kind: "uv" });
     const r0 = layoutFaces(k, first, { density: 60 });
     assert(r0.ok, "铺得下"); if (!r0.ok) return;
     for (const [f, v] of r0.values) k.setFaceValues(f, "uv", [...v]);
@@ -124,7 +124,7 @@ describe("铺法（1-3a 第二节）", () => {
     eq(b.width, 128); eq(b.height % 128, 0, `高 ${b.height} 是 128 的倍数`); assert(b.height >= 128 && b.height < 1024, `高 ${b.height}`);
     // 补面：先铺一半，再补另一半，加高按 128 的倍数
     const half = faces.slice(0, Math.floor(faces.length / 2)), rest = faces.slice(half.length);
-    k.addColumn({ guid: "uvs", arity: 2 });
+    k.addColumn({ guid: "uvs", arity: 2, kind: "uv" });
     const c = layoutFaces(k, half, { base: 128 }); if (!c.ok) throw new Error(c.reason);
     for (const [f, v] of c.values) k.setFaceValues(f, "uvs", [...v]);
     const d = layoutAppend(k, "uvs", half, rest, { width: 128, height: 128 }, c.density * 3);

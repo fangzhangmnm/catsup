@@ -11,6 +11,7 @@
 //      用它的公式在取样点上算。镜像的两半、复制出来的面各用各的三角形。取样点压在两个三角形的公共边 / 公共点上时哪个算出来都一样；在多边形的边上时和怎么切无关。
 // · 花费：每块多边形只扫它的包围盒（向外扩间隔的一半），按行扫——随所有块的面积涨，不随画布涨（只有两张 宽 × 高 的表要清零）。取样点现算（多边形的几个角）。
 import type { Pt3 } from "../kernel/geom.ts";
+import { UV_Q } from "../mesh/corner-columns.ts";
 
 /** 一个三角形：tri = 这张面的第几个三角形（MeshKernel.faceTriangles 的先后；落点 surface-pick.ts 返回同一个号）、三个角的贴图坐标（格）和空间位置。 */
 export interface PaintTri { readonly face: number; readonly tri: number; readonly uv: readonly [number, number, number, number, number, number]; readonly pos: readonly [Pt3, Pt3, Pt3] }
@@ -123,8 +124,8 @@ function polyKey(r: ArrayLike<number>): string {
   return best;
 }
 
-/** 取样点偏移的量化：1/SAMPLE_Q 格（1-4c）。 */
-export const SAMPLE_Q = 1024;
+/** 取样点偏移的量化：1/SAMPLE_Q 格（1-4c）。和贴图坐标的量化是同一个数（施工单十八第四节：收成一个常量，从网格体的列模块来）。 */
+export const SAMPLE_Q = UV_Q;
 /** 取样点离格子中心最多几格（每格的表里偏移是 16 位、加 32768 存：−32768 … 32767 份）。取样点离中心不超过间隔的一半，所以 gap 最多 MAX_GAP。 */
 export const MAX_GAP = 63;
 

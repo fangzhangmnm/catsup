@@ -362,7 +362,7 @@ function wrapInMesh(s: Scene, op: Extract<Op, { op: "makeComponent" }>): ApplyRe
   const pts = isel.flatMap((i) => s.pointsOfDef(i.def, i.xform)), origin = pts.length ? bboxMin(pts) : { x: 0, y: 0, z: 0 };
   const T = translation({ x: -origin.x, y: -origin.y, z: -origin.z });
   const def = s.mintDef(op.name, new Kernel());
-  def.body = { kind: "mesh", kernel: new MeshKernel(), materialSlots: [...slots], uvSets: new Map() };
+  def.body = { kind: "mesh", kernel: new MeshKernel(), materialSlots: [...slots] };
   for (const i of isel) {
     const ni = s.mintInstance(def.id, null, i.def, compose(T, i.xform), i.guid);   // 搬家保身份（ID-2）
     if (i.name !== undefined) ni.name = i.name;
@@ -874,7 +874,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       nk.setSmoothDefault(k.smoothDefault);
       deleteSelection(k, { faces }, false);
       const d = s.mintDef(op.name, new Kernel());
-      d.body = { kind: "mesh", kernel: nk, materialSlots: [...src.materialSlots], uvSets: new Map() };   // 带着画的面分不出来（paintMoveBlocked 先拒）：新物件没有贴图坐标的表
+      d.body = { kind: "mesh", kernel: nk, materialSlots: [...src.materialSlots] };   // 带着画的面分不出来（paintMoveBlocked 先拒）：新物件没有贴图坐标的表
       s.mintInstance(op.at.def, op.at.group, d.id, xf);
       return { scene: s, events: [] };
     }
@@ -1071,7 +1071,7 @@ const paintOutcome = (s: Scene, o: PaintOutcome): ApplyResult => { if (o && "rej
 const pastePaintScope = (s: Scene, pp: PastePlan): { defSlots: (readonly (Guid | null)[])[]; replaces: number[]; carriesUv: boolean } => {
   const isDef = (r: { kind: string }): boolean => r.kind === DEFINITION, want = new Set([...pp.plan.create, ...pp.plan.update].filter(isDef).map((r) => r.guid)), upd = new Set(pp.plan.update.filter(isDef).map((r) => r.guid));
   const defs = pp.bundle.docs.filter((d) => d.kind === DEFINITION && want.has((d.doc as DefinitionEntry).def.guid)).map((d) => (d.doc as DefinitionEntry).def);
-  return { defSlots: defs.map((d) => d.materialSlots), replaces: [...s.defs.values()].filter((d) => upd.has(d.guid)).map((d) => d.id), carriesUv: defs.some((d) => !!d.mesh?.uvSets?.length) };   // 1-2½：文件形状带着贴图坐标了
+  return { defSlots: defs.map((d) => d.materialSlots), replaces: [...s.defs.values()].filter((d) => upd.has(d.guid)).map((d) => d.id), carriesUv: defs.some((d) => !!d.mesh?.columns?.some((c) => c.kind === "uv")) };   // 1-2½：文件形状带着贴图坐标了（施工单十八：uv 列）
 };
 /** 第六节那几种动作的唯一拒绝口（判断在 scene/paint.ts paintMoveBlocked）。 */
 const refusePaintMove = (s: Scene, what: PaintMove): void => { const why = paintMoveBlocked(s, what); if (why) throw new OpRejected(why); };

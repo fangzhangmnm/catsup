@@ -13,7 +13,7 @@
 import type { Pt3 } from "../kernel/geom.ts";
 import { triangulateFace } from "../format/triangulate.ts";
 import { ChangeLog } from "../kernel/change-log.ts";
-import { writeCorners, type ColumnDef, type CornerColumn, type FaceOrigin, type FaceShape } from "./corner-columns.ts";
+import { writeCorners, UV_Q, type ColumnDef, type CornerColumn, type FaceOrigin, type FaceShape } from "./corner-columns.ts";
 export type { ColumnDef, CornerColumn, FaceOrigin, FaceShape } from "./corner-columns.ts";
 
 export const F_SOFT = 1, F_SMOOTH = 2, F_SEAM = 4, F_HIDDEN = 8, F_WIRE = 16;   // F_WIRE = 裸线（不属于任何面也合法）
@@ -35,7 +35,7 @@ export interface MeshSnapshot {
   readonly faceMat: number[];            // 每面材质槽（-1 = 默认）
   readonly edges: [number, number, number][];   // 带标记的边：[a, b, flags]（没标记的边不存，读回时由面推）
   /** 角上的列（有列才有这个键）：每列每张面一项 = 角数 × arity 个数，或 null（这张面在这一列上没值）。 */
-  readonly columns?: readonly { readonly guid: string; readonly arity: number; readonly faces: readonly (readonly number[] | null)[] }[];
+  readonly columns?: readonly { readonly guid: string; readonly arity: number; readonly kind: string; readonly faces: readonly (readonly number[] | null)[] }[];
 }
 
 const grow = <T extends Float64Array | Int32Array | Uint8Array>(a: T, n: number): T => { if (n <= a.length) return a; const b = new (a.constructor as new (n: number) => T)(Math.max(n, a.length * 2, 16)); b.set(a as never); return b; };
@@ -225,14 +225,17 @@ export class MeshKernel {
   /** 加一列（已经有同一个 GUID = 不动；arity 对不上 = 抛）。原有的面在这一列上全没值。 */
   addColumn(def: ColumnDef): void {
     const have = this.columns.find((c) => c.guid === def.guid);
-    if (have) { if (have.arity !== def.arity) throw new Error(`addColumn: column ${def.guid} already has arity ${have.arity}`); return; }
+    if (have) { if (have.arity !== def.arity || have.kind !== def.kind) throw new Error(`addColumn: column ${def.guid} already has arity ${have.arity} / kind ${have.kind}`); return; }
     if (!(def.arity >= 1 && Number.isInteger(def.arity))) throw new Error(`addColumn: arity must be a positive integer`);
-    this.columns.push({ guid: def.guid, arity: def.arity, data: new Float32Array(Math.max(16, this.loopCount * def.arity)).fill(NaN) });
+    if (def.kind === "uv" && def.arity !== 2) throw new Error(`addColumn: a uv column must have arity 2 (got ${def.arity})`);
+    this.columns.push({ guid: def.guid, arity: def.arity, kind: def.kind, ...(def.extra !== undefined ? { extra: def.extra } : {}), data: new Float32Array(Math.max(16, this.loopCount * def.arity)).fill(NaN) });
     this.rev = ++meshRevClock;
   }
   /** 别的内核的列在这边补上（整张面搬过来之前；原有的面在补上的列上全没值）。 */
   ensureColumns(defs: readonly ColumnDef[]): void { for (const d of defs) this.addColumn(d); }
-  columnDefs(): ColumnDef[] { return this.columns.map((c) => ({ guid: c.guid, arity: c.arity })); }
+  columnDefs(): ColumnDef[] { return this.columns.map((c) => ({ guid: c.guid, arity: c.arity, kind: c.kind, ...(c.extra !== undefined ? { extra: c.extra } : {}) })); }
+  /** 有没有这一列（施工单十八：面走不走画 = 材质指着的画挂的排法、这个网格体有那一列）。 */
+  hasColumn(guid: string): boolean { return this.columns.some((c) => c.guid === guid); }
   /** 面的旧样子（改之前记）：没有列 = 只记材质。 */
   shapeOf(f: number): FaceShape {
     if (!this.columns.length) return { mat: this.faceMat[f], ring: null, pts: null, vals: null };
@@ -378,7 +381,7 @@ export class MeshKernel {
     m.edgeA = this.edgeA.slice(); m.edgeB = this.edgeB.slice(); m.eAlive = this.eAlive.slice(); m.edgeFlags = this.edgeFlags.slice(); m.eCount = this.eCount; m.eFree = [...this.eFree];
     m.edgeKey = new Map(this.edgeKey); m.rev = this.rev; m.faceFlags = this.faceFlags.slice(); m.smoothDefault = this.smoothDefault;
     m.changes = this.changes.fork();   // 族谱：渲染缓存从原件切到副本只重建差的
-    m.columns = this.columns.map((c) => ({ guid: c.guid, arity: c.arity, data: c.data.slice() }));
+    m.columns = this.columns.map((c) => ({ ...c, data: c.data.slice() }));
     m.vHead = this.vHead.slice(); m.eNext = this.eNext.slice(); m.eFHead = this.eFHead.slice(); m.lNext = this.lNext.slice(); m.lEdge = this.lEdge.slice(); m.lFace = this.lFace.slice();   // 邻接跟着拷（W-11）
     return m;
   }
@@ -403,13 +406,13 @@ export class MeshKernel {
     for (let f = 0; f < this.fCount; f++) if (this.fAlive[f]) { faces.push(this.faceVerts(f).map((v) => map[v])); faceMat.push(this.faceMat[f]); live.push(f); }
     const edges: [number, number, number][] = [];
     for (let e = 0; e < this.eCount; e++) if (this.eAlive[e] && this.edgeFlags[e]) edges.push([map[this.edgeA[e]], map[this.edgeB[e]], this.edgeFlags[e]]);
-    const columns = this.columns.map((c) => ({ guid: c.guid, arity: c.arity, faces: live.map((f) => { const v = this.cornerValues(f, c.guid); return v ? Array.from(v) : null; }) }));
+    const columns = this.columns.map((c) => ({ guid: c.guid, arity: c.arity, kind: c.kind, faces: live.map((f) => { const v = this.cornerValues(f, c.guid); return v ? Array.from(v) : null; }) }));
     return { version: 1, minor: 0, patch: 0, positions, faces, faceMat, edges, ...(columns.length ? { columns } : {}) };   // 没有列 = 和以前逐字一样
   }
   static fromSnapshot(s: MeshSnapshot): MeshKernel {
     const m = new MeshKernel();
     for (let i = 0; i + 2 < s.positions.length; i += 3) m.addVertex({ x: s.positions[i], y: s.positions[i + 1], z: s.positions[i + 2] });
-    for (const c of s.columns ?? []) m.addColumn({ guid: c.guid, arity: c.arity });
+    for (const c of s.columns ?? []) m.addColumn({ guid: c.guid, arity: c.arity, kind: c.kind });
     s.faces.forEach((r, i) => { const values = new Map<string, Float32Array>(); for (const c of s.columns ?? []) { const v = c.faces[i]; if (v) values.set(c.guid, Float32Array.from(v)); } m.addFace(r, s.faceMat[i] ?? -1, { kind: "fresh", values }); });   // 快照装载 = 凭空来的、直接给值
     for (const [a, b, fl] of s.edges) { const e = m.ensureEdge(a, b); m.edgeFlags[e] = fl; }
     m.rev = ++meshRevClock;
@@ -446,6 +449,8 @@ export class MeshKernel {
         const s = this.faceStart[f] * c.arity, n = this.faceLen[f] * c.arity;
         let nan = 0; for (let i = 0; i < n; i++) if (Number.isNaN(c.data[s + i])) nan++;
         if (nan !== 0 && nan !== n) bad.push(`face ${f}: column ${c.guid} has values on some corners but not all`);
+        // (M7½) 贴图坐标那一种：每个有值的数乘 UV_Q 是整数（施工单十八第四节：存成整数再读回来逐位相同）
+        if (c.kind === "uv" && nan === 0) for (let i = 0; i < n; i++) { const q = c.data[s + i] * UV_Q; if (q !== Math.round(q)) { bad.push(`face ${f}: uv column ${c.guid} value ${c.data[s + i]} is not a multiple of 1/${UV_Q}`); break; } }
       }
     }
     // (M8) 邻接（增量维护，W-11）= 当场从头重建的表：每个点连着的边、每条边挨着的面，逐项、含先后（Fable 11-10 定的主门）

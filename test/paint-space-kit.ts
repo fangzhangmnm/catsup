@@ -29,7 +29,7 @@ export function pinhole(eye: Pt3, target: Pt3, fovDeg = 50, W = 1000, H = 800, o
 
 /** 给网格体铺一套贴图坐标（1-3a layoutFaces），写进 guid 那一列。 */
 export function laidOut(m: MeshKernel, guid = "uv", faces = m.faces(), o: { density?: number; maxSize?: number } = {}): { guid: string; width: number; height: number; pxPerM: number } {
-  m.addColumn({ guid, arity: 2 });
+  m.addColumn({ guid, arity: 2, kind: "uv" });
   const r = layoutFaces(m, faces, { ...(o.density !== undefined ? { density: o.density } : {}), maxSize: o.maxSize ?? 4096 });
   if (!r.ok) throw new Error(`layout: ${r.reason}`);
   for (const [f, v] of r.values) m.setFaceValues(f, guid, v);

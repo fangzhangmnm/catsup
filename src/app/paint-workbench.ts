@@ -21,7 +21,7 @@ import { SpaceFillStroke, fillAimOf } from "../paint/space-fill.ts";
 import { buildTriGrid, pickSurface, type TriGrid } from "../paint/surface-pick.ts";
 import { applyDir, applyPt, invert } from "../scene/xform.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
-import { paintPlaceOf } from "../scene/paint.ts";
+import { paintPlaceOf, uvColumnsOf } from "../scene/paint.ts";
 import type { PaintColor, Rgb } from "./paint-color.ts";
 import type { SpacePrep } from "../paint/space-prep.ts";
 import { isPaintTool } from "../editor/tool-ids.ts";
@@ -137,14 +137,14 @@ export class PaintWorkbench {
     const e = this.d.editor, S = e.sceneRef, def = S.defOfContext(e.context), body = S.def(def).body;
     if (body.kind !== "mesh") return { why: "硬表面的物件不能画：先转成网格体" };
     const k = body.kernel, X = invert(S.xformOfContext(e.context)), r = e.cam.ray(x, y, e.vp()), o = applyPt(X, r.origin), dir = applyDir(X, r.dir);
-    const anyUv = [...body.uvSets.keys()][0] ?? "";
+    const anyUv = uvColumnsOf(k)[0] ?? "";
     const hit = pickSurface(k as never, this.grid(k), anyUv, o, dir);
     if (!hit) return null;
     const fp = S.facePaint(def, k.faceMat[hit.face]);
     if (!fp) {
       const m = S.materialOfSlot(def, k.faceMat[hit.face]), tp = m ? S.tiledPaintOf(m) : null;
       if (tp) return { why: tiledOnlyInWindow(tp.textureDoc.name || m!.name) };   // 平铺的画（施工单二十一第 3 刀第二节第 6 条）：不画、说原因
-      if (!body.uvSets.size) return { why: NOT_STARTED, start: true };
+      if (!uvColumnsOf(k).length) return { why: NOT_STARTED, start: true };
       return { face: hit.face, color: m ? [m.color[0], m.color[1], m.color[2]] : [0.84, 0.84, 0.84] };
     }
     const h2 = fp.uvSet.guid === anyUv ? hit : pickSurface(k as never, this.grid(k), fp.uvSet.guid, o, dir);

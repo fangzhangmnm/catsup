@@ -80,7 +80,7 @@ export function materializeDefinitions(scene: Scene, entries: readonly Definitio
     const d = e.def, def = scene.def(idOf.get(d.guid)!);
     // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
     if (d.kind === "mesh" && d.mesh) {
-      def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: slotsOf(d), uvSets: new Map((d.mesh.uvSets ?? []).map((u) => [u.guid, Object.freeze({ guid: u.guid, name: u.name, width: u.width, height: u.height, pxPerM: u.pxPerM, ...(u.fit ? { fit: u.fit } : {}) })])) };   // 贴图坐标（1-2½）：表的行 + 内核里同 GUID 的列
+      def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: slotsOf(d) };   // 排法表在场景这一层（下面 doc.uvSets），身体上只有角上的列
       if (d.mesh.mirror) scene.meshMirrors.set(def.id, { mode: d.mesh.mirror.mode, axis: d.mesh.mirror.axis });
       placeInstances(def.id, e, () => null);   // 网格体没有组
       continue;
@@ -111,7 +111,8 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
   const scene = new Scene(Kernel.fromBrep(doc.root.brep), doc.root.guid);
   scene.axes = copyFrame(doc.axes);
   const matIndex = new Map<Guid, number>();
-  for (const t of doc.textures) scene.addTexture(t);   // 贴图条目不可变：文件形状就是场景里那一行
+  for (const t of doc.textures) scene.addTexture(t);
+  for (const u of doc.uvSets) scene.uvSets.set(u.guid, u);   // 排法表（施工单十八）：文件形状就是场景里那一行（条目不可变）   // 贴图条目不可变：文件形状就是场景里那一行
   scene.texturesFrozen = doc.readNotes?.texturesTooNew ?? null;
   for (const m of doc.materials) matIndex.set(m.guid, scene.addMaterial(materialFromDoc(m)));
   scene.def(scene.root).name = doc.root.name;
@@ -137,7 +138,7 @@ export function definitionToDoc(scene: Scene, id: DefId, name?: string, onDrop?:
   });
   const groupGuid = (g: GroupId | null): Guid | null => (g !== null && d.body.kind === "brep" ? (d.body.groups.get(g)?.guid ?? null) : null);
   const instances = [...d.instances.values()].filter((i) => scene.defs.has(i.def) || (onDrop?.("instance", `definition ${d.guid} instance ${i.guid} → definition ${i.def}`), false)).map((i) => ({ guid: i.guid, definition: scene.def(i.def).guid, parent: groupGuid(i.parent), xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) }));
-  if (d.body.kind === "mesh") { const mr = scene.meshMirrors.get(d.id); return { guid: d.guid, name: d.name, kind: "mesh", mesh: { ...meshDocFromKernel(d.body.kernel, [...d.body.uvSets.values()]), ...(mr ? { mirror: { mode: mr.mode, axis: mr.axis } } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: slotGuids(d.body.materialSlots), guides: emptyGuidesDoc() }; }
+  if (d.body.kind === "mesh") { const mr = scene.meshMirrors.get(d.id); return { guid: d.guid, name: d.name, kind: "mesh", mesh: { ...meshDocFromKernel(d.body.kernel), ...(mr ? { mirror: { mode: mr.mode, axis: mr.axis } } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: slotGuids(d.body.materialSlots), guides: emptyGuidesDoc() }; }
   const b = d.body;
   return {
     guid: d.guid,
@@ -155,17 +156,17 @@ export function definitionToDoc(scene: Scene, id: DefId, name?: string, onDrop?:
 /** 场景 → 文档（base = 打开时的文档，保留未知携带内容 / 设置 / 视图）。 */
 /** name：以前用来把根改成文件名，2026-11-13 起不再用（根和别的物体一样叫自己的名字）；调用的地方多（测试 / 冻样本脚本），签名先留着。 */
 export function documentFromScene(scene: Scene, _name: string, base?: CatsupDocument | null, onDrop?: WriteDrop): CatsupDocument {
-  // 贴图坐标进文件了（1-2½）：definitionToDoc 带着贴图表的每一行和内核里同 GUID 的列。内核里有一列、贴图坐标表里却没有那一行 = 内部出了错，整份写盘抛（统筹 11-11：要响），
+  // 贴图坐标进文件了（1-2½；施工单十八：排法表在场景这一层）：definitionToDoc 带着内核里的每一列。uv 列在场景的排法表里没有那一行 = 内部出了错，整份写盘抛（统筹 11-11：要响），
   //   不悄悄丢掉那一列。抛在整份写盘这里、不在 definitionToDoc：后者也是条目仓库的读面（粘贴对账、复制成唯一），那些路上不该炸。
-  for (const d of scene.defs.values()) if (d.body.kind === "mesh") for (const c of d.body.kernel.columnDefs()) if (!d.body.uvSets.has(c.guid)) throw new Error(`definition "${d.name}" (${d.guid}): the mesh kernel has a corner column ${c.guid} that is not in its texture-coordinate table; refusing to write a file that would silently drop it`);
+  for (const d of scene.defs.values()) if (d.body.kind === "mesh") for (const c of d.body.kernel.columnDefs()) if (c.kind === "uv" && !scene.uvSets.has(c.guid)) throw new Error(`definition "${d.name}" (${d.guid}): the mesh kernel has a uv column ${c.guid} that is not in the scene uvSet table; refusing to write (the file would lose which canvas these corners are on)`);
   const ids = [...scene.defs.keys()];
   const rootIndex = ids.indexOf(scene.root);
   const definitions: DefinitionDoc[] = ids.map((id) => definitionToDoc(scene, id, undefined, onDrop));   // 根的名字是它自己的（四位码或 user 起的），不拿文件名覆盖（user 11-13「以后根永远不跟文件名…不要跟文件名搞特殊」）；name 参数只剩签名
-  const materials = scene.materials.map(materialToDoc), textures = [...scene.textures.values()];
+  const materials = scene.materials.map(materialToDoc), textures = [...scene.textures.values()], uvSets = [...scene.uvSets.values()];
   const root = definitions[rootIndex];
   const layers = scene.layers.map((l) => ({ ...l }));
   const shelf = shelfIsEmpty(scene.shelf) ? undefined : copyShelf(scene.shelf);
-  if (base) { const { shelf: _old, ...rest } = base; void _old; return { ...rest, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, textures, axes: copyFrame(scene.axes), layers, ...(shelf ? { shelf } : {}) }; }   // final / finalRev 随 base 带
+  if (base) { const { shelf: _old, ...rest } = base; void _old; return { ...rest, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, textures, uvSets, axes: copyFrame(scene.axes), layers, ...(shelf ? { shelf } : {}) }; }   // final / finalRev 随 base 带
   const doc = newDocument(root.brep, root.name);
   doc.axes = copyFrame(scene.axes);
   doc.definitions = definitions;
@@ -173,6 +174,7 @@ export function documentFromScene(scene: Scene, _name: string, base?: CatsupDocu
   doc.root = definitions[rootIndex];
   doc.materials = materials;
   doc.textures = textures;
+  doc.uvSets = uvSets;
   doc.layers = layers;
   if (shelf) doc.shelf = shelf;
   return doc;

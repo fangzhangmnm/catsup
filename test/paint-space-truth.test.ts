@@ -36,7 +36,7 @@ describe("标准答案（1-4a 测试 11：铺法换掉，结果不变）", () =>
       const w: number[] = []; for (let i = 0; i < n; i++) { const x = v[2 * i] - cx, y = v[2 * i + 1] - cy; w.push(sx * x + k * sx * y, sy * y); }
       blocks.push({ f, v: w });
     }
-    m.addColumn({ guid: to, arity: 2 });
+    m.addColumn({ guid: to, arity: 2, kind: "uv" });
     let x = gap, y = gap, rowH = 0;
     for (const b of blocks) {
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
