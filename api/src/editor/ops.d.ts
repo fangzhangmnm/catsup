@@ -693,5 +693,7 @@ export declare class PlanarBurst extends Error {
 }
 export declare function applyOp(s: Scene, op: Op): ApplyResult;
 export declare function describeOp(op: Op): string;
+/** 把一份网格体的几何经变换 X 并进另一份（材质槽重映射、手标跟着走、裸线带上）。合并物体 / 炸开网格体共用。created 2026-10-28 by Claude Opus 5.5 */
+export declare function appendMesh(tb: MeshBody, sb: MeshBody, X: Xform): void;
 /** 身体里没自己的几何（只摆着子物件）：跨种类炸开 / 合并不用转。 */
 export declare function bodyEmpty(b: SceneBody): boolean;

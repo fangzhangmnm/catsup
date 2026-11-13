@@ -108,14 +108,14 @@ export declare class MeshKernel {
     removeFace(f: number): void;
     /**
      * 一次删一批面（连同只属于这批面的边；裸线不删）。结果和对每张逐个 removeFace 一样：删掉的面和边、空出来的编号都一样
-     * （空闲编号表本来就一直排着序，之后分到的编号也一样），但空闲编号只排一次序（W-10：细分 6400 面要 44–54 秒，样本 test/mesh-subdivide-golden.test.ts；
+     * （空闲编号表取的永远是最小的那个，之后分到的编号也一样；W-10：细分 6400 面要 44–54 秒，样本 test/mesh-subdivide-golden.test.ts；
      * 那时逐个删还要每张整张重建一次邻接表，W-11 起邻接是增量的）。
      */
     removeFaces(fs: readonly number[]): void;
     /** 一次删一批孤立的点（没有边的；有边的 → 抛，和 removeVertex 一样）。邻接表只查一次（W-10）。 */
     removeVertices(vs: readonly number[]): void;
     removeEdge(e: number): void;
-    /** 删边不排空位表（一批删完调用方排一次：合并点那几段里中途不分配边，排一次和每次都排结果一样）。 */
+    /** 删一条边（不挂面了才能删）；编号放回空位表（free-ids.ts 小顶堆：放回不重排、取的永远是最小的那个）。 */
     private dropEdge;
     private dropEdges;
     removeVertex(v: number): void;
@@ -132,6 +132,16 @@ export declare class MeshKernel {
      * 每一列照自己的 merge 取，来源不一样进边的报告。溶解二度点时两个邻居本来就连着、合并点几条边落到同一对点，都走这一个入口（全仓一处）。
      */
     absorbIntoEdge(keep: number, from: readonly EdgeShape[]): void;
+    /**
+     * 一条已经在的边身上的值，和照这个来历算出来的一不一样（按环造边碰到已有的边、又申报了来历时核值用，ops/ring-edges.ts）。
+     * 一样 / 没有边上的列 = null；不一样 = 第一列对不上的那一列和两个值。一份 / 一块 = 旧样子里的值（没有 = 缺省值）、新长 = 缺省值：直接拿数组里的比，不新开对象；
+     * 并成 / 凭空来的走造边同一个函数（columns.ts edgeColumnValues）。
+     */
+    edgeDisagrees(e: number, origin: EdgeOrigin): {
+        id: string;
+        have: number;
+        want: number;
+    } | null;
     /** 边的旧样子（改 / 删之前记，交给新边的来历）：两头 + 每一列的值（没有边上的列 = null）+ 身上还没交出去的「对不上」。 */
     edgeShape(e: number): EdgeShape;
     /** 原地改一张面的环（劈面 / 并面 / 并点用）：旧环独占的边删掉、新环缺的边补上。origin = 新环从哪来（必填；旧样子要在改之前 shapeOf 记下）。 */
