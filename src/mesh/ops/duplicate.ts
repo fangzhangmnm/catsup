@@ -4,6 +4,7 @@ import type { EdgeShape, MeshKernel } from "../mesh-kernel.ts";
 import { declareRingEdges, fromShapes, pairKey } from "./ring-edges.ts";
 import { FRESH } from "../columns.ts";
 import type { Pt3 } from "../../kernel/geom.ts";
+import { ringCrossing } from "./split.ts";
 
 export interface MeshSel { readonly faces?: readonly number[]; readonly edges?: readonly number[]; readonly verts?: readonly number[] }
 
@@ -65,7 +66,7 @@ export function orientAsHole(k: MeshKernel, ring: number[]): number[] {
 export function fillOrBridge(k: MeshKernel, sel: MeshSel): { kind: "fill" | "bridge"; faces: number[] } | string {
   const loops = edgeLoops(k, sel);
   if (typeof loops === "string") return loops;
-  if (loops.length === 1) { const ring = orientAsHole(k, loops[0]); return { kind: "fill", faces: [k.addFace(ring, FRESH)] }; }   // 补洞 = 凭空来的
+  if (loops.length === 1) { if (faceExists(k, loops[0])) return "这里已经有这张面了（选的是一张面的边，不是洞）"; const ring = orientAsHole(k, loops[0]); return { kind: "fill", faces: [k.addFace(ring, FRESH)] }; }   // 补洞 = 凭空来的；孤零零一张面的一圈边也是「开口」的，不拦就在它背面叠一张（统筹 11-13）
   if (loops.length !== 2) return `选了 ${loops.length} 圈：补洞要一圈，桥接要两圈`;
   const A = orientAsHole(k, loops[0]), B = [...orientAsHole(k, loops[1])].reverse(), n = A.length;   // 桥上的四边形过 A 的边和 A 补洞同向、过 B 的边和 B 补洞反向
   if (B.length !== n) return `两圈的点数不一样（${n} 和 ${B.length}）：桥接要一样多`;
@@ -87,15 +88,39 @@ export function ringNewell(k: MeshKernel, ring: readonly number[]): Pt3 {
   return { x, y, z };
 }
 /** 造这张面会坏的情况（人话）；没有 = null。计划和指令各核一遍。 */
+/**
+ * 一组点（不看点序）的平面：形心 c、离形心最远那个点的方向 u、和 u 张成面积最大的那个点定法向 n、w = n × u。蝴蝶结这种点序反着绕的也给得出平面（Newell 法会抵消成零）。
+ * 全在一条线上（最大的那块面积 ≤ 1e-9 × 点距²）= null。造面排点（make-face.ts）和验点序（faceBlocker）共用。
+ */
+export function looseFrame(P: readonly Pt3[]): { c: Pt3; u: Pt3; w: Pt3; n: Pt3 } | null {
+  if (P.length < 3) return null;
+  const c = P.reduce((s, p) => ({ x: s.x + p.x / P.length, y: s.y + p.y / P.length, z: s.z + p.z / P.length }), { x: 0, y: 0, z: 0 });
+  const d = (p: Pt3): Pt3 => ({ x: p.x - c.x, y: p.y - c.y, z: p.z - c.z }), X = (a: Pt3, b: Pt3): Pt3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+  let far = 0, scale = 0; for (let i = 0; i < P.length; i++) { if (dist2(P[i], c) > dist2(P[far], c)) far = i; for (const q of P) scale = Math.max(scale, dist2(P[i], q)); }
+  let n: Pt3 = { x: 0, y: 0, z: 0 }; for (const p of P) { const m = X(d(P[far]), d(p)); if (len3(m) > len3(n)) n = m; }
+  if (len3(n) <= 1e-9 * Math.max(scale, 1e-12)) return null;
+  const lu = len3(d(P[far])), u = { x: d(P[far]).x / lu, y: d(P[far]).y / lu, z: d(P[far]).z / lu }, ln = len3(n), N = { x: n.x / ln, y: n.y / ln, z: n.z / ln };
+  return { c, u, w: X(N, u), n: N };
+}
 export function faceBlocker(k: MeshKernel, ring: readonly number[]): string | null {
   if (ring.length < 3 || new Set(ring).size !== ring.length) return "点不够——至少要三个不同的点";
+  const P = ring.map((v) => k.pt(v)), fr = looseFrame(P);
+  if (!fr) return "这些点在一条线上，造不出有面积的面";
+  // 投到这个平面上：按这个点序连起来自己交叉 = 打结（刀验刀线同一份 split.ts ringCrossing；统筹 11-13：以后按顺序点的「造面」笔第一个会撞上）
+  const dot = (a: Pt3, b: Pt3): number => a.x * b.x + a.y * b.y + a.z * b.z, q = P.map((p) => { const r = { x: p.x - fr.c.x, y: p.y - fr.c.y, z: p.z - fr.c.z }; return { x: dot(r, fr.u), y: dot(r, fr.w) }; });
+  if (ringCrossing(q)) return "这些点按这个顺序连起来会自己交叉（打结了）";
   const n = ringNewell(k, ring);
   let scale = 0; for (const v of ring) for (const w of ring) scale = Math.max(scale, dist2(k.pt(v), k.pt(w)));
-  if (len3(n) <= 1e-9 * Math.max(scale, 1e-12)) return "这些点在一条线上，造不出有面积的面";
+  if (len3(n) <= 1e-9 * Math.max(scale, 1e-12)) return "这些点围不出面积";
   for (let i = 0; i < ring.length; i++) { const e = k.edgeOf(ring[i], ring[(i + 1) % ring.length]); if (e >= 0 && k.eFaces(e).length >= 2) return "会造出一条边挂三张面（有一条边两边都已经有面了）"; }
-  const want = [...ring].sort((a, b) => a - b).join(",");
-  for (const e of k.vEdges(ring[0])) for (const f of k.eFaces(e)) if ([...k.faceVerts(f)].sort((a, b) => a - b).join(",") === want) return "这里已经有这张面了";
+  if (faceExists(k, ring)) return "这里已经有这张面了";
   return null;
+}
+/** 已经有一张面正好是这组点（不看顺序）。补洞和造面共用。 */
+export function faceExists(k: MeshKernel, ring: readonly number[]): boolean {
+  const want = [...ring].sort((a, b) => a - b).join(",");
+  for (const e of k.vEdges(ring[0])) for (const f of k.eFaces(e)) if ([...k.faceVerts(f)].sort((a, b) => a - b).join(",") === want) return true;
+  return false;
 }
 /** 指令 meshMakeFace 的本体：按点序造一张面（两点 = 一条裸线）。返回新面 / 新边；会坏 = 人话错误（什么都没动）。 */
 export function makeFaceRing(k: MeshKernel, ring: readonly number[]): { face: number } | { edge: number } | string {

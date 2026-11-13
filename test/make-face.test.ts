@@ -79,6 +79,17 @@ describe("造面：做不了要说原因（什么都不动）", () => {
     const j = new MeshKernel(), a = j.addVertex(P(0, 0, 0)), b = j.addVertex(P(1, 0, 0)); wire(j, a, b);
     refuse(j, { verts: [a, b] }, "已经有边");
   });
+  it("指令那一层：按点序连起来自己交叉（蝴蝶结）= 拒绝、说「交叉」（不是「一条线上」）", () => {
+    const k = new MeshKernel(), [a, b, c, d] = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)].map((p) => k.addVertex(p));
+    const r = makeFaceRing(k, [a, c, b, d]); assert(typeof r === "string" && r.includes("交叉"), String(r)); eq(k.faceCount(), 0);
+    const ok = makeFaceRing(k, [a, b, c, d]); assert(typeof ok !== "string", "同四个点按不交叉的顺序 = 造得出");
+  });
+  it("右键「补洞」在孤零零一张面上：不在它背面再叠一张（拒绝、说已经有这张面）", () => {
+    const k = new MeshKernel(), vs = [P(0, 0, 0), P(1, 0, 0), P(0, 1, 0)].map((p) => k.addVertex(p)); k.addFace(vs, { kind: "fresh" });
+    const r = fillOrBridge(k, { edges: k.edges() }); assert(typeof r === "string" && r.includes("已经有这张面"), String(r)); eq(k.faceCount(), 1);
+    const h = new MeshKernel(); addBox(h, P(0, 0, 0), P(1, 1, 1)); h.removeFace(faceAtZ(h, 1));
+    const ok = fillOrBridge(h, { edges: h.edges().filter((e) => h.eFaces(e).length === 1) }); assert(typeof ok !== "string", "真的洞照补");
+  });
   it("指令那一层自己再核一遍：直接递一个会挂三张面的点序也拒绝", () => {
     const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));
     const r = makeFaceRing(k, [vAt(k, 0, 0, 0), vAt(k, 1, 0, 0), vAt(k, 1, 1, 1)]); assert(typeof r === "string" && r.includes("三张面"), String(r));

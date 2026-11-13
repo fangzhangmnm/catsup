@@ -12,7 +12,7 @@
 //     朝向在计划里定死、写进点序，指令只照点序造（重放 / 撤销不依赖相机）。
 //   · 造（指令 meshMakeFace 的本体 makeFaceRing）和「会坏吗」（faceBlocker）住 duplicate.ts，和补洞一家：新面的来历只许写在白名单文件里（corner-columns 守卫），这个文件只算不造。
 import type { MeshKernel } from "../mesh-kernel.ts";
-import { edgeLoops, faceBlocker, orientAsHole, ringNewell as newell, type MeshSel } from "./duplicate.ts";
+import { edgeLoops, faceBlocker, looseFrame, orientAsHole, ringNewell as newell, type MeshSel } from "./duplicate.ts";
 import type { Pt3 } from "../../kernel/geom.ts";
 
 export type FacePlan =
@@ -65,17 +65,12 @@ export function planMakeFace(k: MeshKernel, sel: MeshSel, eye: Pt3 | null): Face
       }
     }
   }
-  // ④ 散的点：按最贴合的平面绕一圈（先用面积最大的三角形定一个法向排一遍，再用排好的环的 Newell 法向重排一遍）
+  // ④ 散的点：按最贴合的平面绕一圈（先用 looseFrame 的法向排一遍，再用排好的环的 Newell 法向重排一遍）
   if (!ring) {
-    const P = V.map((v) => k.pt(v)), c = P.reduce((s, p) => ({ x: s.x + p.x / P.length, y: s.y + p.y / P.length, z: s.z + p.z / P.length }), { x: 0, y: 0, z: 0 });
-    let far = 0; for (let i = 1; i < P.length; i++) if (d2(P[i], c) > d2(P[far], c)) far = i;
-    let n0: Pt3 = { x: 0, y: 0, z: 0 }; for (const p of P) { const n = cross(sub(P[far], c), sub(p, c)); if (len(n) > len(n0)) n0 = n; }
-    const order = (n: Pt3): number[] => {
-      const u = sub(P[far], c), lu = len(u), U = { x: u.x / lu, y: u.y / lu, z: u.z / lu }, W = cross(n, U);
-      return V.map((v, i) => ({ v, t: Math.atan2(dot(sub(P[i], c), W), dot(sub(P[i], c), U)) })).sort((a, b) => a.t - b.t || a.v - b.v).map((x) => x.v);
-    };
-    if (len(n0) > 1e-18) { ring = order(n0); const n1 = newell(k, ring); if (len(n1) > 1e-18) ring = order(n1); }
-    else ring = V;   // 全在一条线上：下面的面积检查说原因
+    const P = V.map((v) => k.pt(v)), fr = looseFrame(P);
+    const order = (n: Pt3, u: Pt3, c: Pt3): number[] => { const W = cross(n, u); return V.map((v, i) => ({ v, t: Math.atan2(dot(sub(P[i], c), W), dot(sub(P[i], c), u)) })).sort((a, b) => a.t - b.t || a.v - b.v).map((x) => x.v); };
+    if (fr) { ring = order(fr.n, fr.u, fr.c); const n1 = newell(k, ring), l1 = len(n1); if (l1 > 1e-18) ring = order({ x: n1.x / l1, y: n1.y / l1, z: n1.z / l1 }, fr.u, fr.c); }
+    else ring = V;   // 全在一条线上：下面的检查说原因
     how = "points";
   }
   const why = faceBlocker(k, ring);

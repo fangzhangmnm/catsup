@@ -122,16 +122,8 @@ export function knifeCheck(k: MeshKernel, f: number, path: readonly KnifeStop[])
     const basis = planeBasis(pl), q = ring.map((x) => projectToPlane(x, basis)), m = q.length;
     // 新长的边（刀线那几段）在这个环里的下标：环里连续两点都在刀线上、且是刀线上相邻的两点
     const isCut = (i: number): boolean => { const a = ring[i], b = ring[(i + 1) % m]; return cutSeg(cut, a, b); };
-    for (let i = 0; i < m; i++) {
-      if (!isCut(i)) continue;
-      const a1 = q[i], a2 = q[(i + 1) % m];
-      for (let j = 0; j < m; j++) {
-        if (j === i) continue;
-        const b1 = q[j], b2 = q[(j + 1) % m], hits = segIntersections(a1, a2, b1, b2);
-        const adjacent = j === (i + 1) % m || i === (j + 1) % m;
-        if (adjacent ? hits.length > 1 : hits.length > 0) return isCut(j) ? "刀线自己交叉了" : "刀线出了这张面";
-      }
-    }
+    const x = ringCrossing(q, isCut);
+    if (x) return isCut(x.j) ? "刀线自己交叉了" : "刀线出了这张面";
   }
   return null;
 }
@@ -159,6 +151,23 @@ function onHalf(k: MeshKernel, A: number, m: number, B: number, t1: number, t2: 
   return { e, t: k.edgeA[e] === from ? u : 1 - u };
 }
 const lerp = (a: Pt3, b: Pt3, t: number): Pt3 => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t });
+/**
+ * 平面上的一圈点（已投到面的二维坐标里）自己交不交叉：第 i 段（只看 which(i) 为真的那些段，缺 = 全看）和第 j 段——相邻的交点多于一个（叠回去）、不相邻的有交点 = 交叉。
+ * 返回第一对（i 在外层、j 在内层，都按下标升序）；不交叉 = null。刀验刀线（只看刀线那几段）和造面验点序（全看，duplicate.ts faceBlocker）共用这一份。
+ */
+export function ringCrossing(q: readonly { x: number; y: number }[], which?: (i: number) => boolean): { i: number; j: number } | null {
+  const m = q.length;
+  for (let i = 0; i < m; i++) {
+    if (which && !which(i)) continue;
+    const a1 = q[i], a2 = q[(i + 1) % m];
+    for (let j = 0; j < m; j++) {
+      if (j === i) continue;
+      const hits = segIntersections(a1, a2, q[j], q[(j + 1) % m]), adjacent = j === (i + 1) % m || i === (j + 1) % m;
+      if (adjacent ? hits.length > 1 : hits.length > 0) return { i, j };
+    }
+  }
+  return null;
+}
 function newell(ring: readonly Pt3[]): Pt3 {
   let x = 0, y = 0, z = 0;
   for (let i = 0; i < ring.length; i++) { const a = ring[i], b = ring[(i + 1) % ring.length]; x += (a.y - b.y) * (a.z + b.z); y += (a.z - b.z) * (a.x + b.x); z += (a.x - b.x) * (a.y + b.y); }
