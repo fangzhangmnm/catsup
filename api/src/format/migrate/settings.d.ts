@@ -1,5 +1,6 @@
 import type { DocumentSettings } from "../document.ts";
-export type UnitSystemId = "metric" | "imperial" | "dnd";
+import { type UnitSystem } from "../unit-systems.ts";
+export type UnitSystemId = UnitSystem;
 /** 现在的形状（运行时只认它）。 */
 export interface SettingsNow {
     readonly unitSystem: UnitSystemId;

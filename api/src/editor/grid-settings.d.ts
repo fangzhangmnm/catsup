@@ -1,6 +1,7 @@
 import type { DocumentSettings } from "../format/document.ts";
 import { type SettingsNow } from "../format/migrate/settings.ts";
 import type { Frame } from "../scene/xform.ts";
+import { FT_M, IN_M, isUnitSystem, type UnitSystem } from "../format/unit-systems.ts";
 /** 网格住哪个坐标面（user 2026-10-24「grid可以配置成xy yz xz，这样方便我吸附画立面」）：xy = 地面；yz / xz = 立面。 */
 export type GridPlane = "xy" | "yz" | "xz";
 export declare const GRID_PLANES: readonly {
@@ -12,14 +13,14 @@ export declare const GRID_PLANES: readonly {
  * 「有了你的自动缩放之后显示格距意义不大了……自动缩放grid也要注意不同的进位」；Tron 账本 T172–T175 / T179 / T181，方案 ai-docs/20261030-units-design.md）：
  * 一个旋钮管三样——显示 / 输入的长度单位（units.ts）、网格怎么自动换层（gridLadder）、吸附有哪几档（snapLevels）。以前的「显示单位 / 栅格制式 / 格距 / 吸附细分」四个旋钮退役。
  */
-export type UnitSystem = "metric" | "imperial" | "dnd";
+export type { UnitSystem } from "../format/unit-systems.ts";
 export declare const UNIT_SYSTEMS: readonly {
     id: UnitSystem;
     label: string;
     hint: string;
 }[];
-export declare const isUnitSystem: (x: unknown) => x is UnitSystem;
-export declare const IN_M = 0.0254, FT_M = 0.3048;
+export { isUnitSystem };
+export { IN_M, FT_M };
 /** on = 格点 + 整数长度同一开关；snap = 吸附长度（米；格点 / 整格 / 推拉停靠都按它）；plane = 网格住哪个坐标面；system = 单位制；
  *  shown = 画不画网格和三色轴（栅格面「关」= false；只管画，吸附照旧归 on——user 10-30「grid除了三个平面之外还能关。和坐标轴一起关」）。存进文档 settings、不进 undo。 */
 export interface GridSettings {

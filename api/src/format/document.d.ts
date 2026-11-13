@@ -1,3 +1,4 @@
+import type { UnitSystem } from "./unit-systems.ts";
 import type { BrepSnapshot, Pt3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
@@ -5,11 +6,11 @@ import type { FormatReadNotes } from "./migrate/index.ts";
 import { type Guid } from "./guid.ts";
 export type BakeMode = "wysiwyg" | "engine";
 export interface DocumentSettings {
-    displayUnit: string;
+    displayUnit?: string;
     gridStep: number;
     snapIncrement: number;
     /** 单位制（3.4，2026-10-30；可选键）：metric / imperial / dnd = 显示单位 + 网格进位 + 吸附档一起（editor/grid-settings.ts）。缺 = 按老键猜。 */
-    unitSystem?: "metric" | "imperial" | "dnd";
+    unitSystem?: UnitSystem;
     absoluteGrid: boolean;
     /** 网格面（0.13.14；可选键，缺省 xy）：yz / xz = 立面网格。 */
     gridPlane?: "xy" | "yz" | "xz";

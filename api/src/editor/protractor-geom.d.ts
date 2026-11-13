@@ -1,7 +1,7 @@
 import type { Pt3 } from "../kernel/kernel.ts";
 import type { Frame } from "../scene/xform.ts";
 /** 与旋转工具同一套手感：15° 一档，离档 ≤ 1.5° 吸上去；参考点离圆心至少 1 cm。 */
-export declare const PROT_SNAP_DEG = 1.5, PROT_MIN = 0.01;
+export declare const PROT_SNAP_DEG = 1.5;
 /** 点 q 相对参考方向（center→ref）绕 axis 的有向角（弧度，右手）。 */
 export declare function angleAbout(center: Pt3, axis: Pt3, ref: Pt3, q: Pt3): number;
 /** 参考方向绕 axis 转 ang 后的单位方向（Rodrigues；ref 先投到轴的垂面）。 */

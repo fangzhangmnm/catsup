@@ -1,3 +1,4 @@
+import { type UnitSystem } from "../format/unit-systems.ts";
 export type LengthUnit = "m" | "cm" | "mm" | "ft" | "in";
 export declare const LENGTH_UNITS: readonly {
     id: LengthUnit;
@@ -5,7 +6,7 @@ export declare const LENGTH_UNITS: readonly {
 }[];
 export declare const UNIT_M: Readonly<Record<LengthUnit, number>>;
 export declare const isLengthUnit: (x: unknown) => x is LengthUnit;
-export type UnitSystem = "metric" | "imperial" | "dnd";
+export type { UnitSystem } from "../format/unit-systems.ts";
 export declare function setUnitSystem(sys: UnitSystem): void;
 export declare function unitSystemNow(): UnitSystem;
 export declare function displayUnit(): LengthUnit;
