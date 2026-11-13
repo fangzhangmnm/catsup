@@ -76,7 +76,7 @@ const noteCount = () => S(() => document.querySelectorAll("#noticeStack > *").le
 
 console.log("A 读进来时丢过东西：离开之前先问");
 let p0 = await freshSaved();
-await S(() => { globalThis.__catsup.session.noteFormat({ readNotes: { newerMinor: [], newerPatch: [], foreignPaintSlots: 2 } }); });
+await S(() => { globalThis.__catsup.session.noteFormat({ readNotes: { newerMinor: [], newerPatch: [], oldUvColumns: 1 } }); });
 await touch();
 await clickNew();
 let sh = await sheetOnTop(/离开之前要先存这份/);
@@ -143,7 +143,7 @@ const folderFiles = () => S(async (folder) => { const root = await (await naviga
 const fileBytes = (p) => S(async ([folder, p]) => { const root = await (await navigator.storage.getDirectory()).getDirectoryHandle(folder); const f = await (await root.getFileHandle(p)).getFile(); const b = new Uint8Array(await f.arrayBuffer()); let h = 0; for (const x of b) h = (h * 31 + x) >>> 0; return `${b.length}:${h}`; }, [FOLDER, p]);
 const marker = (x) => S((x) => { const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }); e.commitOp({ op: "addEdges", at: e.activePool(), segs: [[P(x, 3.5), P(x + 0.5, 4)]] }); }, x);
 const hasMarker = (x) => S((x) => globalThis.__catsup.editor.kernel.vertices().some((v) => Math.abs(v.x - x) < 1e-9 && Math.abs(v.y - 3.5) < 1e-9), x);
-const lossy = () => S(() => { globalThis.__catsup.session.noteFormat({ readNotes: { newerMinor: [], newerPatch: [], foreignPaintSlots: 2 } }); });
+const lossy = () => S(() => { globalThis.__catsup.session.noteFormat({ readNotes: { newerMinor: [], newerPatch: [], oldUvColumns: 1 } }); });
 // ② 另存成了 → 图库里多一份、里面有刚才的改动、原来那份字节没动、然后才走
 p0 = await freshSaved();
 let before0 = await fileBytes(p0);

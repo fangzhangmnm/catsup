@@ -70,3 +70,21 @@ describe("会丢 / 不丢的名单（1-8b，统筹 11-11 定）", () => {
     eq(lossySay(undefined).length, 0);
   });
 });
+
+describe("探针里假装「读进来时记下的」用的键都还存在（2026-11-13 施工单十八第 1 刀加）", () => {
+  it("test/probes/*.mjs 里 noteFormat({ readNotes: { … } }) 写的每个键 = FormatReadNotes 现在有的键（删了一种提示，假装它的探针当场红，不等整跑）", () => {
+    // 起因：第 1 刀拿掉 foreignPaintSlots 之后，probe-paint-save ⑧ 和 probe-leave-gate 还在塞这个键假装「读进来丢过东西」——文档没被拦，探针等那张面板等到超时，红线组红了才发现。
+    const { readdirSync } = (globalThis as unknown as { process: { getBuiltinModule(m: string): { readdirSync(p: string): string[] } } }).process.getBuiltinModule("node:fs");
+    const bad: string[] = [];
+    let seen = 0;
+    for (const f of readdirSync("test/probes").filter((x) => x.endsWith(".mjs"))) {
+      const src = readFileSync(`test/probes/${f}`, "utf8");
+      for (const m of src.matchAll(/noteFormat\(\{\s*readNotes:\s*\{([^}]*)\}/g)) {
+        seen++;
+        for (const k of m[1].matchAll(/([A-Za-z_]\w*)\s*:/g)) if (!KEYS.includes(k[1])) bad.push(`${f}：${k[1]}`);
+      }
+    }
+    assert(seen >= 3, `找到 ${seen} 处（probe-paint-save、probe-leave-gate 至少三处）`);
+    eq(bad.join("；"), "", "探针里用到的读入记号键都还在");
+  });
+});

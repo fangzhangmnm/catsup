@@ -202,7 +202,7 @@ const mem = await S(() => { const C = globalThis.__catsup, rows = [...C.editor.s
 console.log(`    冷的常驻（量）：分层字节合计 ${(mem.ora / 1024).toFixed(1)} KB、合成图合计 ${(mem.png / 1024).toFixed(1)} KB（${mem.withComposite} 张有合成图）——都是文件里本来就有的字节；画板 ${mem.boards}；渲染器解码过的图 ${mem.texCache} 张（显卡上每张一份显示用的图）`);
 
 console.log("\n⑧ 读进来时丢过东西：点头才存（统筹 11-11：会丢的四种）");
-await S(() => { globalThis.__catsup.session.noteFormat({ readNotes: { newerMinor: [], newerPatch: [], foreignPaintSlots: 2 } }); });   // 等于读进来一份有这种坏数据的文件（读入记号就是这一份）
+await S(() => { globalThis.__catsup.session.noteFormat({ readNotes: { newerMinor: [], newerPatch: [], oldUvColumns: 1 } }); });   // 等于读进来一份有这种坏数据的文件（读入记号就是这一份）
 check(await S(() => globalThis.__catsup.session.heldForLoss), "拦着");
 await stroke(tops10[0], 0, 0.3);
 const b8 = await fileBytes();
