@@ -306,13 +306,16 @@ export type Op =
     def?: number;
     name: string | null;
 }
-/** 隐藏 / 显示（DT49；at = 所在的池）：一个子实例（藏父连子）和 / 或这个池里的一批面 / 边（面层 / 边层 hidden；「挖洞看里面」）。只藏不删：不画、不吸、点不中。 */
+/** 隐藏 / 显示（DT49；at = 所在的池）：一个子实例（藏父连子）和 / 或这个池里的一批面 / 边（面层 / 边层 hidden；「挖洞看里面」）。只藏不删：不画、不吸、点不中。
+ *  网格体（at.def 是网格体，统筹 11-13）：meshFaces / meshEdges = 面 / 边的编号（保留列 hide_poly / hide_edge）；faces / edges（坐标寻址）只给硬表面。 */
  | {
     op: "setHidden";
     at: PoolRef;
     instance?: number;
     faces?: FaceKey[];
     edges?: EdgeKey[];
+    meshFaces?: number[];
+    meshEdges?: number[];
     on: boolean;
 }
 /** 全部显示：整个场景里所有被隐藏的实例、面、边都放回来（DT49）。 */

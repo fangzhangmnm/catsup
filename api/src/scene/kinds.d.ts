@@ -57,10 +57,25 @@ export declare function exportSideCounts(s: Scene, only?: readonly DefId[]): Bre
 export declare function brepToMesh(b: BrepBody): MeshBody;
 /**
  * mesh → brep：三角化（约束 Delaunay，同屏幕）→ 导入那条「三角形 → 膜」管线（kernel/from-triangles.ts：量化合点 → 分平面 → 整批装 → 谓词挑脏的交结算机）。
- * 共面的三角形并成一张膜（盒子回来还是 6 张；两侧不一样的不并）；不平的 n 边形折成平面块、块之间按 softDeg 变软；隐藏的面不带。
+ * 共面的三角形并成一张膜（盒子回来还是 6 张；两侧不一样的不并）；不平的 n 边形折成平面块、块之间按 softDeg 变软。
  * 两侧（计划书 §2.9「这是这种身体的表示法」）：环朝的那侧 = 它的材质 / 默认正面，另一侧 = 默认背面；重合反向的两张面并成一张膜、材质各落各侧。brep → mesh → brep 两侧都保住。
+ * 藏（统筹 11-13 b；以前藏着的面不带 = 悄悄少了）：藏着的面照转、膜照藏，藏着的边照藏（carryMeshSides / carryHiddenEdges）；藏没藏不一样的不并、藏着的边不并掉。
+ * 带不过去的两种数在返回值里（mixedHidden = 和露着的面合成一张膜、只好露出来的藏面张数；lostHiddenEdges = 对不上的藏边条数）：「转回硬表面体」转之前问（meshToBrepCheck）。
  */
+export declare function meshToBrepWith(b: MeshBody, softDeg: number): {
+    body: BrepBody;
+    mixedHidden: number;
+    lostHiddenEdges: number;
+};
 export declare function meshToBrep(b: MeshBody, softDeg: number): BrepBody;
+/**
+ * 「转回硬表面体」转之前要问的数（统筹 11-13 b：带不过去的转之前明着说、让人选）：和真转是同一份算法（照转一遍、只要数）。
+ * 网格体上一张藏面、一条挨面的藏边都没有 = 不用转就知道是 0（不藏东西的网格体不多花时间）。
+ */
+export declare function meshToBrepCheck(b: MeshBody, softDeg: number): {
+    mixedHidden: number;
+    lostHiddenEdges: number;
+};
 /** 显式 cast（op 层调用）：只认登记表里的方向。opts.softDeg = mesh → brep 的软边角度（缺 = 20°）。 */
 export declare function castBody(body: Body, to: BodyKind, opts?: {
     softDeg?: number;

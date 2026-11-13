@@ -4,6 +4,7 @@ import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type DrawPlane, type HitResult3, type PickKinds } from "./pick.ts";
 import { type MirrorAxis, type MirrorMode, type MirrorSetting } from "../mesh/mirror.ts";
+import { type HiddenCount } from "../scene/hidden.ts";
 import { type SelMode } from "./tools.ts";
 import { type ArcGesture } from "./arc-build.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
@@ -1059,15 +1060,13 @@ export declare class Editor {
      * 同一组件的别的份乘反比补偿，看起来不变。组件里有转过的子组件时会斜切 → 护栏拦下并说明。一次 = 一步。
      */
     hasHideableSelection(): boolean;
-    /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。 */
-    hideSelection(): number;
+    /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。others = 藏没选中的（Shift+H；只在网格体里，统筹 11-13）。 */
+    hideSelection(others?: boolean): number;
+    /** 网格体的藏（藏哪些面 / 边 = mesh/hide-plan.ts；点不单独藏）：一条 setHidden。others = 藏没选中的：选区留着、藏起来的点拿掉、自己收尾。返回藏了几样。 */
+    private hideMeshIn;
     private hideSelectionStep;
-    /** 整个场景里被隐藏的东西：组件份数 + 面 + 线（视图菜单「全部显示（N）」用）。 */
-    hiddenCount(): {
-        instances: number;
-        faces: number;
-        edges: number;
-    };
+    /** 整个场景里被隐藏的东西：组件份数 + 面 + 线（视图菜单「全部显示（N）」用；每种身体只在 scene/hidden.ts 认一次）。 */
+    hiddenCount(): HiddenCount;
     /** 全部显示（一条 op，可撤销）。返回放回了几样。 */
     unhideAll(): number;
     /** 进入选中（或命中）的子 group / 实例编辑。 */
