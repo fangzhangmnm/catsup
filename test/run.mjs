@@ -52,6 +52,7 @@ import "./no-self-snap.test.ts";   // 拖着的东西不吸自己：对齐引擎
 import "./mesh-kernel.test.ts";
 import "./corner-columns.test.ts";
 import "./merge-points.test.ts";   // 合并点这个原子（属性地基轮第二步，2026-11-13 Claude Opus 5.5）
+import "./edge-columns.test.ts";   // 边上的列 + 布尔 + 边的来历（属性地基轮第三步 3a，2026-11-13 Claude Opus 5.5）
 import "./mesh-view.test.ts";
 import "./mesh-format.test.ts";   // CATSUP_mesh 1.0.0 多边形载荷（2026-10-27 Fable M3）
 import "./uv-format.test.ts";   // CATSUP_mesh 2.0 贴图坐标进文件（2026-11-11 贴图主线 1-2½）

@@ -1,10 +1,10 @@
 import type { Pt3 } from "../kernel/geom.ts";
-/** 列挂在哪一类东西上（规程第三节的五类）。这一刀只实现 corner、face。 */
+/** 列挂在哪一类东西上（规程第三节的五类）。实现了 corner、face、edge。 */
 export type Domain = "vertex" | "edge" | "face" | "corner" | "faceEdge";
-/** 每个东西上几个什么数：floats = 几个 32 位浮点；int = 一个 32 位整数。 */
+/** 每个东西上几个什么数：floats = 几个 32 位浮点；int = 一个 32 位整数；bool = 0 / 1（开关一位一列，规程第二节）。 */
 export type ColumnType = {
     readonly floats: number;
-} | "int";
+} | "int" | "bool";
 /** 并成时怎么取。 */
 export type MergeRule = "first" | "firstNonDefault" | "defaultIfMixed";
 /** 一列的声明（规程第七½节 E）。内核只把 id 当名字；kind / extra 不透明。 */
@@ -31,12 +31,25 @@ export interface CornerColumn {
     readonly arity: number;
     data: Float32Array;
 }
-/** 面上的一列（内核里的）：data[面编号]，长度 ≥ 面的槽数。 */
+/** 面上的一列（内核里的）：data[面编号]，长度 ≥ 面的槽数。整数 = Int32Array，布尔 = Uint8Array。 */
 export interface FaceColumn {
     readonly def: ColumnDef;
     readonly id: string;
-    data: Int32Array;
+    data: Int32Array | Uint8Array;
 }
+/** 边上的一列（内核里的）：data[边编号]，长度 ≥ 边的槽数。整数 = Int32Array，布尔 = Uint8Array。 */
+export interface EdgeColumn {
+    readonly def: ColumnDef;
+    readonly id: string;
+    data: Int32Array | Uint8Array;
+}
+/**
+ * 一列（读的人长期拿在手里的就是它，规程第九½节）：data 永远是现在那一条（数组扩容在这个对象上换）。
+ * 内核整份换表（撤销 / 提交的影子互换）、加列、删列之后这个对象可能不再属于这个内核——rev 变了就再问一次 MeshKernel.column(id)。
+ */
+export type Column = CornerColumn | FaceColumn | EdgeColumn;
+/** 类型的名字（比声明、列清单用）。 */
+export declare const typeName: (t: ColumnType) => string;
 /** 一份声明这一刀做不做得了、合不合规矩：不合 = 抛（人话里带 id）；做得了 = 角上的返回每角几个数，面上的返回 0。 */
 export declare function checkColumnDef(d: ColumnDef): number;
 /** 两份声明是不是同一列（逐项；extra 不透明，按引用比）。 */
@@ -66,7 +79,36 @@ export interface GoneFace {
 export interface FaceReport {
     readonly odd: ReadonlyMap<number, OddFace>;
     readonly gone: readonly GoneFace[];
+    readonly oddEdges: ReadonlyMap<number, OddEdge>;
 }
+/** 一条边在一次来历里「对不上」的列（并成时来源之间不一样）：列 → 各个来源的值（来源的先后 = 来历里的先后）。和面上的列同形。 */
+export interface OddEdge {
+    readonly edge: ReadonlyMap<string, readonly number[]>;
+}
+/** 边的旧样子（改之前记，MeshKernel.edgeShape）：两头、每一列的值（没有边上的列 = null）、它身上还没交出去的「对不上」。 */
+export interface EdgeShape {
+    readonly a: number;
+    readonly b: number;
+    readonly values: ReadonlyMap<string, number> | null;
+    readonly odd?: OddEdge;
+}
+/** 边的来历（规程第四节；piece = 原来那条边的一块〔劈边的两半〕，copy = 一份〔复制、镜像、挤出的帽〕，joined = 几条并成一条，grown = 新长，fresh = 调用方给值）。 */
+export type EdgeOrigin = {
+    readonly kind: "piece";
+    readonly of: EdgeShape;
+} | {
+    readonly kind: "copy";
+    readonly of: EdgeShape;
+} | {
+    readonly kind: "joined";
+    readonly of: readonly EdgeShape[];
+} | {
+    readonly kind: "grown";
+} | {
+    readonly kind: "fresh";
+    readonly values?: ReadonlyMap<string, number>;
+};
+export declare const GROWN_EDGE: EdgeOrigin;
 /** 面的旧样子。没有列的内核：ring / pts / corner / face 都是 null（只记材质，几乎不花时间）。 */
 export interface FaceShape {
     readonly mat: number;
@@ -105,6 +147,16 @@ export type FaceOrigin = {
 };
 export declare const GROWN: FaceOrigin;
 export declare const FRESH: FaceOrigin;
+/**
+ * 算一条新边上的数（全仓给边上的数取值只有这里一份）：每一列一个值（和 cols 同序）+ 这条边「对不上」的列（没有 = null）。只算不写：
+ * 布尔列给了不是 0 / 1 的值 = 调用的地方写错了 → 抛（这时内核还什么都没动，造边全有或全无）。
+ */
+export declare function edgeColumnValues(cols: readonly EdgeColumn[], origin: EdgeOrigin): {
+    values: number[];
+    odd: OddEdge | null;
+};
+/** 把算好的值写进边 e（数组已经装得下）。 */
+export declare function writeEdgeColumns(cols: readonly EdgeColumn[], origin: EdgeOrigin, e: number): OddEdge | null;
 /** 内核那边给这一段代码看的窄接口（不让这里认识整个内核）。 */
 export interface ColumnHost {
     readonly cornerCols: readonly CornerColumn[];

@@ -3,10 +3,10 @@
 //   接口 = 它的第七½节 E，统筹 11-13 批）：内核只知道一列数挂在哪一类东西上、是什么类型的数、连续还是离散、并成时怎么取、新长的跟不跟旁边。
 //   这列数是什么意思、什么时候算坏了，归用它的那一层。内核只如实报告每张新面是怎么来的、哪几列在来源之间对不上。
 //
-// · 一列 = 一份声明 ColumnDef（一个形状）。挂在哪（on）五类都能声明；这一刀只实现两种：角上的浮点（每角 floats 个 32 位浮点，和 loopVert 平行）、
-//   面上的整数（每面一个 Int32）。别的组合加列时抛「还没做」。
+// · 一列 = 一份声明 ColumnDef（一个形状）。挂在哪（on）五类都能声明；实现了的：角上的浮点（每角 floats 个 32 位浮点，和 loopVert 平行）、
+//   面上的整数 / 布尔（每面一个）、边上的整数 / 布尔（每条边一个；属性地基轮第三步 3a）。别的组合加列时抛「还没做」。布尔 = 0 / 1，一定离散。
 // · continuous：连续 = 「之间」按权重混（重心坐标插值，quantum = 格子多细，插出来的数取整到这一格）；离散 = 取权重最大的那个旧角的值（一样大取角号小的）。
-//   面上的整数一定离散。
+//   面上 / 边上的整数、布尔一定离散。
 // · fill = 缺省值：新长出来、凭空来但调用方没给的，填它。
 // · merge = 并成时怎么取：first = 排在最前的来源；firstNonDefault = 第一个不是缺省值的来源；defaultIfMixed = 来源之间不一样就回缺省值。
 //   不管哪一种，来源之间不一样都记进报告（面上的列带各来源的值；角上的列记「对不上」，哪张来源都没有这个点记「取不到」）。
@@ -22,15 +22,18 @@
 //     grown  新长出来的：每一列填 fill；带 neighbor（一张活面）时 followNeighbor 的列照抄它。neighbor 不是活面 = 抛。
 //     joined 几张面并成的：面上的列按 merge 取；角上的列：每个点在有这个点的来源里按 merge 取。不一样 / 没有 = 记进报告。
 //     fresh  凭空来的：调用方给值（装载、整张面原样搬到另一个内核）；没给的列填 fill——只许出现在白名单里的文件（守卫）。
+// · 边的来历（EdgeOrigin，3a；规程第九½节：一条边的值在它被造出来的那一刻就按来历填好）：piece / copy = 照抄原来那条边的值（旧样子 EdgeShape 改之前记）；
+//   joined = 几条边并成一条，每列按 merge 取、来源不一样进报告（oddEdges）；grown = 新长的，全是 fill；fresh = 调用方给值。**给边上的数取值的代码全仓只有这里一份**（writeEdgeColumns）。
+//   造边的口在内核：addEdge(a, b, 来历) 只造新边，对已经在的边申报来历 = 抛；addFace / setFaceRing 顺手补的环上缺的边 = 新长。
 // · 「对不上」的标记跟着来历往下传：一张面身上带着标记、又被切开 / 照抄 / 并进别的面，新面也带上（同一列、同一组来源的值），直到用的那一层拿走（MeshKernel.takeReport）。
 //   编辑器每一步开头调一次 takeReport() 丢掉上一步没人取的（规程第六节的寿命）。
 import type { Pt3 } from "../kernel/geom.ts";
 import { triangulateFace } from "../format/triangulate.ts";
 
-/** 列挂在哪一类东西上（规程第三节的五类）。这一刀只实现 corner、face。 */
+/** 列挂在哪一类东西上（规程第三节的五类）。实现了 corner、face、edge。 */
 export type Domain = "vertex" | "edge" | "face" | "corner" | "faceEdge";
-/** 每个东西上几个什么数：floats = 几个 32 位浮点；int = 一个 32 位整数。 */
-export type ColumnType = { readonly floats: number } | "int";
+/** 每个东西上几个什么数：floats = 几个 32 位浮点；int = 一个 32 位整数；bool = 0 / 1（开关一位一列，规程第二节）。 */
+export type ColumnType = { readonly floats: number } | "int" | "bool";
 /** 并成时怎么取。 */
 export type MergeRule = "first" | "firstNonDefault" | "defaultIfMixed";
 /** 一列的声明（规程第七½节 E）。内核只把 id 当名字；kind / extra 不透明。 */
@@ -52,8 +55,17 @@ export interface ColumnDef {
 }
 /** 角上的一列（内核里的）：data 和 loopVert 平行，长度 ≥ 角的槽数 × arity。 */
 export interface CornerColumn { readonly def: ColumnDef; readonly id: string; readonly arity: number; data: Float32Array }
-/** 面上的一列（内核里的）：data[面编号]，长度 ≥ 面的槽数。 */
-export interface FaceColumn { readonly def: ColumnDef; readonly id: string; data: Int32Array }
+/** 面上的一列（内核里的）：data[面编号]，长度 ≥ 面的槽数。整数 = Int32Array，布尔 = Uint8Array。 */
+export interface FaceColumn { readonly def: ColumnDef; readonly id: string; data: Int32Array | Uint8Array }
+/** 边上的一列（内核里的）：data[边编号]，长度 ≥ 边的槽数。整数 = Int32Array，布尔 = Uint8Array。 */
+export interface EdgeColumn { readonly def: ColumnDef; readonly id: string; data: Int32Array | Uint8Array }
+/**
+ * 一列（读的人长期拿在手里的就是它，规程第九½节）：data 永远是现在那一条（数组扩容在这个对象上换）。
+ * 内核整份换表（撤销 / 提交的影子互换）、加列、删列之后这个对象可能不再属于这个内核——rev 变了就再问一次 MeshKernel.column(id)。
+ */
+export type Column = CornerColumn | FaceColumn | EdgeColumn;
+/** 类型的名字（比声明、列清单用）。 */
+export const typeName = (t: ColumnType): string => (typeof t === "string" ? t : `floats:${t.floats}`);
 
 /** 一份声明这一刀做不做得了、合不合规矩：不合 = 抛（人话里带 id）；做得了 = 角上的返回每角几个数，面上的返回 0。 */
 export function checkColumnDef(d: ColumnDef): number {
@@ -62,27 +74,28 @@ export function checkColumnDef(d: ColumnDef): number {
   if (!Number.isFinite(d.fill)) throw new Error(`${where}: fill must be a finite number`);
   if (!["first", "firstNonDefault", "defaultIfMixed"].includes(d.merge)) throw new Error(`${where}: merge ${String(d.merge)} is not one of first / firstNonDefault / defaultIfMixed`);
   if (d.quantum !== undefined && !(d.quantum > 0 && Number.isFinite(d.quantum))) throw new Error(`${where}: quantum must be a positive number`);
+  if (d.type === "bool" && d.fill !== 0 && d.fill !== 1) throw new Error(`${where}: fill of a bool column must be 0 or 1`);
   if (d.on === "corner") {
-    if (d.type === "int") throw new Error(`${where}: int columns on corners are not implemented yet`);
+    if (typeof d.type === "string") throw new Error(`${where}: ${d.type} columns on corners are not implemented yet`);
     const n = d.type.floats;
     if (!(Number.isInteger(n) && n >= 1)) throw new Error(`${where}: floats must be a positive integer`);
     if (d.quantum !== undefined && !d.continuous) throw new Error(`${where}: quantum is only for continuous columns`);
     if (d.followNeighbor) throw new Error(`${where}: followNeighbor on corner columns is not implemented yet`);
     return n;
   }
-  if (d.on === "face") {
-    if (d.type !== "int") throw new Error(`${where}: float columns on faces are not implemented yet`);
-    if (d.continuous) throw new Error(`${where}: int columns are discrete (continuous must be false)`);
+  if (d.on === "face" || d.on === "edge") {
+    if (typeof d.type !== "string") throw new Error(`${where}: float columns on ${d.on}s are not implemented yet`);
+    if (d.continuous) throw new Error(`${where}: ${d.type} columns are discrete (continuous must be false)`);
     if (d.quantum !== undefined) throw new Error(`${where}: quantum is only for continuous float columns`);
-    if (!Number.isInteger(d.fill)) throw new Error(`${where}: fill of an int column must be an integer`);
+    if (!Number.isInteger(d.fill)) throw new Error(`${where}: fill of an ${d.type} column must be an integer`);
+    if (d.on === "edge" && d.followNeighbor) throw new Error(`${where}: followNeighbor on edge columns is not implemented yet`);
     return 0;
   }
   throw new Error(`${where}: columns on ${String(d.on)} are not implemented yet`);
 }
 /** 两份声明是不是同一列（逐项；extra 不透明，按引用比）。 */
 export function sameColumnDef(a: ColumnDef, b: ColumnDef): boolean {
-  const ta = a.type === "int" ? "int" : `f${a.type.floats}`, tb = b.type === "int" ? "int" : `f${b.type.floats}`;
-  return a.id === b.id && a.on === b.on && ta === tb && a.continuous === b.continuous && a.fill === b.fill && a.quantum === b.quantum
+  return a.id === b.id && a.on === b.on && typeName(a.type) === typeName(b.type) && a.continuous === b.continuous && a.fill === b.fill && a.quantum === b.quantum
     && !!a.followNeighbor === !!b.followNeighbor && a.merge === b.merge && a.kind === b.kind && a.extra === b.extra;
 }
 
@@ -104,7 +117,19 @@ export interface GoneFace { readonly why: GoneWhy; readonly with?: number; reado
  * 内核的报告：这段时间里新面 / 改过的面当中「有列对不上」的那些（面编号 → 哪几列）；面已经不在了的不报。
  * gone = 这段时间里没了的面（列表，不拿面编号当键：编号同一步里可能被新面复用）。
  */
-export interface FaceReport { readonly odd: ReadonlyMap<number, OddFace>; readonly gone: readonly GoneFace[] }
+export interface FaceReport { readonly odd: ReadonlyMap<number, OddFace>; readonly gone: readonly GoneFace[]; readonly oddEdges: ReadonlyMap<number, OddEdge> }
+/** 一条边在一次来历里「对不上」的列（并成时来源之间不一样）：列 → 各个来源的值（来源的先后 = 来历里的先后）。和面上的列同形。 */
+export interface OddEdge { readonly edge: ReadonlyMap<string, readonly number[]> }
+/** 边的旧样子（改之前记，MeshKernel.edgeShape）：两头、每一列的值（没有边上的列 = null）、它身上还没交出去的「对不上」。 */
+export interface EdgeShape { readonly a: number; readonly b: number; readonly values: ReadonlyMap<string, number> | null; readonly odd?: OddEdge }
+/** 边的来历（规程第四节；piece = 原来那条边的一块〔劈边的两半〕，copy = 一份〔复制、镜像、挤出的帽〕，joined = 几条并成一条，grown = 新长，fresh = 调用方给值）。 */
+export type EdgeOrigin =
+  | { readonly kind: "piece"; readonly of: EdgeShape }
+  | { readonly kind: "copy"; readonly of: EdgeShape }
+  | { readonly kind: "joined"; readonly of: readonly EdgeShape[] }
+  | { readonly kind: "grown" }
+  | { readonly kind: "fresh"; readonly values?: ReadonlyMap<string, number> };
+export const GROWN_EDGE: EdgeOrigin = Object.freeze({ kind: "grown" });
 
 /** 面的旧样子。没有列的内核：ring / pts / corner / face 都是 null（只记材质，几乎不花时间）。 */
 export interface FaceShape {
@@ -132,6 +157,44 @@ export type FaceOrigin =
   | { readonly kind: "fresh"; readonly corner?: ReadonlyMap<string, Float32Array>; readonly face?: ReadonlyMap<string, number> };
 export const GROWN: FaceOrigin = Object.freeze({ kind: "grown" });
 export const FRESH: FaceOrigin = Object.freeze({ kind: "fresh" });
+
+/**
+ * 算一条新边上的数（全仓给边上的数取值只有这里一份）：每一列一个值（和 cols 同序）+ 这条边「对不上」的列（没有 = null）。只算不写：
+ * 布尔列给了不是 0 / 1 的值 = 调用的地方写错了 → 抛（这时内核还什么都没动，造边全有或全无）。
+ */
+export function edgeColumnValues(cols: readonly EdgeColumn[], origin: EdgeOrigin): { values: number[]; odd: OddEdge | null } {
+  const odd = new Map<string, readonly number[]>(), values: number[] = [];
+  const inherit = (o: OddEdge | undefined): void => { if (o) for (const [k, v] of o.edge) if (!odd.has(k)) odd.set(k, v); };
+  if (origin.kind === "piece" || origin.kind === "copy") inherit(origin.of.odd);
+  if (origin.kind === "joined") for (const p of origin.of) inherit(p.odd);
+  for (const col of cols) {
+    const d = col.def;
+    let v = d.fill;
+    switch (origin.kind) {
+      case "grown": break;
+      case "fresh": { const g = origin.values?.get(col.id); if (g !== undefined) v = g; break; }
+      case "piece": case "copy": { const g = origin.of.values?.get(col.id); if (g !== undefined) v = g; break; }
+      case "joined": {
+        const vals = origin.of.map((p) => p.values?.get(col.id) ?? d.fill);
+        if (!vals.length) break;
+        const r = pickMerged(d.merge, vals.map((x) => [x]), d.fill);
+        v = r.at < 0 ? d.fill : vals[r.at];
+        if (r.mixed && !odd.has(col.id)) odd.set(col.id, vals);
+        break;
+      }
+    }
+    if (!Number.isInteger(v)) throw new Error(`edge column ${col.id}: ${v} is not an integer`);
+    if (d.type === "bool" && v !== 0 && v !== 1) throw new Error(`edge column ${col.id}: bool column ${col.id} got ${v}`);
+    values.push(v);
+  }
+  return { values, odd: odd.size ? { edge: odd } : null };
+}
+/** 把算好的值写进边 e（数组已经装得下）。 */
+export function writeEdgeColumns(cols: readonly EdgeColumn[], origin: EdgeOrigin, e: number): OddEdge | null {
+  const { values, odd } = edgeColumnValues(cols, origin);
+  cols.forEach((c, i) => { c.data[e] = values[i]; });
+  return odd;
+}
 
 /** 内核那边给这一段代码看的窄接口（不让这里认识整个内核）。 */
 export interface ColumnHost {
@@ -201,6 +264,7 @@ export function writeColumns(h: ColumnHost, origin: FaceOrigin, f: number, ring:
         break;
       }
     }
+    if (d.type === "bool" && v !== 0 && v !== 1) throw new Error(`writeColumns: bool column ${col.id} got ${v}`);
     col.data[f] = v;
   }
   // —— 角上的列

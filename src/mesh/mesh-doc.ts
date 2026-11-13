@@ -22,7 +22,7 @@ export function meshDocFromKernel(m: MeshKernel, skip: ReadonlySet<string> = new
   const extraFace = defs.find((c) => c.on !== "corner");
   if (extraFace) throw new Error(`meshDocFromKernel: ${extraFace.on} column ${extraFace.id} has no place in the file`);
   const columns: ColumnDoc[] = defs.map((c) => {
-    const arity = c.type === "int" ? 1 : c.type.floats, values = new Float32Array(arity * loop.length);
+    const arity = typeof c.type === "string" ? 1 : c.type.floats, values = new Float32Array(arity * loop.length);
     faces.forEach((f, i) => { values.set(m.cornerValues(f, c.id)!, arity * faceStart[i]); });
     return { guid: c.id, kind: c.kind ?? "", arity, values, ...(c.extra !== undefined ? { extra: c.extra as CarriedJson } : {}) };
   });

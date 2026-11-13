@@ -1,8 +1,8 @@
 import type { Pt3 } from "../kernel/geom.ts";
 import { ChangeLog } from "../kernel/change-log.ts";
-import { type ColumnDef, type CornerColumn, type FaceColumn, type FaceOrigin, type FaceReport, type FaceShape, type GoneWhy } from "./columns.ts";
+import { type Column, type ColumnDef, type CornerColumn, type EdgeColumn, type EdgeOrigin, type EdgeShape, type FaceColumn, type FaceOrigin, type FaceReport, type FaceShape, type GoneWhy } from "./columns.ts";
 import { type MergeGroup } from "./merge-points.ts";
-export type { ColumnDef, ColumnType, CornerColumn, CornerOdd, Domain, FaceColumn, FaceOrigin, FaceReport, FaceShape, GoneFace, GoneWhy, MergeRule, OddFace } from "./columns.ts";
+export type { Column, ColumnDef, ColumnType, CornerColumn, CornerOdd, Domain, EdgeColumn, EdgeOrigin, EdgeShape, FaceColumn, FaceOrigin, FaceReport, FaceShape, GoneFace, GoneWhy, MergeRule, OddEdge, OddFace } from "./columns.ts";
 export type { MergeGroup, MergeTo } from "./merge-points.ts";
 export { F_SOFT, F_SMOOTH, F_SEAM, F_HIDDEN, F_WIRE, F_SHARP } from "./edge-bits.ts";
 /** 网格体的「默认平滑」（几何属性，不是画法——user 10-28「不要叫明暗方式，我们的语义就是几何，和representation没关系。默认平滑之类的？」；每个网格体一个；mesh/edge-smooth.ts 按它判没手标的边）：angle = 两侧面夹角小于 deg 算平滑（硬表面）/ smooth = 全平滑（软角色）/ hard = 全是棱（低多边形；
@@ -14,7 +14,7 @@ export interface SmoothDefault {
 }
 /** 新建的网格体的默认平滑：全是棱（只看手标）。老文件缺这一项怎么办归读的门口（format/migrate/mesh.ts smoothDefaultOf；2026-11-12 起内核不认「老文件」）。 */
 export declare const SMOOTH_DEFAULT_NEW: SmoothDefault;
-/** 面标记：隐藏（user 10-27「show and hide faces」；点 / 边的显隐从面推导，游离的才自己带 F_HIDDEN）。 */
+/** 面标记：隐藏（user 10-27「show and hide faces」）。边自己另有一位隐藏（F_HIDDEN），读的人按那一位单独判，不从面推（规程第九½节：边的隐藏这一列留着）。 */
 export declare const FF_HIDDEN = 1;
 export interface MeshSnapshot {
     readonly version: 2;
@@ -33,6 +33,11 @@ export interface MeshSnapshot {
     readonly face?: readonly {
         readonly def: ColumnDef;
         readonly values: readonly number[];
+    }[];
+    /** 边上的列（有才有这个键）：声明 + 每条活边一项 [a, b, 值]（a、b = 重编后的点）。 */
+    readonly edge?: readonly {
+        readonly def: ColumnDef;
+        readonly values: readonly (readonly [number, number, number])[];
     }[];
 }
 export declare class MeshKernel {
@@ -73,6 +78,10 @@ export declare class MeshKernel {
     cornerCols: CornerColumn[];
     /** 面上的列：data[面编号]。只经 addColumn / ensureColumns 加。 */
     faceCols: FaceColumn[];
+    /** 边上的列：data[边编号]。只经 addColumn / ensureColumns 加。 */
+    edgeCols: EdgeColumn[];
+    /** 「对不上」的边（边编号 → 哪几列，并成时来源不一样）：takeReport 拿走并清空；piece / copy / joined 时跟着传给新边。 */
+    private oddEdges;
     /** 「对不上」的面（面编号 → 哪几列）：用的那一层 takeReport() 拿走并清空；跟着来历传给新面（columns.ts）。 */
     private odd;
     /** 这段时间里没了的面（removeFaceReported / 合并点；takeReport 拿走并清空；跟着 swapWith 换，拷贝不带）。 */
@@ -115,20 +124,51 @@ export declare class MeshKernel {
     private dropEdge;
     private dropEdges;
     removeVertex(v: number): void;
+    /** 有就返回那条边；没有就造一条新长的（边上的列全是缺省值）。要带着来历造 = addEdge。 */
     ensureEdge(a: number, b: number): number;
+    /**
+     * 造一条新边，值按来历填好（规程第九½节：边的值在它被造出来的那一刻按来历填好，不许造完再回头补）。这条边已经在 = 抛（对已经在的边申报来历不算数）；
+     * 两头一样 / 点不活 = 抛。来历里的旧样子要在旧边删掉之前用 edgeShape 记下。
+     */
+    addEdge(a: number, b: number, origin: EdgeOrigin): number;
+    private makeEdge;
+    /** 边的旧样子（改 / 删之前记，交给新边的来历）：两头 + 每一列的值（没有边上的列 = null）+ 身上还没交出去的「对不上」。 */
+    edgeShape(e: number): EdgeShape;
     /** 原地改一张面的环（劈面 / 并面 / 并点用）：旧环独占的边删掉、新环缺的边补上。origin = 新环从哪来（必填；旧样子要在改之前 shapeOf 记下）。 */
     setFaceRing(f: number, ring: readonly number[], origin: FaceOrigin): void;
     /** 环接在 loopVert 末尾（旧环的槽作废）；有列就按来历写面上的列和角上的数（columns.ts writeColumns，全仓唯一的那一段），对不上的记下来。 */
     private writeRing;
     /** 加一列（同一个 id 已经有 = 声明一样就不动，不一样 = 抛；这一刀做不了的组合 = 抛「还没做」，columns.ts checkColumnDef）。原有的角 / 面填 fill。 */
     addColumn(def: ColumnDef): void;
+    /** 删一列（属性页「删」= 全部回缺省值；可以撤销：撤销记录是整份表）。没有这一列 = false。身上记着的「对不上」里这一列一起去掉。 */
+    removeColumn(id: string): boolean;
+    /**
+     * 一列（读的人长期拿在手里的那个对象，data 永远是现在那一条；没有 = null）。整份换表（撤销、提交）、加删列之后 rev 会变，变了再问一次（columns.ts Column 头注释）。
+     */
+    column(id: string): Column | null;
+    /** 列清单（属性页第一版只看用）：每一列的名字、挂在哪、类型、多少个（那一类活着的元素数）、占多大（逻辑上的字节数）。 */
+    columnList(): {
+        id: string;
+        on: ColumnDef["on"];
+        type: string;
+        count: number;
+        bytes: number;
+    }[];
+    /** 几何本身有多少（属性页「几何」那一块）：点、边、面、角（每张面的角数之和）、不挂面的线。 */
+    elementCounts(): {
+        points: number;
+        edges: number;
+        faces: number;
+        corners: number;
+        wires: number;
+    };
     /** 别的内核的列在这边补上（整张面搬过来之前；原有的面在补上的列上填 fill）。 */
     ensureColumns(defs: readonly ColumnDef[]): void;
     /** 全部列的声明（先角上的、再面上的；先后没有意思）。 */
     columnDefs(): ColumnDef[];
     /** 一列的声明；没有 = null。 */
     columnDef(id: string): ColumnDef | null;
-    /** 有没有这一列（两种都算）。 */
+    /** 有没有这一列（三种都算）。 */
     hasColumn(id: string): boolean;
     /** 面的旧样子（改之前记）：没有列 = 只记材质。 */
     shapeOf(f: number): FaceShape;
@@ -145,6 +185,10 @@ export declare class MeshKernel {
     setCornerValues(f: number, id: string, values: ArrayLike<number>): void;
     /** 给一张面在一列面上的列上写值。进改动日志、rev 动。 */
     setFaceValue(f: number, id: string, v: number): void;
+    /** 这条边在一列边上的列上的值；没有这一列 / 边不在 = null。 */
+    edgeValue(e: number, id: string): number | null;
+    /** 给一条已经在的边在一列边上的列上写值（操作本意要写的〔倒角写平滑〕、指令点名写的〔手标〕；不是「造完回头补来历」——来历在 addEdge 时给）。进改动日志、rev 动。 */
+    setEdgeValue(e: number, id: string, v: number): void;
     /** 上一次拿走之后「对不上」的面（还活着的；面编号 → 哪几列）和没了的面，拿走即清空。 */
     takeReport(): FaceReport;
     /** 删面并记进报告「没了的面」（原因由调用方给，内核不认它；with = 和哪张重叠之类）：记下删之前的样子，再照 removeFace 删。 */
@@ -162,6 +206,9 @@ export declare class MeshKernel {
     setPos(v: number, p: Pt3): void;
     setFlags(e: number, mask: number, on: boolean): void;
     /** 整字节写边标记（算子搬标记用）；记日志。 */
+    /** 裸线位（结构位，不是属性：「这条边可以不挂面」，规程第二½节算几何本身）。3a 先给口，存法照旧（边标记字节的 F_WIRE 那一位）；3d 老数组删掉时换成自己的一张位表。 */
+    isWire(e: number): boolean;
+    setWire(e: number, on: boolean): void;
     setEdgeFlags(e: number, flags: number): void;
     setFaceMat(f: number, slot: number): void;
     setFaceFlags(f: number, mask: number, on: boolean): void;

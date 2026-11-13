@@ -249,7 +249,11 @@ describe("列：离散的列、跟旁边、声明", () => {
     const k = new MeshKernel();
     const bad: [ColumnDef, RegExp][] = [
       [{ id: "a", on: "vertex", type: "int", continuous: false, fill: 0, merge: "first" }, /not implemented/],
-      [{ id: "a", on: "edge", type: "int", continuous: false, fill: 0, merge: "first" }, /not implemented/],
+      [{ id: "a", on: "edge", type: { floats: 1 }, continuous: true, fill: 0, merge: "first" }, /not implemented/],   // 3a：边上的整数 / 布尔做了，小数还没
+      [{ id: "a", on: "edge", type: "bool", continuous: false, fill: 0, followNeighbor: true, merge: "first" }, /not implemented/],
+      [{ id: "a", on: "corner", type: "bool", continuous: false, fill: 0, merge: "first" }, /not implemented/],
+      [{ id: "a", on: "edge", type: "bool", continuous: false, fill: 2, merge: "first" }, /0 or 1/],
+      [{ id: "a", on: "face", type: "bool", continuous: true, fill: 0, merge: "first" }, /discrete/],
       [{ id: "a", on: "faceEdge", type: "int", continuous: false, fill: 0, merge: "first" }, /not implemented/],
       [{ id: "a", on: "corner", type: "int", continuous: false, fill: 0, merge: "first" }, /not implemented/],
       [{ id: "a", on: "face", type: { floats: 1 }, continuous: true, fill: 0, merge: "first" }, /not implemented/],
