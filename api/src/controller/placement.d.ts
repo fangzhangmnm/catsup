@@ -40,7 +40,7 @@ export interface RailFold {
 export declare const RAIL_FIXED_FOLD: Readonly<Partial<Record<ModeId, readonly RailFold[]>>>;
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」；插入那一格合租倒角，user 10-28「3插入倒角」）。 */
 export declare const RAIL_LABELS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, string>>>>>;
-export type MenuTab = "file" | "units" | "settings" | "help";
+export type MenuTab = "file" | "settings" | "help";
 export interface MenuTabDef {
     readonly id: MenuTab;
     readonly label: string;
@@ -54,6 +54,12 @@ export interface MenuRow {
     readonly section?: string;
     readonly separatorBefore?: boolean;
 }
+/** 右上渲染窗（视图浮窗）「单位」页的行，原样从 ☰ 搬来（2026-11-13 user「单位还是移动到右边的和渲染窗口合租成分页」；10-30 从视图窗搬进 ☰，这次搬回去当第二页）。
+ *  单位制 / 吸附 / 栅格面 / 尺度参考都存在文件里（settings），只是住处换了、行为不变。渲染页那几行还在 main.ts 手写（viewMenu pending）。 */
+export declare const VIEW_UNIT_ROWS: readonly {
+    readonly id: string;
+    readonly section?: string;
+}[];
 export declare const MENU_ROWS: readonly MenuRow[];
 /** 一个放置面现在谁画：renderer = 那个文件（相对 src/）；pending = 还没有渲染器，写明为什么；preRegister = 这个面本来就没有界面、动作可以先登记在这（搜索 / 脚本接口）。 */
 export type SurfaceStatus = {
