@@ -166,3 +166,65 @@ user：「你现在先跟小黑屋那边说明这个错误，然后进行最大�
   - 改了什么：`vendor-pkgs/internal-store-2.2.7.tgz` → `internal-store-2.3.6.tgz`（`pull-package.sh 2.3.6`；统筹核过和库仓发布的那一份 sha256 相同、tag v2.3.6 = 773ffe9）+ `package.json` 那一行 + lock；`src/app-store.ts` 只加两行注释把「正在存靠库的请求时限才放得下」标成欠账，`GRAPH_TRANSPORT` 原样（不写 `upload`）。图库库 0.8.10、加密库 0.2.2 没动；`lockByDefault` / `fileMarks` 没开；崩溃影子没碰。
   - 验：全套 255 个文件 2410 过 0 红，**没改任何断言**；`probe-autosave-resume-race` 2.2.7 上 A / C / D 库这一层红 → 2.3.6 全绿；端到端 15 个绿 13，`probe-folder-home` 两条是底账里早就写着的老毛病（F-264 / F-265），race 探针第一遍红是探针把网址当仓目录（a747c199 修）；红线组 23ce8ad7、b1b1dcd2 两次都 8/8。
   - 顺手：整跑脚本等服务起来时没读回应体，Node 24 的 undici 断言崩掉整个脚本两次（d9abc462 修，只改脚本）；三维 worktree 的 `node_modules` 原来是链到主目录的，收库前换成了自己的一份（不然 `npm install` 会把主目录的同步库也换成 2.3.6）。
+
+- **11-13 统筹叫停同步这一层的新改动**（user 对同步库那边定调：「如果真的是重大安全问题再改，如果不是的话……放到周账里面」「最怕的就是说改来改去」；统筹判断收了 2.3.6 之后九处都是结构上的欠账、不是眼前会丢东西的）。二之一到二之四都不做了，记周账等专门一轮。
+  - **二之一做到哪**（分支 `wip/sync-2-1-count-after-save` 44abd79f，**没合、没推**）：`src/app/unpushed-count.ts`（先存后数：开着那份只落本机、不等正在存的那一趟；数 = 库报的 ∪ 开着这份，库报 0 按 1、并进去写「至少」；数不出来按有）+ `session.settleOpenDocLocally / openDocUnpushed` + 退出登录 / 还原出厂护栏 / 离开文件夹家三处改走它 + dev 钩子 `cloudSignOut`。单测 `test/unpushed-count.test.ts` 12 过（含「谁读库的待传计数」登记守卫）；探针 `probe-count-after-save` 新代码 10/10，v0.19.74 上「还原出厂护栏」那条红（开着这份刚画的一笔数成 0，护栏说「现在没有只在本机的模型」）。**没做完**：`test/gallery-home.test.ts` 两条结构守卫要跟着改（退出登录的步骤顺序那条找不到 `flushLocal`；挂库记号清除处的计数 4 → 3，是新写法没被它的正则认出来）；全套 / 红线组 / 流程图没跑没写。
+  - 顺带查清的：界面上退出登录只在图库的云钮里，开图库那一下已经先落了本机（`gallery-host.ts` open → `flushLocal`），所以「先数后存」在退出登录这条路上实际很少咬到；还原出厂护栏（☰ → 设置 → 开发者，不经过图库）是真咬得到的那一处（上面那条红）。离线条上的份数（`main.ts paintOfflineBar`）也是数不出来按 0、不并开着这份，只显示，没进二之一的三处。
+  - **二之四那张表的原始清点**（「谁在看正在存 / 谁在等保存返回」；只搜了、没逐处分析，以后那一轮从这里开始；as-of v0.19.74，54 处，每行截到 150 字）：
+
+```
+src/app-store.ts:198:  const r = await col.flushLocal().catch((e: unknown) => ({ ok: false, error: e }));
+src/app-store.ts:221:      const f = await col.flushLocal();
+src/app/gallery-host.ts:66:    exit: async () => { await d.flushLocal(); },
+src/app/gallery-host.ts:136:    await d.flushLocal();
+src/app/push-retry.ts:26:  return !f.held && f.pushPending && !f.attention && !f.saving && !f.gesture && f.visible && f.online && f.signedIn && f.now 
+src/app/main.ts:1766:  if (session.home.kind !== "gallery" || isFolderHome() || !auth.isAuthConfigured() || (auth.isSignedIn() && cloudOnline())) { vo
+src/app/main.ts:1767:  void session.save();   // 已配置未登录：本地保存照做（不 await——sheet 与 IDB 事务并行）
+src/app/main.ts:1883:  flushLocal: () => session.flushLocal(),
+src/app/main.ts:1938:    await session.flushLocal();
+src/app/main.ts:1957:  if (!(await session.leaveGate())) return;
+src/app/main.ts:1958:  await session.flushLocal();
+src/app/main.ts:2076:  if (!(await session.leaveGate())) return;
+src/app/main.ts:2077:  await session.flushLocal();
+src/app/main.ts:2439:    await session.flushLocal().catch((e) => funnel(e, "log"));
+src/app/main.ts:2499:  session.save({ implicit: true, localOnly: true }).catch(() => {});   // transient / file 家 implicit = no-op（不背着用户写磁盘）
+src/app/session.ts:271:    if (this.saving) return "saving";
+src/app/session.ts:324:    const idle = !this.saving && !handBusy && this.now() - this.lastEditAt >= AUTOSAVE_IDLE_MS;
+src/app/session.ts:326:      void this.save({ implicit: true });
+src/app/session.ts:330:      pushPending: this.pushPending, attention: !!this.attention, saving: this.saving, gesture: handBusy,
+src/app/session.ts:334:      void this.save({ implicit: true });   // 工单 C3 D：上次没推成（切走时没网 / 网络失败）的这一份，再推一次；撞上云端 = 不弹面，横幅接手
+src/app/session.ts:384:    if (this.seal && !this.seal.pw) return this.leaveGate();
+src/app/session.ts:394:    if (this.home.kind === "gallery") { if (!this.lazy && !this.saving && (this.dirty() || (this.pushPending && !this.attention
+src/app/session.ts:399:    if (this.home.kind === "gallery") { if (!this.lazy && this.dirty() && !this.saving) void this.save({ implicit: true, localO
+src/app/session.ts:420:    while (this.saving && this.now() < deadline) await new Promise((r) => setTimeout(r, 50));   // 自动保存正在路上：等它
+src/app/session.ts:422:    if (this.dirty()) await this.save({ implicit: true, localOnly: true });
+src/app/session.ts:424:    const push = this.save({ implicit: true });
+src/app/session.ts:444:    if (opts.gate && !(await this.leaveGate())) return null;
+src/app/session.ts:465:      await this.save({ implicit: true });   // 没成也留在图库家 + dirty，30 s 自动保存补（createPending 保证仍 mode:"new"）
+src/app/session.ts:486:    if (this.home.kind !== "transient" && !(this.home.kind === "gallery" && this.lazy)) await this.save({ implicit: true });
+src/app/session.ts:524:    if (this.home.kind !== "gallery" || this.lazy || this.saving) return "other";
+src/app/session.ts:590:    if (this.dirty()) await this.save({ implicit: true, localOnly: true });   // 没落本机的先落：库比的是本机那份
+src/app/session.ts:608:    await this.save({ implicit: true });
+src/app/session.ts:704:    void this.save({ implicit: true });
+src/app/session.ts:708:    if (!(await this.leaveGate())) return false;
+src/app/session.ts:739:    if (!(await this.leaveGate())) return false;
+src/app/session.ts:780:        if (this.dirty()) await this.save({ implicit: true, localOnly: true });   // 先把内存里的落本地明文，库读它打包
+src/app/session.ts:806:        if (this.dirty()) await this.save({ implicit: true, localOnly: true });
+src/app/session.ts:823:    if (this.home.kind !== "gallery" || this.lazy || this.saving || this.adopting) return Promise.resolve("skipped");
+src/app/session.ts:866:      if (!(await this.leaveGate())) return false;
+src/app/session.ts:878:    if (!(await this.leaveGate())) return false;
+src/app/session.ts:906:      if (!this.saving) break;
+src/app/session.ts:909:      await this.inflight;
+src/app/session.ts:945:    this.saving = true;
+src/app/session.ts:946:    const run: Promise<boolean> = this.writeHome(home, opts).finally(() => { if (this.inflight === run) this.inflight = null; }
+src/app/session.ts:947:    this.inflight = run;
+src/app/session.ts:1003:    finally { replaceCover?.close(); this.saving = false; this.d.onHomeChanged(); }
+src/app/session.ts:1021:      const ok = await this.save();
+src/app/session.ts:1050:    while (this.saving) await this.inflight;
+src/app/session.ts:1051:    if (this.dirty() && !(await this.save({ implicit: true, localOnly: true }))) return null;   // 锁着：写不了，导出去的会是旧的
+src/app/session.ts:1124:  async leaveGate(): Promise<boolean> {
+src/app/session.ts:1128:    while (this.saving) await this.inflight;
+src/app/session.ts:1132:    if (this.home.kind === "gallery") return this.lazy ? true : this.save({ implicit: true, leaving: true });   // lazy ∧ dirt
+src/app/session.ts:1138:    const ok = await this.save();
+src/app/session.ts:1184:  async flushLocal(): Promise<void> { if (this.adopting) await this.adopting; if (this.home.kind === "gallery" && !this.lazy &
+```
