@@ -49,6 +49,12 @@ const clampP = (p: number, prev: number): number => (Number.isFinite(p) && p > 0
 const fire = (st: PressState, at: PressSample, how: PressHit["how"], base: number, p: number, now: number): PressStep =>
   ({ state: { ...st, armed: false, base, peak: p }, hit: { x: at.x, y: at.y, t: at.t, how, base, p, after: now - st.first.t } });
 
+/**
+ * 这支笔报不报压感（从这一下看得出来的）：压力变过，或者落笔那个数不是 0 / 0.5 / 1（不报压感的笔按着恒报 0.5；鼠标报 0.5 / 1）。
+ * 输入层拿它记「这支笔报压感」（整个会话记一次）：报的笔抬笔 = 抬笔（收、全部落定）；不报的笔点一下 = 下点（设计稿第二节第 7 条）。
+ */
+export function pressureKnown(st: PressState): boolean { return st.varied || (st.first.p !== 0 && st.first.p !== 0.5 && st.first.p !== 1); }
+
 /** 落笔。落笔那一下就够重（① ）= 当场判到。 */
 export function pressDown(s: PressSample, f: HardPressFeel = HARD_PRESS): PressStep {
   const first: PressSample = { t: s.t, p: clampP(s.p, 0), x: s.x, y: s.y };

@@ -21,7 +21,7 @@
 
 import type { Editor, ToolPointer } from "../editor/editor.ts";
 import { FINGER_DOUBLE_TAP_MS, FINGER_DOUBLE_TAP_PX, LONG_PRESS_MS, GESTURE_TAP_MAX_MS, GESTURE_TAP_MAX_MOVE, PALM_PEN_GUARD_MS, STALE_TOUCH_MS, SINGLE_TAP_MS, UNLOCK_PX } from "../controller/feel.ts";   // 时间 / 距离的数值住手感表（2026-10-28）
-import { pressDown, pressMove, type PressHit, type PressState } from "../controller/hard-press.ts";   // 重按（笔的设计稿第七节第 2 步）：判法在那里，这里只喂笔的样本
+import { pressDown, pressMove, pressureKnown, type PressHit, type PressState } from "../controller/hard-press.ts";   // 重按（笔的设计稿第七节第 2 步）：判法在那里，这里只喂笔的样本
 
 type Role = "tool" | "orbit" | "pan" | "hold" | "multi";
 interface Tracked { type: string; role: Role; x: number; y: number; downX: number; downY: number; downAt: number; lastAt: number; press?: PressState; }   // press = 笔的工具指针这一下的重按状态
@@ -53,6 +53,8 @@ export interface GestureOpts {
   armable?(pointerType: string): boolean;
   /** 笔的工具指针判到一次重按（hard-press.ts）：hit = 点下在哪（画布本地）；clientX / Y = 同一点的 client 坐标（笔尖闪一圈用）。同一下也带在递给编辑器的 ToolPointer.press 上。 */
   onHardPress?(hit: PressHit, clientX: number, clientY: number): void;
+  /** 抬笔宽限（ms；设计稿第三节）：现在的工具用重按时 > 0。报压感的笔抬起先等这么久，其间又落下 = 当没断过；过了才交给编辑器（带 lift）。缺 / 0 = 不等。 */
+  liftGraceMs?(): number;
 }
 
 
@@ -60,6 +62,11 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
   const pointers = new Map<number, Tracked>();
   let penEverSeen = false;
   let lastPenActivity = -Infinity;
+  /** 这支笔报压感（hard-press.ts pressureKnown 见过一次就记住，整个会话）：报的笔松开 = 抬笔（ToolPointer.lift）；不报的笔松开 = 普通的松开（点一下 = 点）。 */
+  let penPressure = false;
+  /** 抬笔宽限里压着的那一下松开（设计稿第三节）：期间笔又落下 = 接着这一下走（同一份 Tracked、同一份重按状态），不交松开、也不交按下。 */
+  let pendingLift: { t: Tracked; up: ToolPointer; timer: number } | null = null;
+  const flushLift = (): void => { const p = pendingLift; if (!p) return; pendingLift = null; clearTimeout(p.timer); editor.pointerUp(p.up); };
   /** locked = 笔按住拖的中途凑成的双指：先当手掌，质心 / 指距累计动过 UNLOCK_PX 才解锁成相机（user 2026-10-24「要不要大动作解锁」）。 */
   let multi: { cx: number; cy: number; d: number; locked: boolean; travel: number } | null = null;
   let tap: GestureTap | null = null;
@@ -137,6 +144,14 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     if (opts.admits && !opts.admits(ev.pointerType === "touch" ? "touch" : "pointer")) return;
     const s = local(ev);
     try { canvas.setPointerCapture(ev.pointerId); } catch { /* 合成事件/已释放的指针会抛 InvalidState，不许把 down 整个打断 */ }
+    if (pendingLift && ev.pointerType === "pen") {   // 抬笔宽限之内笔又落下 = 当没断过：接着那一下走（编辑器看到的只是一次移动）
+      const t = pendingLift.t; clearTimeout(pendingLift.timer); pendingLift = null;
+      t.x = s.x; t.y = s.y; t.lastAt = lastPenActivity = performance.now(); pointers.set(ev.pointerId, t);
+      lastTool = tp(ev); const hit = feedPress(ev, t);
+      editor.pointerMove(hit ? { ...lastTool, press: hit } : lastTool);
+      return;
+    }
+    flushLift();   // 别的指针落下：压着的抬笔先交
     const now = performance.now();
     purgeTouches(ev.pointerType === "pen");   // ④ 幽灵清理：pen 落下清全部 touch；否则只清 stale
     const base: Tracked = { type: ev.pointerType, role: "hold", x: s.x, y: s.y, downX: s.x, downY: s.y, downAt: now, lastAt: now };
@@ -233,7 +248,11 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     const now = performance.now();
     if (ev.pointerType === "pen") lastPenActivity = now;   // ③ 掌触门从抬笔起算
     if (t.role === "tool") {
-      if (cancelled) editor.cancel(); else editor.pointerUp(tp(ev));
+      if (cancelled) { editor.cancel(); return; }
+      if (ev.pointerType === "pen" && t.press && pressureKnown(t.press)) penPressure = true;
+      const lift = ev.pointerType === "pen" && penPressure, up = lift ? { ...tp(ev), lift } : tp(ev), grace = lift ? opts.liftGraceMs?.() ?? 0 : 0;
+      if (grace > 0) { flushLift(); pendingLift = { t, up, timer: window.setTimeout(flushLift, grace) }; return; }   // 抬笔宽限：先压着（设计稿第三节）
+      editor.pointerUp(up);
       return;
     }
     if (ev.pointerType !== "touch") return;
@@ -301,6 +320,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
   return {
     penEverSeen: () => penEverSeen,
     dispose() {
+      if (pendingLift) { clearTimeout(pendingLift.timer); pendingLift = null; }
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", up);

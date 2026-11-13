@@ -86,6 +86,11 @@ export const DWELL_SLIP_PX = 24;
  * downHeavy 比 0.5 大：不报压感的笔恒报 0.5，不能让它每次落笔都算重按。
  */
 export const HARD_PRESS = { riseMs: 100, riseMin: 0.12, riseRel: 0.5, startFrac: 0.25, downMs: 100, downHeavy: 0.6, rearmFrac: 0.5 } as const;
+/**
+ * 抬笔宽限（ms；笔的设计稿第三节）：用重按的工具里，报压感的笔抬起先等这么久，其间又落下 = 当没断过（有的屏会突然断触一下），过了才算抬笔。
+ * user 嫌 0.2 秒太长（防的是硬件抖动，要跟手）；统筹提 0.05 秒（断触只有一两次采样那么短，人故意抬再落最快也要一百多毫秒），user 没回，先按它做；设置里能改（app 记在设备上）。
+ */
+export const LIFT_GRACE_MS = 50;
 
 // ---------- 充能（硬表面：悬停停留的点 / 边进充能集；原 editor.ts trackCharge 默认）----------
 export const CHARGE_DWELL_MS = 300;

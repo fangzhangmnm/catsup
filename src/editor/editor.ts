@@ -126,7 +126,7 @@ export interface ToolPointer {
   /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。缺省 = 本帧 distTo（editor.movedSinceDown）。 */
   travel?: number;
   /** 事件自己发生的时间（ms，PointerEvent.timeStamp）：抬笔结算按它算停了多久（controller/lift-settle.ts）；画画的一笔按它算时间（施工单二十 1a）。键盘起手 / 程序造的没有。 */
-  at?: number; pressure?: number; press?: PressHit;   // press = 这一下判到重按（输入层 app/gestures.ts 喂 controller/hard-press.ts；点下在 press.x / y = 压力猛升之前那一刻，不是这一下的 x / y；工具不读 pressure）；pressure = 压感（PointerEvent.pressure，0..1）：只有画画的一笔用（controller/stroke-clock.ts 只信笔的；鼠标 / 手指报的 0.5 / 0 不是压感）；键盘起手 / 程序造的没有
+  at?: number; pressure?: number; press?: PressHit; lift?: boolean;   // lift = 这一下松开是报压感的笔抬笔（宽限已过；输入层给，只有 seek-input.ts 看）；press = 这一下判到重按（输入层 app/gestures.ts 喂 controller/hard-press.ts；点下在 press.x / y = 压力猛升之前那一刻，不是这一下的 x / y；工具不读 pressure）；pressure = 压感（PointerEvent.pressure，0..1）：只有画画的一笔用（controller/stroke-clock.ts 只信笔的；鼠标 / 手指报的 0.5 / 0 不是压感）；键盘起手 / 程序造的没有
 }
 
 /** 选区快照（撤销 / 重做还原用；ctx = 当时的上下文键）。 */
@@ -3719,7 +3719,7 @@ export class Editor {
   // ---------- 输入：工具指针 ----------
   pointerDown(ev: ToolPointer): void { this.step(() => this.pointerDownStep(ev)); }
   /** 「收」（W-7）：声明了 sameSpotEnds 的工具定了点、在等下一点时 = 左下芯片那颗钮的字（工具给）；不是这时候 = null。点它 = finishChain = 和「同一处再点一下」同一条路（endChain）：做成的留着，只是不接下一段。 */
-  finishLabel(): string | null { const H = this.handlers[this._tool], waiting = H?.grammar === "steps" ? this.armed && H.active() && !!this.anchor3 : !!H?.awaitsClick?.(); return H?.sameSpotEnds && waiting ? (H.finishLabel ?? "收") : null; }   // direct 工具（刀）自己说在不在等下一点
+  finishLabel(): string | null { const H = this.handlers[this._tool], waiting = H?.grammar === "steps" ? this.armed && H.active() && !!this.anchor3 : !!H?.awaitsClick?.(); return H?.finishLabel && waiting ? H.finishLabel : null; }   // direct 工具（刀）自己说在不在等下一点；声明了 finishLabel = 有这颗钮（刀撤了「同一处再点 = 收」，钮照旧：笔的设计稿第四节）
   finishChain(): void { this.step(() => { if (this.finishLabel() !== null) { this.endChain(); this.draw(); } }); }
   private endChain(): void { this.host.hint(null); this.handlers[this._tool]?.onEndChain?.(this.toolCtx); this.cancelGesture(); this.host.changed(); }   // onEndChain 先于 cancel：工具在收的这一刻交代（刀开小窗、可以写提示）
   private pointerDownStep(ev: ToolPointer): void {
