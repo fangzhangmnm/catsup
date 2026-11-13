@@ -61,7 +61,9 @@ export interface CommandEnv {
     circleSegments(): number;
     /** 菜单对着哪个选中的物件点的 / 光标压着哪个（这一层的实例 id；合并的目标 = 它，user 10-28 夜「你右键点在谁身上，谁留下 可以」）；没有 = null。 */
     pointedInstance(): InstId | null;
-    /** 眼睛在正在编辑的那一层的本地坐标里在哪（造面：旁边没有面时新面朝着它）；没有 = null。 */
+    /** 眼睛在正在编辑的那一层的本地坐标里在哪（造面：旁边没有面时新面朝着它）；没有 = null。
+     *  欠账（统筹 11-13）：这是命令读了屏幕那一侧的东西，和「命令 = 给参数做一次变换，不认手和屏幕」不合。到「命令和工具分家」那一轮改成造面的一个参数（朝向的参照点，调用的那一头填）；
+     *  在那之前 CommandEnv 不许再加第二个和视图有关的读法，有第二个需要时先停下来找统筹。 */
     eye(): Pt3 | null;
 }
 export type Params = Readonly<Record<string, ParamValue>>;

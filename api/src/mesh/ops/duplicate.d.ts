@@ -23,7 +23,19 @@ export declare function fillOrBridge(k: MeshKernel, sel: MeshSel): {
 /** 环的 Newell 法向（长度 = 面积的两倍）。造面（make-face.ts）也用。 */
 export declare function ringNewell(k: MeshKernel, ring: readonly number[]): Pt3;
 /** 造这张面会坏的情况（人话）；没有 = null。计划和指令各核一遍。 */
+/**
+ * 一组点（不看点序）的平面：形心 c、离形心最远那个点的方向 u、和 u 张成面积最大的那个点定法向 n、w = n × u。蝴蝶结这种点序反着绕的也给得出平面（Newell 法会抵消成零）。
+ * 全在一条线上（最大的那块面积 ≤ 1e-9 × 点距²）= null。造面排点（make-face.ts）和验点序（faceBlocker）共用。
+ */
+export declare function looseFrame(P: readonly Pt3[]): {
+    c: Pt3;
+    u: Pt3;
+    w: Pt3;
+    n: Pt3;
+} | null;
 export declare function faceBlocker(k: MeshKernel, ring: readonly number[]): string | null;
+/** 已经有一张面正好是这组点（不看顺序）。补洞和造面共用。 */
+export declare function faceExists(k: MeshKernel, ring: readonly number[]): boolean;
 /** 指令 meshMakeFace 的本体：按点序造一张面（两点 = 一条裸线）。返回新面 / 新边；会坏 = 人话错误（什么都没动）。 */
 export declare function makeFaceRing(k: MeshKernel, ring: readonly number[]): {
     face: number;
