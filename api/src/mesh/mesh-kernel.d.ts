@@ -4,7 +4,6 @@ import { type Column, type ColumnDef, type CornerColumn, type EdgeColumn, type E
 import { type MergeGroup } from "./merge-points.ts";
 export type { Column, ColumnDef, ColumnType, CornerColumn, CornerOdd, Domain, EdgeColumn, EdgeOrigin, EdgeShape, FaceColumn, FaceOrigin, FaceReport, FaceShape, GoneFace, GoneWhy, MergeRule, OddEdge, OddFace } from "./columns.ts";
 export type { MergeGroup, MergeTo } from "./merge-points.ts";
-export { F_SOFT, F_SMOOTH, F_SEAM, F_HIDDEN, F_WIRE, F_SHARP } from "./edge-bits.ts";
 /** 网格体的「默认平滑」（几何属性，不是画法——user 10-28「不要叫明暗方式，我们的语义就是几何，和representation没关系。默认平滑之类的？」；每个网格体一个；mesh/edge-smooth.ts 按它判没手标的边）：angle = 两侧面夹角小于 deg 算平滑（硬表面）/ smooth = 全平滑（软角色）/ hard = 全是棱（低多边形；
  *  新建的网格体默认这一档；文件里缺这一项怎么办归读的门口 format/migrate/mesh.ts）。 */
 export type SmoothDefaultMode = "angle" | "smooth" | "hard";
@@ -15,12 +14,12 @@ export interface SmoothDefault {
 /** 新建的网格体的默认平滑：全是棱（只看手标）。老文件缺这一项怎么办归读的门口（format/migrate/mesh.ts smoothDefaultOf；2026-11-12 起内核不认「老文件」）。 */
 export declare const SMOOTH_DEFAULT_NEW: SmoothDefault;
 export interface MeshSnapshot {
-    readonly version: 3;
+    readonly version: 4;
     readonly minor: 0;
     readonly patch: 0;
     readonly positions: number[];
     readonly faces: number[][];
-    readonly edges: [number, number, number][];
+    readonly wires: [number, number][];
     /** 角上的列（有才有这个键）：声明 + 每张面一项 = 角数 × 每角几个数。 */
     readonly corner?: readonly {
         readonly def: ColumnDef;
@@ -52,9 +51,10 @@ export declare class MeshKernel {
     edgeA: Int32Array<ArrayBuffer>;
     edgeB: Int32Array<ArrayBuffer>;
     eAlive: Uint8Array<ArrayBuffer>;
-    edgeFlags: Uint8Array<ArrayBuffer>;
     private eCount;
     private eFree;
+    /** 裸线位（结构位，几何本身：这条边可以不挂面；规程第二½节）。3c 起内核自己一张位表；边上的标记都是列（mesh/reserved-columns.ts）。 */
+    private edgeWire;
     private edgeKey;
     private vHead;
     private eNext;
@@ -127,6 +127,11 @@ export declare class MeshKernel {
      */
     addEdge(a: number, b: number, origin: EdgeOrigin): number;
     private makeEdge;
+    /**
+     * 并进一条已经在的边（规程第九½节，统筹 11-13）：别的几条边（旧样子在它们删掉之前记下）并成这条已经在的边 = 并成，这条排最前、from 照给的先后；
+     * 每一列照自己的 merge 取，来源不一样进边的报告。溶解二度点时两个邻居本来就连着、合并点几条边落到同一对点，都走这一个入口（全仓一处）。
+     */
+    absorbIntoEdge(keep: number, from: readonly EdgeShape[]): void;
     /** 边的旧样子（改 / 删之前记，交给新边的来历）：两头 + 每一列的值（没有边上的列 = null）+ 身上还没交出去的「对不上」。 */
     edgeShape(e: number): EdgeShape;
     /** 原地改一张面的环（劈面 / 并面 / 并点用）：旧环独占的边删掉、新环缺的边补上。origin = 新环从哪来（必填；旧样子要在改之前 shapeOf 记下）。 */
@@ -199,15 +204,12 @@ export declare class MeshKernel {
      */
     mergePoints(groups: readonly MergeGroup[]): number[];
     setPos(v: number, p: Pt3): void;
-    setFlags(e: number, mask: number, on: boolean): void;
     /** 整字节写边标记（算子搬标记用）；记日志。 */
-    /** 裸线位（结构位，不是属性：「这条边可以不挂面」，规程第二½节算几何本身）。3a 先给口，存法照旧（边标记字节的 F_WIRE 那一位）；3d 老数组删掉时换成自己的一张位表。 */
+    /** 裸线位（结构位，几何本身：「这条边可以不挂面」）。 */
     isWire(e: number): boolean;
     setWire(e: number, on: boolean): void;
-    setEdgeFlags(e: number, flags: number): void;
     /** 换默认平滑：每条边的「平滑吗 / 画线吗」都可能变 → 所有边和面都记进改动日志（渲染按日志增量重建）。 */
     setSmoothDefault(sd: SmoothDefault): void;
-    hasFlag(e: number, mask: number): boolean;
     private keyOf;
     private touch;
     private vLink;

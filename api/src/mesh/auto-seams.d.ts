@@ -1,6 +1,6 @@
 import type { MeshKernel } from "./mesh-kernel.ts";
 /** 读到的那点网格体（MeshKernel 满足）。 */
-export type AutoSeamMesh = Pick<MeshKernel, "faces" | "faceVerts" | "edgeOf" | "eFaces" | "edgeA" | "edgeB" | "edgeFlags" | "pt" | "faceNormal" | "faceTriangles" | "hasF">;
+export type AutoSeamMesh = Pick<MeshKernel, "faces" | "faceVerts" | "edgeOf" | "eFaces" | "edgeA" | "edgeB" | "column" | "pt" | "faceNormal" | "faceTriangles" | "hasF">;
 export interface AutoSeamOptions {
     /** 折痕：两张面法向夹角 ≥ 这么多度的边切。 */
     readonly angleDeg: number;
