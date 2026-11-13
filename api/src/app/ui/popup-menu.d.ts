@@ -22,6 +22,11 @@ export interface PopupMenuItem<Id extends string = string> {
     value?: string;
     /** 纯文字说明（不可点；label = 正文；B43「新手提醒」）。 */
     note?: boolean;
+    /** 只读的一行数据（不可点；属性地基轮 3½「元素」页）：左边 label（code 给了就在后面跟一个小灰字原名），右边 cells 一格一格靠右对齐。 */
+    readout?: {
+        readonly code?: string | null;
+        readonly cells: readonly string[];
+    };
     /** 子菜单（2026-10-27 Opus；user「新建能不能收到一个子菜单里面…需要把菜单的深模块做成支持子菜单的，还要防止跑到屏幕外面」）：
      *  这一行 = label + ›；点 / 鼠标悬停 = 旁边开一层（choice-layer.ts openSubmenu：先往右、放不下往左、太高自己滚）；点里面一项 = onPick(那一项的 id)，
      *  整个菜单关（返回 "keep" = 留着并刷新）。只一层：子项的 children 不看。 */
