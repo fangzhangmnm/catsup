@@ -89,6 +89,10 @@ describe("造面：做不了要说原因（什么都不动）", () => {
     const r = fillOrBridge(k, { edges: k.edges() }); assert(typeof r === "string" && r.includes("已经有这张面"), String(r)); eq(k.faceCount(), 1);
     const h = new MeshKernel(); addBox(h, P(0, 0, 0), P(1, 1, 1)); h.removeFace(faceAtZ(h, 1));
     const ok = fillOrBridge(h, { edges: h.edges().filter((e) => h.eFaces(e).length === 1) }); assert(typeof ok !== "string", "真的洞照补");
+    // 两面的盒子（每张面背后一张，转网格体「要出几侧就几张面」）删掉一侧再补回来 = 正当，照补（v0.19.102 把它也拦了，paint-invariant2 抓到）
+    const d = new MeshKernel(); addBox(d, P(0, 0, 0), P(1, 1, 1)); for (const f of [...d.faces()]) d.addFace([...d.faceVerts(f)].reverse(), { kind: "fresh" });
+    const top = faceAtZ(d, 1), ring = d.faceVerts(top); d.removeFace(top);
+    const back = fillOrBridge(d, { edges: ring.map((v, i) => d.edgeOf(v, ring[(i + 1) % ring.length])) }); assert(typeof back !== "string", `删掉一侧再补回来：${String(back)}`);
   });
   it("指令那一层自己再核一遍：直接递一个会挂三张面的点序也拒绝", () => {
     const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));

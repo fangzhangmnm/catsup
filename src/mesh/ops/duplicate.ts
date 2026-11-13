@@ -66,7 +66,7 @@ export function orientAsHole(k: MeshKernel, ring: number[]): number[] {
 export function fillOrBridge(k: MeshKernel, sel: MeshSel): { kind: "fill" | "bridge"; faces: number[] } | string {
   const loops = edgeLoops(k, sel);
   if (typeof loops === "string") return loops;
-  if (loops.length === 1) { if (faceExists(k, loops[0])) return "这里已经有这张面了（选的是一张面的边，不是洞）"; const ring = orientAsHole(k, loops[0]); return { kind: "fill", faces: [k.addFace(ring, FRESH)] }; }   // 补洞 = 凭空来的；孤零零一张面的一圈边也是「开口」的，不拦就在它背面叠一张（统筹 11-13）
+  if (loops.length === 1) { if (loneFaceRim(k, loops[0])) return "这里已经有这张面了（选的是一张面的边，不是洞）"; const ring = orientAsHole(k, loops[0]); return { kind: "fill", faces: [k.addFace(ring, FRESH)] }; }   // 补洞 = 凭空来的；孤零零一张面的一圈边也是「开口」的，不拦就在它背面叠一张（统筹 11-13）
   if (loops.length !== 2) return `选了 ${loops.length} 圈：补洞要一圈，桥接要两圈`;
   const A = orientAsHole(k, loops[0]), B = [...orientAsHole(k, loops[1])].reverse(), n = A.length;   // 桥上的四边形过 A 的边和 A 补洞同向、过 B 的边和 B 补洞反向
   if (B.length !== n) return `两圈的点数不一样（${n} 和 ${B.length}）：桥接要一样多`;
@@ -115,6 +115,15 @@ export function faceBlocker(k: MeshKernel, ring: readonly number[]): string | nu
   for (let i = 0; i < ring.length; i++) { const e = k.edgeOf(ring[i], ring[(i + 1) % ring.length]); if (e >= 0 && k.eFaces(e).length >= 2) return "会造出一条边挂三张面（有一条边两边都已经有面了）"; }
   if (faceExists(k, ring)) return "这里已经有这张面了";
   return null;
+}
+/**
+ * 这一圈正好是孤零零一张面的边（圈上每条边只挂这一张面）= 补洞会在它背面叠一张 → 补洞拒绝。
+ * 只看「同一组点有面」不够：两面的身体转成网格体时每张面背后本来就有一张（「要出几侧就几张面」），删掉一侧再补回来是正当的（那时圈上的边还挂着别的面；paint-invariant2 的盒子就是这样）。
+ */
+export function loneFaceRim(k: MeshKernel, loop: readonly number[]): boolean {
+  if (!faceExists(k, loop)) return false;
+  for (let i = 0; i < loop.length; i++) { const e = k.edgeOf(loop[i], loop[(i + 1) % loop.length]); if (e < 0 || k.eFaces(e).length !== 1) return false; }
+  return true;
 }
 /** 已经有一张面正好是这组点（不看顺序）。补洞和造面共用。 */
 export function faceExists(k: MeshKernel, ring: readonly number[]): boolean {

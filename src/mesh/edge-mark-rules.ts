@@ -31,7 +31,7 @@ export const OPS: Readonly<Record<string, OpsRow>> = {
   "delete.ts": { say: "删：剩下的边、面不动；删面留边时没了面的边设裸线位；删选中 + 溶解 = 并面（并成）",
     ops: { deleteFaces: NONE, deleteEdges: NONE, deleteVerts: NONE, deleteSelection: B([], ["joined"]) } },
   "duplicate.ts": { say: "复制（Shift+D）：面上的边和选中的边 = 照抄（单独复制出来的边是裸线）、面 = 照抄；补洞 / 桥接 / 造面：新边 = 新长、新面 = 凭空来的；造面两个点 = 一条凭空来的裸线",
-    ops: { duplicateGeometry: B(["copy"], ["copy"]), fillOrBridge: B(["grown"], ["fresh"]), makeFaceRing: B(["grown", "fresh"], ["fresh"]) }, helpers: ["edgeLoops", "orientAsHole", "ringNewell", "faceBlocker", "faceExists", "looseFrame"] },   // 造面（F）：面的边 = 新长、两点的裸线 = 凭空来的、面 = 凭空来的
+    ops: { duplicateGeometry: B(["copy"], ["copy"]), fillOrBridge: B(["grown"], ["fresh"]), makeFaceRing: B(["grown", "fresh"], ["fresh"]) }, helpers: ["edgeLoops", "orientAsHole", "ringNewell", "faceBlocker", "faceExists", "loneFaceRim", "looseFrame"] },   // 造面（F）：面的边 = 新长、两点的裸线 = 凭空来的、面 = 凭空来的
   "make-face.ts": { say: "造面（Blender F）的计划：只读，算选区说的是哪一种面、点序和朝向；造由 duplicate.ts makeFaceRing 做", ops: {}, helpers: ["planMakeFace"] },
   "extrude.ts": { say: "挤出面：帽上的边 = 照抄原来那条（全部列，含隐藏）、帽 = 原来那张面换到新点上（它自己的一份）；侧边、侧面 = 新长（侧面跟被挤的那张）。挤出边：墙 = 新长、跟那条边唯一挨着的面；挤出点 = 一条裸线",
     ops: { extrudeFaces: B(["copy", "grown"], ["copy", "grown"]), extrudeEdges: B(["grown"], ["grown"]), extrudeVerts: B(["grown"], []), extrudeAndOffset: B(["copy", "grown"], ["copy", "grown"]), extrudeAlongNormals: B(["grown"], ["grown"]) },
