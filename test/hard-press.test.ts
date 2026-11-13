@@ -38,6 +38,7 @@ describe("重按：短时间里压力猛地变重才算", () => {
     eq(hits.length, 1, "一次");
     eq(hits[0].how, "rise");
     assert(Math.abs(hits[0].x - 160) < 1, `点在猛升之前（x ${hits[0].x.toFixed(1)}，应该 ≈ 160）`);
+    assert(hits[0].after > 360 && hits[0].after < 440, `落笔后多少毫秒判到（${hits[0].after.toFixed(0)}，猛升在 360–420 之间）`);
   });
   it("慢慢加重（0.1 → 0.7 用了 1 秒）= 不算", () => {
     eq(run(curve([land(0.1), { ms: 1000, p0: 0.1, p1: 0.7 }, { ms: 200, p0: 0.7, p1: 0.7 }])).hits.length, 0);
@@ -47,6 +48,7 @@ describe("重按：短时间里压力猛地变重才算", () => {
     eq(hits.length, 1);
     eq(hits[0].how, "down");
     eq(hits[0].x, s[0].x, "落笔那一点（第一个样本）");
+    assert(hits[0].after >= 0 && hits[0].after < HARD_PRESS.downMs, `落笔那一段里判到（after ${hits[0].after.toFixed(1)} ms）`);
   });
   it("重按着当中压力上下晃 = 还是一次", () => {
     const s = curve([land(0.15), ...steady(200, 0.15), { ms: 50, p0: 0.15, p1: 0.62 },

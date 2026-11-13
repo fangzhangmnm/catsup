@@ -1242,7 +1242,7 @@ const gestures = attachGestures(canvas, editor, {
   latched: () => latchedMods,   // 键名芯片锁住的修饰键（iPad 没键盘：Shift / Ctrl / Alt = 开关）
   armable: (pt) => pt === "mouse" || pt === "pen" || editor.tool === "move" || editor.tool === "rotate",   // 笔也点两下（B23）；手指只在移动 / 旋转（#23）
   // 重按（笔的设计稿第七节第 2 步）：只有用重按的工具（stance.ts PEN_PRESS）笔尖闪一圈 + 黑匣子记一行（调判法的数看它）；别的工具里按重了什么都不发生
-  onHardPress: (hit, cx, cy) => { if (!penPressOf(editor.modeId, editor.tool)) return; pressPulse(cx, cy); note("press", `重按（${hit.how === "down" ? "落笔就重" : "猛升"}）底 ${hit.base.toFixed(2)} → ${hit.p.toFixed(2)}`); },
+  onHardPress: (hit, cx, cy) => { if (!penPressOf(editor.modeId, editor.tool)) return; pressPulse(cx, cy); note("press", `重按（${hit.how === "down" ? "落笔就重" : "猛升"}，落笔后 ${Math.round(hit.after)} ms 判到）底 ${hit.base.toFixed(2)} → ${hit.p.toFixed(2)}`); },
 });
 // 视图 = 右上角导航 gizmo（Blender / Unity 式；user 2026-10-21「视图之类的能不能参考unity blender editor」）。视图弹层退役；透视 / 步行 / 穿墙 / 粗线稿进 ☰。
 // 放在 locomotion 之后（render 立刻会问 isWalking）。

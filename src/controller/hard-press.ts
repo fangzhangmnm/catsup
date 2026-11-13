@@ -16,8 +16,11 @@ import { HARD_PRESS } from "./feel.ts";
 
 /** 一个样本：事件时间（ms）、压力（0..1）、位置。 */
 export interface PressSample { readonly t: number; readonly p: number; readonly x: number; readonly y: number; }
-/** 判到的一次重按。x / y / t = 点下在哪、那一刻是什么时候（落笔判到的 = 落笔那一点；涨起来判到的 = 开始猛升之前那一刻）。base / p = 底和判到时的压力（调参看的，进调试日志）。 */
-export interface PressHit { readonly x: number; readonly y: number; readonly t: number; readonly how: "down" | "rise"; readonly base: number; readonly p: number; }
+/**
+ * 判到的一次重按。x / y / t = 点下在哪、那一刻是什么时候（落笔判到的 = 落笔那一点；涨起来判到的 = 开始猛升之前那一刻）。
+ * base / p = 底和判到时的压力；after = 落笔之后多少毫秒判到的（调判法看的，进调试日志：落笔后压力爬得慢被 ② 多判一次，看 how = rise 且 after 刚过 downMs 就认得出）。
+ */
+export interface PressHit { readonly x: number; readonly y: number; readonly t: number; readonly how: "down" | "rise"; readonly base: number; readonly p: number; readonly after: number; }
 /** 判法的几个数（= feel.ts HARD_PRESS 的形状；测试换着试）。 */
 export type HardPressFeel = { readonly [K in keyof typeof HARD_PRESS]: number };
 
@@ -43,14 +46,14 @@ export interface PressStep { readonly state: PressState; readonly hit: PressHit 
 const SAME_P = 1e-4;
 
 const clampP = (p: number, prev: number): number => (Number.isFinite(p) && p > 0 ? Math.min(1, p) : prev);
-const fire = (st: PressState, at: PressSample, how: PressHit["how"], base: number, p: number): PressStep =>
-  ({ state: { ...st, armed: false, base, peak: p }, hit: { x: at.x, y: at.y, t: at.t, how, base, p } });
+const fire = (st: PressState, at: PressSample, how: PressHit["how"], base: number, p: number, now: number): PressStep =>
+  ({ state: { ...st, armed: false, base, peak: p }, hit: { x: at.x, y: at.y, t: at.t, how, base, p, after: now - st.first.t } });
 
 /** 落笔。落笔那一下就够重（① ）= 当场判到。 */
 export function pressDown(s: PressSample, f: HardPressFeel = HARD_PRESS): PressStep {
   const first: PressSample = { t: s.t, p: clampP(s.p, 0), x: s.x, y: s.y };
   const st: PressState = { first, hist: [first], lastP: first.p, armed: true, base: 0, peak: 0, varied: false };
-  return first.p >= f.downHeavy ? fire(st, first, "down", 0, first.p) : { state: st, hit: null };
+  return first.p >= f.downHeavy ? fire(st, first, "down", 0, first.p, first.t) : { state: st, hit: null };
 }
 
 /** 按着又来了一个样本（滑动或压力变了）。 */
@@ -63,12 +66,12 @@ export function pressMove(st: PressState, raw: PressSample, f: HardPressFeel = H
     return { state: { ...next, peak, armed: p <= st.base + f.rearmFrac * (peak - st.base) }, hit: null };
   }
   const downEnd = st.first.t + f.downMs;
-  if (s.t < downEnd) return p >= f.downHeavy ? fire(next, st.first, "down", 0, p) : { state: next, hit: null };   // ① 落笔那一段
+  if (s.t < downEnd) return p >= f.downHeavy ? fire(next, st.first, "down", 0, p, s.t) : { state: next, hit: null };   // ① 落笔那一段
   let base = Infinity;   // ② 底 = 窗口里（落笔那一段除外、现在这个之前）最小的压力
   for (let i = 0; i < hist.length - 1; i++) if (hist[i].t >= downEnd) base = Math.min(base, hist[i].p);
   if (base === Infinity || p - base < f.riseMin + f.riseRel * base) return { state: next, hit: null };
   const startBelow = base + f.startFrac * (p - base);   // ③ 开始猛升之前那一刻
   let at = s;
   for (let i = hist.length - 2; i >= 0; i--) if (hist[i].t >= downEnd && hist[i].p <= startBelow) { at = hist[i]; break; }
-  return fire(next, at, "rise", base, p);
+  return fire(next, at, "rise", base, p, s.t);
 }
