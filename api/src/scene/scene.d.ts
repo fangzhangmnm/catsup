@@ -74,7 +74,8 @@ export declare const uvSetAutoPlaces: (r: UvSetRow) => boolean;
 export interface MeshBody {
     readonly kind: "mesh";
     kernel: MeshKernel;
-    materialSlots: number[];
+    materialSlots: number[]; /** 贴图坐标的速查表：短代号 → 排法 GUID（施工单十八第 1½ 刀；scene/uv.ts）。 */
+    uvSetSlots: Guid[];
 }
 export type Body = BrepBody | MeshBody;
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */

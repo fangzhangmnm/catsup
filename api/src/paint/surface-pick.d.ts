@@ -4,7 +4,8 @@ export interface PickMesh {
     faceVerts(f: number): number[];
     pt(v: number): Pt3;
     faceTriangles(f: number): readonly (readonly [number, number, number])[];
-    cornerValues(f: number, guid: string): Float32Array | null;
+    /** 这张面在排法 uvSet 上的坐标；不在 = null（scene/uv.ts uvMesh；施工单十八第 1½ 刀起不直接问内核）。 */
+    uvAt(f: number, uvSet: string): Float32Array | null;
     isFaceHidden?(f: number): boolean;
 }
 /** 均匀格子：所有（没藏起来的）三角形的角（每个 9 个数）、属于哪张面、是那张面的第几个三角形、角在环上的位置，加上格子到三角形的登记表。 */

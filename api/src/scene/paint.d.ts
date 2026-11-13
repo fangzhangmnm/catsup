@@ -1,9 +1,8 @@
-import type { DefId, Material, Scene, UvSetRow } from "./scene.ts";
+import type { DefId, Material, MeshBody, Scene, UvSetRow } from "./scene.ts";
 import { type TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
-import type { MeshKernel } from "../mesh/mesh-kernel.ts";
-/** 网格体上种类是 uv 的列（贴图坐标；GUID = 场景排法表里那一行的号；施工单十八 3.2）。 */
-export declare const uvColumnsOf: (k: MeshKernel) => string[];
+/** 这个网格体在哪几套排法上（网格体上的速查表；施工单十八第 1½ 刀起 = MeshBody.uvSetSlots，scene/uv.ts）。 */
+export declare const uvSetsOf: (b: MeshBody) => readonly Guid[];
 /** 第六节那几种动作碰到走画的面时的原因（拒绝之后场景一个字节不变）。 */
 export declare const PAINT_CANT_MOVE = "\u8FD9\u4E9B\u9762\u4E0A\u6709\u753B\uFF1A\u5E26\u7740\u753B\u7684\u9762\u73B0\u5728\u8FD8\u4E0D\u80FD\u5E76\u8FDB\u522B\u7684\u7269\u4EF6\u3001\u5206\u51FA\u53BB\u3001\u505A\u6210\u552F\u4E00\u3001\u590D\u5236\u7C98\u8D34\u3001\u70B8\u5F00\u6216\u8005\u8F6C\u6210\u786C\u8868\u9762\uFF08\u8FD9\u4E2A\u529F\u80FD\u8FD8\u6CA1\u505A\uFF09";
 /** 这张面走哪一套贴图坐标（走画 = 那一套的 GUID；不走 = null）。 */
@@ -33,8 +32,8 @@ export type BoardPlace = ({
 };
 export declare function boardPlaceOf(s: Scene, texture: Guid): BoardPlace | null;
 /**
- * 规矩（进场景的自检，和 MeshKernel.check() 一起跑；1-3b 第一节，施工单十八改成从列这一头看）：这个网格体上每一条 uv 列，场景的排法表里有同 GUID 的那一行、
- * 每角两个数、这一列上有值的角都落在那张画布里（横 0 到宽、纵 0 到高）。返回毛病（空 = 好）。
+ * 规矩（进场景的自检，和 MeshKernel.check() 一起跑；施工单十八第 1½ 刀改成看速查表和代号）：速查表里每个号在场景的排法表里有那一行、画布宽高是正整数；
+ * 每张面的代号在 −1…速查表长度之间；有位置的面角都落在那张画布里（横 0 到宽、纵 0 到高）。返回毛病（空 = 好）。
  */
 export declare function paintIssues(s: Scene, def: DefId): string[];
 /** 网格体的全部自检：内核的不变量 + 画的规矩。 */

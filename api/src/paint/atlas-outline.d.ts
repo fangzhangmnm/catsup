@@ -1,6 +1,6 @@
 import type { PaintMesh } from "./texel-table.ts";
 /** 要的那一点网格体（MeshKernel 满足）：环上的点编号（认公共的边）+ 角上的贴图坐标。 */
-export type AtlasMesh = Pick<PaintMesh, "faceVerts" | "cornerValues">;
+export type AtlasMesh = Pick<PaintMesh, "faceVerts" | "uvAt">;
 export interface AtlasOutline {
     readonly width: number;
     readonly height: number;

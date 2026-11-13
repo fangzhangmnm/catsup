@@ -507,7 +507,8 @@ export type Op =
  | {
     op: "meshLayoutPaint";
     def: number;
-    faces?: number[];
+    faces?: number[]; /** 先拿掉这些面的位置（每一步的收尾读内核报告：并面时贴图坐标对不上的；施工单十八第 1½ 刀）。 */
+    drop?: number[];
 }
 /** 分开（Blender P → 选中）：网格体 def 里这些面搬进一个新的网格体组件，摆在 at 池里、和正在编辑的那一份（instance）同一个变换（世界里不动）。 */
  | {

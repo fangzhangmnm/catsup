@@ -186,9 +186,8 @@ export interface UvSetDoc {
     readonly extra?: CarriedJson;
 }
 /**
- * 角上的一列（CATSUP_mesh 3.0 的 columns 一项；施工单十八 3.2）。values = 每个角 arity 个数、和 loopVert 同序、NaN = 这个角没有值（一张面在一列上整面有或整面没有）。
- * kind = uv：arity 2、单位 = 格（文件里存 1/1024 格的 32 位整数，读进来已经换好）、GUID = 排法表里那一行的号。别的种类：32 位浮点原样，GUID 是这一列自己的号。
- * extra = 这一项里不认识的键（原样带回）。
+ * 角上的一列（CATSUP_mesh 3.0 的 columns 里不是 uv 的那种；施工单十八 3.2½）。values = 每个角 arity 个 32 位浮点、和 loopVert 同序；每角都有数，NaN 没有特殊意思。
+ * GUID 是这一列自己的号。extra = 这一项里不认识的键（原样带回）。
  */
 export interface ColumnDoc {
     readonly guid: Guid;
@@ -197,6 +196,24 @@ export interface ColumnDoc {
     readonly values: Float32Array;
     readonly extra?: CarriedJson;
 }
+/**
+ * 贴图坐标（CATSUP_mesh 3.0 的 uv 通道，和文件同一个形状；施工单十八 3.2 / 3.2½）。现在只有颜色一个槽 = 一个通道。
+ * sets = 短代号 → 排法表里那一行的 GUID（写文件时按 GUID 字典序、读进来去过重）；faceSet = 每张面一个代号（−1 = 这张面没有位置）；
+ * data = 每角两个数、单位 = 格、和 loopVert 同序（文件里存 1/1024 格的 32 位整数，读进来已经换好）；没有位置的面这里是 0、没有意思。
+ * sets 里可以有没有面引用的 GUID（这个网格体在那套排法上、零张面有位置；第 3 刀之前照写）。
+ */
+export interface UvDoc {
+    readonly sets: readonly Guid[];
+    readonly faceSet: Int32Array;
+    readonly data: Float32Array;
+}
+/**
+ * 去掉几套排法（读文件收口用：同号冲突、排法表里没有那一行）：在那几套上的面换成没有位置（代号 −1、坐标 0），代号跟着重排。返回新的一份和每套去掉了几张面。
+ */
+export declare function dropUvSets(uv: UvDoc, gone: ReadonlySet<Guid>, faceStart: Int32Array, faceLen: Int32Array): {
+    uv: UvDoc;
+    faces: Map<Guid, number>;
+};
 /** 角上的数算「在画布里」的容差（读文件的收口和内存里的自检 scene/paint.ts paintIssues 用同一个数：读进来的一定过自检）。 */
 export declare const UV_CANVAS_EPS = 0.000001;
 export interface MeshDoc {
@@ -207,7 +224,8 @@ export interface MeshDoc {
     faceMat: Int32Array;
     faceFlags: Uint8Array;
     edgePairs: Int32Array;
-    edgeFlags: Uint8Array; /** 明暗方式（CATSUP_mesh 1.1，2026-10-28 FM129）：缺 = 老文件 = flat（只看手标，和以前逐字一样）。 */
+    edgeFlags: Uint8Array; /** 贴图坐标（CATSUP_mesh 3.0；没有 = 这个网格体不在任何排法上）。 */
+    uv?: UvDoc; /** 明暗方式（CATSUP_mesh 1.1，2026-10-28 FM129）：缺 = 老文件 = flat（只看手标，和以前逐字一样）。 */
     smoothDefault?: {
         mode: "angle" | "smooth" | "hard";
         deg: number;

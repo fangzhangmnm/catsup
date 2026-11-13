@@ -47,7 +47,8 @@ export interface PaintMesh {
     faceVerts(f: number): number[];
     pt(v: number): Pt3;
     faceTriangles(f: number): readonly (readonly [number, number, number])[];
-    cornerValues(f: number, guid: string): Float32Array | null;
+    /** 这张面在排法 uvSet 上的坐标；不在 = null（scene/uv.ts uvMesh；施工单十八第 1½ 刀起不直接问内核）。 */
+    uvAt(f: number, uvSet: string): Float32Array | null;
 }
 /** 这个网格体走 guid 这一列的所有面（角上没有值的面不算），按面的编号。三角形 = 第一节那一套（MeshKernel.faceTriangles）。 */
 export declare function paintFaces(m: PaintMesh, guid: string): PaintFace[];

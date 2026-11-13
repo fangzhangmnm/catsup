@@ -1,14 +1,17 @@
 import type { Pt3 } from "../kernel/geom.ts";
-/** 铺法要的那一点内核（MeshKernel 满足；测试可以给假的）。 */
-export interface LayoutMesh {
+/** 铺法要的那一点几何（MeshKernel 满足；测试可以给假的）。开始画（layoutFaces）只要这些。 */
+export interface LayoutGeom {
     facePts(f: number): Pt3[];
     faceNormal(f: number): Pt3;
-    cornerValues(f: number, guid: string): Float32Array | null;
-    /** 可选（MeshKernel 有）：这一列上有值的每张面的包围盒 [横小, 纵小, 横大, 纵大, …]。有它 = 补面时「哪里被占着」一趟扫完（不按 placed 逐张拷值）。 */
-    columnBoxes?(guid: string): ArrayLike<number>;
     /** 连成片要（MeshKernel 有）：环上的点编号（认公共的边）、显示用的那套三角形（角的下标；查压平后叠没叠）。 */
     faceVerts?(f: number): number[];
     faceTriangles?(f: number): readonly (readonly [number, number, number])[];
+}
+/** 补面（layoutAppend）还要问贴图坐标：这张面在排法 guid 上的坐标（不在 = null）、哪里被占着（scene/uv.ts uvMesh 满足；施工单十八第 1½ 刀起不再直接问内核）。 */
+export interface LayoutMesh extends LayoutGeom {
+    uvAt(f: number, uvSet: string): Float32Array | null;
+    /** 可选：在这一套上有位置的每张面的包围盒 [横小, 纵小, 横大, 纵大, …]。有它 = 补面时「哪里被占着」一趟扫完（不按 placed 逐张拷值）。 */
+    uvBoxes?(uvSet: string): ArrayLike<number>;
 }
 export interface LayoutOptions {
     /** 每米多少格。不给 = 画布定成 base 见方，二分找出能放下的最大密度（精确到每米一格）。 */
@@ -72,13 +75,13 @@ interface Unit {
  * 试的先后会改结果，按编号就和面的编号有关了；按远近长还让片更圆、更满）。邻面在这批面里、还没归片、不是退化的、每个三角形和片压平到的面夹角小于 maxDeg、
  * 压平之后不和片里已有的面叠在一起（共边共点不算）、收了之后片不太空（minFill），就收进来；被拒的面以后从别的邻面再碰到会再试。退化的面各自一片（照 flatten 占一格）。
  */
-export declare function patchesOf(m: LayoutMesh, faces: readonly number[], opts?: {
+export declare function patchesOf(m: LayoutGeom, faces: readonly number[], opts?: {
     readonly maxDeg?: number;
     readonly minFill?: number;
     readonly orient?: "box" | "seed";
 }): Unit[];
 /** 给一批面铺贴图坐标（一张面一块）。不改内核：values = 每张面每个角的 [横, 纵, 横, 纵…]（格）。 */
-export declare function layoutFaces(m: LayoutMesh, faces: readonly number[], opts?: LayoutOptions): LayoutResult;
+export declare function layoutFaces(m: LayoutGeom, faces: readonly number[], opts?: LayoutOptions): LayoutResult;
 /**
  * 给新面补一块（以后加面用）：已经铺好的面（在 guid 这一列上有值的）一个数都不变；新面各铺一块，放在画布上空着的地方（左上优先），放不下就把画布往下加高
  * （256 的倍数；画布比 256 窄时按画布宽度的倍数）。坐标的单位是格、不是零到一的比例，所以加高不会动到已有的东西。
