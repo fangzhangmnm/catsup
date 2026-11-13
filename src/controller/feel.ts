@@ -112,6 +112,10 @@ export const MOD_PEEK_MS = 450;
 //   触屏摇杆 player/touch-stick.ts STICK（CSS px / 比例）+ TOUCH_LOOK_RAD_PER_PX；步行转头 app/locomotion.ts LOOK_SENS（rad / px）；
 //   顶点小点 / 线宽 render3.ts（设备像素）；吸附候选的层级权重 solver.ts TIER_EPS / TIER_DIST（无量纲，偏路由）。
 
+// ---------- 轴键的约束（锁的一轮第一步，2026-11-13 Claude Opus 5.5；controller/axis-constraint.ts；设计稿 ai-docs/20261113-axis-constraint-module-design.md）----------
+/** 两个方向算「平行」（夹角或补角不超过它）/ 一个方向算「在面里」（和法向的夹角离 90° 不超过它）的门槛。单位：度。设计稿 2.1「先取 1 度」。 */
+export const AXIS_PARALLEL_DEG = 1;
+
 // ---------- 锁面拖动（白模 W-13，2026-11-11 Claude Opus 5.5；controller/lock-drag.ts）----------
 /** 光标射线和锁着的面的夹角余弦不大于它 = 视线贴着面：不用交点、退回投影（≈ 2.9°；和硬表面 editor.ts lockToPlane 的 0.05 同一个数）。无量纲。 */
 export const LOCK_GRAZE_COS = 0.05;
