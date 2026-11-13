@@ -202,7 +202,8 @@ export class MeshKnifeTool implements ToolHandler {
 
   viewExtras(ctx: ToolCtx): Partial<ViewState> {   // 刀没退出就一直画刀线（切不出来 = 灰；不被几何挡）；没落点 = 画到光标（每帧按屏幕位置现算）
     if (!this.startW) return {};
-    const b = this.hov?.w ?? (this.cursorS ? this.onPlane(ctx, this.cursorS) : null);
+    const h = this.hov, onFace = h && "face" in h && this.cursorS ? this.faceAt(ctx, this.cursorS, h.face)?.w ?? null : null;   // 落在面里 = 每帧按光标现算（转了视角也不飘，和 cursorS 同一个道理）
+    const b = h && "face" in h ? onFace ?? (this.cursorS ? this.onPlane(ctx, this.cursorS) : h.w) : h?.w ?? (this.cursorS ? this.onPlane(ctx, this.cursorS) : null);
     return b ? { knifeLine: { a: this.startW, b, valid: this.validNow(ctx), ...(this.bend ? { via: this.bend.ws } : {}) } } : {};
   }
 
