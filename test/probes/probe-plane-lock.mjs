@@ -1,4 +1,5 @@
 // A9 面锁 + 矩形类平面锁（user 2026-10-25「轴锁的剩余部分：Shift + 方向键锁平面、矩形工具的平面锁、触屏常驻三颗轴键。 要！」）。created 2026-10-25 by Claude Opus 5.5
+// 2026-11-13 锁的一轮第三步：方向键锁退了（user「锁xyz就xyz，不用方向键」）→ ① 用右上角的面锁钮、② 手势里 Shift+X、③ 手势里光标放在面上 Shift+N；读数问 editor.axisConstraintNow
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const url = process.argv[2] ?? "http://127.0.0.1:8765/";
@@ -10,13 +11,13 @@ const box = await page.locator("#board").boundingBox();
 const px = (p) => page.evaluate((p) => { const e = globalThis.__catsup.editor; return e.cam.angularPx(p, e.vp()); }, p);
 const clickAt = async (p) => { const q = await px(p); await page.mouse.move(box.x + q.x, box.y + q.y); await page.waitForTimeout(40); await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(80); };
 const hoverTo = async (p) => { const q = await px(p); await page.mouse.move(box.x + q.x, box.y + q.y, { steps: 6 }); await page.waitForTimeout(150); };
-const st = () => page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.snapInfo, c = e.cursor3; return { axis: e.axisLock, plane: e.planeLock, label: s?.label ?? "", cur: c ? [+c.x.toFixed(4), +c.y.toFixed(4), +c.z.toFixed(4)] : null }; });
+const st = () => page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.snapInfo, c = e.cursor3, k = e.axisConstraintNow(), r4 = (v) => v ? [+v.x.toFixed(4), +v.y.toFixed(4), +v.z.toFixed(4)] : null; return { axis: e.axisLock, plane: e.planeLock, con: { kind: k.kind, n: r4(k.normal), d: r4(k.dir) }, label: s?.label ?? "", cur: c ? [+c.x.toFixed(4), +c.y.toFixed(4), +c.z.toFixed(4)] : null }; });
 const edges = () => page.evaluate(() => { const e = globalThis.__catsup.editor; return e.kernel.edges().map((ed) => { const a = e.kernel.graph.pt(ed.a), c = e.kernel.graph.pt(ed.b); return [a.x, a.y, a.z, c.x, c.y, c.z].map((v) => +v.toFixed(4)); }); });
 const res = {};
-// ① 矩形：先按 → = 面锁 YZ（法向 X），首点 (0,0,0)，第二点拉到 (0,1.5,1) → 整个矩形落在 x = 0 的立面上
+// ① 矩形：先点右上角「YZ」= 面锁 YZ（法向 X；按钮锁，画完还锁着），首点 (0,0,0)，第二点拉到 (0,1.5,1) → 整个矩形落在 x = 0 的立面上
 await page.evaluate(() => globalThis.__catsup.hud.pick("rect"));
 await hoverTo({ x: 0, y: 0, z: 0 });
-await page.keyboard.press("ArrowRight");
+await page.click(".gizmo-lock.lock-x.lock-plane"); await page.waitForTimeout(80);
 res.rectArmed = await st();
 await clickAt({ x: 0, y: 0, z: 0 });
 await hoverTo({ x: 0, y: 1.5, z: 1 });
@@ -24,17 +25,18 @@ res.rectLive = await st();
 await clickAt({ x: 0, y: 1.5, z: 1 });
 res.rectEdges = await edges();
 res.rectAfter = await st();
-// ② 画线：首点 (0.5,0.5,0)，Shift+→ = 过锚点的 YZ 面（x = 0.5），光标拉到 (0.5,1.6,1.1) → 终点 x = 0.5、z > 0
+// ② 画线：首点 (0.5,0.5,0)，手势里 Shift+X = 过锚点的 YZ 面（x = 0.5），光标拉到 (0.5,1.6,1.1) → 终点 x = 0.5、z > 0
 await page.evaluate(() => globalThis.__catsup.hud.pick("line"));
 await clickAt({ x: 0.5, y: 0.5, z: 0 });
-await page.keyboard.press("Shift+ArrowRight");
+await page.keyboard.press("Shift+KeyX");
 await hoverTo({ x: 0.5, y: 1.6, z: 1.1 });
 res.lineLive = await st();
 await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 res.lineAfterEsc = await st();
-// ③ Shift+↓ = 光标下那张面（①画出的 x = 0 立面）
+// ③ 画线手势里光标放在 ① 画出的 x = 0 立面上按 Shift+N = 锁在那张面里（法向 X，平行于轴 = 叫「面锁 YZ」）
+await clickAt({ x: 1.5, y: 1.5, z: 0 });
 await hoverTo({ x: 0, y: 0.75, z: 0.5 });
-await page.keyboard.press("Shift+ArrowDown");
+await page.keyboard.press("Shift+KeyN");
 res.faceLock = await st();
 await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 // ④ 右上角锁的三行按工具换锁种（白模 W-6，2026-11-10；以前在吸附钮菜单里）：矩形只出右边的面锁、画线两种都出；矩形在 ① 锁的面 YZ 一直记着（W-4）→ 亮；吸附菜单里不再有锁
@@ -49,8 +51,8 @@ console.log(JSON.stringify(res));
 const near = (a, b2, e = 1e-6) => Math.abs(a - b2) < e;
 const rectOnX0 = res.rectEdges.length >= 4 && res.rectEdges.every((e) => near(e[0], 0) && near(e[3], 0)) && res.rectEdges.some((e) => e[2] > 0.5 || e[5] > 0.5);
 const ok = res.rectArmed.plane === "x" && res.rectLive.cur && near(res.rectLive.cur[0], 0) && res.rectLive.cur[2] > 0.5 && rectOnX0 && res.rectAfter.plane === "x"   // W-4：画完不解锁
-  && res.lineLive.plane === "x" && /面锁 YZ/.test(res.lineLive.label) && res.lineLive.cur && near(res.lineLive.cur[0], 0.5) && res.lineLive.cur[2] > 0.3 && res.lineAfterEsc.plane === null
-  && res.faceLock.plane === "face"
+  && res.lineLive.con.kind === "plane" && near(Math.abs(res.lineLive.con.n[0]), 1) && /面锁 YZ/.test(res.lineLive.label) && res.lineLive.cur && near(res.lineLive.cur[0], 0.5) && res.lineLive.cur[2] > 0.3 && res.lineAfterEsc.con.kind === "free"
+  && res.faceLock.con.kind === "plane" && near(Math.abs(res.faceLock.con.n[0]), 1)
   && res.rectMenu === "YZ* XZ XY" && res.lineMenu === "X YZ Y XZ Z XY" && res.snapMenuLocks === "";
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

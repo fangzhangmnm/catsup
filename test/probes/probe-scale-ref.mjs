@@ -20,7 +20,7 @@ const pageInfo = () => page.evaluate((M) => { const m = document.querySelector(M
 /** 点「适用范围与出处…」→ 弹出的那张说明（全量、静态）的正文，读完关掉。 */
 const notesSheet = async () => { await page.click(`${M} [data-menu-id="ref:notes"]`); await page.waitForTimeout(150); const t = await page.evaluate(() => document.getElementById("sheetMessage")?.textContent ?? ""); await page.click("#sheetConfirm"); await page.waitForTimeout(120); return t; };   // 只有「知道了」一颗钮（没有取消 = Esc 不收）
 const closeWins = async () => { await page.evaluate(() => document.querySelectorAll(".float-win:not([hidden]) .float-close").forEach((b) => b.click())); if (await page.evaluate(() => !!document.querySelector(".popup-menu:not(.choice-layer)"))) { await page.keyboard.press("Escape"); await page.waitForTimeout(60); } };   // v0.17.54：视图是常驻浮窗，Esc 不收它；画之前关掉，别挡着画布
-const drawUp = async () => { await closeWins(); await page.evaluate(() => globalThis.__catsup.hud.pick("line")); await clickAt({ x: 0, y: 0, z: 0 }); await page.keyboard.press("ArrowUp"); await hoverTo({ x: 0, y: 0, z: 0.914 }); await hoverTo({ x: 0, y: 0, z: 0.914 }); };
+const drawUp = async () => { await closeWins(); await page.evaluate(() => globalThis.__catsup.hud.pick("line")); await clickAt({ x: 0, y: 0, z: 0 }); await page.keyboard.press("z"); await hoverTo({ x: 0, y: 0, z: 0.914 }); await hoverTo({ x: 0, y: 0, z: 0.914 }); };
 const names = (h) => (h.match(/<span style="opacity/g) ?? []).length;
 const res = { loaded: await page.evaluate(() => globalThis.__catsup.editor.scaleLadderLoaded), refs0: await refs() };
 // ① 默认室内 + 室外：竖着拉 0.914 m 有「栏杆」，3 条、只有字
@@ -50,7 +50,7 @@ await refPage(); await page.click(`${M} [data-menu-id="ref:pick"]`); await page.
 const a0 = await px({ x: 0, y: 0, z: 0 }), a1 = await px({ x: 0, y: 0, z: 0.914 });
 await page.evaluate(() => globalThis.__catsup.hud.pick("line"));
 await page.evaluate(([x, y]) => { const c = document.elementFromPoint(x, y); const o = { bubbles: true, pointerId: 9, pointerType: "pen", clientX: x, clientY: y, isPrimary: true, button: 0, buttons: 1 }; c.dispatchEvent(new PointerEvent("pointerdown", o)); c.dispatchEvent(new PointerEvent("pointerup", { ...o, buttons: 0 })); }, [box.x + a0.x, box.y + a0.y]);
-await page.waitForTimeout(80); await page.keyboard.press("ArrowUp");
+await page.waitForTimeout(80); await page.keyboard.press("z");   // 方向键锁退了：手势里按 Z（锁的一轮第三步）
 await page.evaluate(([x0, y0, x1, y1]) => { const c = document.elementFromPoint(x0, y0); for (let i = 1; i <= 6; i++) { const x = x0 + (x1 - x0) * i / 6, y = y0 + (y1 - y0) * i / 6; c.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 9, pointerType: "pen", clientX: x, clientY: y, isPrimary: true, buttons: 0 })); } }, [box.x + a0.x, box.y + a0.y, box.x + a1.x, box.y + a1.y]);
 await page.waitForTimeout(150);
 res.penBox = await page.evaluate(() => { const r = document.getElementById("tip").getBoundingClientRect(); return { right: Math.round(r.right), bottom: Math.round(r.bottom) }; });

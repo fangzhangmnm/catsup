@@ -404,7 +404,7 @@ export class Editor {
     faceUnder: () => { const w = this.liveWorld(), at = this.lastPtr, f = at ? pickFace(w, this.frame(), this.fvp(), at.x, at.y) : undefined, rec = f !== undefined ? w.planeOf(f) : undefined; return rec ? { n: rec.plane.n, ref: `face:${f}` } : null; },
     edgeUnder: () => { const at = this.lastPtr, e = at ? this.pickAt(at.x, at.y, { kinds: { edges: true } }).edge : undefined, w = this.liveWorld(); if (e === undefined || !w.graph.hasEdge(e)) return null; const E = w.graph.edge(e); return { dir: sub3(w.graph.pt(E.b), w.graph.pt(E.a)), ref: `edge:${e}` }; }, buttonLocked: () => !!(this.lk.axis || this.lk.plane) });
   /** 键表 axis.press（手势层 X / Y / Z / N / T，加 Shift）：记进这一下的约束，提示行说现在被限制成什么（挂在读数后面一直看得见，computeLive）、预演马上跟着变。 */
-  axisPress(key: AxisKey, shift: boolean): void { const r = this.axisKeys.press(key, shift); this.host.hint(r.ok ? r.say : r.why); this.lastSnap = null; if (r.ok && this.lastMoveEv && this.gestureActive()) this.pointerMove(this.lastMoveEv); this.host.changed(); this.refreshGesture(); this.draw(); }   // 规则换了：上一个吸附的粘性作废、按最后一次指针重算（同 setShiftHeld；先定平面的工具马上换面）
+  axisPress(key: AxisKey, shift: boolean): void { if (!this.lockStyle()) { this.host.hint("这把工具不吃轴键"); return; }   /* 吃不吃约束只问 ToolHandler.lock（统筹 11-13：按轴键 / 画锁线 / 右上角锁钮三处同问） */ const r = this.axisKeys.press(key, shift); this.host.hint(r.ok ? r.say : r.why); this.lastSnap = null; if (r.ok && this.lastMoveEv && this.gestureActive()) this.pointerMove(this.lastMoveEv); this.host.changed(); this.refreshGesture(); this.draw(); }   // 规则换了：上一个吸附的粘性作废、按最后一次指针重算（同 setShiftHeld；先定平面的工具马上换面）
   /** 这一下现在被限制成什么：轴键那份在就以它为准，没有 = 按钮锁着的那份（设计稿第三节）。工具经 ToolCtx.axisConstraint 问，锁线也画它。 */
   axisConstraintNow(): AxisConstraint { return this.axisKeys.now() ?? lockConstraint(this.lk, this.contextFrame()); }
   /** 方向键 / 触屏虚拟轴键的唯一入口：axis = 键对应的轴（→ X / ← Y / ↑ Z），null = ↓；plane = Shift。按当前工具的锁种分派。 */
@@ -1029,7 +1029,7 @@ export class Editor {
     if (failed) { this.deferredBefore = null; this.sessionRestore(before); this._docRevision = doc0; this.host.changed(); if (reason) { this.host.hint(reason.text); if (reason.refused) this.host.refused?.(reason.text); } return; }   // 失败的步 = 没这一步：会话退回、文档不算改过（退回会话那一下也不算），状态栏最后说的是原因（谁写过成功都不作数；a12b 那句假的「建了组件」）
     this.history.discardParkedRedo(); if (bumped) { this._docRevision++; this.host.changed(); }   // 成功：停着的重做尾巴真丢；文档算改过一次（一步之内 session 看不到半截）
     if (hadOp) {
-      this.deferredBefore = null;
+      this.deferredBefore = null; this.axisKeys.drop();   // 提交了 = 这一下做完：轴键只管这一下（连着画的线一段算一下；设计稿第 8 条）
       this.history.sealStep(this.sessionSnap(), label);
       this.host.trace?.({ kind: "step", label: this.history.topLabel()?.title ?? "", ops, session: touched });
       if (this.mirrorNote && !this.mirrorNoteShown) { this.host.hint(this.mirrorNote); this.mirrorNoteShown = true; }   // 工具拖动那条路也要披露（并点 / 夹住 / 对面找不到）
@@ -3563,7 +3563,7 @@ export class Editor {
   /** 锁着时画的轴线（所有工具同一处：锁状态只有这一份）：方向 = 上下文坐标架；过 = 手势中的锚点 / 没手势时下一下要动的东西的变换中心。 */
   private lockGuide(): LockLine[] | null {
     const c = this.axisConstraintNow();   // 先问（动作不在了 = 轴键那份当场丢掉）
-    if (c.kind === "free") return null;
+    if (c.kind === "free" || !this.lockStyle()) return null;   // 不吃约束的工具不画锁线（只问 ToolHandler.lock）
     const st = stanceOf(this.mode.id, this._tool), acts = !!st && st.center !== "none" && this.hasActableSelection();
     const pivot = acts ? this.pivotOf(this.mode.id === "freeform" ? "mean" : "auto") : null;
     const ls = constraintLines(c, this.contextFrame(), lockThrough(this.gestureActive(), this.anchor3, pivot));

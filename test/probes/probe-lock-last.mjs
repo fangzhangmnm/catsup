@@ -3,6 +3,7 @@
 // 硬表面：吃 axis 的 = 锁 X（按钮那条路 setAxisLock），按下以后往屏幕上六个方向拖，光标落点（editor.cursor3）离过锚点的 X 线 < 1e-6；
 //         吃 plane 的 = 锁 XY 面（setPlaneLock z），落点和锚点同高（不写光标落点的工具 = 它正在用的面法向是 Z）。整格开 / 关各跑一遍。
 // 自由建模：吃锁的工具锁 X，按在顶面上往四个方向拖、落定：旋转 = 每个点的 x 不变（绕 X 转）；别的 = 每个点的 (y, z) 在原来那些点的 (y, z) 里（只沿 X 走）。
+// 反方向（统筹 11-13：吃不吃约束只问 ToolHandler.lock）：没声明 lock 的工具手势里按 X = 不记（不限制）、不画锁线、提示「这把工具不吃轴键」——硬表面推拉、自由建模插入各一格（先确认它们真没声明 lock）。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-lock-last.mjs [地址]
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -39,6 +40,14 @@ const res = await page.evaluate(async () => {
       e.cancel?.(); e.setAxisLock(null); await sleep(10);
     }
   }
+  const hint = () => document.getElementById("hint")?.textContent ?? "";
+  const notEat = async (label) => { kd("x"); await sleep(30); const k = e.axisConstraintNow(); return { label, tool: e.tool, lock: e.handlers[e.tool]?.lock ?? null, gesture: e.isGestureActive(), kind: k.kind, guide: e.lockGuide() === null, hint: hint() }; };
+  {   // 反方向：硬表面推拉（按在顶面上往上拖一点，手势里按 X）
+    e.setTool("pp"); e.setGrid({ ...e.grid, on: false }); const q = px(P(0.5, 0.5, 1));
+    fire("pointermove", q.x, q.y, 0); await sleep(15); fire("pointerdown", q.x, q.y, 1); await sleep(15); for (let i = 1; i <= 5; i++) { fire("pointermove", q.x, q.y - 6 * i, 1); await sleep(12); }
+    out.notEat = [await notEat("硬表面推拉")];
+    kd("Escape", { code: "Escape" }); await sleep(20); fire("pointerup", q.x, q.y - 30, 0); await sleep(20); e.cancel?.();
+  }
   // ---------------- 自由建模（网格体方块）
   e.setGrid({ ...e.grid, on: false });
   const S = () => e.scene, root = () => S().def(S().root);
@@ -63,6 +72,12 @@ const res = await page.evaluate(async () => {
     if (committed > 0) { kd("z", { ctrl: true }); await sleep(40); }
     e.setAxisLock(null);
   }
+  {   // 反方向：自由建模插入（选顶面、光标放在上面按 I 起手，手势里按 X）
+    e.setTool("select"); e.deselectAll(); await sleep(300); const q = px(P(0.5, 0.5, 1)); fire("pointermove", q.x, q.y, 0); await sleep(15); fire("pointerdown", q.x, q.y, 1); await sleep(10); fire("pointerup", q.x, q.y, 0); await sleep(40);
+    fire("pointermove", q.x + 3, q.y + 3, 0); await sleep(20); kd("i"); await sleep(30);
+    out.notEat.push(await notEat("自由建模插入"));
+    kd("Escape", { code: "Escape" }); await sleep(30);
+  }
   return out;
 });
 const hardBad = res.hard.filter((x) => !x.ok), freeBad = res.free.filter((x) => !x.ok), freeIdle = res.free.filter((x) => x.committed > 0 && x.moved === 0);
@@ -72,12 +87,14 @@ const checks = [
   ["自由建模吃锁的工具从工具表里列出来了（沿法线不在里面：它不吃锁）", res.freeTools.length >= 3 && !res.freeTools.some((x) => x.startsWith("shrink"))],
   [`自由建模：锁 X 往四个方向拖、落定，结果都没离开 X（旋转 = 绕 X）（${res.free.length} 次）`, freeBad.length === 0],
   ["自由建模：落定了的都真动了（不是什么都没做的假绿）", freeIdle.length === 0 && res.free.some((x) => x.moved > 0)],
+  ["反方向：硬表面推拉、自由建模插入都没声明 lock，手势里按 X = 不记、不画锁线、提示「这把工具不吃轴键」", res.notEat.length === 2 && res.notEat.every((x) => x.lock === null && x.gesture && x.kind === "free" && x.guide && x.hint.includes("不吃轴键"))],
   ["没有脚本错误", errs.length === 0],
 ];
 for (const [name, ok] of checks) console.log(`${ok ? "✓" : "✗"} ${name}`);
 console.log(`硬表面工具：${res.hardTools.join(" ")}；自由建模工具：${res.freeTools.join(" ")}`);
 if (hardBad.length) console.log("硬表面离开锁的：", JSON.stringify(hardBad.slice(0, 12)));
 if (freeBad.length || freeIdle.length) console.log("自由建模：", JSON.stringify([...freeBad, ...freeIdle].slice(0, 12)));
+if (!(res.notEat.length === 2 && res.notEat.every((x) => x.lock === null && x.gesture && x.kind === "free" && x.guide && x.hint.includes("不吃轴键")))) console.log("反方向：", JSON.stringify(res.notEat));
 if (errs.length) console.log(errs.join("\n"));
 console.log(`${checks.filter(([, ok]) => ok).length}/${checks.length}`);
 await b.close();
