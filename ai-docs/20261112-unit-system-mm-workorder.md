@@ -95,4 +95,7 @@ user 原话：「然后单位制做了吗，然后我建议是单位还是移动
 
 ## 施工记录
 
-（小弟写）
+- **v0.19.76（11-13，Catsup小弟 = Claude Opus 5.5）**：第二½节——「单位」页搬到右上渲染窗，两页「渲染 | 单位」（`placement.ts VIEW_UNIT_ROWS`、`openViewMenu("units")`）；☰ 只剩文件 / 设置 / 帮助。四个探针跟着改。main 892dc4ac，红线组 8/8。
+- **v0.19.77（11-13，同上）**：第四节单位制一张表 `src/format/unit-systems.ts`（`UNIT_SYSTEM_ROWS` / `unitSystemRow` / `isUnitSystem`；grid-settings / units 的对外函数签名不动、里面查表）；第一节毫米那一行（读数一律 mm、两位小数去零；吸附 0.1–100 mm、默认 1 mm；不带单位的数按 mm）；第三节格式：毫米那一行不写 displayUnit / gridPreset，`DocumentSettings.displayUnit` 改可选，document 拍子不动（3.5），冻样本 `unitMm.glb`；格式 diff 合之前发统筹、放行。顺手：量角器 1 厘米门槛换成按像素的 `gestureMinLen`、守卫收紧；新文件默认草稿笔。去重点那一列没加（app 里没有调用方）。探针 `probe-unit-mm` 11 ✓、守卫 `test/unit-systems.test.ts`。main 5be3928e，红线组 8/8；推完后台 17 个探针 16 绿、1 红 = `probe-paint-workbench` 三条全是探针过时（两条从 v0.19.69 起），改探针 9aecdb12、程序没动。
+- **v0.19.78（11-13，同上）**：统筹 11-13 补的一条——新文档的 settings 生下来 = 写盘门口给公制、默认吸附写出来的那一份（单位制写明、吸附长度是主的），读文件不再把 `DEFAULT_SETTINGS` 垫在下面；守卫 `test/unit-systems.test.ts` 钉住默认 = 门口的输出。没有测试钉着新建空文件的字节；`grid.test.ts` 六条「按老键猜」改成显式写老写法；holed / house 体积预算 +100 B。
+- 没做完的：画线 / 矩形 / 圆的自由落点、移动不锁轴落 3D 格点的「靠近才咬」仍待 user 定（流程图 v0.19.75 那节的表）。
