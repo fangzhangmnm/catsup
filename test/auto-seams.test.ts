@@ -2,7 +2,8 @@
 // 钉：补完以后每一片都能摊平（统筹 G，第 2 刀改：亏格为零、至少一条边界、可定向；不必是盘）；只加不减（user 的接缝原样、补的里没有已经是接缝的）；同样的输入同样的结果；
 //    盒子 = 12 条折痕 6 片；圆柱 = 两圈折痕、侧面是个筒（两条边界）不再切；球 = 两个最远点之间一刀；环面 = 有把手 → 切；范围只选一张面 = 不补；非流形的边一定切；角度调大 = 少切。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { MeshKernel, F_SEAM } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
+import { UV_SEAM, edgeMark, packEdgeByte, setEdgeMark } from "../src/mesh/reserved-columns.ts";
 import { addBox, addPrimitive } from "../src/mesh/ops/index.ts";
 import { GROWN } from "../src/mesh/columns.ts";
 import { autoSeams, chartShapes } from "../src/mesh/auto-seams.ts";
@@ -11,8 +12,8 @@ const P = (x: number, y: number, z: number) => ({ x, y, z });
 const F = { o: P(0, 0, 0), x: P(1, 0, 0), y: P(0, 1, 0), z: P(0, 0, 1) };
 /** 把补的标上，再问每片能不能摊平（统筹 G：亏格为零、至少一条边界、可定向）：能 = "ok"，不能 = 形状。 */
 function applyAndCheck(m: MeshKernel, add: number[]): string[] {
-  for (const e of add) m.setFlags(e, F_SEAM, true);
-  return chartShapes(m, m.faces(), (e) => (m.edgeFlags[e] & F_SEAM) !== 0).map((c) => (c.flattenable ? "ok" : `χ${c.chi} b${c.boundaries} g${c.genus}`));
+  for (const e of add) setEdgeMark(m, e, UV_SEAM, true);
+  return chartShapes(m, m.faces(), (e) => edgeMark(m, e, UV_SEAM)).map((c) => (c.flattenable ? "ok" : `χ${c.chi} b${c.boundaries} g${c.genus}`));
 }
 const allOk = (xs: string[]): string => (xs.every((x) => x === "ok") ? "ok" : xs.join(","));
 /** 环面：n × k 个四边形，两个方向都绕回来（一个把手）。 */
@@ -61,20 +62,20 @@ describe("自动标接缝（auto-seams.ts）", () => {
     const m = torus(), hole = m.faces()[0];
     const r = autoSeams(m, m.faces().filter((f) => f !== hole), { angleDeg: 89 });
     assert(r.why.handle >= 2, `切了 ${r.why.handle} 条`);
-    for (const e of r.add) m.setFlags(e, F_SEAM, true);
-    const sh = chartShapes(m, m.faces().filter((f) => f !== hole), (e) => (m.edgeFlags[e] & F_SEAM) !== 0);
+    for (const e of r.add) setEdgeMark(m, e, UV_SEAM, true);
+    const sh = chartShapes(m, m.faces().filter((f) => f !== hole), (e) => edgeMark(m, e, UV_SEAM));
     eq(sh.map((c) => (c.flattenable ? "ok" : `χ${c.chi} b${c.boundaries} g${c.genus}`)).join(","), "ok");
   });
   it("只加不减：user 已经标的接缝留着、补的里没有它；同样的输入同样的结果", () => {
     const m = new MeshKernel(); addPrimitive(m, "sphere", F, [0.5, 0.5, 0.5], 12);
-    const mine = m.edges().slice(0, 5); for (const e of mine) m.setFlags(e, F_SEAM, true);
-    const before = Array.from(m.edgeFlags).join(",");
+    const mine = m.edges().slice(0, 5); for (const e of mine) setEdgeMark(m, e, UV_SEAM, true);
+    const before = m.edges().map((e) => `${e}:${packEdgeByte(m, e)}`).join(",");
     const a = autoSeams(m, null, { angleDeg: 60 }), b = autoSeams(m, null, { angleDeg: 60 });
-    eq(Array.from(m.edgeFlags).join(","), before, "纯函数：不改内核");
+    eq(m.edges().map((e) => `${e}:${packEdgeByte(m, e)}`).join(","), before, "纯函数：不改内核");
     eq(a.add.join(","), b.add.join(","), "两次一样");
     for (const e of mine) assert(!a.add.includes(e), "补的里没有 user 的");
     eq(allOk(applyAndCheck(m, a.add)), "ok");
-    for (const e of mine) assert((m.edgeFlags[e] & F_SEAM) !== 0, "user 的还在");
+    for (const e of mine) assert(edgeMark(m, e, UV_SEAM), "user 的还在");
   });
   it("范围 = 只选顶面：本来就是一张盘 → 不补；范围外的面不碰", () => {
     const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1));

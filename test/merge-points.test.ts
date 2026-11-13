@@ -1,9 +1,10 @@
 // 合并点这个原子（属性地基轮第二步；规程 ai-docs/20261112-attribute-protocol.md 第七¾节第二稿 + 第 8 条验收）。created 2026-11-13 by Claude Opus 5.5
 // 内核 MeshKernel.mergePoints（规划 mesh/merge-points.ts、角上的数 columns.ts mergeCornerValues）+ 两个新口（relinkEdgeEnd / removeFaceReported）+ 收尾说的话（editor/paint-upkeep.ts goneNotes）。
 // 列名是测试自己起的（引擎只比数值，不认意思）；最后一条用真的贴图坐标走 scene/uv.ts。
-import { faceMaterial, givenFaceValues } from "../src/mesh/reserved-columns.ts";
+import { faceMaterial, givenFaceValues, packEdgeByte, unpackEdgeByte } from "../src/mesh/reserved-columns.ts";
+import { F_HIDDEN, F_SEAM, F_SHARP, F_SMOOTH, F_SOFT, F_WIRE } from "../src/mesh/edge-bits.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
-import { MeshKernel, F_HIDDEN, F_SEAM, F_SHARP, F_SMOOTH, F_SOFT, F_WIRE, type GoneFace } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel, type GoneFace } from "../src/mesh/mesh-kernel.ts";
 import { FRESH, type ColumnDef } from "../src/mesh/columns.ts";
 import { addBox, catmullClark, mergeVerts } from "../src/mesh/ops/index.ts";
 import { goneNotes } from "../src/editor/paint-upkeep.ts";
@@ -105,7 +106,7 @@ describe("合并点：环和面（第 4、5 条）", () => {
     mergeVerts(k, [ids[0], ids[2]], "first"); clean(k, "合并");
     eq(k.faces().join(), String(f)); eq(k.faceVerts(f).join(), [ids[0], ids[3], ids[4]].join());
     const e = k.edgeOf(ids[0], ids[1]);
-    assert(e >= 0, "刺那条边还在"); eq(k.eFaces(e).length, 0); eq(k.edgeFlags[e] & F_WIRE, F_WIRE, "打上裸线位");
+    assert(e >= 0, "刺那条边还在"); eq(k.eFaces(e).length, 0); eq(packEdgeByte(k, e) & F_WIRE, F_WIRE, "打上裸线位");
     assert(k.hasV(ids[1]), "刺尖的点还在");
   });
   it("塌掉的面：删、进报告（原因 collapsed、带没了之前的环和列的值）", () => {
@@ -137,10 +138,10 @@ describe("合并点：边（第 2 条）", () => {
     const k = new MeshKernel(); const v = [P(0, 0), P(1, 0), P(1, 1), P(1, -0.1), P(1, -1)].map((p) => k.addVertex(p));
     k.addFace([v[0], v[1], v[2]], FRESH); k.addFace([v[0], v[4], v[3]], FRESH);
     const e01 = k.edgeOf(v[0], v[1]), e03 = k.edgeOf(v[0], v[3]);
-    k.setEdgeFlags(e01, fa); k.setEdgeFlags(e03, fb);
+    unpackEdgeByte(k, e01, fa); unpackEdgeByte(k, e03, fb);
     mergeVerts(k, [v[1], v[3]], "first"); clean(k, "合并");
     const e = k.edgeOf(v[0], v[1]);
-    return { flags: k.edgeFlags[e], keep: e, kept: Math.min(e01, e03) };
+    return { flags: packEdgeByte(k, e), keep: e, kept: Math.min(e01, e03) };
   };
   it("几条边落到同一对点：留编号最小的那条；棱 / 平滑 / 不画线 / 隐藏都有才留，接缝有一个就留（隐藏：看得见的赢）", () => {
     const r = run(F_SHARP | F_SEAM, F_SHARP); eq(r.keep, r.kept, "留编号最小的"); eq(r.flags, F_SHARP | F_SEAM);
@@ -152,9 +153,9 @@ describe("合并点：边（第 2 条）", () => {
   });
   it("只换了一头的边还是那条边：编号、标记都不变", () => {
     const { k, v } = grid(2, 1, (_c, p) => [p.x, p.y]);
-    const e = k.edgeOf(v(2, 0), v(2, 1)); k.setEdgeFlags(e, F_SEAM | F_SHARP);
+    const e = k.edgeOf(v(2, 0), v(2, 1)); unpackEdgeByte(k, e, F_SEAM | F_SHARP);
     mergeVerts(k, [v(1, 0), v(2, 0)], "first"); clean(k, "合并");
-    eq(k.edgeOf(v(1, 0), v(2, 1)), e, "编号不变"); eq(k.edgeFlags[e], F_SEAM | F_SHARP, "标记不变");
+    eq(k.edgeOf(v(1, 0), v(2, 1)), e, "编号不变"); eq(packEdgeByte(k, e), F_SEAM | F_SHARP, "标记不变");
   });
 });
 
@@ -191,11 +192,11 @@ describe("合并点：和组的先后无关、跑两遍一样（第 1 条、第 
 describe("内核的两个新口", () => {
   it("relinkEdgeEnd：不挂面的边换一头 = 还是那条边（编号、标记、邻接）；挂着面 / 换完撞上已有的边 / 不是它的头 / 换成自环 = 抛", () => {
     const k = new MeshKernel(); const v = [P(0, 0), P(1, 0), P(2, 0), P(3, 0)].map((p) => k.addVertex(p));
-    const e = k.ensureEdge(v[0], v[1]); k.setEdgeFlags(e, F_WIRE | F_SEAM);
+    const e = k.ensureEdge(v[0], v[1]); unpackEdgeByte(k, e, F_WIRE | F_SEAM);
     k.relinkEdgeEnd(e, v[1], v[2]);
-    eq(k.edgeOf(v[0], v[2]), e); eq(k.edgeOf(v[0], v[1]), -1); eq(k.edgeFlags[e], F_WIRE | F_SEAM);
+    eq(k.edgeOf(v[0], v[2]), e); eq(k.edgeOf(v[0], v[1]), -1); eq(packEdgeByte(k, e), F_WIRE | F_SEAM);
     assert(![...k.vEdges(v[1])].includes(e), "老的那头不再挂着它"); clean(k, "换头");
-    const other = k.ensureEdge(v[2], v[3]); k.setEdgeFlags(other, F_WIRE);
+    const other = k.ensureEdge(v[2], v[3]); unpackEdgeByte(k, other, F_WIRE);
     const throws = (f: () => void, re: RegExp): void => { let m = ""; try { f(); } catch (x) { m = String(x); } assert(re.test(m), m || "没抛"); };
     throws(() => k.relinkEdgeEnd(e, v[0], v[3]), /already an edge/);
     throws(() => k.relinkEdgeEnd(e, v[3], v[1]), /not an end/);

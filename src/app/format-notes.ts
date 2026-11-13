@@ -38,7 +38,14 @@ export const READ_NOTE_SAY: { readonly [K in keyof Required<FormatReadNotes>]: S
   oldPaintFormat: (v) => [`这份文件里有 ${v} 张旧存法的画，这一版读不了，按底色显示`],
   oldUvColumns: (v) => [`有 ${v} 个物件上记着画在面上的位置（旧存法），这一版读不了；保存之后不再保留`],
   orphanPaintTextures: (v) => [`有 ${v} 张画找不到它铺的那一套贴图坐标，先留着当没人用的（资源页能清）`],
+  // 属性地基轮 3c（统筹 11-13，规程第九½节末）：面 / 边那两个字节里这一版不认识的位 = 不拒开，不读、说一句、不写
+  unknownMarks: (v) => (v.faces || v.edges ? [`有${unknownMarksText(v)}，没读进来；保存之后不再保留`] : []),
 };
+/** 「N 张面、M 条边带着这一版不认识的标记（更新版的 CatsUp 写的）」——打开和导入素材两处共用（导入那句在 shelf-actions.ts）。 */
+export function unknownMarksText(v: { faces: number; edges: number }): string {
+  const parts = [v.faces ? `${v.faces} 张面` : "", v.edges ? `${v.edges} 条边` : ""].filter(Boolean).join("、");
+  return ` ${parts}带着这一版不认识的标记（更新版的 CatsUp 写的）`;
+}
 /** 故意不说的键（每一个写明为什么）。守卫只放过这几个「有值也不说」。 */
 export const SILENT_NOTES: Readonly<Partial<Record<keyof FormatReadNotes, string>>> = { newerPatch: "家族纪律：patch 比本版新 = 可无脑降，静默" };
 
@@ -60,6 +67,7 @@ export const LOSSY_NOTES: { readonly [K in keyof Required<FormatReadNotes>]: boo
   oldPaintFormat: false,         // 贴图行原样带回，存了不丢
   oldUvColumns: true,            // 「保存之后不再保留」（施工单十八第五节；统筹 11-13 定的字的意思：要有保存的后果）
   orphanPaintTextures: false,
+  unknownMarks: true,            // 「保存之后不再保留」（统筹 11-13：不读、说一句、不写）
 };
 /** 这次读入记下的、会丢东西的那几种说的话（没有 = 空）。 */
 export function lossySay(n: FormatReadNotes | undefined): string[] {

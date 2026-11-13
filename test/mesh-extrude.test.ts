@@ -2,7 +2,7 @@
 // 不变量：挤出后 MeshKernel.check() 干净；边挤出的新面和原来那张面在共用边上方向相反（法向一致）；同一份内核 + 同一组参数 → 同一批新 id（重放确定）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { FRESH } from "../src/mesh/columns.ts";
-import { MeshKernel, F_WIRE } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox, extrudeEdges, extrudeVerts, extrudeAndOffset, extrudeAlongNormals, extrudeNormalDirs } from "../src/mesh/ops/index.ts";
 import { Scene } from "../src/scene/scene.ts";
 import { applyOp } from "../src/editor/ops.ts";
@@ -33,7 +33,7 @@ describe("拉：边 / 点的挤出", () => {
   it("点挤出：新点 + 一条裸线", () => {
     const k = quad(), r = extrudeVerts(k, [2]);
     const n = r.newVerts.get(2)!, e = k.edgeOf(2, n);
-    assert(e >= 0 && (k.edgeFlags[e] & F_WIRE) !== 0, "裸线"); eq(k.check().join("\n"), "");
+    assert(e >= 0 && k.isWire(e), "裸线"); eq(k.check().join("\n"), "");
   });
   it("extrudeAndOffset：面优先；新点整体平移；克隆上跑两遍 = 同一批 id（重放确定）", () => {
     const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));

@@ -1,7 +1,8 @@
 // mesh 内核 M1（提案 ai-docs/20261027-mesh-kernel-proposal.md；2026-10-27 Claude Fable 5.1）：不变量 (M1)–(M6) 逐算子查 + 几个形状上的事实。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { FRESH } from "../src/mesh/columns.ts";
-import { MeshKernel, F_SOFT, F_WIRE, type FaceOrigin } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel, type FaceOrigin } from "../src/mesh/mesh-kernel.ts";
+import { SOFT, edgeMark, setEdgeMark } from "../src/mesh/reserved-columns.ts";
 import { addBox, addPolygon, deleteFaces, dissolveVertex, extrudeFaces, joinFaces, knife, mergeVerts, splitEdge, splitFace, translateVerts, flipFaces, loopCut, limitedDissolve, removeDoubles } from "../src/mesh/ops/index.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
@@ -59,10 +60,10 @@ describe(title, () => {
   });
   it("劈边 → 劈面 → 并面：回到原来的面数；劈边的新点在中点；标记两半都带；不平的 n 边形照样是一张面", () => {
     const k = mk(); const { face, verts } = addPolygon(k, [P(0, 0), P(2, 0), P(2, 2), P(0, 2)]);
-    const e = k.edgeOf(verts[0], verts[1]); k.setFlags(e, F_SOFT, true);
+    const e = k.edgeOf(verts[0], verts[1]); setEdgeMark(k, e, SOFT, true);
     const m = splitEdge(k, e, 0.5); clean(k, "劈边");
     eq(k.faceVerts(face).length, 5); const pm = k.pt(m); eq(`${pm.x},${pm.y}`, "1,0");
-    assert(k.hasFlag(k.edgeOf(verts[0], m), F_SOFT) && k.hasFlag(k.edgeOf(m, verts[1]), F_SOFT), "两半都软");
+    assert(edgeMark(k, k.edgeOf(verts[0], m), SOFT) && edgeMark(k, k.edgeOf(m, verts[1]), SOFT), "两半都软");
     const nf = splitFace(k, face, m, verts[2]); clean(k, "劈面");
     eq(k.faceCount(), 2);
     // 把一个点抬起来：不平了，面还在（没有平面性公理）
@@ -83,9 +84,9 @@ describe(title, () => {
   });
   it("溶解二度点：劈出来的中点溶掉 → 边并回一条（标记保留）；三角形上溶解会少于 3 点 → 抛", () => {
     const k = mk(); const { face, verts } = addPolygon(k, [P(0, 0), P(2, 0), P(2, 2), P(0, 2)]);
-    const e = k.edgeOf(verts[0], verts[1]); k.setFlags(e, F_SOFT, true);
+    const e = k.edgeOf(verts[0], verts[1]); setEdgeMark(k, e, SOFT, true);
     const m = splitEdge(k, e); const ne = dissolveVertex(k, m); clean(k, "溶解");
-    eq(k.faceVerts(face).length, 4); assert(k.hasFlag(ne, F_SOFT), "标记保留"); assert(!k.hasV(m));
+    eq(k.faceVerts(face).length, 4); assert(edgeMark(k, ne, SOFT), "标记保留"); assert(!k.hasV(m));
     const t = mk(); const tri = addPolygon(t, [P(0, 0), P(1, 0), P(0, 1)]);
     let threw = false; try { dissolveVertex(t, tri.verts[0]); } catch { threw = true; } assert(threw, "三角形上拒绝");
     clean(t, "拒绝后不变");
@@ -102,7 +103,7 @@ describe(title, () => {
   it("删面：只删面 → 边变裸线留着；连边带点删 → 孤立的点消失；盒子删一面 → 开口体（不是封闭流形，欧拉表里没它）", () => {
     const k = mk(); const { faces } = addBox(k, P(0, 0, 0), P(1, 1, 1));
     deleteFaces(k, [faces[0]], true); clean(k, "只删面");
-    eq(k.faceCount(), 5); eq(k.edgeCount(), 12, "边都还在"); assert(k.edges().every((e) => k.eFaces(e).length > 0 || k.hasFlag(e, F_WIRE)));
+    eq(k.faceCount(), 5); eq(k.edgeCount(), 12, "边都还在"); assert(k.edges().every((e) => k.eFaces(e).length > 0 || k.isWire(e)));
     eq(k.eulerOfClosedManifoldComponents().length, 0, "开口了");
     const k2 = mk(); const b2 = addBox(k2, P(0, 0, 0), P(1, 1, 1));
     deleteFaces(k2, b2.faces, false); clean(k2, "全删");

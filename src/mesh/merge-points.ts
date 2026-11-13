@@ -10,30 +10,12 @@
 //        两个角的一圈（刺）= 那条边留成不挂面的线（打上裸线位），刺尖的点不删。不同的点不到三个 = 塌了（删，进报告「没了的面」）。
 //   5 合并完之后两张面是同一圈点（同向或反向）：留编号最小的，别的删、进报告（原因 = 和哪张重叠）。点集相同环不同的不算。
 import type { Pt3 } from "../kernel/geom.ts";
-import { mergeScalar, type FaceShape, type MergeRule } from "./columns.ts";
-import { F_HIDDEN, F_SEAM, F_SHARP, F_SMOOTH, F_SOFT, F_WIRE } from "./edge-bits.ts";
+import type { FaceShape } from "./columns.ts";
 
 /** 合并到哪：排在第一的那个点，或一组权重（和 verts 一一对应、非负、和 > 0）。 */
 export type MergeTo = "first" | { readonly weights: readonly number[] };
 export interface MergeGroup { readonly verts: readonly number[]; readonly to: MergeTo }
 
-/**
- * 边的标记怎么并（几条边合并成同一对点时；第七¾节第 2 条）：「标记 → 规则名」的纯数据（user 11-13：「抽象成规则，而不是让引擎通过语义来判断」），
- * 规则名就是列的那三个（columns.ts MergeRule），缺省值都是 0（没这个标记）。合并的代码只按规则名办（mergeScalar），不认识哪一位是什么意思。
- *   defaultIfMixed = 都一样才留、不一样回 0 = 都有才留：手标的棱、平滑、不画线、隐藏（一条藏一条看得见 = 看得见的赢，统筹 11-13，和硬表面 kernel/layers.ts 第④条一致）；
- *   firstNonDefault = 有一个不是 0 就取它 = 有一个就留：接缝、裸线（裸线是「这条边可以不挂面」的结构位，不是属性）。
- * 和 edge-mark-rules.ts 的 JOIN 表必须一致（both ↔ defaultIfMixed、either ↔ firstNonDefault、structural ↔ firstNonDefault；那张 import 内核、这里不能 import 它），由 test/edge-mark-rules.test.ts 守。
- * 第三步边的标记搬上属性表之后，这张表换成每一列自己的声明。
- */
-export const EDGE_FLAG_RULES: Readonly<Record<number, MergeRule>> = Object.freeze({
-  [F_SHARP]: "defaultIfMixed", [F_SMOOTH]: "defaultIfMixed", [F_SOFT]: "defaultIfMixed", [F_HIDDEN]: "defaultIfMixed",
-  [F_SEAM]: "firstNonDefault", [F_WIRE]: "firstNonDefault",
-});
-export const mergeEdgeFlags = (flags: readonly number[]): number => {
-  let out = 0;
-  for (const [bit, rule] of Object.entries(EDGE_FLAG_RULES)) { const b = Number(bit); out |= mergeScalar(rule, flags.map((f) => f & b), 0); }
-  return out;
-};
 
 /** 规划要读的内核（MeshKernel 满足）。 */
 export interface MergeMesh {
@@ -45,7 +27,7 @@ export interface MergeMesh {
   shapeOf(f: number): FaceShape;
   readonly edgeA: ArrayLike<number>;
   readonly edgeB: ArrayLike<number>;
-  readonly edgeFlags: ArrayLike<number>;
+  isWire(e: number): boolean;
 }
 
 /** 挤过之后环上的一个角：落在哪个点、由原环里哪几个角挤成（原环的角号，连续一段）。 */
@@ -61,7 +43,7 @@ export interface MergeFacePlan {
   /** 原来的编号给哪一圈（loops 的下标）；塌了 = −1（不同的点不到三个；或剪完没有一圈够三个角——这时 loops 里的刺照样留成线）。 */
   readonly main: number;
 }
-export interface MergeEdgePlan { readonly keep: number; readonly a: number; readonly b: number; readonly flags: number; readonly drop: readonly number[] }
+export interface MergeEdgePlan { readonly keep: number; readonly a: number; readonly b: number; /** 并掉的里面有一条是裸线 = 留下的是裸线（结构位）。边上的列在内核里按各自的 merge 并（absorbIntoEdge）。 */ readonly wire: boolean; readonly drop: readonly number[] }
 export interface MergePlan {
   /** 点 → 它合并到的幸存点（不在任何组里的点不在表里）。 */
   readonly rep: ReadonlyMap<number, number>;
@@ -163,7 +145,7 @@ export function planMerge(k: MergeMesh, groups: readonly MergeGroup[]): MergePla
   const edges: MergeEdgePlan[] = [];
   for (const [key, es] of buckets) {
     const [a, b] = key.split(",").map(Number);
-    edges.push({ keep: es[0], a, b, flags: es.length > 1 ? mergeEdgeFlags(es.map((e) => k.edgeFlags[e])) : k.edgeFlags[es[0]], drop: es.slice(1) });
+    edges.push({ keep: es[0], a, b, wire: es.some((e) => k.isWire(e)), drop: es.slice(1) });
   }
   edges.sort((x, y) => x.keep - y.keep);
   return { rep, weight, pos, gone, faces, collapsed, edges, survivors };

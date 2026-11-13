@@ -1,12 +1,11 @@
 // golden 场景（格式测试与冻结样本共用；改这里 = 改语料，须同步重冻结并说明）。created 2026-09-20 by Claude Fable 5.1
-import { faceHidden, setFaceHidden, setFaceMaterial } from "../src/mesh/reserved-columns.ts";
+import { SMOOTH, SOFT, faceHidden, setEdgeMark, setFaceHidden, setFaceMaterial } from "../src/mesh/reserved-columns.ts";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { circleSegmentsOnPlane, rectSegments } from "../src/editor/tools.ts";
 import { Scene } from "../src/scene/scene.ts";
 import { brepToMesh } from "../src/scene/kinds.ts";
 import { BUILTIN_BACK_SLOT } from "../src/scene/builtin-materials.ts";
-import { F_SOFT, F_SMOOTH } from "../src/mesh/mesh-kernel.ts";
 import { applyOp, faceKey, edgeKey } from "../src/editor/ops.ts";
 import { GROUND } from "../src/editor/pick.ts";
 import { translation } from "../src/scene/xform.ts";
@@ -182,7 +181,7 @@ export function sceneMeshed(): Scene {
   const d = s.mintDef("网格盒", sceneBox(1, 1));
   oneSided(s, d.id);
   const body = brepToMesh(s.brep(d.id)), m = body.kernel;
-  m.setEdgeFlags(m.edgeOf(0, 1), F_SOFT | F_SMOOTH); setFaceHidden(m, m.faces()[1], true); setFaceMaterial(m, m.faces()[2], 0); body.materialSlots = [0];
+  setEdgeMark(m, m.edgeOf(0, 1), SOFT, true); setEdgeMark(m, m.edgeOf(0, 1), SMOOTH, true); setFaceHidden(m, m.faces()[1], true); setFaceMaterial(m, m.faces()[2], 0); body.materialSlots = [0];
   d.body = body;
   s.mintInstance(s.root, null, d.id, translation({ x: 3, y: 0, z: 0 }));
   return s;

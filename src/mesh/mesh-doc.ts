@@ -6,11 +6,25 @@
 import type { CarriedJson, ColumnDoc, MeshDoc } from "../format/document.ts";
 import { MeshKernel, type ColumnDef } from "./mesh-kernel.ts";
 import { FRESH } from "./columns.ts";
-import { faceHidden, faceMaterial, givenFaceValues, RESERVED_FACE } from "./reserved-columns.ts";
+import { EDGE_BYTE_KNOWN, faceHidden, faceMaterial, givenFaceValues, packEdgeByte, RESERVED_EDGE, RESERVED_FACE, unpackEdgeByte } from "./reserved-columns.ts";
 
 /** 文件里面的那个字节（MeshDoc.faceFlags）：第 1 位 = 面上的隐藏（hide_poly）；别的位没有定义。属性地基轮 3b 起内存里是两列，文件的形状不变，门口来回换。 */
 export const FILE_FACE_HIDDEN = 1;
-const RESERVED_FACE_IDS: ReadonlySet<string> = new Set(RESERVED_FACE.map((d) => d.id));
+/** 文件里那两个字节这一版认识的位：面 = 隐藏；边 = 五列 + 裸线（reserved-columns.ts EDGE_BYTE_BITS）。别的位 = 更新版写的、这一版不认识。 */
+export const FILE_FACE_KNOWN = FILE_FACE_HIDDEN, FILE_EDGE_KNOWN = EDGE_BYTE_KNOWN;
+/**
+ * 读的门口（format/mesh-payload.ts decodeMeshItem，读文件只这一处调）：载荷里这一版不认识的位就地去掉，返回带着它们的面、边各几个。
+ * 统筹 11-13（规程第九½节末）：不认识的位不拒开文件——不读、打开时说一句（notes.unknownMarks）、保存时不写（内存里没有它们）。
+ * 真坏了（环越界、表长对不上）照旧抛，那是 kernelFromMeshDoc 的事。去掉之后一个位都不剩的边那一行 = 读的时候跳过（「这条边没有标记」）。
+ */
+export function dropUnknownMarks(d: MeshDoc): { faces: number; edges: number } {
+  let faces = 0, edges = 0;
+  for (let i = 0; i < d.faceFlags.length; i++) if (d.faceFlags[i] & ~FILE_FACE_KNOWN) { faces++; d.faceFlags[i] &= FILE_FACE_KNOWN; }
+  for (let i = 0; i < d.edgeFlags.length; i++) if (d.edgeFlags[i] & ~FILE_EDGE_KNOWN) { edges++; d.edgeFlags[i] &= FILE_EDGE_KNOWN; }
+  return { faces, edges };
+}
+/** 塞进那三条老形状（faceMat / faceFlags / edgeFlags）的保留名：不当通用的列写。 */
+const RESERVED_IDS: ReadonlySet<string> = new Set([...RESERVED_FACE, ...RESERVED_EDGE].map((d) => d.id));
 import { smoothDefaultOf } from "../format/migrate/mesh.ts";
 
 /** 内核 → 载荷：角上的每一列原样带上（没有列 = 不写 columns，和以前逐字节一样）；skip 里的 id 不写。 */
@@ -22,8 +36,8 @@ export function meshDocFromKernel(m: MeshKernel, skip: ReadonlySet<string> = new
   const loop: number[] = [];
   faces.forEach((f, i) => { const vs = m.faceVerts(f); faceStart[i] = loop.length; faceLen[i] = vs.length; faceMat[i] = faceMaterial(m, f); faceFlags[i] = faceHidden(m, f) ? FILE_FACE_HIDDEN : 0; for (const v of vs) loop.push(map.get(v)!); });
   const pairs: number[] = [], flags: number[] = [];
-  for (const e of m.edges()) if (m.edgeFlags[e]) { pairs.push(map.get(m.edgeA[e])!, map.get(m.edgeB[e])!); flags.push(m.edgeFlags[e]); }
-  const defs = m.columnDefs().filter((c) => !skip.has(c.id) && !RESERVED_FACE_IDS.has(c.id));   // 面上的两个保留名在上面塞进了 faceMat / faceFlags
+  for (const e of m.edges()) { const b = packEdgeByte(m, e); if (b) { pairs.push(map.get(m.edgeA[e])!, map.get(m.edgeB[e])!); flags.push(b); } }   // 边上的五列 + 裸线位打包回那个字节（3c；形状和以前一样）
+  const defs = m.columnDefs().filter((c) => !skip.has(c.id) && !RESERVED_IDS.has(c.id));   // 面上的两个保留名在上面塞进了 faceMat / faceFlags，边上的五个塞进了 edgeFlags
   const extraFace = defs.find((c) => c.on !== "corner");
   if (extraFace) throw new Error(`meshDocFromKernel: ${extraFace.on} column ${extraFace.id} has no place in the file`);
   const columns: ColumnDoc[] = defs.map((c) => {
@@ -47,7 +61,7 @@ export function kernelFromMeshDoc(d: MeshDoc, where = "mesh"): MeshKernel {
     if (s < 0 || n < 3 || s + n > d.loopVert.length) throw new Error(`${where}: face ${f} loop out of range`);
     const ring = Array.from(d.loopVert.subarray(s, s + n));
     for (const v of ring) if (v < 0 || v >= nV) throw new Error(`${where}: face ${f} references vertex ${v} (have ${nV})`);
-    if (d.faceFlags[f] & ~FILE_FACE_HIDDEN) throw new Error(`${where}: face ${f} has face flag bits ${d.faceFlags[f]} this version does not understand`);   // 不认识的位：明说读不了，不悄悄丢
+    if (d.faceFlags[f] & ~FILE_FACE_KNOWN) throw new Error(`${where}: face ${f} has face flag bits ${d.faceFlags[f]} this version does not understand (the read door drops them first)`);   // 读文件时门口已经去掉、记了一笔；到这里还有 = 没走门口，是程序的毛病
     const face = givenFaceValues(m, { material: d.faceMat[f], hidden: (d.faceFlags[f] & FILE_FACE_HIDDEN) !== 0 });   // 第一次碰到非缺省值才建那一列
     const corner = cols.length ? new Map(cols.map((c) => [c.guid, c.values.slice(c.arity * s, c.arity * (s + n))])) : null;
     const origin = corner || face.size ? { kind: "fresh" as const, ...(corner ? { corner } : {}), ...(face.size ? { face } : {}) } : FRESH;   // 读文件 = 凭空来的、直接给值
@@ -57,7 +71,8 @@ export function kernelFromMeshDoc(d: MeshDoc, where = "mesh"): MeshKernel {
   for (let i = 0; i < d.edgeFlags.length; i++) {
     const a = d.edgePairs[2 * i], b = d.edgePairs[2 * i + 1];
     if (a < 0 || b < 0 || a >= nV || b >= nV || a === b) throw new Error(`${where}: flagged edge ${i} invalid`);
-    m.setEdgeFlags(m.ensureEdge(a, b), d.edgeFlags[i]);   // 不属于任何面的 = 裸线（F_WIRE 由标记自己带）
+    if (!d.edgeFlags[i]) continue;   // 没有标记的一行（门口去掉不认识的位以后剩下的）= 没有要读的
+    unpackEdgeByte(m, m.ensureEdge(a, b), d.edgeFlags[i]);   // 字节拆回五列（第一次有值才建列）+ 裸线位；不属于任何面的 = 裸线（F_WIRE 由字节自己带）
   }
   m.setSmoothDefault(smoothDefaultOf(d));   // 缺了怎么办归读的门口（format/migrate/mesh.ts：老文件 = 全是棱、只看手标）
   return m;

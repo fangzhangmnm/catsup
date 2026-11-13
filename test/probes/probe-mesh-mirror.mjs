@@ -212,7 +212,7 @@ const res = await page.evaluate(async () => {
     e.undo(); await sleep(20);
     const markable = k().edges().find((x) => k().pt(k().edgeA[x]).x < -0.5 && k().pt(k().edgeB[x]).x < -0.5);
     e.deselectAll(); e.selection.edges.add(markable); e.runAction("mesh.markSharp"); await sleep(30);
-    const marked = (sgn) => k().edges().filter((x) => k().edgeFlags[x] && sgn * (k().pt(k().edgeA[x]).x + k().pt(k().edgeB[x]).x) > 0).length;
+    const marked = (sgn) => k().edges().filter((x) => ["sharp_edge", "smooth", "soft", "uv_seam", "hide_edge"].some((id) => k().edgeValue(x, id) === 1) && sgn * (k().pt(k().edgeA[x]).x + k().pt(k().edgeB[x]).x) > 0).length;
     out.fourteen.mark = { left: marked(-1), right: marked(1), last: lastOp() };
     e.undo(); await sleep(20);
     const lf = k().faces().find((f) => side(f) < -0.1 && k().faceVerts(f).some((q) => Math.abs(k().pt(q).x) < 1e-9));

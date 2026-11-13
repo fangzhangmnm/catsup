@@ -18,6 +18,7 @@ import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup } from ".
 import { checkInvariants } from "./kernel-invariants.ts";
 import { meshFromSplitTriangles } from "../src/mesh/tri-soup.ts";
 import { edgeSmooth, edgeSoft } from "../src/mesh/edge-smooth.ts";
+import { packEdgeByte } from "../src/mesh/reserved-columns.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 const near = (a: Pt3, b: Pt3, tol = 1e-6): boolean => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) <= tol;
@@ -166,12 +167,12 @@ describe("外来三角 → 网格体：焊点、拼回四边形、软硬边看�
     const { kernel: m, report } = meshFromSplitTriangles(bakedCube(true), 20);
     eq(m.vertexCount(), 8); eq(m.faceCount(), 6); eq(report.quads, 6); eq(m.edgeCount(), 12);
     eq(report.hard, 12); eq(report.soft, 0); eq(m.smoothDefault.mode, "hard");
-    assert(m.edges().every((e) => !edgeSmooth(m, e) && !edgeSoft(m, e) && m.edgeFlags[e] === 0), "全是棱、不用手标");
+    assert(m.edges().every((e) => !edgeSmooth(m, e) && !edgeSoft(m, e) && packEdgeByte(m, e) === 0), "全是棱、不用手标");
   });
   it("平滑的立方体（8 个角共用法线）：12 条边全平滑、默认平滑 = smooth、没有手标；同一个立方体没法线 = 按角度（90° > 20° → 棱）", () => {
     const { kernel: m, report } = meshFromSplitTriangles(bakedCube(false), 20);
     eq(m.faceCount(), 6); eq(report.soft, 12); eq(m.smoothDefault.mode, "smooth");
-    assert(m.edges().every((e) => edgeSmooth(m, e) && edgeSoft(m, e) && m.edgeFlags[e] === 0), "全平滑");
+    assert(m.edges().every((e) => edgeSmooth(m, e) && edgeSoft(m, e) && packEdgeByte(m, e) === 0), "全平滑");
     const bare = bakedCube(false); const r2 = meshFromSplitTriangles({ positions: bare.positions, indices: bare.indices }, 20);
     eq(r2.kernel.smoothDefault.mode, "angle"); assert(!r2.report.usedNormals);
     assert(r2.kernel.edges().every((e) => !edgeSmooth(r2.kernel, e)), "没法线：直角边按角度是棱");

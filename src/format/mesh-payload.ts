@@ -28,6 +28,7 @@ import { UV_Q } from "../scene/uv.ts";
 export const UV_NONE = -2147483648;
 import { isGuid } from "./guid.ts";
 import { polygonsFromTriangles } from "./migrate/mesh.ts";
+import { dropUnknownMarks } from "../mesh/mesh-doc.ts";
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 
@@ -98,6 +99,8 @@ export function decodeMeshItem(raw: Record<string, unknown>, sliceOf: (bv: numbe
   if (d.positions.length % 3 !== 0) fail(`${where} mesh positions length ${d.positions.length} is not a multiple of 3`);
   if (d.faceLen.length !== nF || d.faceMat.length !== nF || d.faceFlags.length !== nF) fail(`${where} mesh face tables disagree (${nF} faces)`);
   if (d.edgePairs.length !== d.edgeFlags.length * 2) fail(`${where} mesh edgePairs / edgeFlags disagree`);
+  const odd = dropUnknownMarks(d);   // 面 / 边那两个字节里这一版不认识的位：不读、记一笔（打开时说一句）、内存里没有 = 存的时候不写（统筹 11-13，规程第九½节末）
+  if (odd.faces || odd.edges) { const u = (notes.unknownMarks ??= { faces: 0, edges: 0 }); u.faces += odd.faces; u.edges += odd.edges; }
   if (mj.uvSets !== undefined) notes.oldUvColumns = (notes.oldUvColumns ?? 0) + 1;   // 以前的写法（2.x）：现行格式里没有这个键 = 不带回、记一笔（施工单十八第五节；读的门口只这一处）
   if (mj.columns !== undefined && owner) readColumns(mj.columns, d, sliceOf, notes, owner);
   return d;

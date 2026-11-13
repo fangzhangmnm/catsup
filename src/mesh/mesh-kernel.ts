@@ -21,8 +21,6 @@ import { planMerge, ringKey, type MergeGroup } from "./merge-points.ts";
 export type { Column, ColumnDef, ColumnType, CornerColumn, CornerOdd, Domain, EdgeColumn, EdgeOrigin, EdgeShape, FaceColumn, FaceOrigin, FaceReport, FaceShape, GoneFace, GoneWhy, MergeRule, OddEdge, OddFace } from "./columns.ts";
 export type { MergeGroup, MergeTo } from "./merge-points.ts";
 
-import { F_WIRE } from "./edge-bits.ts";
-export { F_SOFT, F_SMOOTH, F_SEAM, F_HIDDEN, F_WIRE, F_SHARP } from "./edge-bits.ts";   // 边上的位住 edge-bits.ts（合并点那张规则表要按名字列它们，又不能 import 内核）
 /** 网格体的「默认平滑」（几何属性，不是画法——user 10-28「不要叫明暗方式，我们的语义就是几何，和representation没关系。默认平滑之类的？」；每个网格体一个；mesh/edge-smooth.ts 按它判没手标的边）：angle = 两侧面夹角小于 deg 算平滑（硬表面）/ smooth = 全平滑（软角色）/ hard = 全是棱（低多边形；
  *  新建的网格体默认这一档；文件里缺这一项怎么办归读的门口 format/migrate/mesh.ts）。 */
 export type SmoothDefaultMode = "angle" | "smooth" | "hard";
@@ -31,10 +29,10 @@ export interface SmoothDefault { readonly mode: SmoothDefaultMode; readonly deg:
 export const SMOOTH_DEFAULT_NEW: SmoothDefault = { mode: "hard", deg: 30 };
 
 export interface MeshSnapshot {
-  readonly version: 3; readonly minor: 0; readonly patch: 0;   // 3（属性地基轮 3b）：材质、面的隐藏不再是单独的字段，是面上的列（有才有）。2（施工单十八第 1½ 刀）：列换成 corner / face 两种、每角都有数。只是内核自己的快照（测试、对拍），不落盘
+  readonly version: 4; readonly minor: 0; readonly patch: 0;   // 4（3c）：边的标记是边上的列，快照只另记裸线。3（属性地基轮 3b）：材质、面的隐藏不再是单独的字段，是面上的列（有才有）。2（施工单十八第 1½ 刀）：列换成 corner / face 两种、每角都有数。只是内核自己的快照（测试、对拍），不落盘
   readonly positions: number[];          // x y z × 顶点（紧凑、重编）
   readonly faces: number[][];            // 每面顶点下标环
-  readonly edges: [number, number, number][];   // 带标记的边：[a, b, flags]（没标记的边不存，读回时由面推）
+  readonly wires: [number, number][];   // 裸线（不挂面也合法的边）：[a, b]；别的边读回时由面推
   /** 角上的列（有才有这个键）：声明 + 每张面一项 = 角数 × 每角几个数。 */
   readonly corner?: readonly { readonly def: ColumnDef; readonly faces: readonly (readonly number[])[] }[];
   /** 面上的列（有才有这个键）：声明 + 每张面一个数。 */
@@ -61,7 +59,9 @@ export class MeshKernel {
   faceStart = new Int32Array(0); faceLen = new Int32Array(0); fAlive = new Uint8Array(0); private fCount = 0; private fFree: number[] = [];
   loopVert = new Int32Array(0); private loopCount = 0;
   // 边
-  edgeA = new Int32Array(0); edgeB = new Int32Array(0); eAlive = new Uint8Array(0); edgeFlags = new Uint8Array(0); private eCount = 0; private eFree: number[] = [];
+  edgeA = new Int32Array(0); edgeB = new Int32Array(0); eAlive = new Uint8Array(0); private eCount = 0; private eFree: number[] = [];
+  /** 裸线位（结构位，几何本身：这条边可以不挂面；规程第二½节）。3c 起内核自己一张位表；边上的标记都是列（mesh/reserved-columns.ts）。 */
+  private edgeWire = new Uint8Array(0);
   private edgeKey = new Map<number, number>();   // a * 2^26 + b（a < b）→ 边 id
   // 邻接（增量维护，W-11 2026-11-10 Claude Opus 5.5；以前是整张懒重建：每改一下拓扑就标脏、下一次查询整张重建，「改一下、查一下」交替的循环随整个网格体涨）。
   // 两套挂在扁平数组上的单链表，存「下标 + 1」（0 = 空：数组长大时补的 0 正好是空）。增删一条边 / 一张面只碰它自己的几个格子。
@@ -157,7 +157,7 @@ export class MeshKernel {
     this.unlinkRing(f);
     this.fAlive[f] = 0; this.fFree.push(f); this.fFree.sort((a, b) => b - a); this.odd.delete(f);
     this.changes.f(f); this.touch(true);
-    for (let i = 0; i < vs.length; i++) { const e = this.edgeOf(vs[i], vs[(i + 1) % vs.length]); if (e >= 0 && this.eFaces(e).length === 0 && !(this.edgeFlags[e] & F_WIRE)) this.removeEdge(e); }
+    for (let i = 0; i < vs.length; i++) { const e = this.edgeOf(vs[i], vs[(i + 1) % vs.length]); if (e >= 0 && this.eFaces(e).length === 0 && !this.edgeWire[e]) this.removeEdge(e); }
   }
   /**
    * 一次删一批面（连同只属于这批面的边；裸线不删）。结果和对每张逐个 removeFace 一样：删掉的面和边、空出来的编号都一样
@@ -171,9 +171,9 @@ export class MeshKernel {
     const cand = new Set<number>();   // 这一批的环边：全摘下之后没面了（又不是裸线）= 跟着删
     for (const f of gone) { const vs = this.faceVerts(f); for (let i = 0; i < vs.length; i++) { const e = this.edgeOf(vs[i], vs[(i + 1) % vs.length]); if (e >= 0) cand.add(e); } this.unlinkRing(f); }
     const doomed: number[] = [];
-    for (const e of cand) if (!this.eFHead[e] && !(this.edgeFlags[e] & F_WIRE)) doomed.push(e);
+    for (const e of cand) if (!this.eFHead[e] && !this.edgeWire[e]) doomed.push(e);
     for (const f of gone) { this.fAlive[f] = 0; this.fFree.push(f); this.changes.f(f); }
-    for (const e of doomed) { this.vUnlink(this.edgeA[e], 2 * e); this.vUnlink(this.edgeB[e], 2 * e + 1); this.edgeKey.delete(this.keyOf(this.edgeA[e], this.edgeB[e])); this.eAlive[e] = 0; this.edgeFlags[e] = 0; this.oddEdges.delete(e); this.eFree.push(e); this.changes.e(e); }
+    for (const e of doomed) { this.vUnlink(this.edgeA[e], 2 * e); this.vUnlink(this.edgeB[e], 2 * e + 1); this.edgeKey.delete(this.keyOf(this.edgeA[e], this.edgeB[e])); this.eAlive[e] = 0; this.edgeWire[e] = 0; this.oddEdges.delete(e); this.eFree.push(e); this.changes.e(e); }
     this.fFree.sort((a, b) => b - a); this.eFree.sort((a, b) => b - a);
     this.touch(true);
   }
@@ -196,7 +196,7 @@ export class MeshKernel {
     if (this.eFaces(e).length) throw new Error(`removeEdge: edge ${e} still belongs to a face`);
     this.vUnlink(this.edgeA[e], 2 * e); this.vUnlink(this.edgeB[e], 2 * e + 1);
     this.edgeKey.delete(this.keyOf(this.edgeA[e], this.edgeB[e]));
-    this.eAlive[e] = 0; this.edgeFlags[e] = 0; this.oddEdges.delete(e); this.eFree.push(e);
+    this.eAlive[e] = 0; this.edgeWire[e] = 0; this.oddEdges.delete(e); this.eFree.push(e);
     this.changes.e(e);
   }
   private dropEdges(es: Iterable<number>): void { let n = 0; for (const e of es) if (this.hasE(e)) { this.dropEdge(e); n++; } if (n) { this.eFree.sort((a, b) => b - a); this.touch(true); } }
@@ -225,8 +225,8 @@ export class MeshKernel {
   private makeEdge(a: number, b: number, origin: EdgeOrigin): number {
     const w = this.edgeCols.length ? edgeColumnValues(this.edgeCols, origin) : null;   // 先算好、核过（会抛的都在这里），再动表：造边全有或全无
     const e = this.eFree.length ? this.eFree.pop()! : this.eCount++;
-    this.edgeA = grow(this.edgeA, this.eCount); this.edgeB = grow(this.edgeB, this.eCount); this.eAlive = grow(this.eAlive, this.eCount); this.edgeFlags = grow(this.edgeFlags, this.eCount);
-    this.edgeA[e] = Math.min(a, b); this.edgeB[e] = Math.max(a, b); this.eAlive[e] = 1; this.edgeFlags[e] = 0;
+    this.edgeA = grow(this.edgeA, this.eCount); this.edgeB = grow(this.edgeB, this.eCount); this.eAlive = grow(this.eAlive, this.eCount); this.edgeWire = grow(this.edgeWire, this.eCount);
+    this.edgeA[e] = Math.min(a, b); this.edgeB[e] = Math.max(a, b); this.eAlive[e] = 1; this.edgeWire[e] = 0;
     this.eNext = grow(this.eNext, 2 * this.eCount); this.eFHead = grow(this.eFHead, this.eCount); this.eFHead[e] = 0;
     this.vLink(this.edgeA[e], 2 * e); this.vLink(this.edgeB[e], 2 * e + 1);
     this.edgeKey.set(this.keyOf(a, b), e);
@@ -235,6 +235,17 @@ export class MeshKernel {
       if (w.odd) this.oddEdges.set(e, w.odd); else this.oddEdges.delete(e);
     }
     this.changes.e(e); this.touch(true); return e;
+  }
+  /**
+   * 并进一条已经在的边（规程第九½节，统筹 11-13）：别的几条边（旧样子在它们删掉之前记下）并成这条已经在的边 = 并成，这条排最前、from 照给的先后；
+   * 每一列照自己的 merge 取，来源不一样进边的报告。溶解二度点时两个邻居本来就连着、合并点几条边落到同一对点，都走这一个入口（全仓一处）。
+   */
+  absorbIntoEdge(keep: number, from: readonly EdgeShape[]): void {
+    if (!this.hasE(keep)) throw new Error(`absorbIntoEdge: edge ${keep} is not alive`);
+    if (!from.length || !this.edgeCols.length) return;
+    const odd = writeEdgeColumns(this.edgeCols, { kind: "joined", of: [this.edgeShape(keep), ...from] }, keep);
+    if (odd) this.oddEdges.set(keep, odd); else this.oddEdges.delete(keep);
+    this.changes.e(keep); this.rev = ++meshRevClock;
   }
   /** 边的旧样子（改 / 删之前记，交给新边的来历）：两头 + 每一列的值（没有边上的列 = null）+ 身上还没交出去的「对不上」。 */
   edgeShape(e: number): EdgeShape {
@@ -254,7 +265,7 @@ export class MeshKernel {
     for (let i = 0; i < ring.length; i++) this.ensureEdge(ring[i], ring[(i + 1) % ring.length]);
     this.linkRing(f);
     this.changes.f(f); this.touch(true);
-    for (let i = 0; i < old.length; i++) { const e = this.edgeOf(old[i], old[(i + 1) % old.length]); if (e >= 0 && this.eFaces(e).length === 0 && !(this.edgeFlags[e] & F_WIRE)) this.removeEdge(e); }
+    for (let i = 0; i < old.length; i++) { const e = this.edgeOf(old[i], old[(i + 1) % old.length]); if (e >= 0 && this.eFaces(e).length === 0 && !this.edgeWire[e]) this.removeEdge(e); }
   }
   /** 环接在 loopVert 末尾（旧环的槽作废）；有列就按来历写面上的列和角上的数（columns.ts writeColumns，全仓唯一的那一段），对不上的记下来。 */
   private writeRing(f: number, ring: readonly number[], origin: FaceOrigin): void {
@@ -427,12 +438,8 @@ export class MeshKernel {
     for (const ep of plan.edges) {
       const e = ep.keep;
       for (const end of [this.edgeA[e], this.edgeB[e]]) { const to = plan.rep.get(end); if (to !== undefined && to !== end) this.relinkEdgeEnd(e, end, to); }   // 并掉的都删过了：中途换出来的那一对点上不会已经有边
-      if (this.edgeFlags[e] !== ep.flags) { this.edgeFlags[e] = ep.flags; this.changes.e(e); }
-      if (joinedShapes && ep.drop.length) {   // 几条并成一条 = 并成（先后 = 原来的编号从小到大）：每一列照自己的 merge 取，不一样进边的报告
-        const odd = writeEdgeColumns(this.edgeCols, { kind: "joined", of: [e, ...ep.drop].map((x) => joinedShapes.get(x)!) }, e);
-        if (odd) this.oddEdges.set(e, odd); else this.oddEdges.delete(e);
-        this.changes.e(e);
-      }
+      if (!!this.edgeWire[e] !== ep.wire) { this.edgeWire[e] = ep.wire ? 1 : 0; this.changes.e(e); }   // 裸线（结构位）：并掉的里面有一条是线就是线
+      if (joinedShapes && ep.drop.length) this.absorbIntoEdge(e, ep.drop.map((x) => joinedShapes.get(x)!));   // 几条并成一条 = 并成：留下的那条排最前（全仓一个入口）
     }
     this.removeVertices(plan.gone);   // ③ 被合并掉的点（它的边上面都处理掉了；一批删、空位表排一次）
     const touched: number[] = [], spurs: [number, number][] = [];
@@ -464,8 +471,8 @@ export class MeshKernel {
         else if (loop.length === 2) spurs.push([p.corners[loop[0]].v, p.corners[loop[1]].v]);
       });
     });
-    for (const [a, b] of spurs) { const e = this.edgeOf(a, b); if (e >= 0 && !this.eFHead[e] && !(this.edgeFlags[e] & F_WIRE)) { this.edgeFlags[e] |= F_WIRE; this.changes.e(e); } }   // ⑤ 刺 = 不挂面的线（刺尖的点不删）；那条边还挂着别的面就不用打
-    this.dropEdges(plan.edges.map((ep) => ep.keep).filter((e) => this.hasE(e) && !this.eFHead[e] && !(this.edgeFlags[e] & F_WIRE)));   // ⑥ 塌掉的面留下的、不挂面又不是线的边
+    for (const [a, b] of spurs) { const e = this.edgeOf(a, b); if (e >= 0 && !this.eFHead[e] && !this.edgeWire[e]) { this.edgeWire[e] = 1; this.changes.e(e); } }   // ⑤ 刺 = 不挂面的线（刺尖的点不删）；那条边还挂着别的面就不用打
+    this.dropEdges(plan.edges.map((ep) => ep.keep).filter((e) => this.hasE(e) && !this.eFHead[e] && !this.edgeWire[e]));   // ⑥ 塌掉的面留下的、不挂面又不是线的边
     const seen = new Set<number>();   // ⑦ 重叠：同一圈点（同向或反向）留编号最小的
     for (const f of touched.sort((a, b) => a - b)) {
       if (!this.hasF(f) || seen.has(f)) continue;
@@ -484,12 +491,10 @@ export class MeshKernel {
     return [...plan.survivors];
   }
   setPos(v: number, p: Pt3): void { this.pos[3 * v] = p.x; this.pos[3 * v + 1] = p.y; this.pos[3 * v + 2] = p.z; this.changes.v(v); this.touch(false); }
-  setFlags(e: number, mask: number, on: boolean): void { if (!this.hasE(e)) return; this.edgeFlags[e] = on ? this.edgeFlags[e] | mask : this.edgeFlags[e] & ~mask; this.changes.e(e); this.rev = ++meshRevClock; }
   /** 整字节写边标记（算子搬标记用）；记日志。 */
-  /** 裸线位（结构位，不是属性：「这条边可以不挂面」，规程第二½节算几何本身）。3a 先给口，存法照旧（边标记字节的 F_WIRE 那一位）；3d 老数组删掉时换成自己的一张位表。 */
-  isWire(e: number): boolean { return this.hasE(e) && (this.edgeFlags[e] & F_WIRE) !== 0; }
-  setWire(e: number, on: boolean): void { if (!this.hasE(e)) return; this.edgeFlags[e] = on ? this.edgeFlags[e] | F_WIRE : this.edgeFlags[e] & ~F_WIRE; this.changes.e(e); this.rev = ++meshRevClock; }
-  setEdgeFlags(e: number, flags: number): void { if (!this.hasE(e)) return; this.edgeFlags[e] = flags; this.changes.e(e); this.rev = ++meshRevClock; }
+  /** 裸线位（结构位，几何本身：「这条边可以不挂面」）。 */
+  isWire(e: number): boolean { return this.hasE(e) && this.edgeWire[e] === 1; }
+  setWire(e: number, on: boolean): void { if (!this.hasE(e)) return; this.edgeWire[e] = on ? 1 : 0; this.changes.e(e); this.rev = ++meshRevClock; }
   /** 换默认平滑：每条边的「平滑吗 / 画线吗」都可能变 → 所有边和面都记进改动日志（渲染按日志增量重建）。 */
   setSmoothDefault(sd: SmoothDefault): void {
     if (sd.mode === this.smoothDefault.mode && sd.deg === this.smoothDefault.deg) return;
@@ -498,7 +503,6 @@ export class MeshKernel {
     for (let f = 0; f < this.fCount; f++) if (this.fAlive[f]) this.changes.f(f);
     this.rev = ++meshRevClock;
   }
-  hasFlag(e: number, mask: number): boolean { return this.hasE(e) && (this.edgeFlags[e] & mask) !== 0; }
 
   private keyOf(a: number, b: number): number { return a < b ? a * 67108864 + b : b * 67108864 + a; }
   private touch(_topo: boolean): void { this.rev = ++meshRevClock; this.triCache = null; }   // 邻接是增量维护的（W-11），不再标脏
@@ -575,7 +579,7 @@ export class MeshKernel {
     m.pos = this.pos.slice(); m.vAlive = this.vAlive.slice(); m.vCount = this.vCount; m.vFree = [...this.vFree];
     m.faceStart = this.faceStart.slice(); m.faceLen = this.faceLen.slice(); m.fAlive = this.fAlive.slice(); m.fCount = this.fCount; m.fFree = [...this.fFree];
     m.loopVert = this.loopVert.slice(); m.loopCount = this.loopCount;
-    m.edgeA = this.edgeA.slice(); m.edgeB = this.edgeB.slice(); m.eAlive = this.eAlive.slice(); m.edgeFlags = this.edgeFlags.slice(); m.eCount = this.eCount; m.eFree = [...this.eFree];
+    m.edgeA = this.edgeA.slice(); m.edgeB = this.edgeB.slice(); m.eAlive = this.eAlive.slice(); m.edgeWire = this.edgeWire.slice(); m.eCount = this.eCount; m.eFree = [...this.eFree];
     m.edgeKey = new Map(this.edgeKey); m.rev = this.rev; m.smoothDefault = this.smoothDefault;
     m.changes = this.changes.fork();   // 族谱：渲染缓存从原件切到副本只重建差的
     m.cornerCols = this.cornerCols.map((c) => ({ ...c, data: c.data.slice() })); m.faceCols = this.faceCols.map((c) => ({ ...c, data: c.data.slice() })); m.edgeCols = this.edgeCols.map((c) => ({ ...c, data: c.data.slice() }));   // 「对不上」的标记不带过去（新的一本）
@@ -590,7 +594,7 @@ export class MeshKernel {
     [this.pos, o.pos] = [o.pos, this.pos]; [this.vAlive, o.vAlive] = [o.vAlive, this.vAlive]; [this.vCount, o.vCount] = [o.vCount, this.vCount]; [this.vFree, o.vFree] = [o.vFree, this.vFree];
     [this.faceStart, o.faceStart] = [o.faceStart, this.faceStart]; [this.faceLen, o.faceLen] = [o.faceLen, this.faceLen]; [this.fAlive, o.fAlive] = [o.fAlive, this.fAlive]; [this.fCount, o.fCount] = [o.fCount, this.fCount]; [this.fFree, o.fFree] = [o.fFree, this.fFree];
     [this.loopVert, o.loopVert] = [o.loopVert, this.loopVert]; [this.loopCount, o.loopCount] = [o.loopCount, this.loopCount];
-    [this.edgeA, o.edgeA] = [o.edgeA, this.edgeA]; [this.edgeB, o.edgeB] = [o.edgeB, this.edgeB]; [this.eAlive, o.eAlive] = [o.eAlive, this.eAlive]; [this.edgeFlags, o.edgeFlags] = [o.edgeFlags, this.edgeFlags]; [this.eCount, o.eCount] = [o.eCount, this.eCount]; [this.eFree, o.eFree] = [o.eFree, this.eFree];
+    [this.edgeA, o.edgeA] = [o.edgeA, this.edgeA]; [this.edgeB, o.edgeB] = [o.edgeB, this.edgeB]; [this.eAlive, o.eAlive] = [o.eAlive, this.eAlive]; [this.edgeWire, o.edgeWire] = [o.edgeWire, this.edgeWire]; [this.eCount, o.eCount] = [o.eCount, this.eCount]; [this.eFree, o.eFree] = [o.eFree, this.eFree];
     [this.edgeKey, o.edgeKey] = [o.edgeKey, this.edgeKey]; [this.vHead, o.vHead] = [o.vHead, this.vHead]; [this.eNext, o.eNext] = [o.eNext, this.eNext]; [this.eFHead, o.eFHead] = [o.eFHead, this.eFHead]; [this.lNext, o.lNext] = [o.lNext, this.lNext]; [this.lEdge, o.lEdge] = [o.lEdge, this.lEdge]; [this.lFace, o.lFace] = [o.lFace, this.lFace]; [this.triCache, o.triCache] = [o.triCache, this.triCache];
     [this.rev, o.rev] = [o.rev, this.rev]; [this.changes, o.changes] = [o.changes, this.changes]; [this.smoothDefault, o.smoothDefault] = [o.smoothDefault, this.smoothDefault];
     [this.cornerCols, o.cornerCols] = [o.cornerCols, this.cornerCols]; [this.faceCols, o.faceCols] = [o.faceCols, this.faceCols]; [this.edgeCols, o.edgeCols] = [o.edgeCols, this.edgeCols]; [this.odd, o.odd] = [o.odd, this.odd]; [this.oddEdges, o.oddEdges] = [o.oddEdges, this.oddEdges]; [this.goneList, o.goneList] = [o.goneList, this.goneList];
@@ -601,12 +605,12 @@ export class MeshKernel {
     for (let v = 0; v < this.vCount; v++) if (this.vAlive[v]) { map[v] = n++; positions.push(this.pos[3 * v], this.pos[3 * v + 1], this.pos[3 * v + 2]); }
     const faces: number[][] = [], live: number[] = [];
     for (let f = 0; f < this.fCount; f++) if (this.fAlive[f]) { faces.push(this.faceVerts(f).map((v) => map[v])); live.push(f); }
-    const edges: [number, number, number][] = [];
-    for (let e = 0; e < this.eCount; e++) if (this.eAlive[e] && this.edgeFlags[e]) edges.push([map[this.edgeA[e]], map[this.edgeB[e]], this.edgeFlags[e]]);
+    const wires: [number, number][] = [];
+    for (let e = 0; e < this.eCount; e++) if (this.eAlive[e] && this.edgeWire[e]) wires.push([map[this.edgeA[e]], map[this.edgeB[e]]]);
     const corner = this.cornerCols.map((c) => ({ def: c.def, faces: live.map((f) => Array.from(this.cornerValues(f, c.id)!)) }));
     const face = this.faceCols.map((c) => ({ def: c.def, values: live.map((f) => c.data[f]) }));
     const liveE = this.edges(), edge = this.edgeCols.map((c) => ({ def: c.def, values: liveE.map((e) => [map[this.edgeA[e]], map[this.edgeB[e]], c.data[e]] as const) }));
-    return { version: 3, minor: 0, patch: 0, positions, faces, edges, ...(corner.length ? { corner } : {}), ...(face.length ? { face } : {}), ...(edge.length ? { edge } : {}) };
+    return { version: 4, minor: 0, patch: 0, positions, faces, wires, ...(corner.length ? { corner } : {}), ...(face.length ? { face } : {}), ...(edge.length ? { edge } : {}) };
   }
   static fromSnapshot(s: MeshSnapshot): MeshKernel {
     const m = new MeshKernel();
@@ -620,7 +624,7 @@ export class MeshKernel {
       for (const [k, values] of vals) { const [a, b] = k.split(",").map(Number); m.addEdge(a, b, { kind: "fresh", values }); }
     }
     s.faces.forEach((r, i) => { m.addFace(r, { kind: "fresh", corner: new Map((s.corner ?? []).map((c) => [c.def.id, Float32Array.from(c.faces[i])])), face: new Map((s.face ?? []).map((c) => [c.def.id, c.values[i]])) }); });   // 快照装载 = 凭空来的、直接给值
-    for (const [a, b, fl] of s.edges) { const e = m.ensureEdge(a, b); m.edgeFlags[e] = fl; }
+    for (const [a, b] of s.wires) m.setWire(m.ensureEdge(a, b), true);
     m.rev = ++meshRevClock;
     return m;
   }
@@ -641,9 +645,9 @@ export class MeshKernel {
       }
     }
     for (let e = 0; e < this.eCount; e++) {
-      if (!this.eAlive[e]) { if (this.edgeFlags[e]) bad.push(`edge ${e}: flags on dead edge`); continue; }
+      if (!this.eAlive[e]) { if (this.edgeWire[e]) bad.push(`edge ${e}: wire bit on dead edge`); continue; }
       if (!this.hasV(this.edgeA[e]) || !this.hasV(this.edgeB[e])) bad.push(`edge ${e}: dead endpoint`);
-      if (!used.has(e) && !(this.edgeFlags[e] & F_WIRE)) bad.push(`edge ${e}: belongs to no face and is not a wire`);
+      if (!used.has(e) && !this.edgeWire[e]) bad.push(`edge ${e}: belongs to no face and is not a wire`);
       if (this.edgeKey.get(this.keyOf(this.edgeA[e], this.edgeB[e])) !== e) bad.push(`edge ${e}: key index mismatch`);
     }
     for (const [k, e] of this.edgeKey) if (!this.hasE(e) || this.keyOf(this.edgeA[e], this.edgeB[e]) !== k) bad.push(`edge key ${k} → ${e} stale`);

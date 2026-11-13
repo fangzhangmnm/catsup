@@ -1,7 +1,9 @@
 // 网格体的手标 + 默认平滑的指令、继承、拾取（2026-10-28 Claude Opus 5.5；纪元账本 FM129 / FM138，硬软边设计稿 §3 / §5 / §6）。
 // 判定本体（edge-smooth.ts）的标准答案在 mesh-format / object-commands 里；这里钉：右键指令出的 op 对、撤销逐字回去、挤出带手标 / 插入不带、并边取交集、自由建模里平滑边点得中。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { MeshKernel, F_SHARP, F_SMOOTH, F_SOFT, F_SEAM } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
+import { F_SHARP, F_SMOOTH, F_SOFT, F_SEAM } from "../src/mesh/edge-bits.ts";
+import { UV_SEAM, packEdgeByte, setEdgeMark, unpackEdgeByte } from "../src/mesh/reserved-columns.ts";
 import { addBox, addPrimitive, extrudeFaces, insetFaces } from "../src/mesh/ops/index.ts";
 import { dissolveVertex } from "../src/mesh/ops/join.ts";
 import { splitEdge } from "../src/mesh/ops/split.ts";
@@ -43,18 +45,18 @@ describe("网格体手标 + 默认平滑（右键指令）", () => {
     eq(markSharp.plan(env, unit(def, [side, rim]), {}).count, 2, "数的是手标会变的边：顶圈默认就是棱，但没手标，标了以后改默认平滑也不变");
     const plan = markSharp.plan(env, unit(def, [side]), {});
     eq(plan.ops.length, 1); eq(plan.ops[0].op, "meshEdgeMarks");
-    const before = Array.from(m.edgeFlags).join(",");
+    const before = m.edges().map((e) => `${e}:${packEdgeByte(m, e)}`).join(",");
     h.commit(s, plan.ops[0]);
     assert(!edgeSmooth(m, side) && !edgeSoft(m, side), "标成棱：断开、画线");
     eq(markSharp.plan(env, unit(def, [side]), {}).count, 0, "已经是棱的不算");
     h.commit(s, markSmooth.plan(env, unit(def, [rim]), {}).ops[0]);
     assert(edgeSmooth(m, rim) && edgeSoft(m, rim), "标成平滑：明暗连续、不画线");
-    eq(m.edgeFlags[rim] & MARKS, F_SMOOTH | F_SOFT);
+    eq(packEdgeByte(m, rim) & MARKS, F_SMOOTH | F_SOFT);
     h.commit(s, clearMarks.plan(env, unit(def, [side, rim]), {}).ops[0]);
-    eq(m.edgeFlags[side] & MARKS, 0); eq(m.edgeFlags[rim] & MARKS, 0);
+    eq(packEdgeByte(m, side) & MARKS, 0); eq(packEdgeByte(m, rim) & MARKS, 0);
     assert(edgeSmooth(m, side) && !edgeSmooth(m, rim), "清掉以后回到默认平滑的判法");
     h.undo(); h.undo(); h.undo();
-    eq(Array.from(m.edgeFlags).join(","), before, "三步撤回去逐字一样");
+    eq(m.edges().map((e) => `${e}:${packEdgeByte(m, e)}`).join(","), before, "三步撤回去逐字一样");
   });
   it("选面 = 面的全部边", () => {
     const { s, def, m } = meshScene((k) => addBox(k, P(0, 0, 0), P(1, 1, 1)));
@@ -87,12 +89,12 @@ describe("手标怎么继承（硬软边设计稿 §3）", () => {
     // 顶面外圈标平滑
     const top = m.faces().find((f) => m.faceVerts(f).every((v) => m.pt(v).z === 1))!;
     const ring = m.faceVerts(top), outer = ring.map((v, i) => m.edgeOf(v, ring[(i + 1) % ring.length]));
-    for (const e of outer) m.setEdgeFlags(e, F_SOFT | F_SMOOTH);
+    for (const e of outer) unpackEdgeByte(m, e, F_SOFT | F_SMOOTH);
     const r = extrudeFaces(m, [top]);
     const cap = m.faceVerts(top);
-    for (let i = 0; i < cap.length; i++) eq(m.edgeFlags[m.edgeOf(cap[i], cap[(i + 1) % cap.length])] & MARKS, F_SOFT | F_SMOOTH, "帽子那圈带原来的手标");
-    for (const e of outer) eq(m.edgeFlags[e] & MARKS, F_SOFT | F_SMOOTH, "原来的边界留着");
-    for (const [a, b] of r.newVerts) eq(m.edgeFlags[m.edgeOf(a, b)] & MARKS, 0, "侧面竖边不标");
+    for (let i = 0; i < cap.length; i++) eq(packEdgeByte(m, m.edgeOf(cap[i], cap[(i + 1) % cap.length])) & MARKS, F_SOFT | F_SMOOTH, "帽子那圈带原来的手标");
+    for (const e of outer) eq(packEdgeByte(m, e) & MARKS, F_SOFT | F_SMOOTH, "原来的边界留着");
+    for (const [a, b] of r.newVerts) eq(packEdgeByte(m, m.edgeOf(a, b)) & MARKS, 0, "侧面竖边不标");
     eq(m.check().join("\n"), "");
   });
   it("挤出两张面的区域：中间那条（新的）边带上原来那条的棱", () => {
@@ -101,29 +103,29 @@ describe("手标怎么继承（硬软边设计稿 §3）", () => {
     // 区域 = 顶面 + 一张侧面（共一条边）
     const side = m.faces().find((f) => m.faceVerts(f).every((v) => m.pt(v).y === 0))!;
     const shared = m.faceVerts(top).map((v, i, a) => m.edgeOf(v, a[(i + 1) % a.length])).find((e) => m.eFaces(e).includes(side))!;
-    m.setEdgeFlags(shared, F_SHARP);
+    unpackEdgeByte(m, shared, F_SHARP);
     const ends = [m.edgeA[shared], m.edgeB[shared]];
     const r = extrudeFaces(m, [top, side]);
     const ne = m.edgeOf(r.newVerts.get(ends[0])!, r.newVerts.get(ends[1])!);
-    assert(ne >= 0, "区域里的那条边在新点上"); eq(m.edgeFlags[ne] & MARKS, F_SHARP);
+    assert(ne >= 0, "区域里的那条边在新点上"); eq(packEdgeByte(m, ne) & MARKS, F_SHARP);
     eq(m.check().join("\n"), "");
   });
   it("插入：新的一圈不带原边界的手标", () => {
     const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1));
     const top = m.faces().find((f) => m.faceVerts(f).every((v) => m.pt(v).z === 1))!;
     const ring = m.faceVerts(top);
-    for (let i = 0; i < ring.length; i++) m.setEdgeFlags(m.edgeOf(ring[i], ring[(i + 1) % ring.length]), F_SHARP);
+    for (let i = 0; i < ring.length; i++) unpackEdgeByte(m, m.edgeOf(ring[i], ring[(i + 1) % ring.length]), F_SHARP);
     insetFaces(m, [top], 0.1);
     const inner = m.faceVerts(top);
-    for (let i = 0; i < inner.length; i++) eq(m.edgeFlags[m.edgeOf(inner[i], inner[(i + 1) % inner.length])] & MARKS, 0);
+    for (let i = 0; i < inner.length; i++) eq(packEdgeByte(m, m.edgeOf(inner[i], inner[(i + 1) % inner.length])) & MARKS, 0);
   });
   it("并边（溶解二度点）：手标两条都有才留；接缝之类别的位有一条就留", () => {
     const run = (fa: number, fb: number): number => {
       const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1));
-      const e = m.edges()[0]; m.setEdgeFlags(e, 0);
+      const e = m.edges()[0]; unpackEdgeByte(m, e, 0);
       const v = splitEdge(m, e, 0.5), es = [...m.vEdges(v)];
-      m.setEdgeFlags(es[0], fa); m.setEdgeFlags(es[1], fb);
-      return m.edgeFlags[dissolveVertex(m, v)];
+      unpackEdgeByte(m, es[0], fa); unpackEdgeByte(m, es[1], fb);
+      return packEdgeByte(m, dissolveVertex(m, v));
     };
     eq(run(F_SHARP, F_SHARP) & MARKS, F_SHARP);
     eq(run(F_SHARP, 0) & MARKS, 0, "一条是棱、一条没标 → 不标（以前是有一条就有）");
@@ -159,21 +161,21 @@ describe("接缝（施工单二十二 A / B，2026-11-12 Opus）", () => {
   it("标成接缝 / 清掉接缝：op = meshEdgeMarks、只动接缝那一位（手标留着）；已经是的不算；撤销逐字回去", () => {
     const { s, def, m } = meshScene((k) => addBox(k, P(0, 0, 0), P(1, 1, 1)));
     const env = { scene: s } as unknown as CommandEnv, h = new History(s), [e0, e1] = m.edges();
-    m.setEdgeFlags(e0, F_SHARP);
-    const before = Array.from(m.edgeFlags).join(",");
+    unpackEdgeByte(m, e0, F_SHARP);
+    const before = m.edges().map((e) => `${e}:${packEdgeByte(m, e)}`).join(",");
     const plan = markSeam.plan(env, unit(def, [e0, e1]), {});
     eq(plan.count, 2); eq(plan.ops[0].op, "meshEdgeMarks");
     h.commit(s, plan.ops[0]);
-    eq(m.edgeFlags[e0], F_SHARP | F_SEAM, "棱留着、加上接缝"); eq(m.edgeFlags[e1], F_SEAM);
+    eq(packEdgeByte(m, e0), F_SHARP | F_SEAM, "棱留着、加上接缝"); eq(packEdgeByte(m, e1), F_SEAM);
     eq(markSeam.plan(env, unit(def, [e0, e1]), {}).count, 0, "已经是接缝的不算");
     h.commit(s, clearMarks.plan(env, unit(def, [e0, e1]), {}).ops[0]);
-    eq(m.edgeFlags[e0], F_SEAM, "清掉手标不碰接缝"); eq(m.edgeFlags[e1], F_SEAM);
+    eq(packEdgeByte(m, e0), F_SEAM, "清掉手标不碰接缝"); eq(packEdgeByte(m, e1), F_SEAM);
     eq(clearSeam.plan(env, unit(def, [e0]), {}).count, 1);
     h.commit(s, clearSeam.plan(env, unit(def, [e0]), {}).ops[0]);
-    eq(m.edgeFlags[e0], 0); eq(m.edgeFlags[e1], F_SEAM);
+    eq(packEdgeByte(m, e0), 0); eq(packEdgeByte(m, e1), F_SEAM);
     eq(clearSeam.plan(env, unit(def, [e0]), {}).count, 0, "没有接缝的不算");
     h.undo(); h.undo(); h.undo();
-    eq(Array.from(m.edgeFlags).join(","), before, "三步撤回去逐字一样");
+    eq(m.edges().map((e) => `${e}:${packEdgeByte(m, e)}`).join(","), before, "三步撤回去逐字一样");
   });
   it("选一片面 = 标它的外沿（片里面的边不标）；选边 + 选面 = 两样合起来", () => {
     const { s, def, m } = meshScene((k) => addBox(k, P(0, 0, 0), P(1, 1, 1)));
@@ -189,29 +191,29 @@ describe("接缝（施工单二十二 A / B，2026-11-12 Opus）", () => {
   it("自动标接缝（指令）：没选区 = 整个网格体；op = meshEdgeMarks seam、只列新补的；做完选中补的那几条；提示带理由和片数；一步撤销；选了面 = 只管那几张", () => {
     const { s, def, m } = meshScene((k) => addBox(k, P(0, 0, 0), P(1, 1, 1)));
     const env = { scene: s } as unknown as CommandEnv, h = new History(s);
-    m.setFlags(m.edges()[0], F_SEAM, true);
-    const before = Array.from(m.edgeFlags).join(",");
+    setEdgeMark(m, m.edges()[0], UV_SEAM, true);
+    const before = m.edges().map((e) => `${e}:${packEdgeByte(m, e)}`).join(",");
     const plan = autoSeamsCmd.plan(env, { kind: "mesh", def, sel: null, xf: IDENTITY }, autoSeamsCmd.defaults(env));
     eq(plan.count, 11, "12 条棱减去已经标的那条"); eq(plan.ops[0].op, "meshEdgeMarks"); eq((plan.ops[0] as { mark: string }).mark, "seam");
     eq(JSON.stringify(plan.select?.edges), JSON.stringify((plan.ops[0] as { edges: number[] }).edges), "做完选中补的那几条");
     assert(/折痕 11/.test(plan.notes?.[0] ?? "") && /6 片/.test(plan.notes?.[0] ?? ""), plan.notes?.[0] ?? "");
     h.commit(s, plan.ops[0]);
-    eq(m.edges().filter((e) => m.edgeFlags[e] & F_SEAM).length, 12);
+    eq(m.edges().filter((e) => packEdgeByte(m, e) & F_SEAM).length, 12);
     eq(autoSeamsCmd.plan(env, { kind: "mesh", def, sel: null, xf: IDENTITY }, { deg: 60 }).count, 0, "再做一次：不用补");
-    h.undo(); eq(Array.from(m.edgeFlags).join(","), before, "一步撤回去");
+    h.undo(); eq(m.edges().map((e) => `${e}:${packEdgeByte(m, e)}`).join(","), before, "一步撤回去");
     const top = m.faces().find((f) => m.faceVerts(f).every((v) => m.pt(v).z === 1))!;
     eq(autoSeamsCmd.plan(env, unit(def, [], [top]), { deg: 60 }).count, 0, "只选顶面：本来就是一张盘");
   });
-  it("接缝存进文件、读回来还在（edgeFlags 本来就有这一位，格式不变）", () => {
+  it("接缝存进文件、读回来还在（文件里 edgeFlags 那个字节本来就有这一位，格式不变；3c 起内存里是 uv_seam 一列）", () => {
     const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1));
-    const [e0, e1] = m.edges(); m.setEdgeFlags(e0, F_SEAM); m.setEdgeFlags(e1, F_SEAM | F_SHARP);
+    const [e0, e1] = m.edges(); unpackEdgeByte(m, e0, F_SEAM); unpackEdgeByte(m, e1, F_SEAM | F_SHARP);
     const m2 = kernelFromMeshDoc(meshDocFromKernel(m));
-    const seamPairs = (k: MeshKernel): string => k.edges().filter((e) => k.edgeFlags[e] & F_SEAM).map((e) => `${Math.min(k.edgeA[e], k.edgeB[e])}-${Math.max(k.edgeA[e], k.edgeB[e])}:${k.edgeFlags[e]}`).sort().join(",");
+    const seamPairs = (k: MeshKernel): string => k.edges().filter((e) => packEdgeByte(k, e) & F_SEAM).map((e) => `${Math.min(k.edgeA[e], k.edgeB[e])}-${Math.max(k.edgeA[e], k.edgeB[e])}:${packEdgeByte(k, e)}`).sort().join(",");
     eq(seamPairs(m2), seamPairs(m)); eq(seamPairs(m2).split(",").length, 2);
   });
   it("显示：画接缝时接缝一律进线批、不只在外轮廓时画（软边上的接缝也画）、带 seam；不画接缝时照旧；藏起来的接缝不画", () => {
     const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1));
-    const [e0, e1] = m.edges(); m.setEdgeFlags(e0, F_SEAM | F_SOFT | F_SMOOTH); m.setEdgeFlags(e1, F_SEAM | 8);   // 8 = F_HIDDEN
+    const [e0, e1] = m.edges(); unpackEdgeByte(m, e0, F_SEAM | F_SOFT | F_SMOOTH); unpackEdgeByte(m, e1, F_SEAM | 8);   // 8 = F_HIDDEN
     const v = meshViewOf(m);
     const on = buildEdgeRec(v, e0, true)!, off = buildEdgeRec(v, e0, false)!;
     eq(on.seam, true); eq(on.flag, 2, "画接缝：软的接缝也一直画（旗 = 两张面，不加 CONTOUR_ONLY）");

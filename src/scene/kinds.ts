@@ -1,13 +1,13 @@
 // scene/kinds.ts —— kind 登记表（契约 ai-docs/20261024-object-model-contract.md §2 / §5）：每种身体声明可用模式、能 cast 到哪（丢什么）、对齐几何、包围盒。
 // 加 kind = 加一条登记，不改既有的；cast 只在表里有的方向上成功、不做部分转换（user 2026-10-24「每个物体有一个kind，可以换，换了要explicit cast op用户点确认」）。
 // created 2026-10-24 by Claude Fable 5.1 · 2026-10-27 mesh 身体换成可编辑的 mesh 内核（src/mesh/），brep → mesh 出多边形面不出三角汤（edited by Claude Fable 5.1）
-import { faceHidden, faceMaterial, givenFaceValues } from "../mesh/reserved-columns.ts";
+import { HIDE_EDGE, SMOOTH, SOFT, edgeMark, faceHidden, faceMaterial, givenFaceValues, setEdgeMark } from "../mesh/reserved-columns.ts";
 import { cross3, ptKey3, quantize3, sub3, type PlaneParams, type Pt3 } from "../kernel/geom.ts";
 import type { BodyKind } from "./body-kind.ts";
 import type { Body, BrepBody, DefId, MeshBody, Scene } from "./scene.ts";
 import { reachableDefs } from "./resources.ts";
 import { triangulateRings } from "../format/triangulate.ts";
-import { MeshKernel, F_SOFT, F_SMOOTH, F_HIDDEN, F_WIRE } from "../mesh/mesh-kernel.ts";
+import { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { FRESH } from "../mesh/columns.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import { BUILTIN_BACK_SLOT } from "./builtin-materials.ts";
@@ -52,7 +52,7 @@ export const MESH_KIND: KindDef<MeshBody> = {
   castsTo: [{ to: "brep", loses: ["不平的面（折成平面块，块之间加软边）", "隐藏的面", "裸线（不属于任何面的边）", "软边 / 平滑标记（改按弯折角度重判）"] }],
   alignGeometry(b) {
     const m = b.kernel, points = m.verts().map((v) => m.pt(v));
-    const segments = m.edges().filter((e) => !edgeSoft(m, e) && !(m.edgeFlags[e] & F_HIDDEN)).map((e) => [m.pt(m.edgeA[e]), m.pt(m.edgeB[e])] as [Pt3, Pt3]);   // 画线的边（默认平滑 + 手标判，FM129）
+    const segments = m.edges().filter((e) => !edgeSoft(m, e) && !edgeMark(m, e, HIDE_EDGE)).map((e) => [m.pt(m.edgeA[e]), m.pt(m.edgeB[e])] as [Pt3, Pt3]);   // 画线的边（默认平滑 + 手标判，FM129）
     return { points, segments, planes: [] };
   },
   bounds(b) { const m = b.kernel; return boundsOf(m.verts().map((v) => m.pt(v))); },
@@ -111,17 +111,15 @@ function addBrepPool(m: MeshKernel, k: Kernel, isBack: (slot: number) => boolean
     for (const [a, b2, c] of tris) add([vi(all[a]), vi(all[b2]), vi(all[c])]);
   }
   for (const e of k.edges()) {
-    if (e.faceLinks.length === 0) { const me = m.ensureEdge(vi(e.a), vi(e.b)); m.setEdgeFlags(me, m.edgeFlags[me] | F_WIRE); }
+    if (e.faceLinks.length === 0) m.setWire(m.ensureEdge(vi(e.a), vi(e.b)), true);
   }
   const brepIdOf = new Map<number, number>([...vid].map(([b2, mm]) => [mm, b2]));
   for (const me of m.edges()) {
     if (!brepIdOf.has(m.edgeA[me]) || !brepIdOf.has(m.edgeB[me])) continue;   // 别的池的边
     const a = brepIdOf.get(m.edgeA[me])!, bb = brepIdOf.get(m.edgeB[me])!, key = a < bb ? `${a}-${bb}` : `${bb}-${a}`;
-    if (!brepEdge.has(key)) { m.setEdgeFlags(me, m.edgeFlags[me] | F_SOFT | F_SMOOTH); continue; }   // 三角化出来的内部边：看不见、明暗连续
+    if (!brepEdge.has(key)) { setEdgeMark(m, me, SOFT, true); setEdgeMark(m, me, SMOOTH, true); continue; }   // 三角化出来的内部边：看不见、明暗连续
     const eid = k.graph.vertex(a).edges;
-    let fl = m.edgeFlags[me];
-    for (const x of eid) { const E = k.graph.edge(x); if ((E.a === a && E.b === bb) || (E.a === bb && E.b === a)) { if (k.isSoft(x)) fl |= F_SOFT; if (k.isSmooth(x)) fl |= F_SMOOTH; if (k.isFold(x)) fl |= F_SOFT | F_SMOOTH; if (k.isEdgeHidden(x)) fl |= F_HIDDEN; } }
-    if (fl !== m.edgeFlags[me]) m.setEdgeFlags(me, fl);
+    for (const x of eid) { const E = k.graph.edge(x); if ((E.a === a && E.b === bb) || (E.a === bb && E.b === a)) { if (k.isSoft(x) || k.isFold(x)) setEdgeMark(m, me, SOFT, true); if (k.isSmooth(x) || k.isFold(x)) setEdgeMark(m, me, SMOOTH, true); if (k.isEdgeHidden(x)) setEdgeMark(m, me, HIDE_EDGE, true); } }   // 硬表面的边层照给（给定的值，按保留名写）
   }
 }
 /**

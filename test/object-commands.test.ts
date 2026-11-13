@@ -10,7 +10,7 @@ import type { CommandEnv, ObjectUnit } from "../src/editor/commands/command.ts";
 import { toMesh, toBrep } from "../src/editor/objects/index.ts";
 import { castImport, buildImport, type ImportedScene } from "../src/scene/import-build.ts";
 import type { ImportScene } from "../src/format/gltf-import.ts";
-import { MeshKernel, F_SOFT, F_SMOOTH } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox } from "../src/mesh/ops/index.ts";
 import { edgeSmooth, edgeSoft } from "../src/mesh/edge-smooth.ts";
 import { oneSided, sceneBox } from "./format-scenes.ts";

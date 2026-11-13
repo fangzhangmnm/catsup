@@ -7,8 +7,9 @@
 //   折痕 = 手标的棱（F_SHARP）+ 网格边缘（只挨一张面）+ 非流形（三张以上）。「默认平滑」不算折痕（它管的是明暗，硬边多的网格照样细分得圆）。
 //   每张 n 边形 → n 个四边形（绕向不变）；原来一条边对半分开的两段带原来的标记，新长出来的边不带。
 // 裸线 / 孤立的点：不做（细分只认面），调用方说出来。
-import { MeshKernel, F_WIRE, type FaceOrigin, type FaceShape } from "../mesh-kernel.ts";
-import { CREASE_MARK } from "../edge-mark-rules.ts";
+import { MeshKernel, type EdgeShape, type FaceOrigin, type FaceShape } from "../mesh-kernel.ts";
+import { SHARP_EDGE, edgeMark } from "../reserved-columns.ts";
+import { declareRingEdges, fromShapes, pairKey } from "./ring-edges.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 
 const add = (a: Pt3, b: Pt3): Pt3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
@@ -18,7 +19,7 @@ const avg = (ps: readonly Pt3[]): Pt3 => mul(ps.reduce(add, { x: 0, y: 0, z: 0 }
 /** 裸线和孤立的点有几个（> 0 = 细分不做）。 */
 export function looseBits(m: MeshKernel): number {
   let n = 0;
-  for (const e of m.edges()) if (!m.eFaces(e).length || (m.edgeFlags[e] & F_WIRE)) n++;
+  for (const e of m.edges()) if (!m.eFaces(e).length || m.isWire(e)) n++;
   for (const v of m.verts()) if (!m.vEdges(v).length) n++;
   return n;
 }
@@ -27,7 +28,7 @@ export function looseBits(m: MeshKernel): number {
 export function catmullClark(m: MeshKernel): number {
   if (looseBits(m)) throw new Error("catmullClark: the mesh has loose edges or vertices");
   const verts = m.verts(), edges = m.edges(), faces = m.faces();
-  const crease = (e: number): boolean => m.eFaces(e).length !== 2 || (m.edgeFlags[e] & CREASE_MARK) !== 0;
+  const crease = (e: number): boolean => m.eFaces(e).length !== 2 || edgeMark(m, e, SHARP_EDGE);   // 手标的棱当折痕（读语义）
   const other = (e: number, v: number): number => (m.edgeA[e] === v ? m.edgeB[e] : m.edgeA[e]);
   // ---- 读：三种新点的位置 ----
   const fp = new Map<number, Pt3>();
@@ -68,8 +69,7 @@ export function catmullClark(m: MeshKernel): number {
     const centroid = avg(Array.from({ length: n }, (_, j) => at(j)));
     return { kind: "piece", of, from: [q.i, mid(q.i, (q.i + 1) % n), centroid, mid((q.i - 1 + n) % n, q.i)] };
   };
-  const halves: { a: number; b: number; e: number; fl: number }[] = [];
-  for (const e of edges) if (m.edgeFlags[e]) halves.push({ a: m.edgeA[e], b: m.edgeB[e], e, fl: m.edgeFlags[e] });
+  const edgeShapes = new Map(edges.map((e) => [e, m.edgeShape(e)] as const));   // 原来的边的旧样子（删面之前记）：两半 = 它的一块
   // ---- 写：清空、按 点 → 边点 → 面点 的顺序加回来（确定性）----
   m.removeFaces(faces);   // 一批删（W-10：逐张删每张都重建一次邻接表，随面数平方涨；结果逐位一样，样本 test/mesh-subdivide-golden.test.ts）
   m.removeVertices(verts.filter((v) => m.hasV(v) && !m.vEdges(v).length));
@@ -78,8 +78,9 @@ export function catmullClark(m: MeshKernel): number {
   for (const e of edges) ne.set(e, m.addVertex(ep.get(e)!));
   for (const f of faces) nf.set(f, m.addVertex(fp.get(f)!));
   const id = ([k, x]: ["v" | "e" | "f", number]): number => (k === "v" ? nv : k === "e" ? ne : nf).get(x)!;
-  for (const q of quads) m.addFace(q.ring.map(id), originOf(q));   // 一块：面上的列（材质、隐藏）照抄原面
-  for (const h of halves) for (const [x, y] of [[nv.get(h.a)!, ne.get(h.e)!], [ne.get(h.e)!, nv.get(h.b)!]]) { const k = m.edgeOf(x, y); if (k >= 0) m.setEdgeFlags(k, h.fl & ~F_WIRE); }
+  const halves = new Map<string, EdgeShape>();
+  for (const [e, sh] of edgeShapes) { const c = ne.get(e)!; halves.set(pairKey(nv.get(sh.a)!, c), sh); halves.set(pairKey(c, nv.get(sh.b)!), sh); }
+  for (const q of quads) { const ring = q.ring.map(id); declareRingEdges(m, ring, fromShapes(halves, "piece")); m.addFace(ring, originOf(q)); }   // 一块：面上的列（材质、隐藏）照抄原面；原来的边的两半先带着来历造好（边上的列全照抄）
   return quads.length;
 }
 

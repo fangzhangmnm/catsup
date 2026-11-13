@@ -9,7 +9,7 @@ import { loopCuts as loopCutsOp, knife as knifeOp, maxInset, selectionVerts, bev
 import { add3, scale3, type Pt3 } from "../../kernel/geom.ts";
 import { snapToSymmetry, type MirrorAxis, type SnapSide } from "../../mesh/mirror.ts";
 import { type MeshKernel, type SmoothDefaultMode } from "../../mesh/mesh-kernel.ts";
-import { markBits, type EdgeMark } from "../../mesh/edge-smooth.ts";
+import { isMarked, type EdgeMark } from "../../mesh/edge-smooth.ts";
 import { autoSeams } from "../../mesh/auto-seams.ts";
 import type { QuantityTag } from "../units.ts";
 /** 长度字段：值存米，显示 / − + / 打字按用户选的单位（units.ts）。 */
@@ -126,14 +126,14 @@ function seamEdges(m: MeshKernel, u: MeshUnit): number[] {
   return [...out].sort((a, b) => a - b);
 }
 function markCommand(mark: EdgeMark, id: `mesh.${string}`, title: string, done: string, none: string): Command<MeshUnit> {
-  const { mask, bits } = markBits(mark), pick = mark === "seam" || mark === "unseam" ? seamEdges : selEdges;
+  const pick = mark === "seam" || mark === "unseam" ? seamEdges : selEdges;
   return {
     id, unit: "mesh", title,
     defaults: () => ({}),
     params: () => [],
     plan(env, u) {
       const m = env.scene.mesh(u.def).kernel;
-      const es = pick(m, u).filter((e) => (m.edgeFlags[e] & mask) !== bits);   // 已经是这个标的不算
+      const es = pick(m, u).filter((e) => !isMarked(m, e, mark));   // 已经是这个标的不算
       return es.length ? { ops: [{ op: "meshEdgeMarks", def: u.def, edges: es, mark }], count: es.length } : { ops: [], count: 0 };
     },
     done: (n) => done.replace("N", String(n)),

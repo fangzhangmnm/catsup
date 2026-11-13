@@ -9,8 +9,9 @@
 //   · v 周围剩下的洞：两条以上的倒边 = 补一张面（三条倒边的角 = 三角补片）；只有一条倒边 = 洞是空的（度 3：截面点进那张端面）或并进倒角带（度 ≥ 4、1 段）。
 //   · 宽度太宽会穿过别的边：按每个滑点 / 交点最多走到所在边的 49% 夹住，夹了就报（clamped）。
 // 手标：不倒的边被换成新边时带上原来的标记；段数 > 1 时倒角带中间那几条纵向边标平滑（圆角看起来是圆的）。
-import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
-import { HAND_MARKS, MOVING_MARKS_WITH_HIDDEN, SMOOTH_MARK } from "../edge-mark-rules.ts";
+import { MeshKernel, type EdgeShape } from "../mesh-kernel.ts";
+import { markEdges } from "../edge-smooth.ts";
+import { declareRingEdges, fromShapes, pairKey } from "./ring-edges.ts";
 import { GROWN } from "../columns.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
@@ -205,10 +206,14 @@ export function bevelEdges(k: MeshKernel, edges: readonly number[], width: numbe
   }
   const cornerR = (v: number, f: number): number[] => R.get(`${v}|${f}`)!;
 
-  // ---- 记下不倒的边的标记（换成新边后搬过去），然后改面的环 ----
-  const carry = new Map<number, { a: number; b: number; fl: number }>();
+  // ---- 不倒的边换成新边（一头滑到切点）= 原来那条的一份：先记旧样子，改环之前带着来历造好；然后改面的环 ----
   const touchedFaces = new Set<number>(); for (const v of vs) for (const c of fans.get(v)!) touchedFaces.add(c.f);
-  for (const v of vs) for (const e of k.vEdges(v)) if (!isB(e) && !carry.has(e)) carry.set(e, { a: k.edgeA[e], b: k.edgeB[e], fl: k.edgeFlags[e] });
+  const carried = new Map<string, EdgeShape>(), seen = new Set<number>();
+  for (const v of vs) for (const e of k.vEdges(v)) {
+    if (isB(e) || seen.has(e)) continue; seen.add(e);
+    const a = k.edgeA[e], b = k.edgeB[e], a2 = fans.has(a) ? sv(a, e) : a, b2 = fans.has(b) ? sv(b, e) : b;
+    if (a2 !== a || b2 !== b) carried.set(pairKey(a2, b2), k.edgeShape(e));   // 两头都没滑 = 还是原来那条边
+  }
   const newRings = new Map<number, number[]>();
   for (const f of [...touchedFaces].sort((a, b) => a - b)) {
     const ring = dedupeRing(k.faceVerts(f).flatMap((u) => (fans.has(u) ? cornerR(u, f) : [u])));
@@ -223,7 +228,7 @@ export function bevelEdges(k: MeshKernel, edges: readonly number[], width: numbe
     strips.push({ e, a, b, f1, f2: f1 === fa ? fb : fa });
   }
   const shapes = new Map([...newRings.keys()].map((f) => [f, k.shapeOf(f)] as const));   // 旧样子：改环之前记
-  for (const [f, ring] of newRings) k.setFaceRing(f, ring, { kind: "piece", of: shapes.get(f)! });   // 倒角缩小的原面 = 原来那张的一块（新点在面里 / 沿原来的边滑过去）
+  for (const [f, ring] of newRings) { declareRingEdges(k, ring, fromShapes(carried, "copy")); k.setFaceRing(f, ring, { kind: "piece", of: shapes.get(f)! }); }   // 倒角缩小的原面 = 原来那张的一块（新点在面里 / 沿原来的边滑过去）
 
   // ---- 倒角带 ----
   const out: number[] = [], stripOf = new Map<number, number[]>();
@@ -237,7 +242,7 @@ export function bevelEdges(k: MeshKernel, edges: readonly number[], width: numbe
       if (ring.length >= 3 && new Set(ring).size === ring.length) { const f = k.addFace(ring, { kind: "grown", neighbor: f1 }); ids.push(f); out.push(f); }   // 倒角带 = 新长出来的（旁边 = 原来挨着的那张面）
     }
     stripOf.set(e, ids);
-    if (s > 1) for (let j = 1; j < s && j < pa.length - 1 && j < pb.length - 1; j++) { const le = k.edgeOf(pa[j], pb[j]); if (le >= 0) k.setEdgeFlags(le, (k.edgeFlags[le] & ~HAND_MARKS) | SMOOTH_MARK); }
+    if (s > 1) for (let j = 1; j < s && j < pa.length - 1 && j < pb.length - 1; j++) { const le = k.edgeOf(pa[j], pb[j]); if (le >= 0) markEdges(k, [le], "smooth"); }   // 操作本意：圆角中间的线按保留名写成平滑（规程第二½节）
   }
 
   // ---- 角上的洞 ----
@@ -260,13 +265,7 @@ export function bevelEdges(k: MeshKernel, edges: readonly number[], width: numbe
     const f = k.addFace(ring, { kind: "grown", neighbor: fan[0].f }); out.push(f);   // 角上的补片 = 新长出来的
   }
 
-  // ---- 不倒的边的标记搬到换出来的新边；没边的老点删掉 ----
-  for (const [e, { a, b, fl }] of carry) {
-    const a2 = fans.has(a) ? sv(a, e) : a, b2 = fans.has(b) ? sv(b, e) : b;
-    if (a2 === a && b2 === b) continue;   // 两头都没滑：还是原来那条边
-    const ne = k.edgeOf(a2, b2);
-    if (ne >= 0) k.setEdgeFlags(ne, (k.edgeFlags[ne] & F_WIRE) | (fl & MOVING_MARKS_WITH_HIDDEN));
-  }
+  // ---- 没边的老点删掉 ----
   for (const v of vs) if (k.hasV(v) && k.vEdges(v).length === 0) k.removeVertex(v);
   return { faces: out, width: w, clamped, skipped };
 }
@@ -288,23 +287,21 @@ export function bevelVerts(k: MeshKernel, verts: readonly number[], width: numbe
     const key = `${v}|${e}`;
     if (!cut.has(key)) cut.set(key, k.addVertex(add3(k.pt(v), scale3(normalize3(sub3(k.pt(other(e, v)), k.pt(v))), w))));
   }
-  const carry = new Map<number, { a: number; b: number; fl: number }>();
-  for (const v of vs) for (const e of k.vEdges(v)) if (!carry.has(e)) carry.set(e, { a: k.edgeA[e], b: k.edgeB[e], fl: k.edgeFlags[e] });
+  const carried = new Map<string, EdgeShape>();   // 原来那条边 (a, b) 现在是 (a 那头的切点或 a, b 那头的切点或 b) = 它的一份：先记旧样子
+  for (const v of vs) for (const e of k.vEdges(v)) {
+    const a = k.edgeA[e], b = k.edgeB[e], a2 = fans.has(a) ? cut.get(`${a}|${e}`)! : a, b2 = fans.has(b) ? cut.get(`${b}|${e}`)! : b;
+    if (!carried.has(pairKey(a2, b2))) carried.set(pairKey(a2, b2), k.edgeShape(e));
+  }
   const touched = new Set<number>(); for (const v of vs) for (const c of fans.get(v)!) touched.add(c.f);
   const corner = (v: number, f: number): number[] => { const c = fans.get(v)!.find((x) => x.f === f)!; return [cut.get(`${v}|${c.ea}`)!, cut.get(`${v}|${c.eb}`)!]; };
   const rings = new Map<number, number[]>();
   for (const f of [...touched].sort((a, b) => a - b)) rings.set(f, dedupeRing(k.faceVerts(f).flatMap((u) => (fans.has(u) ? corner(u, f) : [u]))));
   const shapes = new Map([...rings.keys()].map((f) => [f, k.shapeOf(f)] as const));
-  for (const [f, r] of rings) k.setFaceRing(f, r, { kind: "piece", of: shapes.get(f)! });   // 倒点缩小的原面 = 原来那张的一块
+  for (const [f, r] of rings) { declareRingEdges(k, r, fromShapes(carried, "copy")); k.setFaceRing(f, r, { kind: "piece", of: shapes.get(f)! }); }   // 倒点缩小的原面 = 原来那张的一块
   const out: number[] = [];
   for (const v of vs) {
     const fan = fans.get(v)!, cyc = dedupeRing(fan.flatMap((c) => corner(v, c.f)));
     if (cyc.length >= 3) out.push(k.addFace(orientPatch(k, cyc), { kind: "grown", neighbor: fan[0].f }));   // 倒点的补片 = 新长出来的
-  }
-  // 标记：原来那条边 (a, b) 现在是 (a 那头的切点或 a, b 那头的切点或 b)
-  for (const [e, { a, b, fl }] of carry) {
-    const a2 = fans.has(a) ? cut.get(`${a}|${e}`)! : a, b2 = fans.has(b) ? cut.get(`${b}|${e}`)! : b, ne = k.edgeOf(a2, b2);
-    if (ne >= 0) k.setEdgeFlags(ne, (k.edgeFlags[ne] & F_WIRE) | (fl & MOVING_MARKS_WITH_HIDDEN));
   }
   for (const v of vs) if (k.hasV(v) && k.vEdges(v).length === 0) k.removeVertex(v);
   return { faces: out, width: w, clamped, skipped };

@@ -11,11 +11,11 @@
 //   ⑤ 封闭、没有把手的壳（没有边界；只有两条边的切口 = 一条接缝两头还连着，也算没有）：从一个点找最远的点、再从它找最远的点，两点之间沿边走最短路切一刀。
 //   ⑥「展开后拉伸太大再切」：统筹 H，等第 2 刀的展开有了拉伸的数再比。
 import type { MeshKernel } from "./mesh-kernel.ts";
-import { F_SEAM } from "./mesh-kernel.ts";
+import { UV_SEAM } from "./reserved-columns.ts";
 import { chartsOf, flattenable, realBoundaries, DSU, type ChartMesh } from "./chart-mesh.ts";
 
 /** 读到的那点网格体（MeshKernel 满足）。 */
-export type AutoSeamMesh = Pick<MeshKernel, "faces" | "faceVerts" | "edgeOf" | "eFaces" | "edgeA" | "edgeB" | "edgeFlags" | "pt" | "faceNormal" | "faceTriangles" | "hasF">;
+export type AutoSeamMesh = Pick<MeshKernel, "faces" | "faceVerts" | "edgeOf" | "eFaces" | "edgeA" | "edgeB" | "column" | "pt" | "faceNormal" | "faceTriangles" | "hasF">;
 
 export interface AutoSeamOptions {
   /** 折痕：两张面法向夹角 ≥ 这么多度的边切。 */
@@ -53,7 +53,7 @@ export function chartShapes(m: AutoSeamMesh, faces: readonly number[], cut: (e: 
 export function autoSeams(m: AutoSeamMesh, faces: readonly number[] | null, opts: AutoSeamOptions): AutoSeamResult {
   const scope = [...new Set(faces ?? m.faces())].filter((f) => m.hasF(f)).sort((a, b) => a - b), inScope = new Set(scope);
   const crease = (opts.angleDeg * Math.PI) / 180;
-  const isSeam = (e: number): boolean => (m.edgeFlags[e] & F_SEAM) !== 0;
+  const seamCol = m.column(UV_SEAM.id), isSeam = (e: number): boolean => !!seamCol && seamCol.data[e] === 1;   // 保留名 uv_seam（没有这一列 = 没有接缝）
   const add = new Map<number, keyof AutoSeamResult["why"]>();
   const normals = new Map<number, { x: number; y: number; z: number }>();
   const nrm = (f: number): { x: number; y: number; z: number } => { let n = normals.get(f); if (!n) { n = m.faceNormal(f); normals.set(f, n); } return n; };

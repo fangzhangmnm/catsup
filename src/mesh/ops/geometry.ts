@@ -21,9 +21,6 @@ export function translateVerts(k: MeshKernel, ids: readonly number[], d: Pt3): v
 export function transformVerts(k: MeshKernel, ids: readonly number[], X: Xform): void {
   for (const v of ids) k.setPos(v, applyPt(X, k.pt(v)));
 }
-export function setEdgeFlags(k: MeshKernel, es: readonly number[], mask: number, on: boolean): void {
-  for (const e of es) k.setFlags(e, mask, on);
-}
 export function setFaceMaterial(k: MeshKernel, fs: readonly number[], slot: number): void {
   for (const f of fs) setReservedFaceMaterial(k, f, slot);   // 保留名 material_index（第一次写非 −1 才建这一列）
 }

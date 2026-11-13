@@ -2,7 +2,8 @@
 // 三角汤存不住 n 边形（四边形存成两个三角形读回来还是两个三角形）。现在没有任何用户入口能造出 mesh 身体（转换指令 M3 一起来），所以没有用户数据经过这条有损路；
 // M3 落地前不许接 UI。外来 glb 导入（user 10-27「导入直接成 mesh」）以后也走 meshFromTriangles。created 2026-10-27 by Claude Fable 5.1
 import { givenFaceValues, materialColumn } from "./reserved-columns.ts";
-import { F_SHARP, F_SMOOTH, F_SOFT, MeshKernel } from "./mesh-kernel.ts";
+import { MeshKernel } from "./mesh-kernel.ts";
+import { markEdges } from "./edge-smooth.ts";
 import { FRESH } from "./columns.ts";
 
 export interface TriSoup { positions: Float32Array; indices: Uint32Array; triMaterial?: Uint16Array; }
@@ -160,7 +161,7 @@ function finishPolys(m: MeshKernel, weld: Int32Array, polys: readonly (readonly 
   m.setSmoothDefault(majoritySmooth ? { mode: "smooth", deg: softDeg } : { mode: "hard", deg: softDeg });
   for (const [e, smooth] of verdict) {
     if (smooth === majoritySmooth) continue;
-    m.setEdgeFlags(e, (m.edgeFlags[e] & ~(F_SHARP | F_SMOOTH | F_SOFT)) | (smooth ? F_SOFT | F_SMOOTH : F_SHARP));
+    markEdges(m, [e], smooth ? "smooth" : "sharp");   // 导入按文件法线判出来的（操作本意，按保留名写）
   }
 }
 

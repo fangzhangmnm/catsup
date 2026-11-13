@@ -2,7 +2,8 @@
 // 标准答案：立方体（±1）细分一次 = 24 面 / 26 点 / 48 边、封闭、朝向一致；角点 → (5/9, 5/9, 5/9)（Catmull-Clark 的教科书值）；
 // 全部边标成棱 = 形状不变（角不动、边直）；有裸线 = 拒；op + 撤销往返；右键指令的规划。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { MeshKernel, F_SHARP } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
+import { SHARP_EDGE, edgeMark, setEdgeMark } from "../src/mesh/reserved-columns.ts";
 import { addBox } from "../src/mesh/ops/index.ts";
 import { catmullClark, subdivide, looseBits } from "../src/mesh/ops/subdivide.ts";
 import { Scene } from "../src/scene/scene.ts";
@@ -32,12 +33,12 @@ describe("细分（Catmull-Clark）", () => {
     eq(far.length, 1); assert(Math.abs(far[0].x - 5 / 9) < 1e-12, `${far[0].x}`);
   });
   it("全部边标成棱：形状不变（8 个角原地、所有点都在立方体表面上）", () => {
-    const m = cube(); for (const e of m.edges()) m.setEdgeFlags(e, F_SHARP);
+    const m = cube(); for (const e of m.edges()) setEdgeMark(m, e, SHARP_EDGE, true);
     subdivide(m, 2);
     eq(m.faceCount(), 96); eq(closedConsistent(m), 0);
     assert(m.verts().every((v) => { const p = m.pt(v); return Math.max(Math.abs(p.x), Math.abs(p.y), Math.abs(p.z)) > 1 - 1e-12; }), "都在表面上");
     eq(m.verts().filter((v) => { const p = m.pt(v); return Math.abs(Math.abs(p.x) - 1) + Math.abs(Math.abs(p.y) - 1) + Math.abs(Math.abs(p.z) - 1) < 1e-12; }).length, 8);
-    assert(m.edges().filter((e) => m.edgeFlags[e] & F_SHARP).length === 12 * 4, "原来 12 条棱各分成 4 段，都带着棱标");
+    assert(m.edges().filter((e) => edgeMark(m, e, SHARP_EDGE)).length === 12 * 4, "原来 12 条棱各分成 4 段，都带着棱标");
   });
   it("有裸线 = 拒；数得出来", () => {
     const m = cube(); const a = m.addVertex(P(3, 0, 0)), b = m.addVertex(P(4, 0, 0)); m.ensureEdge(a, b);

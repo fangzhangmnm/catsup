@@ -4,7 +4,8 @@
 // 另一条：细分一次只重建几次邻接表（「没多做事」的直接证明；改之前 256 面要上千次）。
 import { faceHidden, faceMaterial, givenFaceValues } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
-import { MeshKernel, F_SHARP } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
+import { SHARP_EDGE, packEdgeByte, setEdgeMark } from "../src/mesh/reserved-columns.ts";
 import { FRESH } from "../src/mesh/columns.ts";
 import { addBox, addPolygon, catmullClark, deleteFaces, extrudeFaces } from "../src/mesh/ops/index.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
@@ -29,7 +30,7 @@ const CASES: Record<string, () => MeshKernel> = {
   },
   sharpMatNgons: () => {
     const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1), 2);
-    for (const e of k.edges().slice(0, 3)) k.setEdgeFlags(e, F_SHARP);
+    for (const e of k.edges().slice(0, 3)) setEdgeMark(k, e, SHARP_EDGE, true);
     const pent = addPolygon(k, [0, 1, 2, 3, 4].map((i) => P(3 + Math.cos((2 * Math.PI * i) / 5), Math.sin((2 * Math.PI * i) / 5), 0)), 1);
     extrudeFaces(k, [pent.face]);
     const tri = addPolygon(k, [P(6, 0, 0), P(7, 0, 0), P(6.5, 1, 0)], 0);
@@ -59,7 +60,7 @@ const bits = (x: number): string => { f64[0] = x; return `${u32[0].toString(16)}
 function dump(k: MeshKernel): string {
   const o: string[] = [];
   for (const v of k.verts()) { const p = k.pt(v); o.push(`v${v}:${bits(p.x)},${bits(p.y)},${bits(p.z)}`); }
-  for (const e of k.edges()) o.push(`e${e}:${k.edgeA[e]}-${k.edgeB[e]}/${k.edgeFlags[e]}`);
+  for (const e of k.edges()) o.push(`e${e}:${k.edgeA[e]}-${k.edgeB[e]}/${packEdgeByte(k, e)}`);   // 3c 起标记是列：打包回那个字节（哈希和以前一样比）
   for (const f of k.faces()) o.push(`f${f}:${k.faceVerts(f).join(",")}/m${faceMaterial(k, f)}/x${faceHidden(k, f) ? 1 : 0}`);
   // 3b：材质 / 隐藏是面上的列了，上面 /m /x 已经记着；这里照旧只记角上的数
   for (const c of k.columnDefs().filter((d) => d.on === "corner")) for (const f of k.faces()) { const vals = k.cornerValues(f, c.id); o.push(`c${c.id}.${f}:${vals ? [...vals].map(bits).join(",") : "-"}`); }

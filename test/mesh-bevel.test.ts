@@ -1,7 +1,8 @@
 // 网格体倒角（2026-10-28 Claude Opus 5.5；纪元账本 FM152 user「bevel为什么不做？这个没什么歧义吧。」）。
 // 标准答案：封闭的盒子倒完还是封闭、每条边恰两张面且两张面走的方向相反（朝向一致）；面数 / 点数按 Blender 同款结果数；宽度落在离原边 w 的地方。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { MeshKernel, F_SMOOTH } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
+import { SMOOTH, edgeMark, packEdgeByte } from "../src/mesh/reserved-columns.ts";
 import { addBox, addPrimitive } from "../src/mesh/ops/index.ts";
 import { bevelEdges, bevelVerts } from "../src/mesh/ops/bevel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
@@ -44,7 +45,7 @@ describe("倒边（bevelEdges）", () => {
     const r = bevelEdges(m, [e], 0.2, 3);
     eq(r.faces.length, 3); eq(m.check().join("\n"), ""); eq(closedConsistent(m).join("\n"), ""); eq(allOutward(m, C), 0);
     eq(m.faces().filter((f) => m.faceVerts(f).length === 7).length, 2, "端面 = 4 + 圆角上 3 个点 = 7 边形");
-    eq(m.edges().filter((x) => m.edgeFlags[x] & F_SMOOTH).length, 2, "圆角中间两条纵向边平滑");
+    eq(m.edges().filter((x) => edgeMark(m, x, SMOOTH)).length, 2, "圆角中间两条纵向边平滑");
     // 圆角上的点离棱心 (0.8, *, 0.8) 都是 0.2（90° 时有理贝塞尔 = 正圆弧）
     const mids = m.verts().map((v) => m.pt(v)).filter((p) => p.x > 0.8 + 1e-9 && p.z > 0.8 + 1e-9);
     eq(mids.length, 4, "端面各 2 个中间截面点");
@@ -121,7 +122,7 @@ function cubeScene(): { s: Scene; def: number; m: MeshKernel } {
   return { s, def: d.id, m };
 }
 const unitOf = (def: number, sel: { verts?: number[]; edges?: number[]; faces?: number[] }): MeshUnit => ({ kind: "mesh", def, sel: { kind: "mesh", verts: new Set(sel.verts ?? []), edges: new Set(sel.edges ?? []), faces: new Set(sel.faces ?? []) }, xf: IDENTITY });
-const canon = (m: MeshKernel): string => JSON.stringify({ v: m.verts().map((v) => [v, m.pt(v)]), f: m.faces().map((f) => m.faceVerts(f)), e: m.edges().map((e) => m.edgeFlags[e]) });
+const canon = (m: MeshKernel): string => JSON.stringify({ v: m.verts().map((v) => [v, m.pt(v)]), f: m.faces().map((f) => m.faceVerts(f)), e: m.edges().map((e) => packEdgeByte(m, e)) });   // 3c 起标记是列：打包回那个字节比（和以前的比法一样）
 
 describe("倒角：op / 撤销 / 右键指令", () => {
   it("meshBevel op 一步、撤销逐字回去、重做同结果；一条都倒不了 = 拒（不提交空步）", () => {

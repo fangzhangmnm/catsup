@@ -1,12 +1,12 @@
 // 强行对称的定理（计划书 `ai-docs/20261109-audit-fixes-plan.md` §3；created 2026-11-09 by Claude Opus 5.5）。
 // 第 0 层（v0.18.41）钉「绝不删空」；第 4 / 5 层（v0.18.45）钉 isSymmetric 的真值表、对称化带裸线 / 孤点 / 隐藏、随机步每步对称。原来写的是：强行对称自己绝不把模型删空（「看不出动的是哪边、默认 + 那半」碰上「+ 那半是空的」= 11-09 真 app 里 6 张面 → 0）。
 // 对称检查是独立写的（不调 isSymmetric：它本身就是要审的对象）：纯按位置比点 / 面 / 边（不认编号），照定理的条文。后面几层的断言接着往这个文件里加。
-import { faceHidden, faceMaterial, setFaceHidden } from "../src/mesh/reserved-columns.ts";
+import { SOFT, faceHidden, faceMaterial, packEdgeByte, setEdgeMark, setFaceHidden } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { F_HIDDEN, F_SOFT } from "../src/mesh/mesh-kernel.ts";
-import { addBox, deleteFaces, extrudeAndOffset, flipFaces, insetFaces, loopCut, moveVerts, setEdgeFlags, setFaceMaterial } from "../src/mesh/ops/index.ts";
+import { F_HIDDEN } from "../src/mesh/edge-bits.ts";
+import { addBox, deleteFaces, extrudeAndOffset, flipFaces, insetFaces, loopCut, moveVerts, setFaceMaterial } from "../src/mesh/ops/index.ts";
 import { type MirrorAxis, forceSide, isSymmetric, pickSide, symmetrize } from "../src/mesh/mirror.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 
@@ -38,7 +38,7 @@ function asymmetries(m: MeshKernel, a: MirrorAxis): string[] {
     if (m.faceVerts(f).every((v) => Math.abs(coord(m.pt(v), a)) <= TOL)) continue;   // 躺在镜像面上 = 对应它自己
     if ((faces.get(faceKey(f, true)) ?? 0) !== faces.get(faceKey(f, false))) out.push(`面 ${f} 的镜像不在（或材质槽不同）`);
   }
-  const edgeKey = (e: number, mirrored: boolean): string => `${[m.edgeA[e], m.edgeB[e]].map(mirrored ? there : here).sort().join("|")}#${m.edgeFlags[e] & ~F_HIDDEN}`;
+  const edgeKey = (e: number, mirrored: boolean): string => `${[m.edgeA[e], m.edgeB[e]].map(mirrored ? there : here).sort().join("|")}#${packEdgeByte(m, e) & ~F_HIDDEN}`;
   const edges = new Map<string, number>();
   for (const e of m.edges()) bump(edges, edgeKey(e, false));
   for (const e of m.edges()) if ((edges.get(edgeKey(e, true)) ?? 0) !== edges.get(edgeKey(e, false))) out.push(`边 ${e} 的镜像不在（或标记不同）`);
@@ -123,7 +123,7 @@ describe("强行对称第 4 层：isSymmetric 照定理说真话（mesh/mirror.t
     ["挖掉左边一张面（11-09 审查：左 4 右 5）", () => { const m = halved(); deleteFaces(m, [leftFace(m)], true); return m; }, false],
     ["翻了左边一张面", () => { const m = halved(); flipFaces(m, [leftFace(m)]); return m; }, false],
     ["左边一张面换了材质槽", () => { const m = halved(); setFaceMaterial(m, [leftFace(m)], 2); return m; }, false],
-    ["左边一条边打了标记（11-09 审查：左 1 右 0）", () => { const m = halved(); setEdgeFlags(m, [leftEdge(m)], F_SOFT, true); return m; }, false],
+    ["左边一条边打了标记（11-09 审查：左 1 右 0）", () => { const m = halved(); setEdgeMark(m, leftEdge(m), SOFT, true); return m; }, false],
     ["只有左边有一条裸线", () => { const m = halved(); m.ensureEdge(m.addVertex(P(-3, 0, 0)), m.addVertex(P(-2, 0, 0))); return m; }, false],
     ["只有左边有一个孤点", () => { const m = halved(); m.addVertex(P(-2, 2, 2)); return m; }, false],
   ];
@@ -204,7 +204,7 @@ describe("强行对称第 5 层：对称化带上裸线 / 孤点 / 隐藏；选�
         else if (r < 0.52 && fs.length > 4) { const f = pickF(); deleteFaces(m, [f], true); named.faces.push(f); }
         else if (r < 0.62 && fs.length) { const f = pickF(); flipFaces(m, [f]); named.faces.push(f); }
         else if (r < 0.7 && fs.length) { const f = pickF(); setFaceMaterial(m, [f], 1 + Math.floor(rnd() * 3)); named.faces.push(f); }
-        else if (r < 0.8 && es.length) { const e = es[Math.floor(rnd() * es.length)]; setEdgeFlags(m, [e], F_SOFT, rnd() < 0.7); named.edges.push(e); }
+        else if (r < 0.8 && es.length) { const e = es[Math.floor(rnd() * es.length)]; setEdgeMark(m, e, SOFT, rnd() < 0.7); named.edges.push(e); }
         else if (r < 0.9) { const a = P((rnd() - 0.5) * 6, 2 + rnd(), rnd()), b = P(a.x + 0.5, a.y, a.z); m.ensureEdge(m.addVertex(a), m.addVertex(b)); }
         else m.addVertex(P((rnd() - 0.5) * 6, 3 + rnd(), rnd()));
         if (!isSymmetric(m, 0)) {

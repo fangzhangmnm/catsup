@@ -6,7 +6,8 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { FRESH } from "../src/mesh/columns.ts";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
-import { MeshKernel, F_SOFT, F_SMOOTH } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
+import { SMOOTH, SOFT, edgeMark, packEdgeByte, setEdgeMark } from "../src/mesh/reserved-columns.ts";
 import { addBox, flipFaces, recalcNormals } from "../src/mesh/ops/index.ts";
 import { meshViewOf } from "../src/mesh/mesh-view.ts";
 import { meshFromTriangles, meshToTriangles } from "../src/mesh/tri-soup.ts";
@@ -47,8 +48,8 @@ describe("mesh 显示视图（契约 kernel-view.ts）", () => {
     m.setPos(verts[0], { x: -1, y: -1, z: -1 });
     assert(v.rev > rev0 && v.graph.pt(verts[0]).x === -1 && v.vertices().find((x) => x.id === verts[0])!.x === -1);
     const e = m.edges()[0];
-    m.setFlags(e, F_SOFT, true); assert(v.isSoft(e) && v.soft.has(e) && v.edgeLayers.layer("soft").has(e));
-    m.setFlags(e, F_SMOOTH, true); assert(v.isSmooth(e) && v.edgeLayers.layer("smooth").has(e));
+    setEdgeMark(m, e, SOFT, true); assert(v.isSoft(e) && v.soft.has(e) && v.edgeLayers.layer("soft").has(e));
+    setEdgeMark(m, e, SMOOTH, true); assert(v.isSmooth(e) && v.edgeLayers.layer("smooth").has(e));
     setFaceHidden(m, faces[0], true); assert(v.isFaceHidden(faces[0]) && !v.isFaceHidden(faces[1]));
     setFaceMaterial(m, faces[1], 3); eq(v.faceMaterialOf(faces[1], 0), 3); eq(v.faceMaterialOf(faces[1], 1), undefined, "单面：背面没有材质");
     eq(v.faceMaterialOf(faces[2], 0), undefined);
@@ -96,7 +97,7 @@ describe("brep → mesh", () => {
     const s = new Scene(sceneBox()); oneSided(s, s.root);
     const m = brepToMesh(s.brep(s.root)).kernel;
     eq(m.faceCount(), 6); eq(m.edgeCount(), 12); eq(m.vertexCount(), 8);
-    for (const e of m.edges()) eq(m.edgeFlags[e], 0, "盒子的边都是硬边");
+    for (const e of m.edges()) eq(packEdgeByte(m, e), 0, "盒子的边都是硬边");
     for (const f of m.faces()) eq(m.faceVerts(f).length, 4);
     assert(allOutward(m), "封闭壳朝外");
     eq(m.check().length, 0);
@@ -105,9 +106,9 @@ describe("brep → mesh", () => {
     const s = new Scene(sceneHoledOpen()), k = s.brep(s.root).kernel, m = brepToMesh(s.brep(s.root)).kernel;
     assert(k.faces().some((f) => k.face(f.id)!.holes.length > 0), "样本有带洞的面");
     assert(m.faceCount() > k.faces().length, "带洞的面变成了几张三角形");
-    const visible = m.edges().filter((e) => !(m.edgeFlags[e] & F_SOFT)).length;
+    const visible = m.edges().filter((e) => !edgeMark(m, e, SOFT)).length;
     eq(visible, k.edges().filter((e) => !k.isSoft(e.id)).length);
-    for (const e of m.edges()) if (m.edgeFlags[e] & F_SOFT) assert(m.edgeFlags[e] & F_SMOOTH, "内部边软 + 平滑");
+    for (const e of m.edges()) if (edgeMark(m, e, SOFT)) assert(edgeMark(m, e, SMOOTH), "内部边软 + 平滑");
     eq(m.check().length, 0);
   });
   it("recalcNormals：翻乱的盒子一次摆正、朝外；再跑一次不动", () => {
@@ -143,7 +144,7 @@ describe("渲染缓存接网格体（pool-mesh）", () => {
     m.setPos(verts[0], { x: -0.5, y: -0.5, z: -0.5 });
     const r2 = pm.sync(v, env);
     assert(!r2.full, "改坐标 = 增量"); eq(r2.faces, 3);
-    m.setFlags(m.edges()[0], F_SOFT, true);
+    setEdgeMark(m, m.edges()[0], SOFT, true);
     const r3 = pm.sync(v, env);
     assert(!r3.full); eq(pm.lines.count, 12, "软边仍在线批里（v0.18.8 起：只在转成外轮廓时画，I12）");
     const soft = pm.lines.range(m.edges()[0]); assert(!!soft, "软边有记录");

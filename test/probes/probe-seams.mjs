@@ -47,7 +47,7 @@ const setup = await S(() => {
   // 看得见的那条：顶面朝镜头那条边（iso 从 +x −y 那边看过来；挑 z = 1、y = 0 的边）
   const vs = k.edges().flatMap((x) => [k.pt(k.edgeA[x]), k.pt(k.edgeB[x])]), zMax = Math.max(...vs.map((p) => p.z)), yMin = Math.min(...vs.map((p) => p.y)), near = (a, b) => Math.abs(a - b) < 1e-6;
   const edge = k.edges().find((x) => { const a = k.pt(k.edgeA[x]), b = k.pt(k.edgeB[x]); return near(a.z, zMax) && near(b.z, zMax) && near(a.y, yMin) && near(b.y, yMin); });
-  return { def: inst.def, edge, mode: e.modeId, flags: Array.from(k.edgeFlags).join(",") };
+  return { def: inst.def, edge, mode: e.modeId, seams: k.edges().filter((x) => k.edgeValue(x, "uv_seam") === 1).length };
 });
 check(setup.mode === "freeform" && typeof setup.edge === "number", "进了网格体、在自由建模", JSON.stringify(setup));
 const px0 = await seamPx();
@@ -67,7 +67,7 @@ const marked = await S(async ([def, edge]) => {
   if (!it) return { noItem: true };
   it.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60);
   document.querySelectorAll(".popup-menu").forEach((m) => m.remove());
-  return { flag: k.edgeFlags[edge], steps: e.history.position() - p0, hint: document.getElementById("hint")?.textContent ?? "", others: k.edges().filter((x) => x !== edge && (k.edgeFlags[x] & 4)).length };
+  return { flag: k.edgeValue(edge, "uv_seam") === 1 ? 4 : 0, steps: e.history.position() - p0, hint: document.getElementById("hint")?.textContent ?? "", others: k.edges().filter((x) => x !== edge && k.edgeValue(x, "uv_seam") === 1).length };
 }, [setup.def, setup.edge]);
 check(!marked.noRow && !marked.noItem, "菜单里有「接缝 ›」→「标成接缝」", JSON.stringify(marked));
 check((marked.flag & 4) === 4 && marked.others === 0 && marked.steps === 1, "那条边带上接缝位、别的边没有、一步", JSON.stringify(marked));
@@ -108,9 +108,9 @@ check(win.faces === 2 && win.thin + win.thick + win.seam === 8 - (win.thin ? 1 :
 console.log("\n⑥ 撤销到标接缝之前 → 位没了、画面上没有接缝色");
 const un = await S(([def, edge]) => {
   const C = globalThis.__catsup, e = C.editor, k = () => e.sceneRef.mesh(def).kernel;
-  for (let i = 0; i < 40 && (k().edgeFlags[edge] & 4); i++) e.undo();
+  for (let i = 0; i < 40 && k().edgeValue(edge, "uv_seam") === 1; i++) e.undo();
   C.pickWorkbench("freeform"); e.deselectAll();
-  return { flag: k().edgeFlags[edge] & 4, mode: e.modeId };
+  return { flag: k().edgeValue(edge, "uv_seam") === 1 ? 4 : 0, mode: e.modeId };
 }, [setup.def, setup.edge]);
 const px2 = await seamPx();
 check(un.flag === 0 && px2 === 0, `撤回去了：位 ${un.flag}、接缝色 ${px2}`, JSON.stringify(un));
@@ -128,9 +128,9 @@ const auto = await S(async (def) => {
   if (!it) return { noItem: true, items: [...document.querySelectorAll(".popup-menu.choice-layer [data-choice-id]")].map((x) => x.getAttribute("data-choice-id")) };
   it.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(80);
   document.querySelectorAll(".popup-menu").forEach((m) => m.remove());
-  const seams = k().edges().filter((x) => k().edgeFlags[x] & 4), sel = [...e.selection.edges].sort((a, b) => a - b);
+  const seams = k().edges().filter((x) => k().edgeValue(x, "uv_seam") === 1), sel = [...e.selection.edges].sort((a, b) => a - b);
   const out = { seams: seams.length, sel: sel.join(","), seamIds: seams.join(","), steps: e.history.position() - p0, hint: document.getElementById("hint")?.textContent ?? "" };
-  e.undo(); out.afterUndo = k().edges().filter((x) => k().edgeFlags[x] & 4).length;
+  e.undo(); out.afterUndo = k().edges().filter((x) => k().edgeValue(x, "uv_seam") === 1).length;
   return out;
 }, setup.def);
 check(!auto.noRow && !auto.noItem, "物件菜单里有「接缝 ›」→「自动标接缝…」（管整个网格体）", JSON.stringify(auto));

@@ -1,14 +1,14 @@
 // mesh/edge-smooth.ts —— 网格体的边是棱还是光滑过渡（几何）：一条边「平滑吗 / 画线吗」的唯一判定（渲染、拾取、导出、转换都问这里）。created 2026-10-28 by Claude Opus 5.5
 // 设计稿 ai-docs/20261027-mesh-hard-soft-edges.md（user 10-28「明暗同意」）+ 纪元账本 FM129 / FM131（model vs view：这是 model 的语义，要数学上有定义）/ FM138（怎么画）。
 // 定义（写死，任何实现都得照这个算）：
-//   · 手标优先：F_SHARP = 棱（不平滑、画线）；F_SMOOTH = 平滑（明暗连续）；F_SOFT = 不画线。手标平滑在命令里同时设 F_SOFT | F_SMOOTH。
+//   · 手标优先：sharp_edge = 棱（不平滑、画线）；smooth = 平滑（明暗连续）；soft = 不画线。手标平滑在命令里同时设 soft + smooth。
+//     3c 起这三样是带保留名的列（mesh/reserved-columns.ts），这里拿列对象读（没有那一列 = 全是 0）。
 //   · 没手标的边（三位都没）按网格体的「默认平滑」：hard = 全是棱；smooth = 恰好挨两张面就平滑；angle = 恰好挨两张面且两侧面法向的 |cos| ≥ cos(deg) 就平滑（夹角严格小于 deg；
 //     用 |cos| 和 mesh/ops/shade.ts 同：外来文件绕向可能不一致）。平滑的没手标边同时不画线（「线跟着明暗走」，设计稿 §6 第 5 问默认）。
 //   · 只挨一张面 / 三张以上（边界、非流形）= 棱。面法向 = Newell（MeshKernel.faceNormal，环的绕向）。
-import { F_SEAM, F_SHARP, F_SMOOTH, F_SOFT, MeshKernel } from "./mesh-kernel.ts";
-import { HAND_MARKS } from "./edge-mark-rules.ts";
-
-const MARKS = HAND_MARKS;
+import type { MeshKernel } from "./mesh-kernel.ts";
+import type { ColumnDef } from "./columns.ts";
+import { SHARP_EDGE, SMOOTH, SOFT, UV_SEAM, edgeMark, setEdgeMark } from "./reserved-columns.ts";
 
 /** 没手标的边按「默认平滑」判。 */
 function autoSmooth(m: MeshKernel, e: number): boolean {
@@ -22,29 +22,29 @@ function autoSmooth(m: MeshKernel, e: number): boolean {
 }
 /** 这条边两侧明暗连续吗。 */
 export function edgeSmooth(m: MeshKernel, e: number): boolean {
-  const fl = m.edgeFlags[e];
-  if (fl & F_SHARP) return false;
-  if (fl & F_SMOOTH) return true;
+  if (edgeMark(m, e, SHARP_EDGE)) return false;
+  if (edgeMark(m, e, SMOOTH)) return true;
   return autoSmooth(m, e);
 }
 /** 这条边不画线吗（SketchUp 的「软」）：手标的软边，或没手标、按「默认平滑」平滑的边。 */
 export function edgeSoft(m: MeshKernel, e: number): boolean {
-  const fl = m.edgeFlags[e];
-  if (fl & F_SOFT) return true;
-  if (fl & MARKS) return false;
+  if (edgeMark(m, e, SOFT)) return true;
+  if (edgeMark(m, e, SHARP_EDGE) || edgeMark(m, e, SMOOTH)) return false;
   return autoSmooth(m, e);
 }
-/** 手标：sharp = 棱 / smooth = 平滑且不画线 / none = 清掉，交给「默认平滑」。别的位（接缝 / 隐藏 / 裸线）不动。 */
-/** 边上标什么（指令 meshEdgeMarks 的 mark）：手标三档（sharp / smooth / none——none = 清掉手标，不碰接缝）+ 接缝的标 / 清（施工单二十二第 1 刀：设位、清位、撤销和手标同一段，统筹 11-12）。 */
+/** 边上标什么（指令 meshEdgeMarks 的 mark）：手标三档（sharp / smooth / none——none = 清掉手标，不碰接缝）+ 接缝的标 / 清（施工单二十二第 1 刀）。 */
 export type EdgeMark = "sharp" | "smooth" | "none" | "seam" | "unseam";
-/** 这一档动哪几位（mask）、设成什么（bits）。手标三档只动手标三位；接缝两档只动接缝那一位。 */
-export function markBits(mark: EdgeMark): { readonly mask: number; readonly bits: number } {
-  if (mark === "seam" || mark === "unseam") return { mask: F_SEAM, bits: mark === "seam" ? F_SEAM : 0 };
-  return { mask: MARKS, bits: mark === "sharp" ? F_SHARP : mark === "smooth" ? F_SOFT | F_SMOOTH : 0 };
+/** 这一档写哪几列、各写几（手标三档只动手标三列；接缝两档只动接缝那一列）。 */
+export function markValues(mark: EdgeMark): readonly (readonly [ColumnDef, 0 | 1])[] {
+  if (mark === "seam" || mark === "unseam") return [[UV_SEAM, mark === "seam" ? 1 : 0]];
+  return mark === "sharp" ? [[SHARP_EDGE, 1], [SMOOTH, 0], [SOFT, 0]] : mark === "smooth" ? [[SHARP_EDGE, 0], [SMOOTH, 1], [SOFT, 1]] : [[SHARP_EDGE, 0], [SMOOTH, 0], [SOFT, 0]];
 }
+/** 这条边已经是这一档了吗（指令只算还要改的边）。 */
+export function isMarked(m: MeshKernel, e: number, mark: EdgeMark): boolean { return markValues(mark).every(([d, v]) => (edgeMark(m, e, d) ? 1 : 0) === v); }
+/** 指令点名写（操作本意，按保留名写；第一次写「有」才建那一列）。 */
 export function markEdges(m: MeshKernel, edges: readonly number[], mark: EdgeMark): void {
-  const { mask, bits } = markBits(mark);
-  for (const e of edges) if (m.hasE(e)) m.setEdgeFlags(e, (m.edgeFlags[e] & ~mask) | bits);
+  const vals = markValues(mark);
+  for (const e of edges) if (m.hasE(e)) for (const [d, v] of vals) setEdgeMark(m, e, d, v === 1);
 }
 /**
  * SU 体转过来（scene/kinds.ts brepToMesh）以后保住原来的样子：「默认平滑」设成「按角度 deg」，SU 里本来是硬的、但夹角小于 deg 的边手标成棱
@@ -54,8 +54,8 @@ export function keepLookUnderAngle(m: MeshKernel, deg: number): number {
   m.setSmoothDefault({ mode: "angle", deg });
   let n = 0;
   for (const e of m.edges()) {
-    if (m.edgeFlags[e] & MARKS) continue;
-    if (autoSmooth(m, e)) { m.setEdgeFlags(e, m.edgeFlags[e] | F_SHARP); n++; }
+    if (edgeMark(m, e, SHARP_EDGE) || edgeMark(m, e, SMOOTH) || edgeMark(m, e, SOFT)) continue;
+    if (autoSmooth(m, e)) { setEdgeMark(m, e, SHARP_EDGE, true); n++; }
   }
   return n;
 }

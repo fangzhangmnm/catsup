@@ -3,7 +3,8 @@
 //    （这两条用和展开无关的写法查：按三维法向摆正的三角形在平面上的有向面积同号、不同三角形的边两两不真相交）、每一轮能量不升；
 //    ③ 同样的输入同样的结果；④ 退化的三角形照样跑完、报个数；⑤ 摊不平的片如实拒绝（有把手 / 封闭）；⑥ 两条边的切口（两头还连着）不补洞；⑦ 取消：交出来的照样合法。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { MeshKernel, F_SEAM } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
+import { UV_SEAM, edgeMark, setEdgeMark } from "../src/mesh/reserved-columns.ts";
 import { addPrimitive } from "../src/mesh/ops/index.ts";
 import { GROWN } from "../src/mesh/columns.ts";
 import { unwrap, svd2, type ChartUnwrap } from "../src/mesh/unwrap.ts";
@@ -13,11 +14,11 @@ const P = (x: number, y: number, z: number) => ({ x, y, z });
 const F = { o: P(0, 0, 0), x: P(1, 0, 0), y: P(0, 1, 0), z: P(0, 0, 1) };
 type Ok = Extract<ChartUnwrap, { ok: true }>;
 const oks = (rs: ChartUnwrap[]): Ok[] => { for (const r of rs) assert(r.ok, `展开失败：${!r.ok ? r.reason : ""}`); return rs as Ok[]; };
-const seamCut = (m: MeshKernel) => (e: number): boolean => (m.edgeFlags[e] & F_SEAM) !== 0;
+const seamCut = (m: MeshKernel) => (e: number): boolean => edgeMark(m, e, UV_SEAM);
 /** 一条竖着的边（圆柱 / 圆锥侧面上的那种）标成接缝。 */
 function markVertical(m: MeshKernel): void {
   const e = m.edges().find((x) => { const a = m.pt(m.edgeA[x]), b = m.pt(m.edgeB[x]); return Math.abs(a.z - b.z) > 0.5 && m.eFaces(x).length === 2 && Math.hypot(a.x, a.y) > 1e-6; })!;
-  m.setFlags(e, F_SEAM, true);
+  setEdgeMark(m, e, UV_SEAM, true);
 }
 /** 和展开无关的检查：每片里按三维法向摆正的三角形在平面上同号（不翻；副本里翻过的面倒过来算）、不同三角形的边两两不真相交（不叠）。 */
 function checkInjective(m: MeshKernel, r: Ok): void {
@@ -71,7 +72,7 @@ describe("展开（unwrap.ts）", () => {
   it("能摊平的曲面几乎不拉伸：圆柱侧面（一条竖接缝）、圆锥侧面（一条竖接缝）", () => {
     for (const kind of ["cylinder", "cone"] as const) {
       const m = new MeshKernel(); addPrimitive(m, kind, F, [0.5, 0.5, 1], 24);
-      const a = autoSeams(m, null, { angleDeg: 60 }); for (const e of a.add) m.setFlags(e, F_SEAM, true);
+      const a = autoSeams(m, null, { angleDeg: 60 }); for (const e of a.add) setEdgeMark(m, e, UV_SEAM, true);
       markVertical(m);
       const rs = oks(unwrap(m, m.faces(), seamCut(m))), side = rs.find((r) => r.faces.length === 24)!;
       assert(!!side, `${kind}：侧面那一片`); eq(side.holesFilled, 0);
@@ -98,13 +99,13 @@ describe("展开（unwrap.ts）", () => {
     for (let i = 0; i < n; i++) { id.push([]); for (let j = 0; j < k; j++) { const a = (2 * Math.PI * i) / n, b = (2 * Math.PI * j) / k, rr = 2 + 0.6 * Math.cos(b); id[i].push(torus.addVertex(P(rr * Math.cos(a), rr * Math.sin(a), 0.6 * Math.sin(b)))); } }
     for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) torus.addFace([id[i][j], id[(i + 1) % n][j], id[(i + 1) % n][(j + 1) % k], id[i][(j + 1) % k]], GROWN);
     for (const m of [sphere, torus]) {
-      for (const e of autoSeams(m, null, { angleDeg: 89 }).add) m.setFlags(e, F_SEAM, true);
+      for (const e of autoSeams(m, null, { angleDeg: 89 }).add) setEdgeMark(m, e, UV_SEAM, true);
       for (const r of oks(unwrap(m, m.faces(), seamCut(m)))) checkInjective(m, r);
     }
   });
   it("同样的输入同样的结果", () => {
     const m = new MeshKernel(); addPrimitive(m, "sphere", F, [0.5, 0.5, 0.5], 10);
-    for (const e of autoSeams(m, null, { angleDeg: 60 }).add) m.setFlags(e, F_SEAM, true);
+    for (const e of autoSeams(m, null, { angleDeg: 60 }).add) setEdgeMark(m, e, UV_SEAM, true);
     const dump = (rs: ChartUnwrap[]): string => rs.map((r) => (r.ok ? [...r.corners].map(([f, c]) => `${f}:${Array.from(c).join(",")}`).join(";") : r.reason)).join("|");
     eq(dump(unwrap(m, m.faces(), seamCut(m))), dump(unwrap(m, m.faces(), seamCut(m))));
   });
@@ -132,7 +133,7 @@ describe("展开（unwrap.ts）", () => {
     const m = new MeshKernel(), g: number[][] = [];
     for (let i = 0; i <= 3; i++) { g.push([]); for (let j = 0; j <= 3; j++) g[i].push(m.addVertex(P(i, j, 0))); }
     for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) m.addFace([g[i][j], g[i + 1][j], g[i + 1][j + 1], g[i][j + 1]], GROWN);
-    m.setFlags(m.edgeOf(g[1][1], g[2][1]), F_SEAM, true);   // 片中间一条边，两头都连着别的面
+    setEdgeMark(m, m.edgeOf(g[1][1], g[2][1]), UV_SEAM, true);   // 片中间一条边，两头都连着别的面
     const [r] = oks(unwrap(m, m.faces(), seamCut(m)));
     eq(r.slits, 1); eq(r.holesFilled, 0); nearIsometric(r, "切口"); checkInjective(m, r);   // 默认 tol 1e-4 = 5 轮、最多歪 1.2%（1e-5 = 7 轮 0.37%、1e-8 = 13 轮 0.01%）
   });
@@ -144,14 +145,14 @@ describe("展开（unwrap.ts）", () => {
   });
   it("停在哪：轮数给 1 → 到轮数上限（球上那几片一轮收敛不了）", () => {
     const m = new MeshKernel(); addPrimitive(m, "sphere", F, [0.5, 0.5, 0.5], 10);
-    for (const e of autoSeams(m, null, { angleDeg: 60 }).add) m.setFlags(e, F_SEAM, true);
+    for (const e of autoSeams(m, null, { angleDeg: 60 }).add) setEdgeMark(m, e, UV_SEAM, true);
     const rs = oks(unwrap(m, m.faces(), seamCut(m), { maxIters: 1 }));
     assert(rs.some((r) => r.stoppedBy === "max-iters"), rs.map((r) => r.stoppedBy).join(","));
     for (const r of rs) checkInjective(m, r);
   });
   it("取消：第一轮就说停 → 交起步那一轮，照样不翻、不叠", () => {
     const m = new MeshKernel(); addPrimitive(m, "sphere", F, [0.5, 0.5, 0.5], 10);
-    for (const e of autoSeams(m, null, { angleDeg: 60 }).add) m.setFlags(e, F_SEAM, true);
+    for (const e of autoSeams(m, null, { angleDeg: 60 }).add) setEdgeMark(m, e, UV_SEAM, true);
     for (const r of oks(unwrap(m, m.faces(), seamCut(m), { shouldStop: () => true }))) { eq(r.stoppedBy, "cancelled"); eq(r.iterations, 0); checkInjective(m, r); }
   });
 });

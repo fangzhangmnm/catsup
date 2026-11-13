@@ -1,10 +1,10 @@
 // mesh/ops/primitives.ts —— 基本体（右键新建；2026-10-27 Claude Opus 5.5）。created 2026-10-27 by Claude Opus 5.5
 // user 10-27「然后以后圆柱，长立方体建立的时候都是原点在底部中心，和锥体一样。不过球的话还是圆点在原点」：立方体 / 圆柱 / 圆锥 / 平面 = 原点在底面中心，球 = 原点在球心。
 // 都在给定的坐标架里长（origin + 三根单位轴，本地坐标）；面一律朝外（封闭体）/ 朝 +z（平面）；新面材质槽 -1（默认）。确定性：只按参数加点加面。
-// 圆圈 / 方框 = 只有边、没有面的一圈裸线（F_WIRE），躺在坐标架的 xy 平面里、圆心 / 中心 = 原点（2026-10-28 夜 user「新建其实更常用的是2d的edge loop」：
+// 圆圈 / 方框 = 只有边、没有面的一圈裸线（裸线位），躺在坐标架的 xy 平面里、圆心 / 中心 = 原点（2026-10-28 夜 user「新建其实更常用的是2d的edge loop」：
 // 拉一个圈出来接着挤出 / 补洞，Blender 加圆时「填充：无」那种）。
 import type { Pt3 } from "../../kernel/geom.ts";
-import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
+import { MeshKernel } from "../mesh-kernel.ts";
 import { FRESH } from "../columns.ts";
 
 export type PrimitiveKind = "circleLoop" | "squareLoop" | "box" | "cylinder" | "cone" | "sphere" | "plane";
@@ -18,7 +18,7 @@ export function addPrimitive(k: MeshKernel, kind: PrimitiveKind, f: PrimitiveFra
   const F = (ring: number[]): void => { faces.push(k.addFace(ring, FRESH)); };   // 基本体 = 凭空来的
   const n = Math.max(3, Math.round(segments));
   const [s0, s1, s2] = size, edges: number[] = [];
-  const W = (ring: number[]): void => { for (let i = 0; i < ring.length; i++) { const e = k.ensureEdge(ring[i], ring[(i + 1) % ring.length]); k.setEdgeFlags(e, k.edgeFlags[e] | F_WIRE); edges.push(e); } };
+  const W = (ring: number[]): void => { for (let i = 0; i < ring.length; i++) { const e = k.ensureEdge(ring[i], ring[(i + 1) % ring.length]); k.setWire(e, true); edges.push(e); } };
   if (kind === "circleLoop") W(Array.from({ length: n }, (_, i) => V(s0 * Math.cos(2 * Math.PI * i / n), s1 * Math.sin(2 * Math.PI * i / n), 0)));   // s1 ≠ s0 = 椭圆
   else if (kind === "squareLoop") { const w = s0 / 2, d = s1 / 2; W([V(-w, -d, 0), V(w, -d, 0), V(w, d, 0), V(-w, d, 0)]); }
   else if (kind === "box") {

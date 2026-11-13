@@ -37,7 +37,7 @@ const SAMPLE: Required<FormatReadNotes> = {
   paintUnplaced: [{ def: { guid: "00000000-0000-4000-8000-000000000001", name: "画盒" }, uvSet: { guid: "00000000-0000-4000-8000-000000000002", name: "UV" }, faces: 4 }],
   orphanPaintTextures: 1,
   uvSetRowsDropped: [{ guid: "00000000-0000-4000-8000-000000000003", name: "UV", why: "bad-size" }],
-  oldPaintFormat: 2, oldUvColumns: 1,
+  oldPaintFormat: 2, oldUvColumns: 1, unknownMarks: { faces: 2, edges: 1 },
 };
 
 describe("读入时记下的每一种都要说出来（1-2½）", () => {
@@ -59,9 +59,9 @@ describe("读入时记下的每一种都要说出来（1-2½）", () => {
 });
 
 describe("会丢 / 不丢的名单（1-8b，统筹 11-11 定）", () => {
-  it("每个键都表态；会丢的正好是这七种：uvDropped、uvSetRowsDropped、oldUvColumns、danglingTextureRefs、danglingShelfRefs、danglingMaterialSlots、danglingParents（施工单十八：去掉 foreignPaintSlots，加两种；旧存法的画本身 oldPaintFormat 不丢）", () => {
+  it("每个键都表态；会丢的正好是这八种：uvDropped、uvSetRowsDropped、oldUvColumns、danglingTextureRefs、danglingShelfRefs、danglingMaterialSlots、danglingParents、unknownMarks（施工单十八：去掉 foreignPaintSlots，加两种；旧存法的画本身 oldPaintFormat 不丢；属性地基轮 3c 加 unknownMarks：面 / 边上不认识的标记不读、保存之后不再保留）", () => {
     eq(Object.keys(LOSSY_NOTES).sort().join(", "), KEYS.join(", "), "名单的键 = 接口的键");
-    eq(Object.entries(LOSSY_NOTES).filter(([, v]) => v).map(([k]) => k).sort().join(", "), "danglingMaterialSlots, danglingParents, danglingShelfRefs, danglingTextureRefs, oldUvColumns, uvDropped, uvSetRowsDropped");
+    eq(Object.entries(LOSSY_NOTES).filter(([, v]) => v).map(([k]) => k).sort().join(", "), "danglingMaterialSlots, danglingParents, danglingShelfRefs, danglingTextureRefs, oldUvColumns, unknownMarks, uvDropped, uvSetRowsDropped");
   });
   it("lossySay：只说会丢的那几种；空的 / 0 不算", () => {
     eq(lossySay({ newerMinor: [], newerPatch: [], oldPaintFormat: 2, oldUvColumns: 1, remintedGuids: 3 } as FormatReadNotes).length, 1, "只说会丢的");

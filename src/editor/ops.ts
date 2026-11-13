@@ -7,7 +7,8 @@
 // 为什么按坐标寻址：单机重放靠 id 计数器逐字一致也成立，但联机各 peer 的 id 历史不同——线协议上只有几何本身是共识。
 // 解析失败（目标已不在）→ 抛 OpTargetError：单机 = 这批不落地（History 回滚）；联机 = 上层政策，这里不裁。
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
-import { MATERIAL_INDEX, faceHidden, faceMaterial, givenFaceValues } from "../mesh/reserved-columns.ts";
+import { declareRingEdges } from "../mesh/ops/ring-edges.ts";
+import { MATERIAL_INDEX, faceHidden, faceMaterial, givenFaceValues, unpackEdgeByte } from "../mesh/reserved-columns.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
 import { uniqueCopy } from "../format/scene-store.ts";
 import { COLOR_CHANNEL, COLOR_VALUE, assertSizedImage, paintIn, type ShelfItem, type TextureDoc } from "../format/document.ts";
@@ -24,7 +25,7 @@ import { castBody } from "../scene/kinds.ts";
 import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, loopCuts, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame, splitEdge, duplicateGeometry, fillOrBridge, flipFaces } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { bornFaces, settleNewFaceSides } from "../kernel/face-sides.ts";
-import { MeshKernel } from "../mesh/mesh-kernel.ts";
+import { MeshKernel, type EdgeOrigin } from "../mesh/mesh-kernel.ts";
 import { mergeUvSlots, remapUvCode } from "../scene/uv.ts";
 import { FRESH } from "../mesh/columns.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
@@ -847,7 +848,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
           const tb = s.mesh(ref.def), tk = tb.kernel, slot = (code: number): number => { const id = docMat(code); if (id < 0) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
           const vs = op.mesh.verts.map((q) => tk.addVertex(q));
           for (const f of op.mesh.faces) tk.addFace(f.ring.map((i) => vs[i]), { kind: "fresh", face: givenFaceValues(tk, { material: slot(f.mat) }) });   // 经过剪贴板：故意不带角上的数（统筹 11-11 定，1-2½）——带过去 = 贴出来的面和原来那张悄悄共用画布上同一块；「副本共用一块还是另占一块」归 1-3d 一次定（网格体里的「复制面」现在是照抄角上的数）
-          for (const e of op.mesh.edges) { const id = tk.ensureEdge(vs[e.a], vs[e.b]); tk.setEdgeFlags(id, e.flags); }
+          for (const e of op.mesh.edges) { const id = tk.ensureEdge(vs[e.a], vs[e.b]); unpackEdgeByte(tk, id, e.flags); }   // 载荷里那个字节拆回列（给定的值）
         }
         for (const i of op.instances ?? []) mintPasted(s, ref.def, null, i, merged);
         return { scene: s, events };
@@ -869,10 +870,9 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       const src = meshOf(s, op.def), k = src.kernel, xf = op.instance !== undefined ? s.instance(op.at.def, op.instance).xform : ([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0] as Xform), faces = op.faces.filter((f) => k.hasF(f));
       if (!faces.length) throw new OpTargetError("separate: no faces");
       refusePaintMove(s, { def: op.def, faces });
-      const nk = new MeshKernel(), map = new Map<number, number>(), nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = nk.addVertex(k.pt(v)); map.set(v, x); } return x; };
+      const nk = new MeshKernel(), map = new Map<number, number>(), back = new Map<number, number>(), nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = nk.addVertex(k.pt(v)); map.set(v, x); back.set(x, v); } return x; };
       nk.ensureColumns(k.columnDefs());   // 整张面原样搬到新内核：列按 id 对上、面上和角上的数跟着搬（新物件带同一张速查表，贴图坐标的代号原样有效）
-      for (const f of faces) { const v = k.columnsOf(f); nk.addFace(k.faceVerts(f).map(nv), { kind: "fresh", corner: v.corner, face: v.face }); }   // 面上的列（材质、隐藏）原样搬：新物件的槽表照抄
-      for (const f of faces) for (const e of k.fEdges(f)) { const e2 = nk.edgeOf(map.get(k.edgeA[e])!, map.get(k.edgeB[e])!); if (e2 >= 0) nk.edgeFlags[e2] = k.edgeFlags[e]; }   // 手标（棱 / 平滑）跟着走
+      for (const f of faces) { const v = k.columnsOf(f), ring = k.faceVerts(f).map(nv); declareRingEdges(nk, ring, (a, b) => givenEdge(k, k.edgeOf(back.get(a)!, back.get(b)!))); nk.addFace(ring, { kind: "fresh", corner: v.corner, face: v.face }); }   // 面上的列（材质、隐藏）原样搬：新物件的槽表照抄
       nk.setSmoothDefault(k.smoothDefault);
       deleteSelection(k, { faces }, false);
       const d = s.mintDef(op.name, new Kernel());
@@ -1031,16 +1031,19 @@ export function describeOp(op: Op): string {
 /** 把一份网格体的几何经变换 X 并进另一份（材质槽重映射、手标跟着走、裸线带上）。合并物体 / 炸开网格体共用。created 2026-10-28 by Claude Opus 5.5 */
 function appendMesh(tb: MeshBody, sb: MeshBody, X: Xform): void {
   const sk = sb.kernel, tk = tb.kernel, map = new Map<number, number>();
-  const nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = tk.addVertex(applyPt(X, sk.pt(v))); map.set(v, x); } return x; };
+  const back = new Map<number, number>(), nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = tk.addVertex(applyPt(X, sk.pt(v))); map.set(v, x); back.set(x, v); } return x; };
   const slot = (m: number): number => { if (m < 0) return -1; const id = sb.materialSlots[m]; if (id === undefined) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
   const uvCode = mergeUvSlots(tb.uvSetSlots, sb.uvSetSlots);   // 贴图坐标的速查表：和材质槽同一处并进来、搬过来的面重新对号（施工单十八 3.2½ 第 6 条）
   tk.ensureColumns(sk.columnDefs());   // 整张面原样搬到另一个内核：对方有、这边没有的列补上（原有的面填那一列的 fill），面上和角上的数跟着搬
-  for (const f of sk.faces()) { const v = sk.columnsOf(f); remapUvCode(v.face, uvCode); const mi = v.face.get(MATERIAL_INDEX.id); if (mi !== undefined) v.face.set(MATERIAL_INDEX.id, slot(mi)); tk.addFace(sk.faceVerts(f).map(nv), { kind: "fresh", corner: v.corner, face: v.face }); }   // 材质槽号按这边的槽表换号（规程第六节：跨物件搬，换号由调用方做）
-  for (const e of sk.edges()) {
-    if (sk.eFaces(e).length === 0) { tk.ensureEdge(nv(sk.edgeA[e]), nv(sk.edgeB[e])); continue; }
-    const e2 = tk.edgeOf(map.get(sk.edgeA[e])!, map.get(sk.edgeB[e])!); if (e2 >= 0) tk.edgeFlags[e2] = sk.edgeFlags[e];
+  for (const f of sk.faces()) { const v = sk.columnsOf(f); remapUvCode(v.face, uvCode); const mi = v.face.get(MATERIAL_INDEX.id); if (mi !== undefined) v.face.set(MATERIAL_INDEX.id, slot(mi)); const ring = sk.faceVerts(f).map(nv); declareRingEdges(tk, ring, (a, b) => givenEdge(sk, sk.edgeOf(back.get(a)!, back.get(b)!))); tk.addFace(ring, { kind: "fresh", corner: v.corner, face: v.face }); }   // 材质槽号按这边的槽表换号（规程第六节：跨物件搬，换号由调用方做）
+  for (const e of sk.edges()) {   // 不挂面的线：带着值造、打上裸线位（以前只造了边、没带裸线位）
+    if (sk.eFaces(e).length) continue;
+    const a = nv(sk.edgeA[e]), b = nv(sk.edgeB[e]);
+    if (tk.edgeOf(a, b) < 0) tk.setWire(tk.addEdge(a, b, givenEdge(sk, e)), true);
   }
 }
+/** 整条边搬到另一个内核 = 给定的值（凭空来的，照源边每一列的值；列按 id 对上，调用方先 ensureColumns）。 */
+function givenEdge(src: MeshKernel, e: number): EdgeOrigin { const v = src.edgeShape(e).values; return v ? { kind: "fresh", values: v } : { kind: "fresh" }; }
 /** 炸开一份实例（外面一层和它不是一种身体、或外面是网格体的那条路）：跨种类且它有自己的几何 = 要 cast（用户点过「转成 X 再炸」），否则人话拒绝。 */
 function explodeInstance(s: Scene, at: PoolRef, inst: Instance, cast: boolean): void {
   if (s.kindOf(at.def) !== s.kindOf(inst.def) && !cast && !bodyEmpty(s.def(inst.def).body)) throw new OpTargetError(`explode: 「${s.def(inst.def).name}」是${s.kindOf(inst.def) === "mesh" ? "网格体" : "硬表面体"}、这一层是${s.kindOf(at.def) === "mesh" ? "网格体" : "硬表面体"}，要先转种类（点「转成 X 再炸」）`);

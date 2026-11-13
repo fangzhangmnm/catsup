@@ -1,13 +1,12 @@
 // mesh/ops/extrude.ts —— 长：挤出一组面（区域的顶点复制一份、面改指向新点、区域边界每条边长一张四边形侧面；内部边不长）。不挪：挪归工具。
 // created 2026-10-27 by Claude Fable 5.1
-import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
-import { MOVING_MARKS } from "../edge-mark-rules.ts";
+import { MeshKernel, type EdgeShape } from "../mesh-kernel.ts";
+import { declareRingEdges, fromShapes, pairKey } from "./ring-edges.ts";
 import { GROWN } from "../columns.ts";
 import type { Pt3 } from "../../kernel/geom.ts";
 
 export interface ExtrudeResult { newVerts: Map<number, number>; sides: number[]; }
 
-const MARKS = MOVING_MARKS;   // 帽上的边带原来那条的标记（棱带到哪接缝带到哪；不带隐藏：edge-mark-rules.ts）
 
 /**
  * inheritMarks（2026-10-28 Claude Opus 5.5；硬软边设计稿 §3）：挤出来的那块是原来那几张面的复制，所以它的边（帽子那一圈 + 区域里面的边）带上原来那些边的手标；
@@ -33,19 +32,19 @@ export function extrudeFaces(k: MeshKernel, fs: readonly number[], inheritMarks 
       if (inRegion === 1) boundary.push([a, b, f, i, (i + 1) % r.length]);
     }
   }
-  // 区域里每条边的手标（面改指向新点以后，内部边会被删、帽子那圈是新边）
-  const marks: [number, number, number][] = [];
+  // 区域里每条边的旧样子（面改指向新点以后，内部边会被删、帽子那圈是新边 = 原来那条的一份：边上的列全照抄；inheritMarks = false 的内插不抄 = 新长）
+  const capOf = new Map<string, EdgeShape>();
   if (inheritMarks) for (const f of [...region].sort((a, b) => a - b)) {
     const r = k.faceVerts(f);
-    for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length], m = k.edgeFlags[k.edgeOf(a, b)] & MARKS; if (m) marks.push([a, b, m]); }
+    for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; capOf.set(pairKey(newVerts.get(a)!, newVerts.get(b)!), k.edgeShape(k.edgeOf(a, b))); }
   }
   // 面改指向新点（旧样子先记：侧面在改完之后才建）
   const shapes = new Map([...region].map((f) => [f, k.shapeOf(f)] as const));
   for (const f of [...region].sort((a, b) => a - b)) {
     const r = k.faceVerts(f), of = shapes.get(f)!;
+    declareRingEdges(k, r.map((v) => newVerts.get(v)!), fromShapes(capOf, "copy"));   // 帽子那圈的边先带着来历造好
     k.setFaceRing(f, r.map((v) => newVerts.get(v)!), insetTo ? { kind: "piece", of, from: r.map((v) => insetTo.get(v)) } : { kind: "copy", of, corners: r.map((_, i) => i) });
   }
-  for (const [a, b, m] of marks) { const e = k.edgeOf(newVerts.get(a)!, newVerts.get(b)!); if (e >= 0) k.setEdgeFlags(e, (k.edgeFlags[e] & ~MARKS) | m); }
   // 侧面：顶面绕向 a→b（朝外时从外面看逆时针），侧面 (a, b, b', a') 的右手法向 = (b−a) × (b'−b) 朝外（盒子顶面 y=0 那条边：(1,0,0) × (0,0,1) = (0,−1,0)）
   const sides: number[] = [];
   for (const [a, b, f, ia, ib] of boundary) sides.push(k.addFace([a, b, newVerts.get(b)!, newVerts.get(a)!], insetTo ? { kind: "piece", of: shapes.get(f)!, from: [ia, ib, insetTo.get(b), insetTo.get(a)] } : { kind: "grown", neighbor: f }));   // 侧面 = 新长、旁边是被挤的那张面（跟旁边的列照抄它：材质）
@@ -74,12 +73,12 @@ export function extrudeEdges(k: MeshKernel, es: readonly number[]): ExtrudeResul
   return { newVerts, sides };
 }
 
-/** 挤出点（「一个点拉成一条线」）：每个点复制一份、连一条裸线（F_WIRE）。不挪。 */
+/** 挤出点（「一个点拉成一条线」）：每个点复制一份、连一条裸线（裸线位）。不挪。 */
 export function extrudeVerts(k: MeshKernel, vs: readonly number[]): ExtrudeResult {
   const verts = [...new Set(vs)].filter((v) => k.hasV(v)).sort((a, b) => a - b);
   if (!verts.length) throw new Error("extrudeVerts: no alive vertices");
   const newVerts = new Map<number, number>();
-  for (const v of verts) { const n = k.addVertex(k.pt(v)); newVerts.set(v, n); const e = k.ensureEdge(v, n); k.setEdgeFlags(e, k.edgeFlags[e] | F_WIRE); }
+  for (const v of verts) { const n = k.addVertex(k.pt(v)); newVerts.set(v, n); k.setWire(k.ensureEdge(v, n), true); }
   return { newVerts, sides: [] };
 }
 

@@ -1,6 +1,6 @@
 // 带保留名的列：面上的隐藏（hide_poly）+ 材质槽号（material_index）搬上属性表（属性地基轮第三步 3b；规程第九½节）。created 2026-11-13 by Claude Opus 5.5
 // ① 守卫：核心不认这两个名字；② 有才有；③ 跟着来历走（切开 / 细分 / 内插 / 复制 / 镜像 = 照抄，并面看得见的赢、材质留第一张的，挤出 / 倒角的新面跟旁边的材质、不跟隐藏）；
-// ④ 文件门口形状不变、不认识的位明说读不了。
+// ④ 文件门口形状不变；面 / 边那两个字节里不认识的位 = 照开、不读、打开时说一句、保存时不写（3c，统筹 11-13）。
 import { describe, it, eq, assert } from "./runner.mjs";
 const { readFileSync } = (await import("node:fs" as string)) as { readFileSync(p: string, enc: string): string };
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
@@ -10,6 +10,10 @@ import { addBox, bevelEdges, catmullClark, duplicateGeometry, extrudeEdges, extr
 import { symmetrize } from "../src/mesh/mirror.ts";
 import { FILE_FACE_HIDDEN, kernelFromMeshDoc, meshDocFromKernel } from "../src/mesh/mesh-doc.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
+import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup } from "../src/format/index.ts";
+import { decodeGlb, encodeGlb } from "../src/format/glb.ts";
+import { formatNotesSay, lossySay } from "../src/app/format-notes.ts";
+import { sceneMeshed } from "./format-scenes.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 const clean = (k: MeshKernel, where: string): void => { const bad = k.check(); eq(bad.length, 0, `${where}：${bad.slice(0, 3).join("；")}`); };
@@ -108,9 +112,26 @@ describe("文件门口：形状不变", () => {
     const plain = kernelFromMeshDoc(meshDocFromKernel(box()));
     assert(!plain.hasColumn(HIDE_POLY.id) && !plain.hasColumn(MATERIAL_INDEX.id), "全是缺省值 = 不建列");
   });
-  it("面的那个字节里有不认识的位 = 明说读不了（不悄悄丢）", () => {
-    const d = meshDocFromKernel(box()), flags = Uint8Array.from(d.faceFlags); flags[1] = 2;
-    let msg = ""; try { kernelFromMeshDoc({ ...d, faceFlags: flags }); } catch (e) { msg = String(e); }
-    assert(/face flag bits 2/.test(msg), msg || "没抛");
+  it("面 / 边那两个字节里有不认识的位 = 照开（不拒开）：不读、打开时说一句带个数、保存时不写；真坏了（环越界）照旧抛", () => {
+    const md = documentFromScene(sceneMeshed(), "t").definitions.find((d) => d.mesh)!.mesh!;
+    // 不认识的位只会从文件的字节里来（内存里没有地方放它们）：写好的文件里直接改那两个字节
+    const g = decodeGlb(writeCatsup(documentFromScene(sceneMeshed(), "t"))) as unknown as { json: { bufferViews: { byteOffset?: number }[]; extensions: { CATSUP_definitions: { list: { kind?: string; mesh?: Record<string, { bufferView: number }> }[] } } }; bin: Uint8Array };
+    const item = g.json.extensions.CATSUP_definitions.list.find((d) => d.kind === "mesh")!.mesh!, at = (k: string, i: number): number => (g.json.bufferViews[item[k].bufferView].byteOffset ?? 0) + i;
+    g.bin[at("faceFlags", 1)] |= 2; g.bin[at("faceFlags", 3)] |= 128;   // 两张面带着更新版的位（第 1 张本来就藏着：藏着那一位照读）
+    g.bin[at("edgeFlags", 0)] |= 64;                                    // 一条边带着更新版的位（它本来是软 + 平滑：那两位照读）
+    const back = readCatsup(encodeGlb(g.json as never, g.bin));
+    eq(JSON.stringify(back.readNotes?.unknownMarks), JSON.stringify({ faces: 2, edges: 1 }), "记一笔：几张面、几条边");
+    const said = formatNotesSay(back.readNotes!).join("\n");
+    assert(/2 张面、1 条边带着这一版不认识的标记/.test(said) && /保存之后不再保留/.test(said), said);
+    eq(lossySay(back.readNotes).length, 1, "算会丢的：第一次存盘之前要人点头");
+    const s = sceneFromDocument(back), def = [...s.defs.values()].find((d) => d.body.kind === "mesh")!, k = (def.body as { kernel: MeshKernel }).kernel;
+    eq(k.faces().filter((f) => faceHidden(k, f)).length, 1, "认识的那一位（藏着）照读");
+    const again = documentFromScene(s, "t").definitions.find((d) => d.mesh)!.mesh!;
+    eq(Array.from(again.faceFlags).filter((b) => b & ~FILE_FACE_HIDDEN).length, 0, "存回去：面上没有不认识的位");
+    eq(Array.from(again.edgeFlags).filter((b) => b & ~63).length, 0, "存回去：边上没有不认识的位");
+    eq(Array.from(again.edgeFlags).join(), Array.from(md.edgeFlags).map((b) => b & 63).join(), "认识的位原样");
+    const d0 = meshDocFromKernel(box()), bad = Int32Array.from(d0.loopVert); bad[0] = 99;
+    let msg = ""; try { kernelFromMeshDoc({ ...d0, loopVert: bad }); } catch (e) { msg = String(e); }
+    assert(/references vertex 99/.test(msg), msg || "环越界没抛");
   });
 });

@@ -1,6 +1,7 @@
 // mesh/ops/duplicate.ts —— 复制选中的几何（Blender Shift+D）、补洞 / 桥接（Blender F / Bridge Edge Loops）。created 2026-10-28 by Claude Opus 5.5
 // user 10-28 夜「12做」（复制选中的几何；补洞和桥接）。纯算子：只按参数加点加面，确定性（同一份内核 + 同一组参数 = 同一批新 id，撤销 / 重放靠它）。
-import type { MeshKernel } from "../mesh-kernel.ts";
+import type { EdgeShape, MeshKernel } from "../mesh-kernel.ts";
+import { declareRingEdges, fromShapes, pairKey } from "./ring-edges.ts";
 import { FRESH } from "../columns.ts";
 import type { Pt3 } from "../../kernel/geom.ts";
 
@@ -16,8 +17,11 @@ export function duplicateGeometry(k: MeshKernel, sel: MeshSel): { verts: number[
   for (const v of sel.verts ?? []) if (k.hasV(v)) vs.add(v);
   const map = new Map<number, number>();
   for (const v of [...vs].sort((a, b) => a - b)) map.set(v, k.addVertex(k.pt(v)));
-  const nf = faces.map((f) => { const r = k.faceVerts(f); return k.addFace(r.map((v) => map.get(v)!), { kind: "copy", of: k.shapeOf(f), corners: r.map((_, i) => i) }); });   // 复制 = 是它的一份（角一一对应）
-  const ne = edges.map((e) => k.ensureEdge(map.get(k.edgeA[e])!, map.get(k.edgeB[e])!));
+  const copies = new Map<string, EdgeShape>();   // 复制出来的边 = 原来那条的一份（边上的列全照抄；统筹 11-13：以前一律不带）
+  for (const f of faces) { const r = k.faceVerts(f); for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; copies.set(pairKey(map.get(a)!, map.get(b)!), k.edgeShape(k.edgeOf(a, b))); } }
+  for (const e of edges) copies.set(pairKey(map.get(k.edgeA[e])!, map.get(k.edgeB[e])!), k.edgeShape(e));
+  const nf = faces.map((f) => { const r = k.faceVerts(f), ring = r.map((v) => map.get(v)!); declareRingEdges(k, ring, fromShapes(copies, "copy")); return k.addFace(ring, { kind: "copy", of: k.shapeOf(f), corners: r.map((_, i) => i) }); });   // 复制 = 是它的一份（角一一对应）
+  const ne = edges.map((e) => { const a = map.get(k.edgeA[e])!, b = map.get(k.edgeB[e])!, have = k.edgeOf(a, b); if (have >= 0) return have; const x = k.addEdge(a, b, { kind: "copy", of: k.edgeShape(e) }); if (k.isWire(e)) k.setWire(x, true); return x; });   // 选中的边：已经随面造了的就是它；裸线照抄线
   return { verts: [...map.values()], edges: ne, faces: nf };
 }
 

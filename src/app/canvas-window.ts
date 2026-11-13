@@ -10,7 +10,7 @@
 // 开着不进文件（这一次打开期间记着）；位置按设备记（和别的浮窗同一个 WIN_POS）。它进输入闸的名册（refwin：有焦点时键盘归它，不挡三维）。
 // 在上面画（施工单二十一第 2 刀）：手上的工具只有左边工具柱里那一个（设计稿「一只手，两块画面」）。画画工作台里笔 / 橡皮落在这里 = 二维笔（deps.paint.open，和模型上的笔
 //   同一块画板、同一串撤销）；吸管点一下 = 取这里显示的颜色；别的工具照旧（拖 = 挪、点 = 选面）。手指永远是看。一笔开着（这里画的或模型上画的）= 每帧只读回变了的那块，跟着变。
-import { faceMaterial } from "../mesh/reserved-columns.ts";
+import { UV_SEAM, edgeMark, faceMaterial } from "../mesh/reserved-columns.ts";
 import type { Editor } from "../editor/editor.ts";
 import { paintsOf } from "../editor/mesh-edits/start-paint.ts";
 import { atlasOutline, type AtlasOutline } from "../paint/atlas-outline.ts";
@@ -19,7 +19,7 @@ import { bytesSay, openMemory, paintTargetSize } from "../paint/open-memory.ts";
 import { xformScale } from "../paint/space-target.ts";
 import { buildTexelTable, paintFaces } from "../paint/texel-table.ts";
 import { ID_STRIDE } from "../scene/world-view.ts";
-import { F_SEAM } from "../mesh/mesh-kernel.ts";
+
 import { PALETTE } from "../minccino/index.ts";
 import { cellSay } from "./canvas-size-picker.ts";
 import { inputGate } from "./input-dom.ts";
@@ -220,7 +220,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     if (nk !== key) {
       key = nk; outlines++;
       const on = k.faces().filter((f) => S.facePaint(def!, faceMaterial(k, f))?.textureDoc.guid === tex);
-      outline = atlasOutline(uvMesh(k, body.uvSetSlots), p.uvSet.guid, on, p.uvSet.width, p.uvSet.height, (a, b) => { const e = k.edgeOf(a, b); return e >= 0 && k.hasFlag(e, F_SEAM); });
+      outline = atlasOutline(uvMesh(k, body.uvSetSlots), p.uvSet.guid, on, p.uvSet.width, p.uvSet.height, (a, b) => { const e = k.edgeOf(a, b); return e >= 0 && edgeMark(k, e, UV_SEAM); });
       view.setLines(outline.thin, outline.thick, { lines: outline.seam, color: SEAM_CSS });
       view.setRings((id) => outline?.rings.get(id));
       if (hover !== null && !outline.rings.has(hover)) hover = null;

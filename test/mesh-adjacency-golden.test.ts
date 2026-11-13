@@ -5,7 +5,8 @@
 // 主门（Fable 11-10）：check() 里「增量维护的表 = 当场从头重建的表（逐项、含先后）」，随机链每一步都要过——某一步 check() 报的若是这一条，直接算失败（不当成「这一步做不了」悄悄丢掉）。
 import { faceHidden, faceMaterial } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
-import { MeshKernel, F_WIRE } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
+import { packEdgeByte } from "../src/mesh/reserved-columns.ts";
 import { FRESH } from "../src/mesh/columns.ts";
 import { addBox, bevelEdges, catmullClark, deleteFaces, dissolveVertex, extrudeEdges, extrudeFaces, flipFaces, insetFaces, joinFaces, knife, loopCut, mergeVerts, splitEdge, splitFace } from "../src/mesh/ops/index.ts";
 import { symmetrize } from "../src/mesh/mirror.ts";
@@ -26,7 +27,7 @@ const BASES: Record<string, () => MeshKernel> = {
   torus8: () => torus(8),
   openGrid: () => { const k = new MeshKernel(), n = 3, v = (i: number, j: number): number => i * (n + 1) + j; for (let i = 0; i <= n; i++) for (let j = 0; j <= n; j++) k.addVertex(P(i, j, 0)); for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) k.addFace([v(i, j), v(i + 1, j), v(i + 1, j + 1), v(i, j + 1)], FRESH); return k; },
   fin: () => { const k = new MeshKernel(), a = k.addVertex(P(0, 0, 0)), b = k.addVertex(P(0, 0, 1)); for (const [x, y] of [[1, 0], [-1, 0.2], [0.1, 1]]) { const c = k.addVertex(P(x, y, 1)), d = k.addVertex(P(x, y, 0)); k.addFace([a, b, c, d], FRESH); } return k; },
-  loose: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); const a = k.addVertex(P(3, 0, 0)), b = k.addVertex(P(4, 0, 0)); k.setEdgeFlags(k.ensureEdge(a, b), F_WIRE); k.addVertex(P(5, 5, 5)); return k; },
+  loose: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); const a = k.addVertex(P(3, 0, 0)), b = k.addVertex(P(4, 0, 0)); k.setWire(k.ensureEdge(a, b), true); k.addVertex(P(5, 5, 5)); return k; },
   mirrorBox: () => { const k = new MeshKernel(); addBox(k, P(-1, 0, 0), P(1, 1, 1)); return k; },
   columns: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(2, 1, 1)); k.addColumn({ id: "uv", on: "corner", type: { floats: 2 }, continuous: true, fill: 0, merge: "first", kind: "test" }); for (const f of k.faces()) k.setCornerValues(f, "uv", k.facePts(f).flatMap((p) => [p.x + p.z, p.y - p.x])); return k; },
 };
@@ -72,7 +73,7 @@ const bits = (x: number): string => { f64[0] = x; return `${u32[0].toString(16)}
 function dump(k: MeshKernel): string {
   const o: string[] = [];
   for (const v of k.verts()) { const p = k.pt(v); o.push(`v${v}:${bits(p.x)},${bits(p.y)},${bits(p.z)}|${[...k.vEdges(v)].join(",")}`); }
-  for (const e of k.edges()) o.push(`e${e}:${k.edgeA[e]}-${k.edgeB[e]}/${k.edgeFlags[e]}|${[...k.eFaces(e)].join(",")}`);
+  for (const e of k.edges()) o.push(`e${e}:${k.edgeA[e]}-${k.edgeB[e]}/${packEdgeByte(k, e)}|${[...k.eFaces(e)].join(",")}`);
   for (const f of k.faces()) o.push(`f${f}:${k.faceVerts(f).join(",")}/m${faceMaterial(k, f)}/x${faceHidden(k, f) ? 1 : 0}`);
   for (const c of k.columnDefs()) if (c.on === "corner") for (const f of k.faces()) { const vals = k.faceValue(f, "has") === 1 ? k.cornerValues(f, c.id) : null; o.push(`c${f}:${vals ? [...vals].map(bits).join(",") : "-"}`); }   // 没值 = 「-」（和改之前同一个写法）
   const nv = [P(9, 9, 9), P(10, 9, 9), P(9, 10, 9)].map((p) => k.addVertex(p)), nf = k.addFace(nv, FRESH);

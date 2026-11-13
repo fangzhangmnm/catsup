@@ -1,13 +1,13 @@
 // CATSUP_mesh 1.0.0 多边形载荷（M3，2026-10-27 Claude Fable 5.1）：往返逐字；文件里的形状（拍子 / 键 / 定义表 6.4 / 本体 TRIANGLES 给别的查看器）；
 // 0.14 三角汤最小形照开（每三角一面）；拍子纪律（major 新拒开、minor 新提示一次）；坏环拒开说清。
-import { faceHidden, faceMaterial } from "../src/mesh/reserved-columns.ts";
+import { SHARP_EDGE, SMOOTH, SOFT, edgeMark, faceHidden, faceMaterial, setEdgeMark } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { writeCatsup, readCatsup, documentFromScene, sceneFromDocument, formatTag } from "../src/format/index.ts";
 import { decodeGlb, encodeGlb } from "../src/format/glb.ts";
 import { FormatTooNewError } from "../src/format/migrate/index.ts";
 import { kernelFromMeshDoc, meshDocFromKernel } from "../src/mesh/mesh-doc.ts";
 import { addBox } from "../src/mesh/ops/index.ts";
-import { F_SHARP, F_SOFT, F_SMOOTH, MeshKernel } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { sceneMeshed, sceneFingerprint } from "./format-scenes.ts";
 
 type AnyJson = Record<string, any>;   // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -23,7 +23,7 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     const m = back.mesh(d.id).kernel;
     eq(m.faceCount(), 6); eq(m.edgeCount(), 12); eq(m.vertexCount(), 8);
     assert(m.faces().every((f) => m.faceVerts(f).length === 4), "四边形没变三角形");
-    assert(m.edges().some((e) => (m.edgeFlags[e] & (F_SOFT | F_SMOOTH)) === (F_SOFT | F_SMOOTH)), "软 + 平滑边在");
+    assert(m.edges().some((e) => edgeMark(m, e, SOFT) && edgeMark(m, e, SMOOTH)), "软 + 平滑边在");
     eq(m.faces().filter((f) => faceHidden(m, f)).length, 1, "隐藏面在");
     eq(m.faces().filter((f) => faceMaterial(m, f) === 0).length, 1, "材质槽在");
     eq(back.mesh(d.id).materialSlots.join(","), "0");
@@ -78,12 +78,12 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
   it("默认平滑（1.1，2026-10-28）：往返保住 mode / deg；没这个键的老载荷 = 全硬（只看手标，和以前逐字一样）；手标硬的位 32 往返", () => {
     const m = new MeshKernel(); addBox(m, { x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 });
     m.setSmoothDefault({ mode: "angle", deg: 25 });
-    const e0 = m.edges()[0]; m.setEdgeFlags(e0, F_SHARP);
+    const e0 = m.edges()[0]; setEdgeMark(m, e0, SHARP_EDGE, true);
     const doc = meshDocFromKernel(m);
     eq(JSON.stringify(doc.smoothDefault), JSON.stringify({ mode: "angle", deg: 25 }));
     const back = kernelFromMeshDoc(doc);
     eq(back.smoothDefault.mode, "angle"); eq(back.smoothDefault.deg, 25);
-    eq(back.edges().filter((e) => back.edgeFlags[e] & F_SHARP).length, 1, "手标硬的位往返");
+    eq(back.edges().filter((e) => edgeMark(back, e, SHARP_EDGE)).length, 1, "手标硬的位往返");
     const legacy = kernelFromMeshDoc({ ...doc, smoothDefault: undefined });
     eq(legacy.smoothDefault.mode, "hard", "缺键 = 老文件 = 全硬");
   });

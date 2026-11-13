@@ -191,7 +191,9 @@ export interface FormatReadNotes { /** 文件里写了身份、但重复或不�
   oldPaintFormat?: number;
   /** 网格体载荷里还带着以前的 uvSets 键（几个网格体）：画在面上的位置，旧存法。读的门口不带回 = 保存之后不再保留（算会丢的）。
    *  和上一条分开记：存过一次再打开，网格体上已经没有它了，这时只剩上一条、再存什么都不丢。 */
-  oldUvColumns?: number }
+  oldUvColumns?: number;
+  /** 网格体的面 / 边那两个字节里带着这一版不认识的位（更新版写的）：几张面、几条边。读的门口去掉了（mesh/mesh-doc.ts dropUnknownMarks）= 没读进来，保存之后不再保留（统筹 11-13，属性规程第九½节末：不拒开）。 */
+  unknownMarks?: { faces: number; edges: number } }
 /** 排法表的一行读不了的原因。 */
 export type UvRowWhy = "not-a-list" | "not-an-object" | "bad-guid" | "bad-size" | "bad-density" | "bad-fit" | "duplicate-guid";
 /** 角上的列坏了的一处（施工单十八：为什么 = 整个 columns 不是列表 / 这一列的身份号、种类、角上的数那一段不对 / 几列同一个身份号 / uv 列的号在排法表里没有 / 面的角一半有数一半没有、不是有限数、落在画布外面）。 */

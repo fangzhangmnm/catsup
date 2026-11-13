@@ -1,65 +1,33 @@
-// mesh/edge-mark-rules.ts —— 边上的标记跟着拓扑操作怎么走：全仓只有这一处（施工单二十二 A，统筹 11-12 定）。created 2026-11-12 by Claude Opus 5.5
-// 规矩：棱带到哪，接缝带到哪——接缝和棱、平滑、软是同一组「用户标在边上的标记」，搬家时一起走。
-// 拓扑操作（src/mesh/ops/）只许引用这里的名字，不许自己列位；新加一个拓扑操作 = OPS 里加一行说清它怎么对边标记；新加一位标记 = JOIN 和 MOVE 两张表各填一格。
-//   守卫 test/edge-mark-rules.test.ts（不填 = 红）。
-import { F_SOFT, F_SMOOTH, F_SEAM, F_HIDDEN, F_WIRE, F_SHARP } from "./mesh-kernel.ts";
-
-/** 手标三位（棱 / 平滑 / 不画线）：「手标 ›」那几条指令管的（mesh/edge-smooth.ts markEdges）。 */
-export const HAND_MARKS = F_SHARP | F_SMOOTH | F_SOFT;
-/** 标成平滑 = 这两位（倒角圆角中间新长出来的线也是这样标的）。 */
-export const SMOOTH_MARK = F_SOFT | F_SMOOTH;
-/** 细分当折痕读的那一位（手标的棱；读语义，不是搬家）。 */
-export const CREASE_MARK = F_SHARP;
-
-/** 搬家：一条边的标记搬到另一条边上（挤出的帽、……）时一起走的那几位 = 手标三位 + 接缝。 */
-export const MOVING_MARKS = HAND_MARKS | F_SEAM;
-/** 带隐藏的搬家（倒角现在就带隐藏；这一张不改它的行为——隐藏「倒角带、挤出不带」的不一致记在手感账，统筹 11-12）。 */
-export const MOVING_MARKS_WITH_HIDDEN = MOVING_MARKS | F_HIDDEN;
-
-/** 每一位在搬家时归哪一类（守卫：内核里每一位都要在这里有一格）。 */
-export const MOVE: Readonly<Record<number, string>> = {
-  [F_SOFT]: "手标：搬家都带", [F_SMOOTH]: "手标：搬家都带", [F_SHARP]: "手标：搬家都带",
-  [F_SEAM]: "接缝：搬家都带（棱带到哪接缝带到哪）",
-  [F_HIDDEN]: "隐藏：带隐藏的搬家（倒角）带、不带隐藏的（挤出的帽）不带——现状，手感账",
-  [F_WIRE]: "裸线：结构位（这条边有没有面），由拓扑自己定，不搬",
-};
+// mesh/edge-mark-rules.ts —— 每个拓扑操作给新边申报哪种来历（看得见的表；施工单二十二 A 起头，属性地基轮 3c 改成按来历）。created 2026-11-12 by Claude Opus 5.5 · edited 2026-11-13 by Claude Opus 5.5（3c）
+// 3c 起边上的标记（棱 / 平滑 / 不画线 / 接缝 / 隐藏）是属性表里的五列（mesh/reserved-columns.ts），跟着来历走、不再按位手抄：
+//   一份（piece：劈开的两半）/ 照抄（copy：复制、镜像、挤出的帽、倒角时挨着的边换成新边）= 全部列照抄；
+//   并成（joined：溶解二度点、合并点并成同一对点）= 每一列按自己声明的 merge 并（棱、平滑、不画线、隐藏 = 都有才留；接缝 = 有一条就留）；
+//   新长（grown / 不申报）= 全是缺省值。
+//   来历在建边的那一刻申报（addEdge(a, b, origin) / declareRingEdges / absorbIntoEdge），不在事后补写；
+//   操作本意要写的标记（倒角圆角中间标平滑、手标指令、硬表面转过来、导入、读文件）按保留名写（reserved-columns.ts setEdgeMark / edge-smooth.ts markEdges）。
+// 以前的 JOIN / MOVE 两张位表、joinFlags、MOVING_MARKS 退役了（并 = 每列的 merge；搬家 = 一份就是全部列照抄）。
+// 守卫 test/edge-mark-rules.test.ts：src/mesh/ops/ 每个文件在这里有一行；操作里不许按位手抄标记。
 
 /**
- * 并边（两条边并成一条：溶解二度点、整理里的有限溶解、删点）每一位怎么合（守卫：内核里每一位都要在这里有一格）：
- * both = 两条都有才留（手标三位：硬软边设计稿 §6 第 3 问，和硬表面体一致；隐藏：一条藏一条看得见，并完看得见的那条不能凭空没了——统筹 11-13 定，和硬表面 kernel/layers.ts 第④条一致，
- *   以前是「有一条就留」）；either = 有一条就留（接缝：断一截那一片就切不开）；
- * structural = 结构位，调用的人按拓扑重算。
- */
-export const JOIN: Readonly<Record<number, "both" | "either" | "structural">> = {
-  [F_SOFT]: "both", [F_SMOOTH]: "both", [F_SHARP]: "both",
-  [F_HIDDEN]: "both",
-  [F_SEAM]: "either",
-  [F_WIRE]: "structural",
-};
-const bitsOf = (kind: "both" | "either" | "structural"): number => Object.entries(JOIN).reduce((acc, [b, k]) => (k === kind ? acc | Number(b) : acc), 0);
-const JOIN_BOTH = bitsOf("both"), JOIN_EITHER = bitsOf("either");
-/** 两条边并成一条时新边的标记（结构位不在里面：调用的人自己按拓扑设）。 */
-export function joinFlags(f0: number, f1: number): number { return (f0 & f1 & JOIN_BOTH) | ((f0 | f1) & JOIN_EITHER); }
-
-/**
- * 每个拓扑操作对边标记怎么走（看得见的表；守卫：src/mesh/ops/ 里每个文件都要在这里有一行）。
+ * 每个拓扑操作对边怎么申报来历（守卫：src/mesh/ops/ 里每个文件都要在这里有一行）。
  */
 export const OPS: Readonly<Record<string, string>> = {
-  "bevel.ts": "倒角：挨着被倒的边、自己没被倒的边换成新边时带上原来的标记（MOVING_MARKS_WITH_HIDDEN）；被倒的边本身变成倒角带，它的标记不往带上搬（现状：棱、接缝都丢；Blender 默认也不搬）；圆角中间的线标成平滑（SMOOTH_MARK）",
-  "build.ts": "建面 / 建几何体：新边不带标记",
-  "cleanup.ts": "整理：有限溶解里并边走 join.ts 的 joinFlags；去重点 = 所有组一次交给内核的合并点原子（见 merge.ts）",
-  "delete.ts": "删：剩下的边不动；溶解二度点走 join.ts 的 joinFlags",
-  "duplicate.ts": "复制（Shift+D）/ 补洞 / 桥接：新的几何不带标记（现状）",
-  "extrude.ts": "挤出：帽上的边带原来那条的标记（MOVING_MARKS，不带隐藏）；新长出来的侧边不带",
+  "bevel.ts": "倒角：挨着被倒的边、自己没被倒的边换成新边 = 照抄（copy，先建边再改面）；被倒的边本身变成倒角带，标记不往带上搬（Blender 默认也不搬）；倒角带的新边 = 新长；圆角中间的线按操作本意标成平滑（markEdges smooth）",
+  "build.ts": "建面 / 建几何体：新边 = 新长",
+  "cleanup.ts": "整理：有限溶解里并边走 join.ts（并成）；去重点 = 所有组一次交给内核的合并点原子（见 merge.ts）",
+  "delete.ts": "删：剩下的边不动；溶解二度点走 join.ts（并成）；留下的裸线设结构位（setWire）",
+  "duplicate.ts": "复制（Shift+D）：面上的边和选中的边 = 照抄（copy，裸线位一起抄）；补洞 / 桥接的新边 = 新长",
+  "extrude.ts": "挤出：帽上的边 = 照抄原来那条（copy，全部列，含隐藏）；新长出来的侧边 = 新长；插入（inset）的内圈不照抄 = 新长",
   "flatten.ts": "压平 / 单轴缩放：只挪点，边不变",
-  "geometry.ts": "挪点 / 变换：只挪点，边不变；setEdgeFlags 是给指令用的通用设位（位由调用的人给）",
+  "geometry.ts": "挪点 / 变换：只挪点，边不变",
   "index.ts": "出口：不碰边",
-  "inset.ts": "插入：外圈的边不变，新长出来的内圈和连接边不带",
-  "join.ts": "并边：joinFlags（JOIN 表：手标和隐藏两条都有才留、接缝有一条就留）；并面：被并掉的公共边没了",
-  "loopcut.ts": "环切：被切的边劈成两半（走 split.ts，两半都带）；切出来的新环不带",
-  "merge.ts": "合到一点 = 内核的合并点原子（MeshKernel.mergePoints，规划在 mesh/merge-points.ts）：只换了一头的边还是那条边、标记原样；几条并成同一对点的留编号最小的、标记按 merge-points.ts EDGE_FLAG_RULES（标记 → 规则名，和 JOIN 同一套）并；环上剪下来的刺留成裸线",
+  "inset.ts": "插入：外圈的边不变，新长出来的内圈和连接边 = 新长",
+  "join.ts": "溶解二度点：两条边并成一条 = 并成（joined，先建边再改面；那对点之间已经有边 = absorbIntoEdge 并进它，它排第一）；并面：被并掉的公共边没了",
+  "loopcut.ts": "环切：被切的边劈成两半（走 split.ts，一份）；切出来的新环 = 新长",
+  "merge.ts": "合到一点 = 内核的合并点原子（MeshKernel.mergePoints，规划在 mesh/merge-points.ts）：只换了一头的边还是那条边、列原样；几条并成同一对点 = absorbIntoEdge（留编号最小的那条、它排第一，每列按 merge 并）；环上剪下来的刺留成裸线",
   "orient.ts": "法向一致化：只翻面的绕向，边不变",
-  "primitives.ts": "基本体：新几何自己设（不从别处搬）",
-  "split.ts": "劈边 / 劈面 / 刀：被劈的边两半都带全部位；面里切出来的新边不带",
-  "subdivide.ts": "细分：被劈的边两半都带全部位；读 CREASE_MARK 当折痕；面里新长出来的边不带",
+  "primitives.ts": "基本体：新边 = 新长；只有边的圆圈 / 方框设结构位（setWire）",
+  "ring-edges.ts": "工具：按面环的顺序先把缺的边建好、各自申报来历（declareRingEdges），给别的操作用",
+  "split.ts": "劈边：两半 = 一份（piece，先建边再改面）；劈面 / 刀在面里切出来的新边 = 新长",
+  "subdivide.ts": "细分：被劈的边两半 = 一份（piece）；读 sharp_edge 当折痕；面里新长出来的边 = 新长",
 };

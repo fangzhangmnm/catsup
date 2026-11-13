@@ -57,7 +57,7 @@ const res = await page.evaluate(async () => {
   // ④
   e.selectAll(); await sleep(20);
   out.four = { clicked: await pick("手标", "mesh.markSharp") };
-  out.four.sharp = m().edges().filter((x) => m().edgeFlags[x] & 32).length; out.four.total = m().edges().length;
+  out.four.sharp = m().edges().filter((x) => m().edgeValue(x, "sharp_edge") === 1).length; out.four.total = m().edges().length;
   await closeAll();
   // ⑤
   out.five = { clicked: await pick("默认平滑", "mesh.smooth.angle", "object") };

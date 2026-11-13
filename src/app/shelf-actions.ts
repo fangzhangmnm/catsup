@@ -6,6 +6,7 @@ import type { Editor } from "../editor/editor.ts";
 import { isHex4 } from "../editor/object-tree.ts";
 import { KEEP, importBlocked, pasteBefore, pasteConflict, pasteReport, payloadFromDocument, importCandidates, shelfImportOp } from "../editor/paste-plan.ts";
 import { resolvePasteConflict } from "./paste-actions.ts";
+import { unknownMarksText } from "./format-notes.ts";
 import { readCatsup } from "../format/index.ts";
 import { isForeignGlb } from "../format/gltf-import.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
@@ -109,6 +110,8 @@ export function createShelfActions(d: ShelfActionsDeps): ShelfActions {
         if (r.createdDefs.length > newOnes) bits.push(`它们里面的组件新建了 ${r.createdDefs.length - newOnes} 个`);
         if (r.createdMaterials.length) bits.push(`带进 ${r.createdMaterials.length} 个材质`);
         if (r.createdLayers.length) bits.push(`带进 ${r.createdLayers.length} 个层`);
+        const um = doc.readNotes?.unknownMarks;
+        if (um && (um.faces || um.edges)) bits.push(`那份文件里有${unknownMarksText(um)}，没读进来，带进来的组件里没有这些标记`);   // 属性地基轮 3c：导入素材也说（统筹 11-13）
         d.notify({ text: bits.join("；") });
         d.after();
       } catch (err) {

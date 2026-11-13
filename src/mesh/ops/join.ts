@@ -1,6 +1,5 @@
 // mesh/ops/join.ts —— 并：擦掉两面之间的边 → 一张 n 边形（不管平不平）；二度点溶解。created 2026-10-27 by Claude Fable 5.1
-import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
-import { joinFlags } from "../edge-mark-rules.ts";
+import { MeshKernel } from "../mesh-kernel.ts";
 
 
 /**
@@ -34,14 +33,18 @@ export function dissolveVertex(k: MeshKernel, v: number): number {
   if (es.length !== 2) throw new Error(`dissolveVertex: vertex ${v} has ${es.length} edges (need exactly 2)`);
   const other = (e: number): number => (k.edgeA[e] === v ? k.edgeB[e] : k.edgeA[e]);
   const a = other(es[0]), b = other(es[1]);
-  // 手标（棱 / 平滑 / 不画线）两条都有才留（和 SU 体一致；硬软边设计稿 §6 第 3 问默认）；别的位（接缝 / 隐藏）有一条就留
-  const f0 = k.edgeFlags[es[0]], f1 = k.edgeFlags[es[1]], flags = joinFlags(f0, f1);   // 每一位怎么合 = edge-mark-rules.ts 的 JOIN 表
+  // 两条边并成一条 = 并成：每一列照自己的 merge（棱 / 平滑 / 不画线 / 隐藏都有才留、接缝有一个就留——声明在 reserved-columns.ts）
+  const from = [k.edgeShape(es[0]), k.edgeShape(es[1])], existing = k.edgeOf(a, b);
   const faces = new Set<number>([...k.eFaces(es[0]), ...k.eFaces(es[1])]);
   for (const f of faces) if (k.faceVerts(f).length <= 3) throw new Error(`dissolveVertex: face ${f} would drop below 3 vertices`);
+  if (faces.size && existing < 0) k.addEdge(a, b, { kind: "joined", of: from });   // 先带着来历造边、再改面（统筹 11-13：不许改面时顺手造空边、回头补）
   for (const f of faces) { const r = k.faceVerts(f), keep = r.map((_, i) => i).filter((i) => r[i] !== v); k.setFaceRing(f, keep.map((i) => r[i]), { kind: "copy", of: k.shapeOf(f), corners: keep }); }   // 溶解点 = 是它的一份（少掉的那个角不在表里）
   const wire = !faces.size;
   for (const e of es) if (k.hasE(e)) { if (k.eFaces(e).length) throw new Error("dissolveVertex: internal"); k.removeEdge(e); }
   k.removeVertex(v);
-  const ne = k.ensureEdge(a, b); k.setEdgeFlags(ne, (flags & ~F_WIRE) | (wire ? F_WIRE : 0));
+  if (existing >= 0) k.absorbIntoEdge(existing, from);   // 两个邻居本来就连着 = 并进那条已经在的边（它排最前；以前是拿这两条的标记把它原来的盖掉）
+  else if (wire) k.addEdge(a, b, { kind: "joined", of: from });   // 没有面：删掉之后再造（空出来的编号先用，和以前一样）
+  const ne = k.edgeOf(a, b);
+  if (wire) k.setWire(ne, true);   // 裸线位（结构位）：没有面 = 线
   return ne;
 }

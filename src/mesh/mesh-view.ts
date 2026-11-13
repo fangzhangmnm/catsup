@@ -10,8 +10,8 @@ import type { Ring } from "../kernel/facefind.ts";
 import type { Curve } from "../kernel/curves.ts";
 import type { ChangeLog } from "../kernel/change-log.ts";
 import { COPLANAR_TOL_DEFAULT, planeBasis, projectToPlane } from "../kernel/geom.ts";
-import { MeshKernel, F_HIDDEN, F_SEAM } from "./mesh-kernel.ts";
-import { faceHidden, faceMaterial } from "./reserved-columns.ts";
+import { MeshKernel } from "./mesh-kernel.ts";
+import { HIDE_EDGE, UV_SEAM, edgeMark, faceHidden, faceMaterial } from "./reserved-columns.ts";
 import { edgeSmooth, edgeSoft } from "./edge-smooth.ts";
 
 interface Tables { rev: number; verts: Map<VertexId, Vertex>; edges: Map<EdgeId, Edge>; faces: Map<FaceId, Face>; planes: Map<FaceId, PlaneRec>; soft: Set<EdgeId>; smooth: Set<EdgeId>; hidden: Set<EdgeId>; }
@@ -46,7 +46,7 @@ export class MeshView implements KernelView {
       edges.set(e, { id: e, a: m.edgeA[e], b: m.edgeB[e], faceLinks: [...m.eFaces(e)] });
       if (edgeSoft(m, e)) soft.add(e);   // 有效的软 / 平滑 = 手标 + 默认平滑（mesh/edge-smooth.ts 唯一判定，FM129）
       if (edgeSmooth(m, e)) smooth.add(e);
-      if (m.edgeFlags[e] & F_HIDDEN) hidden.add(e);
+      if (edgeMark(m, e, HIDE_EDGE)) hidden.add(e);
     }
     for (const f of m.faces()) {
       const vs = m.faceVerts(f), pts = m.facePts(f), n = m.faceNormal(f);
@@ -77,8 +77,8 @@ export class MeshView implements KernelView {
   isSmooth(id: EdgeId): boolean { return this.tables().smooth.has(id); }
   /** mesh 没有折线：面内的折痕就是一条软 + 平滑的边。 */
   isFold(): boolean { return false; }
-  isEdgeHidden(id: EdgeId): boolean { return this.mesh.hasFlag(id, F_HIDDEN); }
-  isSeam(id: EdgeId): boolean { return this.mesh.hasFlag(id, F_SEAM); }
+  isEdgeHidden(id: EdgeId): boolean { return edgeMark(this.mesh, id, HIDE_EDGE); }   // 保留名 hide_edge
+  isSeam(id: EdgeId): boolean { return edgeMark(this.mesh, id, UV_SEAM); }   // 保留名 uv_seam
   isFaceHidden(id: FaceId): boolean { return faceHidden(this.mesh, id); }   // 保留名 hide_poly
   /** 单面：背面没有材质（渲染剔掉背面，user 10-27「enforce backface culling」）。 */
   faceMaterialOf(id: FaceId, side: 0 | 1 = 0): number | undefined {

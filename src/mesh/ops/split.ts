@@ -1,21 +1,24 @@
 // mesh/ops/split.ts —— 劈：劈边 / 劈面 / 刀（面上一串点）。纯函数，原地改 k；只切不长：永远不会多出一张没人要的面。created 2026-10-27 by Claude Fable 5.1
 import type { Pt3 } from "../../kernel/geom.ts";
-import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
+import { MeshKernel, type EdgeOrigin } from "../mesh-kernel.ts";
+import { declareRingEdges } from "./ring-edges.ts";
 
 /** 劈边：e 在参数 t 处加一个顶点；e 所在的每张面的环都插进这个点；标记两半都带。返回新顶点。 */
 export function splitEdge(k: MeshKernel, e: number, t = 0.5): number {
   if (!k.hasE(e)) throw new Error(`splitEdge: edge ${e} is not alive`);
   const a = k.edgeA[e], b = k.edgeB[e], pa = k.pt(a), pb = k.pt(b);
   const v = k.addVertex({ x: pa.x + (pb.x - pa.x) * t, y: pa.y + (pb.y - pa.y) * t, z: pa.z + (pb.z - pa.z) * t });
-  const flags = k.edgeFlags[e];
+  const piece: EdgeOrigin = { kind: "piece", of: k.edgeShape(e) }, wire = k.isWire(e);   // 两半 = 原来那条边的一块（边上的列全照抄）
+  const half = (x: number, y: number): boolean => (x === v || y === v) && (x === a || y === a || x === b || y === b);
   const faces = [...k.eFaces(e)];
   for (const f of faces) {
     const r = k.faceVerts(f), out: number[] = [], of = k.shapeOf(f);
     for (let i = 0; i < r.length; i++) { out.push(r[i]); const n = r[(i + 1) % r.length]; if ((r[i] === a && n === b) || (r[i] === b && n === a)) out.push(v); }
+    declareRingEdges(k, out, (x, y) => (half(x, y) ? piece : null));   // 两半先带着来历造好（造在第一张面的环上，和以前顺手造的编号一样）
     k.setFaceRing(f, out, { kind: "piece", of });   // 劈边：两边的面都是原来那张的一块（新点在边上，按原面的三角形插值）
   }
-  if (!faces.length) { k.removeEdge(e); }   // 裸线：原边删、两半各成裸线
-  for (const [x, y] of [[a, v], [v, b]] as const) { const ne = k.ensureEdge(x, y); k.setEdgeFlags(ne, flags | (faces.length ? 0 : F_WIRE)); }
+  if (!faces.length) { k.removeEdge(e); for (const [x, y] of [[a, v], [v, b]] as const) k.addEdge(x, y, piece); }   // 裸线：原边删、两半各成裸线
+  if (wire || !faces.length) for (const [x, y] of [[a, v], [v, b]] as const) k.setWire(k.edgeOf(x, y), true);   // 裸线位（结构位）：原来是线 / 没有面 = 两半是线
   return v;
 }
 

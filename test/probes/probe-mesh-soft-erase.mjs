@@ -23,7 +23,8 @@ const setup = await page.evaluate(async () => {
   return { mode: e.modeId, tool: e.tool, rib, bar, rail };
 });
 const flags = () => page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.scene, d = [...s.defs.values()].find((x) => x.body.kind === "mesh"), m = d.body.kernel;
-  return { smooth: m.edges().filter((x) => m.edgeFlags[x] === 3).length, sharp: m.edges().filter((x) => m.edgeFlags[x] === 32).length, hint: document.querySelector("#hint")?.textContent ?? "" }; });
+  const on = (x, id) => m.edgeValue(x, id) === 1, only = (x, ids) => ["sharp_edge", "smooth", "soft", "uv_seam", "hide_edge"].every((id) => on(x, id) === ids.includes(id));   // 3c 起边上的标记是列（以前的字节 3 = 不画线 + 平滑、32 = 棱）
+  return { smooth: m.edges().filter((x) => only(x, ["soft", "smooth"])).length, sharp: m.edges().filter((x) => only(x, ["sharp_edge"])).length, hint: document.querySelector("#hint")?.textContent ?? "" }; });
 await scrub({ x: setup.rib.x - 8, y: setup.rib.y }, { x: setup.rib.x + 8, y: setup.rib.y });
 const soft = await flags();
 await scrub({ x: setup.rib.x - 8, y: setup.rib.y }, { x: setup.rib.x + 8, y: setup.rib.y }, true);

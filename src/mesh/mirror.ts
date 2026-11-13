@@ -2,8 +2,9 @@
 // user：「所以镜像还是用我一开始那个颠覆的思路，就是不是存一半然后推导，而是按照blender的镜像编辑那么做。然后可以选择是镜像编辑，对歪的地方有容差，还是强行删一半保持对称 两种」
 // 「然后可以只对选择区域修复镜像snap吗」。两半都是真几何（不是后处理器）；镜像面 = 网格体自己坐标的 axis = 0 平面；中缝上的点钉在镜像面上；哪边动了哪边说了算。
 // 纯函数（只读 / 改传进来的内核），编辑器在提交和预演两处各调一次（editor.ts mirrorRewrite / mirrorAfter）。
-import { F_HIDDEN, MeshKernel } from "./mesh-kernel.ts";
-import { faceMaterial } from "./reserved-columns.ts";
+import { MeshKernel, type EdgeShape } from "./mesh-kernel.ts";
+import { HIDE_EDGE, faceMaterial } from "./reserved-columns.ts";
+import { declareRingEdges, fromShapes, pairKey } from "./ops/ring-edges.ts";
 import { splitEdge, splitFace } from "./ops/split.ts";
 import type { Pt3 } from "../kernel/kernel.ts";
 
@@ -224,9 +225,10 @@ export function mirrorTwins(m: MeshKernel, verts: Iterable<number>, axis: Mirror
 export function isSymmetric(m: MeshKernel, axis: MirrorAxis, tol = MIRROR_TOL): boolean {
   const p = mirrorPairs(m, axis, tol);
   for (const v of m.verts()) if ((p.get(v) ?? -1) < 0) return false;
+  const cols = m.columnDefs().filter((d) => d.on === "edge" && d.id !== HIDE_EDGE.id).map((d) => d.id);   // 边上的每一列（隐藏是看法，不算）
   for (const e of m.edges()) {
     const t = m.edgeOf(p.get(m.edgeA[e])!, p.get(m.edgeB[e])!);
-    if (t < 0 || (m.edgeFlags[e] & ~F_HIDDEN) !== (m.edgeFlags[t] & ~F_HIDDEN)) return false;
+    if (t < 0 || m.isWire(e) !== m.isWire(t) || cols.some((id) => m.edgeValue(e, id) !== m.edgeValue(t, id))) return false;   // 孪生边：裸线位和每一列都一样才算对称
   }
   const ringKey = (r: readonly number[]): string => { let k = 0; for (let i = 1; i < r.length; i++) if (r[i] < r[k]) k = i; return [...r.slice(k), ...r.slice(0, k)].join(","); };
   const byRing = new Map<string, number>();
@@ -331,14 +333,16 @@ export function symmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol = 
   const twin = new Map<number, number>();
   const tw = (v: number): number => { if (s(v) === 0) return v; let t = twin.get(v); if (t === undefined) { t = m.addVertex(mirrorPt(m.pt(v), axis)); twin.set(v, t); } return t; };
   let added = 0;
-  const flagCopies: [number, number, number][] = [];
+  const mirrored = new Map<string, EdgeShape>();   // 镜过去的一对点 → 源边的旧样子（镜过去的边 = 它的一份，边上的列全照抄）
   for (const f of src) {
     const r = m.faceVerts(f), mr = r.map(tw).reverse();
+    const wired: [number, number][] = [];   // 源边带着裸线位（以前是线、后来挂上了面）：镜过去的那条也带（结构位跟着一份走；以前整个字节照抄）
+    for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length], e = m.edgeOf(a, b); mirrored.set(pairKey(tw(a), tw(b)), m.edgeShape(e)); if (m.isWire(e)) wired.push([tw(a), tw(b)]); }
+    declareRingEdges(m, mr, fromShapes(mirrored, "copy"));
     m.addFace(mr, { kind: "copy", of: m.shapeOf(f), corners: r.map((_, i) => r.length - 1 - i) }); added++;   // 镜过去的面 = 照抄（对应表倒过来）：两半在画布上是同一块；面上的列（材质、隐藏）一起照抄
-    for (let i = 0; i < r.length; i++) { const e = m.edgeOf(r[i], r[(i + 1) % r.length]); if (e >= 0 && m.edgeFlags[e]) flagCopies.push([tw(r[i]), tw(r[(i + 1) % r.length]), m.edgeFlags[e]]); }
+    for (const [a, b] of wired) m.setWire(m.edgeOf(a, b), true);
   }
-  for (const [a, b, fl] of flagCopies) { const e = m.edgeOf(a, b); if (e >= 0 && a !== b) m.setEdgeFlags(e, fl); }
-  for (const e of wireSrc) { const a = tw(m.edgeA[e]), b = tw(m.edgeB[e]); if (a !== b) m.setEdgeFlags(m.ensureEdge(a, b), m.edgeFlags[e]); }
+  for (const e of wireSrc) { const a = tw(m.edgeA[e]), b = tw(m.edgeB[e]); if (a !== b && m.edgeOf(a, b) < 0) { const ne = m.addEdge(a, b, { kind: "copy", of: m.edgeShape(e) }); if (m.isWire(e)) m.setWire(ne, true); } }   // 不挂面的边镜过去 = 一份，裸线位照抄（结构位；以前整个字节照抄）
   for (const v of pointSrc) tw(v);
   const walls = removeSeamWalls(m, axis, tol);
   return { removedFaces: other.length, removedVerts, added, pinned, cutEdges: cut.cutEdges, walls, wires: wireSrc.length, points: pointSrc.length };

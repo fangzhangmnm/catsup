@@ -28,7 +28,7 @@ import { snapHoldTol } from "./snap-hysteresis.ts";
 import { type ForceEnv, forceSideFor, forcesOn, originNeedsAsk } from "./mirror-force.ts";
 import { type UpkeepSnaps, upkeepAfter, upkeepRewrite, upkeepSnapshot } from "./paint-upkeep.ts";   // 每一步做完的收尾 = 强行对称 + 画的位置（1-3b）
 import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, mirrorTwins, withMirrorCounterparts, pickSide, sideLabel, sideOfElements, trySymmetrize } from "../mesh/mirror.ts";
-import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts"; import { faceMaterial } from "../mesh/reserved-columns.ts";   // 保留名 material_index（属性地基轮 3b）
+import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts"; import { HIDE_EDGE, edgeMark, faceMaterial } from "../mesh/reserved-columns.ts";   // 保留名 material_index（属性地基轮 3b）
 import { marqueeScreen, areaTest, type ScreenArea } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, type BrepSelection, type SelMode, circleSegmentsOnPlane, emptySelection, mergeSel, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
@@ -98,7 +98,7 @@ import type { KernelView } from "../scene/kernel-view.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 import { addPrimitive, PRIMITIVES, primitiveDims, primitiveDefaultLen, isFlatPrimitive, type PrimitiveKind } from "../mesh/ops/index.ts";
-import { MeshKernel, F_HIDDEN } from "../mesh/mesh-kernel.ts";
+import { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { edgeLoop } from "../mesh/select-loop.ts";
 import type { OptionKv } from "./tool-config.ts";
 
@@ -1514,7 +1514,7 @@ export class Editor {
     const e = c.local.edge;
     return this.step((pass) => {
       const m = this.scene.mesh(this.activePool().def).kernel, ms = this.mirrorOf(), r = edgeLoop(m, e, ms ? { mirror: { axis: ms.axis, tol: MIRROR_TOL } } : {});
-      const edges = r.edges.filter((x) => !(m.edgeFlags[x] & F_HIDDEN));
+      const edges = r.edges.filter((x) => !edgeMark(m, x, HIDE_EDGE));
       if (mode === "replace") this.clearSel(pass);
       const all = mode === "toggle" && edges.every((x) => this.selection.edges.has(x));
       mergeSel(this.selection.edges, edges, mode === "toggle" ? (all ? "remove" : "add") : mode);
@@ -1529,7 +1529,7 @@ export class Editor {
     return this.step((pass) => {
       const m = this.scene.mesh(this.activePool().def).kernel, ms = this.mirrorOf(), opts = ms ? { mirror: { axis: ms.axis, tol: MIRROR_TOL } } : {};
       const add: number[] = [];
-      for (const e of [...this.selection.edges]) for (const x of edgeLoop(m, e, opts).edges) if (!(m.edgeFlags[x] & F_HIDDEN)) add.push(x);
+      for (const e of [...this.selection.edges]) for (const x of edgeLoop(m, e, opts).edges) if (!edgeMark(m, x, HIDE_EDGE)) add.push(x);
       mergeSel(this.selection.edges, add, "add");
       this.afterSelect(pass);
       this.host.hint(`选成环 / 洞：一共 ${this.selection.edges.size} 条边`);
