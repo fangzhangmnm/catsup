@@ -43,6 +43,11 @@ export interface PressStep {
     readonly state: PressState;
     readonly hit: PressHit | null;
 }
+/**
+ * 这支笔报不报压感（从这一下看得出来的）：压力变过，或者落笔那个数不是 0 / 0.5 / 1（不报压感的笔按着恒报 0.5；鼠标报 0.5 / 1）。
+ * 输入层拿它记「这支笔报压感」（整个会话记一次）：报的笔抬笔 = 抬笔（收、全部落定）；不报的笔点一下 = 下点（设计稿第二节第 7 条）。
+ */
+export declare function pressureKnown(st: PressState): boolean;
 /** 落笔。落笔那一下就够重（① ）= 当场判到。 */
 export declare function pressDown(s: PressSample, f?: HardPressFeel): PressStep;
 /** 按着又来了一个样本（滑动或压力变了）。 */

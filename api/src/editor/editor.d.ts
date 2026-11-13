@@ -76,6 +76,7 @@ export interface ToolPointer {
     at?: number;
     pressure?: number;
     press?: PressHit;
+    lift?: boolean;
 }
 /** 记账面包屑（调试日志；op 一行一条）。 */
 export type EditorTrace = {

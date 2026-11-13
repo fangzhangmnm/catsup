@@ -14,11 +14,10 @@ export declare const KNIFE_END_PX = 2;
 export declare function commonFace(m: MeshKernel, a: KnifePoint, b: KnifePoint): number | null;
 export declare class MeshKnifeTool implements ToolHandler {
     readonly tool: "knife";
-    /** direct：松手交给工具（落点在松手时定）。以前是 steps = 按下那一刻就按悬停到的位置取点，笔没有悬停、一落下就得正好压在边上（W-0 侦察）。 */
+    /** direct：底座原样递按下 / 移动 / 松开，翻成「找位置 / 下点 / 抬笔」在 seek-input.ts（stance.ts PEN_PRESS = seek；笔的设计稿第七节第 3 步）。 */
     readonly grammar: "direct";
-    /** 同一处再点一下 = 收刀（和画线的收笔一样）。direct 工具底座不管这一下，刀在 up 里自己认；W-7 的「收」钮也认这个标记。 */
-    readonly sameSpotEnds = true;
     readonly finishLabel = "\u6536\u5200";
+    private readonly input;
     readonly escFinishes = true;
     /** 这一串切成的每一刀 + 第一个点定下时编辑器的操作数（收刀时进马后炮小窗：W-8）。 */
     private chain;
@@ -27,8 +26,6 @@ export declare class MeshKnifeTool implements ToolHandler {
     private startW;
     private startKind;
     private hov;
-    /** 按着没松 = 这一下的落点还在找（active 的一票：底座这时才把移动 / 松手递过来）。 */
-    private pressing;
     /** Ctrl+R 预备：下一下点到边上直接环切（Blender Ctrl+R；纪元账本 FM10「也加一个模式按钮」）。 */
     private loopNext;
     armLoop(ctx: ToolCtx): void;
@@ -43,20 +40,28 @@ export declare class MeshKnifeTool implements ToolHandler {
     cancel(): void;
     sample(): Record<string, number>;
     describe(): Record<string, unknown>;
+    /** 悬着（鼠标没按、笔悬空、还没有起点）= 只找位置：落点标记跟着，不碰提示行。 */
     hover(ctx: ToolCtx, s: {
         x: number;
         y: number;
     }): void;
+    /** 底座递来的移动（按着 / 已有起点）：交给 seek-input 翻成「找位置」，带着重按的 = 下点。 */
     track(ctx: ToolCtx, s: {
         x: number;
         y: number;
-    }): void;
+    }, _travel?: number, ev?: ToolPointer): void;
+    /** 找位置（seek-input 的口）：落点标记 + 刀线跟到屏幕上这一点。 */
+    private seekAt;
     /** 屏幕点 → 过上一个落点、垂直于视线的平面上的点（每帧现算，见 cursorS）。 */
     private onPlane;
     /** 现在这一下切不切得出来（刀线的颜色）。 */
     private validNow;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     up(ctx: ToolCtx, ev: ToolPointer): void;
+    /** 下点（seek-input 的口）：在现在的落点标记上下一点——第一个点 = 起点；之后每一点都和上一个点切一刀（= 一步撤销），接着从这一点往下切（面中间、边、点都一样）。 */
+    private placeHere;
+    /** 抬笔（seek-input 的口；报压感的笔抬起、宽限过了）= 收刀：已经切好的留着、进小窗，还没切到的那一段丢掉（和 Esc、左下「收刀」同一段 endChain）。还没有起点 = 什么都不做。 */
+    private liftEnd;
     /** 定下一个点（第一个点 / 切到的点 / 挪过去的起点）：起点换成它。 */
     private setStart;
     /** 松手之后：找落点时的落点 / 光标丢掉（不留连到别处的线），标记留在起点上——笔没有悬停，不然看不出起点在哪；下一次按下再清（down）。 */

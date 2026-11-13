@@ -80,6 +80,11 @@ export declare const HARD_PRESS: {
     readonly downHeavy: 0.6;
     readonly rearmFrac: 0.5;
 };
+/**
+ * 抬笔宽限（ms；笔的设计稿第三节）：用重按的工具里，报压感的笔抬起先等这么久，其间又落下 = 当没断过（有的屏会突然断触一下），过了才算抬笔。
+ * user 嫌 0.2 秒太长（防的是硬件抖动，要跟手）；统筹提 0.05 秒（断触只有一两次采样那么短，人故意抬再落最快也要一百多毫秒），user 没回，先按它做；设置里能改（app 记在设备上）。
+ */
+export declare const LIFT_GRACE_MS = 50;
 export declare const CHARGE_DWELL_MS = 300;
 /** 平面把手（镜像面）：方块半边长 / 把手捕获半径（CSS px）/ 转动一档（度）/ 法线离帧的某根轴这么近就吸正（度）。 */
 export declare const GIZMO_PX = 64, HANDLE_PX = 16, ROT_STEP_DEG = 15, AXIS_SNAP_DEG = 4;

@@ -351,7 +351,7 @@ export interface ToolHandler {
     readonly draws?: boolean;
     /** steps 工具：等下一点时在锚点附近（吸附半径内）又按一下 = 收（画线 = 收笔、刀 = 收刀）；没有 = 底座吞掉这一下。W-2 2026-11-10：以前底座按工具名只认画线，刀要的是「递给工具、同一条边点两下 = 环切」（user 同意环切只走自己的入口）。 */
     readonly sameSpotEnds?: boolean;
-    /** 声明了 sameSpotEnds 的工具：左下芯片那颗「收」的钮上写什么（画线 = 「收笔」、刀 = 「收刀」；W-7 2026-11-10）。没写 = 「收」。 */
+    /** 左下芯片那颗「收」的钮上写什么（画线 = 「收笔」、刀 = 「收刀」；W-7 2026-11-10）。声明了 = 有这颗钮（在等下一点时露）；没声明 = 没有。 */
     readonly finishLabel?: string;
     /** 收的那一刻（「收」钮 / 同一处再点一下 / Esc，都走编辑器的 endChain；在 cancel 之前调）：刀在这里开马后炮小窗（W-8）。 */
     onEndChain?(ctx: ToolCtx): void;

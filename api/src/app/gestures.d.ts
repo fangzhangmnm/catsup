@@ -30,6 +30,8 @@ export interface GestureOpts {
     armable?(pointerType: string): boolean;
     /** 笔的工具指针判到一次重按（hard-press.ts）：hit = 点下在哪（画布本地）；clientX / Y = 同一点的 client 坐标（笔尖闪一圈用）。同一下也带在递给编辑器的 ToolPointer.press 上。 */
     onHardPress?(hit: PressHit, clientX: number, clientY: number): void;
+    /** 抬笔宽限（ms；设计稿第三节）：现在的工具用重按时 > 0。报压感的笔抬起先等这么久，其间又落下 = 当没断过；过了才交给编辑器（带 lift）。缺 / 0 = 不等。 */
+    liftGraceMs?(): number;
 }
 export declare function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: GestureOpts): {
     dispose(): void;
