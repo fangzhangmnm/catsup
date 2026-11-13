@@ -4,6 +4,7 @@ export declare const MIRROR_OP_CLASS: {
     readonly meshExtrude: "topo";
     readonly meshDuplicate: "topo";
     readonly meshFill: "topo";
+    readonly meshMakeFace: "topo";
     readonly meshFlip: "topo";
     readonly meshKnife: "topo";
     readonly meshLoopCut: "topo";
