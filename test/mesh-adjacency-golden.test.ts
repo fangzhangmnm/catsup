@@ -8,7 +8,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { packEdgeByte } from "../src/mesh/reserved-columns.ts";
 import { FRESH } from "../src/mesh/columns.ts";
-import { addBox, bevelEdges, catmullClark, deleteFaces, dissolveVertex, extrudeEdges, extrudeFaces, flipFaces, insetFaces, joinFaces, knife, loopCut, mergeVerts, splitEdge, splitFace } from "../src/mesh/ops/index.ts";
+import { addBox, bevelEdges, catmullClark, deleteFaces, dissolveVertex, extrudeEdges, extrudeFaces, flipFaces, insetFaces, joinFaces, knife, loopCut, mergeVerts, splitEdge, splitFaceAlong } from "../src/mesh/ops/index.ts";
 import { symmetrize } from "../src/mesh/mirror.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 const { createHash } = (await import("node:crypto" as string)) as { createHash(a: string): { update(s: string): { digest(e: string): string } } };
@@ -44,7 +44,7 @@ function chain(base: string, seed: number, steps: number, onBad?: (bad: string[]
     const c = k.clone(), oi = Math.floor(r() * OPS.length), op = OPS[oi], f = pick(c.faces()), e = pick(c.edges()), v = pick(c.verts());
     try {
       if (op === "splitEdge" && e !== undefined) splitEdge(c, e, 0.2 + 0.6 * r());
-      else if (op === "splitFace" && f !== undefined && c.faceLen[f] >= 4) { const ring = c.faceVerts(f), i = Math.floor(r() * ring.length); splitFace(c, f, ring[i], ring[(i + 2) % ring.length]); }
+      else if (op === "splitFace" && f !== undefined && c.faceLen[f] >= 4) { const ring = c.faceVerts(f), i = Math.floor(r() * ring.length); splitFaceAlong(c, f, ring[i], ring[(i + 2) % ring.length]); }
       else if (op === "knife" && f !== undefined) { const es = c.fEdges(f); if (es.length < 4) continue; const i = Math.floor(r() * es.length); knife(c, f, [{ e: es[i], t: 0.3 + 0.4 * r() }, { e: es[(i + 2) % es.length], t: 0.3 + 0.4 * r() }]); }
       else if (op === "loopCut" && e !== undefined) loopCut(c, e, 0.3 + 0.4 * r());
       else if (op === "inset" && f !== undefined) insetFaces(c, [f], 0.03);
@@ -86,28 +86,31 @@ const hashOf = (b: string, s: number): string => createHash("sha256").update(dum
 /** 改之前（main 74c71f1，2026-11-10）算出来的。 */
 // 2026-11-13 重冻 18 条（属性地基轮第二步 = 合并点原子，Claude Opus 5.5；统筹看过逐类清单放行）：并点改成内核的合并点原子——一伙角一起走（columns 三条第一次分岔在角上的值）、
 //   只换一头的边保号保标记（之后分到的编号挪了：16 条第一次分岔只差编号）、刺留成线、环上重复点剪圈、重叠进报告、等权相加按点编号固定先后。逐类清单 = 施工单十八页末「属性地基轮第二步」。
+// 2026-11-13 重冻 7 条（box#1 / openGrid#2 / fin#1 / loose#3 / mirrorBox#2 / columns#2 / columns#3；笔的设计稿第八节 = 刀切之前验一道，Claude Opus 5.5）：刀（两个环上点的一刀）现在先验后切，随机链里有 56 刀被拦下、这一步丢掉，之后的编号跟着挪：
+//   38 刀 = 切出来的面没有面积（32 刀切的面本来就是零面积 + 6 刀从共线的几段边之间切出零面积的薄片）、18 刀 = 刀线出了这张面（凹的 / 拧着的 / 有零长边的四边形）。
+//   把验的那一道临时关掉，这 21 条逐位和重冻前一样（沿折线劈面的原子 + 刀的改写本身不改任何编号）。
 const GOLDEN: Record<string, string> = {
-  "box#1": "17cf2d4fce83bc7f7e559c223cf947e3",
+  "box#1": "dd2b9e22ec69cc5b222ff46b33ed35fc",
   "box#2": "e6576d004214306d93e1f1c8866ab868",
   "box#3": "dfc45eaf0ff7ad3146befa80b440d611",
   "torus8#1": "4deeacf035a73a49945981cabdbf8571",
   "torus8#2": "591daecac32cda12b343d4eaecd5364e",
   "torus8#3": "ab09a1b9e5485992bb1bac41ea8e09cc",
   "openGrid#1": "a695c9231d903aae67529063726649e4",
-  "openGrid#2": "0873b7d71b3f881ab5522f983bcd0b81",
+  "openGrid#2": "141de8b13538fa9f6d6f3669a473f1e2",
   "openGrid#3": "10f5d2b1775b03f0f77cf2aa6174a24e",
-  "fin#1": "a54e44b10039c84772025eb5ff12bf86",
+  "fin#1": "614b1a8a5dea6f7b3f35f7c797c48d54",
   "fin#2": "f7aaaa769a98961ea8e51555f428d1bd",
   "fin#3": "bd4aedc99c672816f829af955bdbbc72",
   "loose#1": "84e16ccae1fb10d1ec95451d81208dc4",
   "loose#2": "fe6662a8c222b5544f592b7abcc96c0d",
-  "loose#3": "1b3a00cbb5f4017601749e7985c97a32",
+  "loose#3": "078c41e43657abba0d419ac8d3f1aab4",
   "mirrorBox#1": "d09c22b643d02fcfa3eb71ee159f4ffa",
-  "mirrorBox#2": "77da84158ccd0718b728e2741d6b3600",
+  "mirrorBox#2": "6b325a21ad609b0d7b3854cf35a37b9e",
   "mirrorBox#3": "ca51f70424a3afd288905f01c4d604c4",
   "columns#1": "2edfbd3bc83950ce61fe34fcea9588be",
-  "columns#2": "84fa2dd7c9fb025614ddc12db077d2d4",
-  "columns#3": "72039dcf81053a6e224e214340b35995",
+  "columns#2": "73d795b5fcff344cbe157d8f9f342a97",
+  "columns#3": "1794da5f2d10fcaa8e21de5bbd29f538",
 };
 
 describe("网格体邻接：随机操作链的结果和改之前逐位相同（W-11 的样本）", () => {

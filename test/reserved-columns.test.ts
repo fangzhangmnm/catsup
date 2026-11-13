@@ -6,7 +6,7 @@ const { readFileSync } = (await import("node:fs" as string)) as { readFileSync(p
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { FRESH } from "../src/mesh/columns.ts";
 import { HIDE_POLY, MATERIAL_INDEX, faceHidden, faceMaterial, hiddenColumn, materialColumn, setFaceHidden, setFaceMaterial } from "../src/mesh/reserved-columns.ts";
-import { addBox, bevelEdges, catmullClark, duplicateGeometry, extrudeEdges, extrudeFaces, insetFaces, joinFaces, knife, loopCut, splitFace } from "../src/mesh/ops/index.ts";
+import { addBox, bevelEdges, catmullClark, duplicateGeometry, extrudeEdges, extrudeFaces, insetFaces, joinFaces, knife, loopCut, splitFaceAlong } from "../src/mesh/ops/index.ts";
 import { symmetrize } from "../src/mesh/mirror.ts";
 import { FILE_FACE_HIDDEN, kernelFromMeshDoc, meshDocFromKernel } from "../src/mesh/mesh-doc.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
@@ -46,7 +46,7 @@ describe("保留名跟着来历走", () => {
   const marked = (): MeshKernel => { const k = box(); for (const f of k.faces()) setFaceMaterial(k, f, 1); setFaceHidden(k, top(k), true); setFaceMaterial(k, top(k), 3); return k; };
   it("藏着的面切开：两半都藏着、材质照抄（以前新的一半露出来）——劈面 / 刀 / 环切 / 细分 / 内插", () => {
     const cases: [string, (k: MeshKernel, t: number) => void][] = [
-      ["劈面", (k, t) => { const r = k.faceVerts(t); splitFace(k, t, r[0], r[2]); }],
+      ["劈面", (k, t) => { const r = k.faceVerts(t); splitFaceAlong(k, t, r[0], r[2]); }],
       ["刀", (k, t) => { const r = k.faceVerts(t); knife(k, t, [{ v: r[0] }, { v: r[2] }]); }],
       ["环切", (k, t) => { const e = k.fEdges(t)[0]; loopCut(k, e, 0.5); }],
       ["内插", (k, t) => { insetFaces(k, [t], 0.1); }],

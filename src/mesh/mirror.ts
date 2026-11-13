@@ -5,7 +5,7 @@
 import { MeshKernel, type EdgeShape } from "./mesh-kernel.ts";
 import { HIDE_EDGE, faceMaterial } from "./reserved-columns.ts";
 import { declareRingEdges, fromShapes, pairKey } from "./ops/ring-edges.ts";
-import { splitEdge, splitFace } from "./ops/split.ts";
+import { splitEdge, splitFaceAlong } from "./ops/split.ts";
 import type { Pt3 } from "../kernel/kernel.ts";
 
 export type MirrorAxis = 0 | 1 | 2;
@@ -276,7 +276,7 @@ export function bisectPlane(m: MeshKernel, axis: MirrorAxis, tol = MIRROR_TOL): 
     for (const [a, b] of chords) {
       const g = pieces.find((x) => { const rr = m.faceVerts(x), ia = rr.indexOf(a), ib = rr.indexOf(b), n = rr.length; return ia >= 0 && ib >= 0 && (ib - ia + n) % n !== 1 && (ia - ib + n) % n !== 1; });
       if (g === undefined) { ok = false; break; }
-      pieces.push(splitFace(m, g, a, b));
+      pieces.push(splitFaceAlong(m, g, a, b).face);
     }
     if (ok) splitFaces++; else left++;
   }

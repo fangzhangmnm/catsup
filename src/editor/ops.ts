@@ -22,7 +22,7 @@ import { snapToSymmetry, symmetrize } from "../mesh/mirror.ts";
 import { looseBits, subdivide } from "../mesh/ops/subdivide.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
-import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, loopCuts, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame, splitEdge, duplicateGeometry, fillOrBridge, flipFaces } from "../mesh/ops/index.ts";
+import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, KnifeRefused, type KnifeStop, loopCut, loopCuts, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame, splitEdge, duplicateGeometry, fillOrBridge, flipFaces } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { bornFaces, settleNewFaceSides } from "../kernel/face-sides.ts";
 import { MeshKernel, type EdgeOrigin } from "../mesh/mesh-kernel.ts";
@@ -150,7 +150,7 @@ export type Op =
    */
   | { op: "meshExtrude"; def: number; faces?: number[]; edges?: number[]; verts?: number[]; offset?: Pt3; along?: number }
   /** 刀（自由建模；2026-10-27 Opus 5.5）：face 上按顺序的落点（已有的点 { v } / 边上的点 { e, t }），相邻两点之间劈面。mesh/ops/split.ts knife。 */
-  | { op: "meshKnife"; def: number; face: number; path: ({ v: number } | { e: number; t: number })[] }
+  | { op: "meshKnife"; def: number; face: number; path: KnifeStop[] }   // 落点：顶点 / 边上的点 / 面里的点（{ p } 定义坐标，只夹在两个环上点之间；笔的设计稿第八节第 3 条）
   /** 环切：从 edge 出发沿四边形带切一圈，每条边在 t 处劈开（缺 = 0.5；从 edge 的 edgeA 那头量，整圈同一侧）。cuts = 圈数（缺 = 1；> 1 = 均分、t 不起作用；W-8）。mesh/ops/loopcut.ts。 */
   | { op: "meshLoopCut"; def: number; edge: number; t?: number; cuts?: number }
   /** 删（自由建模的 X / Delete / 删除工具）：面 → 边 → 点三档一次；dissolve = 溶解（边 → 两侧面并一张、二度点去掉；溶解不了的跳过）。mesh/ops/delete.ts deleteSelection。 */
@@ -890,7 +890,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       inst.def = uniqueCopy(s, inst.def);
       return { scene: s, events: [] };
     }
-    case "meshKnife": { knife(meshOf(s, op.def).kernel, op.face, op.path); return { scene: s, events: [] }; }
+    case "meshKnife": { try { knife(meshOf(s, op.def).kernel, op.face, op.path); } catch (err) { if (err instanceof KnifeRefused) throw new OpRejected(`切割：${err.message}`); throw err; } return { scene: s, events: [] }; }   // 刀被拦（切之前验的那一道）= 规矩拒绝、进提示行；真身一个数都没动
     case "meshLoopCut": { const r = loopCuts(meshOf(s, op.def).kernel, op.edge, op.cuts ?? 1, op.t ?? 0.5); if (!r.edges.length) throw new OpTargetError(`loop cut from edge ${op.edge}: not a quad strip`); return { scene: s, events: [] }; }
     case "meshExtrude": { const k = meshOf(s, op.def).kernel; if (op.along !== undefined && !op.faces?.length) extrudeAlongNormals(k, op, op.along); else extrudeAndOffset(k, op, op.offset ?? { x: 0, y: 0, z: 0 }); return { scene: s, events: [] }; }
     case "castDefinition": {

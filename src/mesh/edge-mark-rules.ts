@@ -51,7 +51,7 @@ export const OPS: Readonly<Record<string, OpsRow>> = {
   "primitives.ts": { say: "基本体：新边 = 新长，新面 = 凭空来的；只有边的圆圈 / 方框设裸线位", ops: { addPrimitive: B(["grown"], ["fresh"]) }, helpers: ["primitiveDims"] },
   "ring-edges.ts": { say: "工具：按面环的顺序先把缺的边建好、各自申报来历（declareRingEdges），给别的操作用；已经在的边又申报来历 = 核值，对不上抛", ops: {}, helpers: ["declareRingEdges"] },
   "split.ts": { say: "劈边：两半 = 一块（先建边再改面）、挨着的面改了环 = 它自己的一份；劈面 / 刀：面里切出来的新边 = 新长、两半面 = 一块（刀经过的边劈成两半 = 一块）",
-    ops: { splitEdge: B(["piece"], ["copy"]), splitFace: B(["grown"], ["piece"]), knife: B(["piece", "grown"], ["piece"]) } },
+    ops: { splitEdge: B(["piece"], ["copy"]), splitFaceAlong: B(["grown"], ["piece"]), knife: B(["piece", "grown"], ["piece"]) }, helpers: ["knifeCheck"] },
   "subdivide.ts": { say: "细分：被劈的边两半 = 一块；读 sharp_edge 当折痕；面里新长出来的边 = 新长；细出来的面 = 原面的一块",
     ops: { catmullClark: B(["piece", "grown"], ["piece"]), subdivide: B(["piece", "grown"], ["piece"]) }, helpers: ["looseBits"] },
 };

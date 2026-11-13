@@ -4,7 +4,7 @@ import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel, type FaceOrigin } from "../src/mesh/mesh-kernel.ts";
 import { FreeIds } from "../src/mesh/free-ids.ts";
 import { SOFT, edgeMark, setEdgeMark } from "../src/mesh/reserved-columns.ts";
-import { addBox, addPolygon, deleteFaces, dissolveVertex, extrudeFaces, joinFaces, knife, mergeVerts, splitEdge, splitFace, translateVerts, flipFaces, loopCut, limitedDissolve, removeDoubles } from "../src/mesh/ops/index.ts";
+import { addBox, addPolygon, deleteFaces, dissolveVertex, extrudeFaces, joinFaces, knife, mergeVerts, splitEdge, splitFaceAlong, translateVerts, flipFaces, loopCut, limitedDissolve, removeDoubles } from "../src/mesh/ops/index.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
@@ -65,7 +65,7 @@ describe(title, () => {
     const m = splitEdge(k, e, 0.5); clean(k, "劈边");
     eq(k.faceVerts(face).length, 5); const pm = k.pt(m); eq(`${pm.x},${pm.y}`, "1,0");
     assert(edgeMark(k, k.edgeOf(verts[0], m), SOFT) && edgeMark(k, k.edgeOf(m, verts[1]), SOFT), "两半都软");
-    const nf = splitFace(k, face, m, verts[2]); clean(k, "劈面");
+    const nf = splitFaceAlong(k, face, m, verts[2]).face; clean(k, "劈面");
     eq(k.faceCount(), 2);
     // 把一个点抬起来：不平了，面还在（没有平面性公理）
     k.setPos(verts[2], P(2, 2, 0.7)); clean(k, "抬点");
@@ -137,7 +137,7 @@ describe(title, () => {
         const pick = <T,>(arr: T[], j: number): T | undefined => (arr.length ? arr[Math.floor(u[j] * arr.length)] : undefined);
         const act = (m: MeshKernel): void => {
           if (r < 0.15) { const e = pick(m.edges(), 0); if (e !== undefined) splitEdge(m, e, 0.3 + u[1] * 0.4); }
-          else if (r < 0.3) { const f = pick(m.faces(), 0); if (f !== undefined) { const vs = m.faceVerts(f); if (vs.length >= 4) { const i = Math.floor(u[1] * vs.length), j = (i + 2) % vs.length; splitFace(m, f, vs[i], vs[j]); } } }
+          else if (r < 0.3) { const f = pick(m.faces(), 0); if (f !== undefined) { const vs = m.faceVerts(f); if (vs.length >= 4) { const i = Math.floor(u[1] * vs.length), j = (i + 2) % vs.length; splitFaceAlong(m, f, vs[i], vs[j]); } } }
           else if (r < 0.45) { const e = pick(m.edges().filter((x) => m.eFaces(x).length === 2), 0); if (e !== undefined) joinFaces(m, e); }
           else if (r < 0.55) { const v = pick(m.verts().filter((x) => m.vEdges(x).length === 2), 0); if (v !== undefined) dissolveVertex(m, v); }
           else if (r < 0.65) { const e = pick(m.edges(), 0); if (e !== undefined) mergeVerts(m, [m.edgeA[e], m.edgeB[e]], "center"); }

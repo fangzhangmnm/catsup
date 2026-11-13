@@ -1,7 +1,7 @@
 // mesh/ops/loopcut.ts —— 环切（Blender Ctrl+R）：从一条边出发，沿四边形带一路走「对边」，每条边在 t 处劈开，每张四边形在新点之间劈一刀。
 // 走到非四边形 / 边界 / 回到起点为止；开口带也行（两头停在边界）。只切不长：面数只会从 n 张四边形变 2n 张。created 2026-10-27 by Claude Fable 5.1
 import { MeshKernel } from "../mesh-kernel.ts";
-import { splitEdge, splitFace } from "./split.ts";
+import { splitEdge, splitFaceAlong } from "./split.ts";
 
 /** 四边形 f 里边 e 的对边（环里和 e 相隔一个位置的那条）+ 对边上和 e 的 ref 端同一侧的那一端。不是四边形 → edge = -1。 */
 function oppositeEdge(k: MeshKernel, f: number, e: number, ref: number): { edge: number; ref: number } {
@@ -49,7 +49,7 @@ export function loopCut(k: MeshKernel, start: number, t = 0.5): LoopCutResult {
     if (mine.length !== 2 || vs.length !== 6) continue;   // 环的两头停在边界时，端头的面只有一个新点：不切
     const ia = vs.indexOf(mine[0]), ib = vs.indexOf(mine[1]);
     if ((ib - ia + 6) % 6 === 1 || (ia - ib + 6) % 6 === 1) continue;
-    splitFace(k, f, mine[0], mine[1]);
+    splitFaceAlong(k, f, mine[0], mine[1]);
     edges.push(k.edgeOf(mine[0], mine[1]));
   }
   return { edges, newVerts, closed, startVert: newVerts[ring.indexOf(start)] };

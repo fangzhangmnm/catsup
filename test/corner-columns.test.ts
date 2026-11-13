@@ -9,7 +9,7 @@ const { readdirSync, readFileSync, statSync } = (await import("node:fs" as strin
 const join = (...p: string[]): string => p.join("/");
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { FRESH, type ColumnDef } from "../src/mesh/columns.ts";
-import { addBox, bevelEdges, catmullClark, duplicateGeometry, extrudeEdges, extrudeFaces, flipFaces, insetFaces, joinFaces, knife, loopCut, mergeVerts, splitEdge, splitFace } from "../src/mesh/ops/index.ts";
+import { addBox, bevelEdges, catmullClark, duplicateGeometry, extrudeEdges, extrudeFaces, flipFaces, insetFaces, joinFaces, knife, loopCut, mergeVerts, splitEdge, splitFaceAlong } from "../src/mesh/ops/index.ts";
 import { symmetrize } from "../src/mesh/mirror.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
@@ -64,7 +64,7 @@ describe("角上的列：A 切不动画", () => {
         const c = k.clone(), op = Math.floor(r() * 5);
         try {
           if (op === 0) splitEdge(c, pick(c.edges()), 0.2 + 0.6 * r());
-          else if (op === 1) { const f = pick(c.faces().filter((x) => c.faceLen[x] >= 4)), ring = c.faceVerts(f), i = Math.floor(r() * ring.length); splitFace(c, f, ring[i], ring[(i + 2) % ring.length]); }
+          else if (op === 1) { const f = pick(c.faces().filter((x) => c.faceLen[x] >= 4)), ring = c.faceVerts(f), i = Math.floor(r() * ring.length); splitFaceAlong(c, f, ring[i], ring[(i + 2) % ring.length]); }
           else if (op === 2) { const f = pick(c.faces()), es = c.fEdges(f); if (es.length < 4) continue; const i = Math.floor(r() * es.length); knife(c, f, [{ e: es[i], t: 0.3 + 0.4 * r() }, { e: es[(i + 2) % es.length], t: 0.3 + 0.4 * r() }]); }
           else if (op === 3) loopCut(c, pick(c.edges()), 0.3 + 0.4 * r());
           else insetFaces(c, [pick(c.faces())], 0.03);
@@ -276,7 +276,7 @@ describe("列：离散的列、跟旁边、声明", () => {
     k.setCornerValues(a, UV, k.facePts(a).flatMap((p) => [p.x, p.y])); k.setCornerValues(b, UV, k.facePts(b).flatMap((p) => [p.x + 1, p.y]));
     k.setFaceValue(a, CODE, 0); k.setFaceValue(b, CODE, 0); k.takeReport();
     const f = joinFaces(k, k.edgeOf(v[1], v[4])), ring = k.faceVerts(f);
-    const g = splitFace(k, f, ring[0], ring[2]);
+    const g = splitFaceAlong(k, f, ring[0], ring[2]).face;
     const odd = k.takeReport().odd;
     assert(odd.get(f)?.corner.get(UV) === "mixed" && odd.get(g)?.corner.get(UV) === "mixed", `两块都带着：${[...odd.keys()].join(",")}`);
   });
