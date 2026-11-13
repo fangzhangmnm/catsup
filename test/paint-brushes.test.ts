@@ -20,6 +20,10 @@ describe("每支笔的旋钮 + 换笔（施工单二十 1b）", () => {
     eq(pb.current("paintPen"), "sketch"); eq(pb.current("paintEraser"), "eraser"); eq(pb.current("eyedrop"), null);
     eq(knobs(), "6 / 1 / 0.75"); eq(knobs("paintEraser"), "24 / 1 / 0.8");
   });
+  it("出厂值只在笔的记录里说一处：工具配置表还没套笔之前的值 = 默认那支笔的初值（统筹 11-13：以前另写 12 / 0.8，从来用不到）", () => {
+    const { cfg, knobs } = mk(); cfg.reset("paintPen"); cfg.reset("paintEraser");
+    eq(knobs(), "6 / 1 / 0.75"); eq(knobs("paintEraser"), "24 / 1 / 0.8");
+  });
   it("换笔：手上的旋钮存回原来那支、套上新那支的初值；换回来各是各的（出厂草稿笔 → 平涂 50 / 1 / 0.9 → 回草稿笔）", () => {
     const { cfg, pb, knobs } = mk(); pb.apply(null);
     cfg.set("paintPen", "size", 30); cfg.set("paintPen", "opacity", 0.6);

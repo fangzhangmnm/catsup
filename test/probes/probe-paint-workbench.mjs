@@ -74,7 +74,7 @@ check(modes.includes("paint"), "网格体里有「画画」这个工作台", mod
 await S(() => { globalThis.__catsup.pickWorkbench("paint"); });
 await frames(2);
 const st1 = await S(() => ({ mode: globalThis.__catsup.editor.modeId, tool: globalThis.__catsup.editor.tool, tools: globalThis.__catsup.editor.modeTools().join(",") }));
-check(st1.mode === "paint" && st1.tool === "paintPen" && st1.tools === "paintPen,paintEraser,eyedrop", "工作台 = 画画、手上 = 笔、三把工具", JSON.stringify(st1));
+check(st1.mode === "paint" && st1.tool === "paintPen" && st1.tools === "paintPen,paintEraser,eyedrop,paintBucket", "工作台 = 画画、手上 = 笔、四把工具（油漆桶 2026-11-13）", JSON.stringify(st1));
 const startBtn = page.locator('button:has-text("开始画")').first();
 check(await startBtn.isVisible(), "「开始画」看得见");
 check(await S(() => { const b = document.getElementById("walkBtn"), r = b.getBoundingClientRect(); return !document.getElementById("walkBar").hidden && b.textContent === "开始画…" && b.hasAttribute("data-loud") && Math.abs(r.left + r.width / 2 - innerWidth / 2) < 2 && r.top < 80; }), "它是上方正中那颗醒目的主按钮（右下角不再放它）");

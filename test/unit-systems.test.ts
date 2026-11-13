@@ -7,6 +7,16 @@ import { settingsForFile, settingsNow } from "../src/format/migrate/settings.ts"
 import { DEFAULT_SETTINGS } from "../src/format/document.ts";
 const fs = (await import("node:fs" as string)) as { readFileSync(p: string, enc: "utf8"): string };
 
+describe("新文档的 settings 生下来就是现在的形状（统筹 11-13）", () => {
+  it("DEFAULT_SETTINGS = 写盘门口给公制、默认吸附、吸附关着写出来的那一份（JSON 逐字一样）；读的门口不用猜", () => {
+    const door = settingsForFile({} as never, { absoluteGrid: false, unitSystem: "metric", snapIncrement: unitSystemRow("metric").defaultSnap, gridPlane: "xy", gridHidden: false });
+    eq(JSON.stringify(DEFAULT_SETTINGS), JSON.stringify(door));
+    eq(DEFAULT_SETTINGS.unitSystem, "metric", "单位制写明（不靠按老键猜）");
+    const now = settingsNow(DEFAULT_SETTINGS);
+    eq(JSON.stringify(now), JSON.stringify({ unitSystem: "metric", snapIncrement: 0.2, absoluteGrid: false, gridPlane: "xy", gridHidden: false }));
+  });
+});
+
 describe("单位制一张表：每一行都齐", () => {
   it("id 不重复；isUnitSystem / UNIT_SYSTEMS 从表里来", () => {
     const ids = UNIT_SYSTEM_ROWS.map((r) => r.id);

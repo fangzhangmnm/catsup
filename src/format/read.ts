@@ -9,7 +9,7 @@ import { sliceBin } from "./binary.ts";
 import { decodeBrep, type CatsupBrepJson } from "./brep-codec.ts";
 import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc, TextureDoc } from "./document.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
-import { DEFAULT_SETTINGS, DEFAULT_LAYER, defaultDesk, emptyReferences, menuTabsOf, paintDeskOf, refPanelOf, shelfIsEmpty, type DeskDoc, type LayerDoc, type ReferencesDoc, type ShelfDoc, type ShelfItem } from "./document.ts";
+import { DEFAULT_LAYER, defaultDesk, emptyReferences, menuTabsOf, paintDeskOf, refPanelOf, shelfIsEmpty, type DeskDoc, type LayerDoc, type ReferencesDoc, type ShelfDoc, type ShelfItem } from "./document.ts";
 import { migrateExtension, emptyReadNotes, readStamp, FormatTooNewError, type FormatReadNotes } from "./migrate/index.ts";
 import { BUILTIN_BACK_GUID, BUILTIN_FRONT_GUID, DEFAULT_LAYER_GUID, isGuid, ownGuid, type Guid } from "./guid.ts";
 import { decodeMeshItem } from "./mesh-payload.ts";
@@ -315,7 +315,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const settingsIn = isObj(docExt.settings) ? (docExt.settings as Record<string, unknown>) : {};
   const bake = isObj(docExt.bake) ? (docExt.bake as Record<string, unknown>) : {};
   return {
-    settings: { ...DEFAULT_SETTINGS, ...settingsIn } as CatsupDocument["settings"],
+    settings: { ...settingsIn } as CatsupDocument["settings"],   // 文件里写着什么就是什么，不垫默认（统筹 11-13：以前垫 DEFAULT_SETTINGS，毫米文件读进来内存里又多出 displayUnit "m"）；怎么认归读的门口 migrate/settings.ts settingsNow
     axes: frameOf(docExt.axes, "document.axes"),
     layers: (() => { const layerSeen = new Set<Guid>([DEFAULT_LAYER_GUID]); const raw = Array.isArray(docExt.layers) ? (docExt.layers as unknown[]) : []; const ls: LayerDoc[] = raw.filter(isObj).map((l) => { const o = l as Record<string, unknown>; const id = typeof o.id === "number" ? o.id : 0; return { id, guid: id === 0 ? DEFAULT_LAYER_GUID : ownGuid(o.guid, layerSeen, reminted), name: typeof o.name === "string" ? o.name : `层 ${String(o.id)}`, visible: o.visible !== false, ...(Array.isArray(o.color) && o.color.length === 3 ? { color: [o.color[0], o.color[1], o.color[2]] as [number, number, number] } : {}) }; }); if (!ls.some((l) => l.id === 0)) ls.unshift({ ...DEFAULT_LAYER }); return ls; })(),
     ...(isFinalRecord(docExt.final) ? { final: { at: docExt.final.at, rev: docExt.final.rev, app: typeof docExt.final.app === "string" ? docExt.final.app : "", fingerprint: docExt.final.fingerprint } } : {}),

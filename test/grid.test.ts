@@ -139,14 +139,16 @@ describe("grid: 文档 settings 往返（CATSUP_document 3.4：单位制 + 吸�
     eq(d.gridPreset, "dnd"); eq(d.displayUnit, "ft-in"); eq(settingsFromGrid(DEFAULT_SETTINGS, { ...DEFAULT_GRID, system: "imperial", snap: IN_M }).gridPreset, "architectural");
   });
   it("老文件没有 unitSystem：按老键猜（D&D 制式 = D&D；建筑制式 / 英尺英寸 / 英寸显示 = 英制；其余公制）；吸附 = snapIncrement，坏了退回格距 ÷ 细分", () => {
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridPreset: "dnd" }).system, "dnd");
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridPreset: "architectural" }).system, "imperial");
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, displayUnit: "ft-in" }).system, "imperial");
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, displayUnit: "in" }).system, "imperial");
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, displayUnit: "cm" }).system, "metric");
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, unitSystem: "mars" as never }).system, "metric", "坏值回公制");
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridStep: 1, gridSubdiv: 10, snapIncrement: 0.1 }).snap, 0.1);
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridStep: 0.5, gridSubdiv: 10, snapIncrement: -1 }).snap, 0.05, "snapIncrement 坏了 = 格距 ÷ 细分");
+    // 3.3 及以前的写法（没有 unitSystem；新文档 v0.19.78 起生下来就带 unitSystem，不能再拿 DEFAULT_SETTINGS 当老文件）
+    const OLD = { displayUnit: "m", gridStep: 1, snapIncrement: 0.2, absoluteGrid: false, gridSubdiv: 5 };
+    eq(gridFromSettings({ ...OLD, gridPreset: "dnd" }).system, "dnd");
+    eq(gridFromSettings({ ...OLD, gridPreset: "architectural" }).system, "imperial");
+    eq(gridFromSettings({ ...OLD, displayUnit: "ft-in" }).system, "imperial");
+    eq(gridFromSettings({ ...OLD, displayUnit: "in" }).system, "imperial");
+    eq(gridFromSettings({ ...OLD, displayUnit: "cm" }).system, "metric");
+    eq(gridFromSettings({ ...OLD, unitSystem: "mars" as never }).system, "metric", "坏值回公制");
+    eq(gridFromSettings({ ...OLD, gridStep: 1, gridSubdiv: 10, snapIncrement: 0.1 }).snap, 0.1);
+    eq(gridFromSettings({ ...OLD, gridStep: 0.5, gridSubdiv: 10, snapIncrement: -1 }).snap, 0.05, "snapIncrement 坏了 = 格距 ÷ 细分");
     eq(gridFromSettings(DEFAULT_SETTINGS).shown, true);
   });
 });

@@ -21,7 +21,7 @@ const VIA = (how: string): AsleepRule => ({ asleep: "via", how });
 
 const NO = (why: string): PixelRule => ({ kind: "no-pixels", why });   // constructor 这个键在对象字面量里会被当成 Object.prototype.constructor 推类型：用函数给出 PixelRule
 /** 类 → 公开方法（含 constructor 和 getter）→ 表态。键 = 守卫扫源码时用的名字。 */
-export const PIXEL_WRITES: Readonly<Record<"PaintBoard" | "PaintBoards" | "SpacePaintStroke" | "PaintWorkbench", Readonly<Record<string, PixelRule>>>> = {
+export const PIXEL_WRITES: Readonly<Record<"PaintBoard" | "PaintBoards" | "SpacePaintStroke" | "SpaceFillStroke" | "PaintWorkbench", Readonly<Record<string, PixelRule>>>> = {
   PaintBoard: {
     openStroke: { kind: "asks-lock", how: "开一笔之前问 this.locked()；交出去的那一笔在落层（commitHost）时再问一次，锁着就抛 = 档口取消令牌、整笔回滚",
       sleep: GPU("开一笔本身只动内存（令牌）；落层（commitHost）经 gpu() 叫醒；一笔开着时登记处不让它睡（strokeOpen / 开着的计数）") },
@@ -78,8 +78,15 @@ export const PIXEL_WRITES: Readonly<Record<"PaintBoard" | "PaintBoards" | "Space
     cancel: { kind: "no-pixels", why: "取消 = 零痕迹" },
     range: { kind: "no-pixels", why: "读" }, tipCount: { kind: "no-pixels", why: "读" },
   },
+  SpaceFillStroke: {
+    constructor: NO("建油漆桶这一下的对象（借归属表），还没开"),
+    add: { kind: "via", from: "PaintWorkbench.pointer（油漆桶按下前过同一道门）；真开在每帧准备里 = PaintBoard.openStroke（问锁）", sleep: VIA("PaintBoard.openStroke；开着的这一下登记在 PaintBoards.trackOpen，登记着就不睡") },
+    up: { kind: "via", from: "落层 = PaintBoard.openStroke 交出的那一笔的 commitHost（落层时再问一次锁）", sleep: VIA("commitHost 经 gpu() 叫醒") },
+    cancel: { kind: "no-pixels", why: "取消 = 零痕迹" },
+    count: { kind: "no-pixels", why: "读" },
+  },
   PaintWorkbench: {
-    pointer: { kind: "asks-lock", how: "落笔之前过门 this.d.gate（= main.ts paintStrokeGate，锁着回 \"locked\"、提示行说锁的那句）", sleep: VIA("SpacePaintStroke.down（落笔的这张画正在编辑：tick 里 setEditing 了，本来就醒着）") },
+    pointer: { kind: "asks-lock", how: "落笔之前过门 this.d.gate（= main.ts paintStrokeGate，锁着回 \"locked\"、提示行说锁的那句）；油漆桶按下前同一道门", sleep: VIA("SpacePaintStroke.down（落笔的这张画正在编辑：tick 里 setEditing 了，本来就醒着）") },
     constructor: NO("建控制器"),
     stroking: { kind: "no-pixels", why: "读" },
     pen: { kind: "no-pixels", why: "读：上一把笔（吸管取完色回到它）" },
@@ -89,5 +96,5 @@ export const PIXEL_WRITES: Readonly<Record<"PaintBoard" | "PaintBoards" | "Space
 
 /** 每个类住在哪个文件（守卫用）。 */
 export const PIXEL_WRITE_FILES: Readonly<Record<keyof typeof PIXEL_WRITES, string>> = {
-  PaintBoard: "src/paint/board.ts", PaintBoards: "src/paint/boards.ts", SpacePaintStroke: "src/paint/space-paint.ts", PaintWorkbench: "src/app/paint-workbench.ts",
+  PaintBoard: "src/paint/board.ts", PaintBoards: "src/paint/boards.ts", SpacePaintStroke: "src/paint/space-paint.ts", SpaceFillStroke: "src/paint/space-fill.ts", PaintWorkbench: "src/app/paint-workbench.ts",
 };

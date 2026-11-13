@@ -3,6 +3,8 @@
 // · 落笔：笔尖下那张面（射线打当前这个物件自己的网格）→ 它走的那张画（一个物件几张画 = 落点那张面的）→ 问 1-8b 的门（还在打开 = 这一笔不开始、提示、同时解开；
 //   只能看不能画 = 说为什么）→ 开一笔（1-4b 的 SpacePaintStroke；落点只认正在编辑的这一份）。抬笔落层 = 三维撤销栈一步（1-8a）；一格都没碰到 = 内核不封步 = 不进栈、不说话。
 // · 设置：笔 / 橡皮各一套（大小 = 屏幕像素、浓度 = 不透明度、硬度），先只记在这一次打开里（tool-config session；「记在设备上」等 user 点头，统筹 11-11）；颜色 = paint-color.ts 那一个入口。
+// · 油漆桶（2026-11-13，统筹批的方案；填法和道理在 paint/space-fill.ts 头注释）：按下 = 同一道门 → 开一下 → 填光标下那张面；拖 = 每进一张新面就填它（只认按下那张面的画）；
+//   松手 = 落层 + 三维一步（「油漆桶」）。没排进画布的面 / 一格都没分到的面：不填、提示行说为什么。
 // · 吸管：点一处 → 画过的面 = 那一格合成出来的颜色（热的读内核合成那一张的一个像素；冷的先热）；没画的面 = 材质的颜色。取完回到上一把笔。
 // · 进门就准备好：进画画工作台 / 换了正在编辑的物件 = 这个物件的画全部 warm()（冷的解开；新建还没画过的建画板），三角格子算好放着（模型一改就作废）。
 //   画画的准备（1-4c space-prep.ts：整份几何 + 每格的表）每帧对一次：这个物件上热的画都要现成；过期了（在工作台里撤销到建模那几步 = 网格体修改号变了）
@@ -15,6 +17,7 @@ import type { Editor } from "../editor/editor.ts";
 import type { PaintPointer } from "../editor/tool-handler.ts";
 import type { PaintBoards } from "../paint/boards.ts";
 import { SpacePaintStroke, type SpacePaintDeps } from "../paint/space-paint.ts";
+import { SpaceFillStroke, fillAimOf } from "../paint/space-fill.ts";
 import { buildTriGrid, pickSurface, type TriGrid } from "../paint/surface-pick.ts";
 import { applyDir, applyPt, invert } from "../scene/xform.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
@@ -44,12 +47,17 @@ export interface PaintWorkbenchDeps {
 /** 笔尖下打到了什么。 */
 /** 模型上落笔撞到平铺的画（施工单二十一第 3 刀第二节第 6 条）：不画、说原因。 */
 export const tiledOnlyInWindow = (name: string): string => `这张面贴的是平铺的画「${name}」：平铺的画只在画布小窗里画（一格对着模型上很多个地方，在模型上画没有意义）`;
-type Aim = { readonly tex: string; readonly cell: readonly [number, number] | null } | { readonly face: number; readonly color: Rgb } | { readonly why: string; readonly start?: boolean } | null;
+type Aim = { readonly tex: string; readonly cell: readonly [number, number] | null; readonly face: number } | { readonly face: number; readonly color: Rgb } | { readonly why: string; readonly start?: boolean } | null;
 const NOT_STARTED = "这个物件还没开始画：点上面的「开始画…」";
+const NOT_IN_PAINT = "这张面没走画（它是别的材质）：选中它，点上面的「把这几张面加进来」";
+/** 油漆桶点到的面填不了的两种（space-fill.ts fillAimOf）。 */
+const FILL_WHY = { "no-layout": "这张面还没排进画布：先在「开始画」里排一次", "no-cells": "这张面在画布上小到一格都没分到，填不上（格都归了旁边的面）" } as const;
 
 export class PaintWorkbench {
   private readonly d: PaintWorkbenchDeps;
   private stroke: SpacePaintStroke | null = null;
+  /** 油漆桶正在按着的那一下（画的是哪张画、上一次经过哪张面）。 */
+  private fill: { readonly f: SpaceFillStroke; readonly tex: string; lastFace: number; saidOther: boolean } | null = null;
   /** 这一笔的时钟和压感（施工单二十 1a；规矩在 controller/stroke-clock.ts：一笔里只用一种钟、压感只信笔的）。 */
   private clock = new StrokeClock(undefined, 0);
   private lastPen: "paintPen" | "paintEraser" = "paintPen";
@@ -60,10 +68,11 @@ export class PaintWorkbench {
   constructor(d: PaintWorkbenchDeps) { this.d = d; }
 
   /** 一笔正在画（手势路由问：这时候相机不动）。 */
-  get stroking(): boolean { return this.stroke !== null; }
+  get stroking(): boolean { return this.stroke !== null || this.fill !== null; }
 
   /** 编辑器的工具交过来的一下。 */
   pointer(ev: PaintPointer): void {
+    if (ev.tool === "paintBucket") { this.bucket(ev); return; }
     switch (ev.phase) {
       case "down": this.begin(ev); return;
       case "move": if (this.stroke) { this.stroke.move(ev.x, ev.y, this.clock.pressure(ev.pointerType, ev.pressure), this.clock.time(ev.at, performance.now())); this.d.editor.draw(); } return;
@@ -139,16 +148,16 @@ export class PaintWorkbench {
       return { face: hit.face, color: m ? [m.color[0], m.color[1], m.color[2]] : [0.84, 0.84, 0.84] };
     }
     const h2 = fp.uvSet.guid === anyUv ? hit : pickSurface(k as never, this.grid(k), fp.uvSet.guid, o, dir);
-    return { tex: fp.textureDoc.guid, cell: h2 && h2.inPaint ? h2.cell : null };
+    return { tex: fp.textureDoc.guid, cell: h2 && h2.inPaint ? h2.cell : null, face: hit.face };
   }
 
   private begin(ev: PaintPointer): void {
-    if (ev.tool === "eyedrop") return;
+    if (ev.tool === "eyedrop" || ev.tool === "paintBucket") return;
     this.lastPen = ev.tool;
     const a = this.aim(ev.x, ev.y);
     if (!a) return;   // 落在空处：什么都不做
     if ("why" in a) { this.d.hint(a.why); if (a.start) this.d.flashStart?.(); return; }   // 没画过的物件：不自动弹面板，说一句、按钮闪一下
-    if (!("tex" in a)) { this.d.hint("这张面没走画（它是别的材质）：选中它，点上面的「把这几张面加进来」"); return; }
+    if (!("tex" in a)) { this.d.hint(NOT_IN_PAINT); return; }
     if (this.d.gate(a.tex)) return;   // 锁着 / 冷的 / 只能看不能画：门自己说了（锁 = 第二层，v0.19.48）
     const e = this.d.editor, cfg = e.config, tool = ev.tool;
     const size = cfg.get(tool, "size"), opacity = cfg.get(tool, "opacity"), hardness = cfg.get(tool, "hardness");
@@ -159,6 +168,49 @@ export class PaintWorkbench {
     this.clock = new StrokeClock(ev.at, performance.now());
     this.stroke.down(ev.x, ev.y, this.clock.pressure(ev.pointerType, ev.pressure), 0);
     e.draw();
+  }
+
+  /** 油漆桶的一下：按下 = 过门、开、填光标下那张面；拖 = 进了新的面就填；松手 = 落层一步；取消 = 零痕迹。 */
+  private bucket(ev: PaintPointer): void {
+    const e = this.d.editor;
+    switch (ev.phase) {
+      case "down": {
+        if (this.fill) return;
+        const a = this.aim(ev.x, ev.y);
+        if (!a) return;   // 落在空处：什么都不做
+        if ("why" in a) { this.d.hint(a.why); if (a.start) this.d.flashStart?.(); return; }
+        if (!("tex" in a)) { this.d.hint(NOT_IN_PAINT); return; }
+        if (this.d.gate(a.tex)) return;   // 锁着 / 冷的 / 只能看不能画：门自己说了（和笔同一道门）
+        let f: SpaceFillStroke;
+        try { f = new SpaceFillStroke({ ...this.d.strokeDeps(e.context.chain), failed: (err) => { this.fill = null; this.d.hint(strokeFailedSay(err)); } }, a.tex, this.d.color.get()); }
+        catch (err) { this.d.hint(strokeFailedSay(err)); return; }   // 准备没好 / 撞到容量上限：不开始，说那句人话
+        this.fill = { f, tex: a.tex, lastFace: -1, saidOther: false };
+        this.fillFace(a.face);
+        e.draw();
+        return;
+      }
+      case "move": {
+        const st = this.fill;
+        if (!st) return;
+        const a = this.aim(ev.x, ev.y);
+        if (!a || !("tex" in a) || a.face === st.lastFace) return;
+        if (a.tex !== st.tex) { if (!st.saidOther) { st.saidOther = true; this.d.hint("这一下只填按下那张面所在的画；别的画上的面松手再点"); } return; }
+        this.fillFace(a.face);
+        e.draw();
+        return;
+      }
+      case "up": { const st = this.fill; this.fill = null; if (st) { st.f.up(); e.draw(); } return; }
+      case "cancel": { const st = this.fill; this.fill = null; if (st) { st.f.cancel(); e.draw(); } return; }
+      default: return;
+    }
+  }
+  /** 填这张面（它那块画布多边形）；填不了说为什么。 */
+  private fillFace(face: number): void {
+    const st = this.fill!;
+    st.lastFace = face;
+    const r = fillAimOf(st.f.table, face);
+    if ("why" in r) { this.d.hint(FILL_WHY[r.why]); return; }
+    st.f.add(r.poly);
   }
 
   /** 吸管：取那一处的颜色，取完回到上一把笔。 */

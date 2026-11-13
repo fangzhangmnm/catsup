@@ -1070,3 +1070,31 @@ layoutFaces(style = patches)：patchesOf（种子按面积、一样大看面心�
 
 ## 追记 2026-11-13（v0.19.76，Claude Opus 5.5）：「单位」页搬回右上渲染窗当第二页
 - user 11-13「单位还是移动到右边的和渲染窗口合租成分页」：☰ 页签剩「文件 / 设置 / 帮助」；右上渲染窗（视图浮窗）两页「渲染 | 单位」，单位页四行（单位制 / 吸附长度 / 栅格面 / 尺度参考）= `placement.ts VIEW_UNIT_ROWS`，行的样子还是 `main.ts menuRow`，点了照旧分给 `onGridPick` / `onRefPick`。吸附锁长按「单位设置…」= `openViewMenu("units")`。只搬家：行为、文件都不变（单位制这些本来就存在文件的 settings 里；两个窗停在哪页照旧跟 desk 走）。
+
+## 追记 2026-11-13（v0.19.77，Claude Opus 5.5）：单位制一张表 + 毫米单位制（补记）
+- 单位制的一切（名字、显示、不带单位的数按什么、网格进位表、吸附几档和默认档、给旧版本照写的旧键）住 `src/format/unit-systems.ts` 一行；对外函数（grid-settings / units）签名不动、里面查表。加一个单位制 = 加一行 + 读写门口认它。
+- 毫米那一行：读数一律 mm、吸附 0.1–100 mm、默认 1 mm；写盘门口不写 displayUnit / gridPreset（旧版本见到按公制开）。探针 `probe-unit-mm`；守卫 `test/unit-systems.test.ts`。
+
+## 追记 2026-11-13（v0.19.78，Claude Opus 5.5）：油漆桶 + 新文档的 settings 生下来就是现在的形状
+**油漆桶**（绘制工作台左栏第四格；统筹 11-13 批的方案，user 的叫法）：
+```
+按下（工具 modes/paint.ts，和笔同一个「按住拖」处理器）→ 宿主 PaintWorkbench.bucket
+  → 落点（aim：射线打当前物件的网格，同笔）→ 面 + 它走的画
+  → 同一道门 gate（锁 / 冷的 / 只能看不能画）
+  → SpaceFillStroke（paint/space-fill.ts）：借画画的准备里现成的归属表（prep.take，不现建）
+  → fillAimOf(归属表, 面)：这张面在哪块画布多边形 / 没排进画布 / 一格都没分到（后两种：不填、提示行说为什么）
+  → add(块)：只记下；下一次「准备」里画：每块多边形的行段（polyRunsOf：owner 按行扫一遍，缓存在表对象上，表重建 = 新对象 = 自然重算）
+     每个行段 = 一个实例 → 离屏小程序 space-fill（一对：GLSL + JavaScript）画实心矩形、取最大 → 薄层
+     → 交给档口（PaintBoard.openStroke，开一笔问锁）setHostLayers + markChanged（只报画进去的行段）
+拖：每进一张新面就 add（只认按下那张面的画；别的画上的面说一句、不填）
+松手：没画的画进去 → 档口落层（commitHost 再问一次锁；只读回碰过的格）→ commitStep("fill") = 三维撤销一步「油漆桶」
+取消 = 档口取消（零痕迹）
+```
+- 碰多少：取格 = 只看这几块多边形的行段（随填的面积涨）；行段表第一次用到时扫整张归属表一遍（随画布涨，2048² 十来毫秒），同一张表以后不再扫。
+- 没给内核加任何口：用的是笔的那个档口、那条落层、那个撤销入口。填色程序住三维这边（`paint/space-fill.ts`）。
+- 两张面在画布上连着排时，公共边上那一排格只归一边（归属表：一样近归编号小的），另一张面的边上看着会有最多半格邻色 = 格子分辨率决定的，不算溢出。
+- 悬停 / 拖的时候光标下那张面亮着 = 编辑器现成的 `setHoverFace`。
+- 守卫：`test/paint-bucket.test.ts`（行段 = 归属表逐格、只算一次、填色程序软件版 = 正好那几块的格）、`test/brush-kinds.test.ts`（markChanged 只在 space-paint / space-fill、报的就是画的行段）、`test/paint-pixel-writes.test.ts`（SpaceFillStroke 每个公开口表态）；探针 `probe-paint-bucket`。
+
+**新文档的 settings**（统筹 11-13）：`DEFAULT_SETTINGS` = 写盘门口给公制、默认吸附、吸附关着写出来的那一份（单位制写明、吸附长度是主的）；读文件不再把它垫在文件里的 settings 下面（文件里写着什么就是什么，怎么认只归读的门口 `settingsNow`）。414 份冻结样本都写着吸附长度，读出来一个数不变。
+**笔的出厂值**：工具配置表里笔 / 橡皮的大小、硬度出厂值改成读「默认那支笔」的记录（以前另写 12 / 0.8，新文件一律套笔的初值，那两个数从来用不到）。

@@ -13,6 +13,6 @@ export const OP_TITLES: Readonly<Record<string, string>> = {
   meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshSymmetrize: "对称", setMeshMirror: "镜像设置", meshSymmetrySnap: "对称对齐", meshSubdivide: "细分", meshMerge: "合并", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
 };
 /** 画的一步（贴图主线 1-8a：一笔 = 三维的一步，没有指令、只有成分记录）。 */
-export const PAINT_STEP_LABELS = { stroke: { title: "画一笔" }, erase: { title: "擦一笔" } } as const satisfies Record<string, StepLabel>;
+export const PAINT_STEP_LABELS = { stroke: { title: "画一笔" }, erase: { title: "擦一笔" }, fill: { title: "油漆桶" } } as const satisfies Record<string, StepLabel>;
 export function opLabel(op: Op): StepLabel { return { title: OP_TITLES[op.op] ?? op.op }; }
 export function labelText(l: StepLabel | undefined): string { return l ? (l.count ? `${l.title}（${l.count}）` : l.title) : "一步"; }

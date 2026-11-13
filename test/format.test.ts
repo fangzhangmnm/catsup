@@ -10,7 +10,7 @@ import { headBytesNeeded, extractThumbnail } from "../src/format/peek.ts";
 import { SCENES, SCENE_DOCS, DOC_SAMPLES, fingerprint, sceneFingerprint } from "./format-scenes.ts";
 import { listFixtures, readFixture, hasFixtureDir, listCorpusDirs } from "./fixtures/format/fixtures.mjs";
 
-const BUDGET_BYTES: Record<string, number> = { box: 2900, holed: 3000, house: 3000, cylinder: 8400, folded: 3300 };   // 全部 +200（2026-11-04 身份地基）：实测每份多约 130 B = 定义 guid + root + 默认层 guid + 拍子   // folded（DT87 折线，2026-10-26）：两张三角 + 一层 fold，实测 2980   // box 2600 → 2700（2026-10-25：第六个扩展 CATSUP_desk + document minor 键 ≈ +50 B，实测 2648）   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
+const BUDGET_BYTES: Record<string, number> = { box: 2900, holed: 3100, house: 3100, cylinder: 8400, folded: 3300 };   // holed / house 3000 → 3100（2026-11-13：新文档的 settings 写明单位制 "unitSystem":"metric" 等 ≈ +25 B，实测 3012 / 3024）   // 全部 +200（2026-11-04 身份地基）：实测每份多约 130 B = 定义 guid + root + 默认层 guid + 拍子   // folded（DT87 折线，2026-10-26）：两张三角 + 一层 fold，实测 2980   // box 2600 → 2700（2026-10-25：第六个扩展 CATSUP_desk + document minor 键 ≈ +50 B，实测 2648）   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
 
 /** 同一身份的文档（2026-11-04：根定义现在有 GUID，比字节的测试要钉住它）。 */
 const FIXED_ROOT = "11111111-1111-4111-8111-111111111111";
@@ -88,7 +88,7 @@ describe("format: golden 往返", () => {
     eq(JSON.stringify(out.extensions.CATSUP_document.futureField), "[1,2,3]");
     eq(out.extensions.CATSUP_definitions.list[0].extras.note, "手记");
     eq(out.extensions.CATSUP_definitions.list[0].brep.attributes.face["plugin:heat"].type, "u8");
-    eq(out.extensions.CATSUP_document.settings.gridStep, 1);
+    eq(out.extensions.CATSUP_document.settings.gridStep, 0.2); eq(out.extensions.CATSUP_document.settings.unitSystem, "metric");   // 新文档的 settings（v0.19.78 起 = 写盘门口的形状）原样带回
   });
 
   it("round-trip 保真（二进制）：未知扩展引用的 bufferView 随行、重写后字节一致且索引重映射", () => {

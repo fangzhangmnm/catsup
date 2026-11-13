@@ -276,14 +276,15 @@ export const TOOL_OPTIONS = {
     // 拿的是哪支笔（施工单二十 1b；带文字的下拉 = 家规「四项以上用带文字的」，现在三项也照样用）。大小 / 浓度 / 硬度是这支笔的旋钮：换笔时 app 把它们存回上一支、套上这一支的（app/paint-brushes.ts）。
     //   跟文件走 = 桌面态 1.6 paint.active.brush（main.ts 套上 / 写回）。
     brush: { kind: "enum", label: "笔", values: PEN_BRUSHES, def: DEFAULT_BRUSH.brush, scope: "doc" },   // 新文件默认 = 草稿笔（brush-records.ts DEFAULT_BRUSH 一处说）
-    size: { kind: "number", label: "大小", def: 12, min: 1, max: 400, step: 1, unit: "像素", scope: "doc", elsewhere: true },
+    // 大小 / 硬度的出厂值 = 默认那支笔记录里的初值（只在笔的记录里说一处；统筹 11-13：以前这里另写 12 / 0.8，新文件一律套笔的初值，这两个数从来用不到）
+    size: { kind: "number", label: "大小", def: BRUSHES[DEFAULT_BRUSH.brush].size.base, min: 1, max: 400, step: 1, unit: "像素", scope: "doc", elsewhere: true },
     opacity: { kind: "number", label: "浓度", def: 1, min: 0.05, max: 1, step: 0.05, scope: "doc", elsewhere: true },
-    hardness: { kind: "number", label: "硬度", def: 0.8, min: 0, max: 1, step: 0.05, scope: "doc" },
+    hardness: { kind: "number", label: "硬度", def: BRUSHES[DEFAULT_BRUSH.brush].shape.hardness, min: 0, max: 1, step: 0.05, scope: "doc" },
   },
   paintEraser: {
-    size: { kind: "number", label: "大小", def: 24, min: 1, max: 400, step: 1, unit: "像素", scope: "doc", elsewhere: true },
+    size: { kind: "number", label: "大小", def: BRUSHES[DEFAULT_BRUSH.eraser].size.base, min: 1, max: 400, step: 1, unit: "像素", scope: "doc", elsewhere: true },
     opacity: { kind: "number", label: "浓度", def: 1, min: 0.05, max: 1, step: 0.05, scope: "doc", elsewhere: true },
-    hardness: { kind: "number", label: "硬度", def: 0.8, min: 0, max: 1, step: 0.05, scope: "doc" },
+    hardness: { kind: "number", label: "硬度", def: BRUSHES[DEFAULT_BRUSH.eraser].shape.hardness, min: 0, max: 1, step: 0.05, scope: "doc" },
   },
   surface: {
     tier: { kind: "enum", label: "范围", values: SURFACE_TIERS, def: "smooth", scope: "device" },

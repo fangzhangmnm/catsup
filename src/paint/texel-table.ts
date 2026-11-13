@@ -175,6 +175,33 @@ export function buildTexelTable(width: number, height: number, faces: readonly P
   return { width: W, height: H, gap, polys, polyFaces, owner, faces: fp, overlapCells };
 }
 
+/**
+ * 每块画布多边形有哪些格（归属表 owner 的另一种排法，油漆桶用；2026-11-13 Claude Opus 5.5，统筹「按『哪块多边形有哪些格』记一次、表变了再重算」）：
+ * runs[p] = 这块的行段 [x, y, 长度, x, y, 长度…]（按行、行内从左到右），cells[p] = 格数。和 owner 逐格相同（守卫 test/paint-bucket.test.ts）。
+ * 记一次 = 扫整张 owner 一遍（2048² 四百万格，十来毫秒）；缓存在表对象上（WeakMap），表重建了（准备过期重建 = 新对象）自然重算，不另记版本号。
+ */
+export interface PolyRuns { readonly runs: readonly Int32Array[]; readonly cells: readonly number[] }
+const runsCache = new WeakMap<TexelTable, PolyRuns>();
+export function polyRunsOf(t: TexelTable): PolyRuns {
+  const hit = runsCache.get(t);
+  if (hit) return hit;
+  const n = t.polys.length, acc: number[][] = Array.from({ length: n }, () => []), cells = new Array<number>(n).fill(0), W = t.width, o = t.owner;
+  for (let y = 0; y < t.height; y++) {
+    const row = y * W;
+    for (let x = 0; x < W;) {
+      const p = o[row + x];
+      if (p < 0) { x++; continue; }
+      let e = x + 1;
+      while (e < W && o[row + e] === p) e++;
+      acc[p].push(x, y, e - x); cells[p] += e - x;
+      x = e;
+    }
+  }
+  const out: PolyRuns = { runs: acc.map((a) => Int32Array.from(a)), cells };
+  runsCache.set(t, out);
+  return out;
+}
+
 /** 一格的取样点离格子中心的偏移（②，量化过的）：以 1/SAMPLE_Q 格为单位的两个整数。中心在它那块多边形里（含边上）= [0, 0]；在外面 = 多边形上离中心最近的那一点，四舍五入到份。没人要的格子 = null。 */
 export function sampleOffset(t: TexelTable, x: number, y: number): [number, number] | null {
   if (x < 0 || y < 0 || x >= t.width || y >= t.height) return null;

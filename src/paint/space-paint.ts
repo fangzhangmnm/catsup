@@ -32,8 +32,8 @@ export interface SpacePaintDeps {
   /** 这张离屏图在这个显卡接口上交给内核的形态（真显卡 = { gl }，软件版 = { pixels }）。 */
   readonly external: (img: SpaceImage) => { readonly gl: WebGLTexture } | { readonly pixels: Uint8Array | Uint8ClampedArray };
   readonly camera: () => SpaceCamera;
-  /** 一笔落层之后（内核封的那几步在画板登记处攒着）：交给三维的撤销栈当一步（1-8a；label = 画一笔 / 擦一笔）。不给 = 不进三维的栈（测试）。 */
-  readonly commitStep?: (erase: boolean) => void;
+  /** 一笔落层之后（内核封的那几步在画板登记处攒着）：交给三维的撤销栈当一步（1-8a；label = 画一笔 / 擦一笔 / 油漆桶）。不给 = 不进三维的栈（测试）。 */
+  readonly commitStep?: (kind: "stroke" | "erase" | "fill") => void;
   /** 这一笔开不了（建这一笔的表时出错，比如画布上的格子超过这一版的上限）：这一笔已经取消、零痕迹；告诉宿主为什么（1-7：不许每帧在「准备」里抛）。 */
   readonly failed?: (err: unknown) => void;
 }
@@ -179,7 +179,7 @@ export class SpacePaintStroke {
     }
     if (!landed) this.board.overlayChanged();   // 没开过档口（一颗笔尖都没落）= 按整张（稳妥）；落成了 = 不再补整张：薄层拿掉那一下画板报了它碰过的格、落层碰过的格画板也记了（显示那一侧只重拷这些格，2026-11-12）
     this.close();
-    if (landed) { this.d.commitStep?.(!!this.o.erase); displayDiag.penUp = true; }   // 读数角标「核对」开着：抬笔之后核对一次   // 攒着的那几步交给三维的撤销栈：一笔 = 一步（1-8a）
+    if (landed) { this.d.commitStep?.(this.o.erase ? "erase" : "stroke"); displayDiag.penUp = true; }   // 读数角标「核对」开着：抬笔之后核对一次   // 攒着的那几步交给三维的撤销栈：一笔 = 一步（1-8a）
   }
   private close(): void { this.unhook(); this.untrack(); this.layer?.dispose(); this.layer = null; this.session = null; }
 }

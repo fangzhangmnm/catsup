@@ -1,8 +1,8 @@
 // 笔的种类表 + 「宿主报的格对不对」的结构守卫（统筹 11-11）。created 2026-11-11 by Claude Opus 5.5
-// ① 笔的种类表（src/paint/brush-kinds.ts）：每一种对一把画画工作台的工具；画的工具（除了吸管）每一把都有种类；画画工作台起笔只经 strokeKindOpts（不自己判「是不是橡皮」）。
+// ① 笔的种类表（src/paint/brush-kinds.ts）：每一种对一把画画工作台的工具；画的工具（除了吸管、油漆桶：不用笔）每一把都有种类；画画工作台起笔只经 strokeKindOpts（不自己判「是不是橡皮」）。
 // ② 探针按表跑：probe-live-region 的 BRUSH_MATRIX 里要有表里的每一种（漏了 = 红，照 mirror-ops 那张登记表的做法）；探针自己运行时再核一遍页面上的表。
 // ③ 往脏格子位图里记东西只许在真正出 item / 真正画的那段（space-layer.ts update / resetFrozen），标的就是要画的那几个 item 的方框；
-//    报给内核的 markChanged 只在 space-paint.ts（照 takeChanged 出来的行段报，或读数角标「强制整张」那一档报整张）。别处另算一份范围去报 = 红。
+//    报给内核的 markChanged 只在 space-paint.ts（照 takeChanged 出来的行段报，或读数角标「强制整张」那一档报整张）和油漆桶 space-fill.ts（照这一下画进去的行段标的那张位图报；2026-11-13）。别处另算一份范围去报 = 红。
 // 这些是结构守卫：改到这几段代码时守卫跟着红，逼着回来看一眼「报的还是不是真画的那些」。真报得对不对靠 probe-live-region（多笔种逐字节）和读数角标的「核对」。
 import { describe, it, assert, eq } from "./runner.mjs";
 import { BRUSH_KINDS, BRUSH_KIND_IDS, BRUSH_PATHS, brushKindOfTool, brushKindsOfTool, strokeKindOpts } from "../src/paint/brush-kinds.ts";
@@ -22,9 +22,9 @@ const methodBody = (src: string, name: string): string => {
 };
 
 describe("笔的种类表（统筹 11-11）", () => {
-  it("每一种对一把画的工具；画的工具（除了吸管）每一把都有种类", () => {
+  it("每一种对一把画的工具；画的工具（除了吸管、油漆桶）每一把都有种类", () => {
     for (const k of BRUSH_KIND_IDS) assert(PAINT_TOOLS.includes(BRUSH_KINDS[k].tool), `种类 ${k} 的工具 ${BRUSH_KINDS[k].tool} 不在画画工作台里`);
-    for (const t of PAINT_TOOLS) if (t !== "eyedrop") assert(brushKindOfTool(t) !== null, `画的工具 ${t} 没有笔的种类`);
+    for (const t of PAINT_TOOLS) if (t !== "eyedrop" && t !== "paintBucket") assert(brushKindOfTool(t) !== null, `画的工具 ${t} 没有笔的种类`);
     eq(strokeKindOpts("eraser").erase, true); eq(strokeKindOpts("pen").erase, false);
   });
   it("画画工作台起笔只经 strokeKindOpts（不自己判是不是橡皮、怎么叠）；拿的是哪支只问 brushOf（app/paint-brushes.ts）", () => {
@@ -73,9 +73,13 @@ describe("往脏格子位图里记东西只在真画的那段（统筹 11-11）"
   it("resetFrozen：定型层清掉重画 = 标这一笔碰过的整块", () => {
     assert(/this\.changed\.mark\(b\[0\], b\[1\], b\[2\] - b\[0\], b\[3\] - b\[1\]\)/.test(methodBody(layer, "resetFrozen")), "resetFrozen 要标整笔的范围");
   });
-  it("报给内核的 markChanged 只在 space-paint：照 takeChanged 的行段报，或读数角标「强制整张」报整张", () => {
+  it("报给内核的 markChanged 只在 space-paint：照 takeChanged 的行段报，或读数角标「强制整张」报整张；油漆桶照它画进去的行段报", () => {
     const hits = walk("src").filter((p) => !p.startsWith("src/paint/kernel/") && /\.markChanged\(/.test(read(p)));
-    eq(hits.join(","), "src/paint/space-paint.ts");
+    eq(hits.sort().join(","), "src/paint/space-fill.ts,src/paint/space-paint.ts");
+    // 油漆桶：只有一处，报的是 this.changed 的行段；this.changed 只在画行段那一圈里标（和同一圈里交给显卡的实例是同一个 x, y, w）
+    const sf = read("src/paint/space-fill.ts"), fc = [...sf.matchAll(/\.markChanged\(([^)]*)\)/g)].map((x) => x[1]);
+    eq(fc.join(" | "), "run.x, run.y, run.w, run.h", "space-fill 只报 changed 的行段");
+    assert(/for \(const run of this\.changed\.runs\(\)\)/.test(sf) && /inst\[4 \* k\] = x; inst\[4 \* k \+ 1\] = y; inst\[4 \* k \+ 2\] = w;[^\n]*\n\s*this\.changed\.mark\(x, y, w, 1\)/.test(sf), "space-fill 标的格 = 同一圈交给显卡的行段");
     const sp = read("src/paint/space-paint.ts"), calls = [...sp.matchAll(/\.markChanged\(([^)]*)\)/g)].map((x) => x[1]);
     eq(calls.length, 2, `space-paint 里 markChanged 应该正好两处，现在 ${calls.length} 处`);
     assert(calls.includes("run.x, run.y, run.w, run.h") && calls.includes("0, 0, f.w, f.h"), `space-paint 的 markChanged 只许报 takeChanged 的行段或整张：${calls.join(" | ")}`);

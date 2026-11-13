@@ -37,7 +37,7 @@ export interface ToolSample { cursor3: Pt3 | null; snap: Snap3 | null; extra: Re
 /** 底座递给工具的全部能力（窄接口 = 测试面：给假 ctx 喂事件序列，断言 commitOp 收到的 op）。 */
 /** 画画工作台交给宿主的一下（ToolCtx.paint）：哪把工具、哪个阶段、画布本地 CSS px。 */
 export interface PaintPointer {
-  readonly tool: "paintPen" | "paintEraser" | "eyedrop"; readonly phase: "hover" | "down" | "move" | "up" | "cancel" | "pick"; readonly x: number; readonly y: number; readonly pointerType?: string;
+  readonly tool: "paintPen" | "paintEraser" | "eyedrop" | "paintBucket"; readonly phase: "hover" | "down" | "move" | "up" | "cancel" | "pick"; readonly x: number; readonly y: number; readonly pointerType?: string;
   /** 压感（PointerEvent.pressure）：宿主只信笔的（施工单二十 1a）。没有 = 程序造的。 */
   readonly pressure?: number;
   /** 事件自己发生的时间（ms，PointerEvent.timeStamp）：一笔的时间按它算（一笔里只用一种钟，宿主定）。没有 = 程序造的。 */

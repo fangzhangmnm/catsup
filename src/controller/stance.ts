@@ -174,6 +174,7 @@ const PAINT: Partial<Record<Tool, Stance>> = {
   paintPen: S({ ...PAINT_STROKE }),
   paintEraser: S({ ...PAINT_STROKE }),
   eyedrop: S({ ...PAINT_STROKE, grab: "none", tap: "apply" }),
+  paintBucket: S({ ...PAINT_STROKE }),   // 油漆桶（2026-11-13）：点一下 = 填一张面，按住拖过去 = 经过的面都填（整个一拖一步）
 };
 
 /** 物体工作台（选物体 / 摆放）：和硬表面同一份选择 / 移动 / 旋转 / 缩放的立场。 */

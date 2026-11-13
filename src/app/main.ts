@@ -347,7 +347,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string }[] = [
   { tool: "create", icon: "new", label: "拉出" },   // 自由建模的新建（FM182；2026-10-28 Opus 5.5）：图标 = stopgap 加号（图标库 TODO 已登记 primitive-add）；快捷键 Shift+A（键表自由建模层；user 10-28 晚「Shift+A 同意」）   // 「验证」工作台第一格（2026-10-28；图标 = 图标库 PENDING 自画未过目）；平时没有键进步行（user「按什么都不会去步行，得开」）
   { tool: "shrink", icon: "push-pull", label: "沿法线" },
   // 画画工作台（贴图主线 1-7）：笔 / 橡皮 / 吸管
-  { tool: "paintPen", icon: "pencil", label: "笔" }, { tool: "paintEraser", icon: "eraser", label: "橡皮" }, { tool: "eyedrop", icon: "eyedropper", label: "吸管" },
+  { tool: "paintPen", icon: "pencil", label: "笔" }, { tool: "paintEraser", icon: "eraser", label: "橡皮" }, { tool: "eyedrop", icon: "eyedropper", label: "吸管" }, { tool: "paintBucket", icon: "paint-bucket", label: "油漆桶" },   // 油漆桶 2026-11-13（user 的叫法）
   // 软编辑笔刷（2026-10-29 Opus 5.5，账本 UX53）：抓 / 抹平借 WeebPaint 的 liquify / blur，鼓起 / 压平 = 图标库待过目层自画
   { tool: "brushGrab", icon: "liquify", label: "抓" }, { tool: "brushDraw", icon: "brush-inflate", label: "鼓起" }, { tool: "brushSmooth", icon: "blur", label: "抹平" }, { tool: "brushFlatten", icon: "brush-flatten", label: "压平" },   // 自由建模：Blender Shrink / Fatten（Alt+S；user 习惯 Alt+W 也认）；不进左柱   // 自由建模的切割 + 环切（2026-10-27 Opus 5.5；user「刀应该叫切割」「小刀图标」）；图标 = 图标库 PENDING 层自画、未过目   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
 ];
@@ -893,7 +893,7 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
   // 工具的上下文动作（user 2026-10-24「轴是工具…归工具管，工具的上下文菜单该开始做了」）
   // 表面工具的上下文条开头（user 2026-10-24「先显示选中的材质，然后是eyedropper，然后是范围，然后是阈值」）
   leading: (tool) => {
-    if (tool === "paintPen" || tool === "paintEraser" || tool === "eyedrop") return [{ id: "paintColor", label: "颜色", swatch: hexOf(paintColor.get()), title: `画笔的颜色 ${hexOf(paintColor.get())}（点开换：色块 / 填颜色代码；吸管从模型上取）`, onClick: () => { paintColorSheet.open(); } }];   // 画画（1-7）：选颜色只有一个入口
+    if (tool === "paintPen" || tool === "paintEraser" || tool === "eyedrop" || tool === "paintBucket") return [{ id: "paintColor", label: "颜色", swatch: hexOf(paintColor.get()), title: `画笔的颜色 ${hexOf(paintColor.get())}（点开换：色块 / 填颜色代码；吸管从模型上取）`, onClick: () => { paintColorSheet.open(); } }];   // 画画（1-7）：选颜色只有一个入口
     if (tool !== "paint") return [];
     const p = editor.paint;
     const swatch = p === null ? "#d6d6d6" : p.kind === "back" ? BACK_SWATCH : p.kind === "color" ? `rgb(${Math.round(p.color[0] * 255)}, ${Math.round(p.color[1] * 255)}, ${Math.round(p.color[2] * 255)})` : `center / cover url(${textureUrl(p.bytes, p.mimeType)})`;
@@ -2599,7 +2599,7 @@ function paintStrokeDeps(chain?: readonly number[]): SpacePaintDeps {
       ray: (sx, sy) => cam.ray(sx, sy, editor.vp()),
       pixelSize: (p) => { const vp = editor.vp(); if (cam.projection !== "persp") return (2 * cam.halfH) / vp.h; const e = cam.eye(), f = cam.forward(), d = (p.x - e.x) * f.x + (p.y - e.y) * f.y + (p.z - e.z) * f.z; return (2 * Math.tan(cam.fovY / 2) * d) / vp.h; },
     }),
-    commitStep: (erase) => editor.commitRecordsStep(erase ? PAINT_STEP_LABELS.erase : PAINT_STEP_LABELS.stroke, paintBoards.takePending().map((data) => ({ kind: PAINT_UNDO_KIND, data }))),   // 一笔 = 三维的一步（1-8a）
+    commitStep: (kind) => editor.commitRecordsStep(PAINT_STEP_LABELS[kind], paintBoards.takePending().map((data) => ({ kind: PAINT_UNDO_KIND, data }))),   // 一笔 = 三维的一步（1-8a）
   };
 }
 // 画画工作台（贴图主线 1-7）：颜色只有一个入口（paint-color.ts）；控制器接编辑器那边三把工具交过来的每一下
