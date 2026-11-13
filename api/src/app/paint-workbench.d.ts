@@ -54,6 +54,9 @@ export declare class PaintWorkbench {
     /** 这个物件上的画：新建还没画过的建画板（存出去和没建一样是空白的那份）；热的那几张的每份摆放（只认正在编辑的这一份）准备现成。 */
     private keepPrepared;
     private grid;
+    /** 这个物件开始画过没有（scene/paint.ts anyFaceWalksPaint；悬停每一下都问 = 按编辑器的版本号记一次，场景没变不再走面）。 */
+    private startedMemo;
+    private started;
     /** 屏幕上这一点打到当前物件的哪张面、那张面走哪张画、落在哪一格。 */
     private aim;
     private begin;

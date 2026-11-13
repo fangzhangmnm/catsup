@@ -255,6 +255,14 @@ export type Op =
     op: "purgeTextures";
     textures: Guid[];
 }
+/** 排法表几行的空出来的地方换成新的清单（施工单十八第 2 刀：只由每一步的收尾补进同一步，editor/paint-freed.ts；四个一组、单位格；空 = 去掉这个键）。 */
+ | {
+    op: "setFreed";
+    rows: {
+        uvSet: Guid;
+        freed: number[];
+    }[];
+}
 /** 边层开关（软化 / 硬化 / 隐藏…）：这些边打上 / 去掉若干层。 */
  | {
     op: "setEdgeLayers";

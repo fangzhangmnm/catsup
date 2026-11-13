@@ -9,6 +9,8 @@ export interface ForceEnv {
     readonly lastSide: Map<number, -1 | 1>;
     /** 正在提交镜像并点（同一步里紧跟的 meshMerge）：这几条不各自触发对称化，等整步最后那一次。 */
     readonly merging: boolean;
+    /** 到这一刻为止这一步空出来的地方（施工单十八第 2 刀统筹预审第 1 条：收尾每次补面之前先记一次，同一个 freedOp，整步最后那一次照留）；没有要改的 = null。 */
+    readonly freedNow?: () => Op | null;
 }
 /** 提交前记下的：开着强行对称的每个网格体的内核版本号；指令冲着的那个另拷一份（判「动了哪边」）。 */
 export type ForceSnaps = Map<number, {

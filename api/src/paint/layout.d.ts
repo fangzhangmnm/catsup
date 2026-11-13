@@ -83,6 +83,13 @@ export declare function patchesOf(m: LayoutGeom, faces: readonly number[], opts?
 /** 给一批面铺贴图坐标（一张面一块）。不改内核：values = 每张面每个角的 [横, 纵, 横, 纵…]（格）。 */
 export declare function layoutFaces(m: LayoutGeom, faces: readonly number[], opts?: LayoutOptions): LayoutResult;
 /**
+ * 一块贴图坐标占哪些格（全仓判「占着」只有这一个函数：补面时哪里被占着、空出来的地方记多大、记的时候盖没盖住，施工单十八第 2 刀，统筹 11-13 深夜）：
+ * 坐标的外包框往外取到整格，至少一格。返回 [x0, y0, x1, y1)，单位格。
+ */
+export declare function cellRect(x0: number, y0: number, x1: number, y1: number): [number, number, number, number];
+/** 一张面角上的坐标（x, y, x, y…）占哪些格（cellRect 的外包框）。 */
+export declare function cornersRect(v: ArrayLike<number>): [number, number, number, number];
+/**
  * 给新面补一块（以后加面用）：已经铺好的面（在 guid 这一列上有值的）一个数都不变；新面各铺一块，放在画布上空着的地方（左上优先），放不下就把画布往下加高
  * （256 的倍数；画布比 256 窄时按画布宽度的倍数）。坐标的单位是格、不是零到一的比例，所以加高不会动到已有的东西。
  * 怎么找空（1-3b 改，Claude Opus 5.5，2026-11-10：原来每补一张面都把「每块的右边 / 下边」当候选全排一遍、逐块比，四万面的网格体补十张面要 0.2 秒、随面数涨）：
@@ -94,6 +101,7 @@ export declare function layoutAppend(m: LayoutMesh, guid: string, placed: readon
     width: number;
     height: number;
 }, density: number, opts?: Omit<LayoutOptions, "density" | "base"> & {
+    readonly blocked?: ArrayLike<number>;
     readonly partial?: boolean; /** 画布能不能往下长（缺 = 能；施工单十六第四节：按总大小开的画 = 不能，fit = "size"）。 */
     readonly grow?: boolean;
 }): LayoutResult;

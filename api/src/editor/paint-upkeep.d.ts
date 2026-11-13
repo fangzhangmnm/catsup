@@ -1,6 +1,7 @@
 import type { Op } from "./ops.ts";
 import { type ForceEnv, type ForceSnaps } from "./mirror-force.ts";
 import type { GoneFace } from "../mesh/mesh-kernel.ts";
+export { freedBaseline, freedOp, type FreedBase } from "./paint-freed.ts";
 /** 提交前记下的：强行对称那份 + 每个网格体内核的版本号和改动日志的号。 */
 export interface UpkeepSnaps {
     readonly force: ForceSnaps | null;

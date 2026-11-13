@@ -8,6 +8,11 @@ export declare const PAINT_CANT_MOVE = "\u8FD9\u4E9B\u9762\u4E0A\u6709\u753B\uFF
 /** 这张面走哪一套贴图坐标（走画 = 那一套的 GUID；不走 = null）。 */
 export declare function paintUvOf(s: Scene, def: DefId, f: number): Guid | null;
 /**
+ * 这个物件有没有一张面走画（施工单十八第 2 刀：「开始画过没有」只看面，不看网格体的速查表——画过的面全换成普通材质之后，速查表还留着那一套）。
+ * 先按材质槽筛（没有一个槽是画 = 没有，不走面）；有才走面，碰到第一张就停。
+ */
+export declare function anyFaceWalksPaint(s: Scene, def: DefId): boolean;
+/**
  * 这张画铺在哪（画板登记处跟着坐标改大小、垫底色用；贴图主线 1-3c）：贴图表里这一行是画、有材质的颜色那一槽指着它、它挂的排法在场景的排法表里、有网格体带着那一列
  * → 那个定义、那一套、指着它的第一个材质（底色）；差一样 = null。layout 照旧只经 paintIn 读。
  * 施工单十八第 1 刀：排法不属于哪个物件了，「那个定义」= 带着这一列的定义（编号最小的）。带着画的面这一刀还搬不动（paintMoveBlocked 全拒），所以只会有一个；

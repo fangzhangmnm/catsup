@@ -14,6 +14,9 @@ type MeshPaintFaces = Extract<Op, {
 type MeshLayoutPaint = Extract<Op, {
     op: "meshLayoutPaint";
 }>;
+type SetFreed = Extract<Op, {
+    op: "setFreed";
+}>;
 /** 换别的定义的画上来的原因（startPaint / meshPaintFaces 共用）。 */
 export declare const OTHER_DEF_PAINT = "\u8FD9\u5F20\u753B\u662F\u522B\u7684\u7269\u4EF6\u7684\uFF1A\u753B\u53EA\u80FD\u6362\u5230\u5B83\u81EA\u5DF1\u90A3\u4E2A\u7269\u4EF6\u7684\u9762\u4E0A";
 export declare function applyMeshPaintFaces(s: Scene, op: MeshPaintFaces): PaintOutcome;
@@ -30,4 +33,9 @@ export declare function applyStartPaint(s: Scene, op: StartPaint): PaintOutcome;
  * 加到上限（4096）还放不下：不拒绝、不抛，放得下的照铺，放不下的面留着没有值（收尾那一步数出来、明着说）。同样的网格体 = 同样的结果（面按编号的先后铺）。
  */
 export declare function applyMeshLayoutPaint(s: Scene, op: MeshLayoutPaint): PaintOutcome;
+/**
+ * 记空出来的地方（施工单十八第 2 刀；收尾自己补的指令，editor/paint-freed.ts freedOp 造）：这几行的 freed 换成新的清单；空清单 = 拿掉这个键。行是冻住的，换一份新的（撤销记的骨架快照照旧）。
+ * 场景的排法表只在这个文件里改（守卫 paint-start-guard ②）。拒绝（什么都不改）：有一行指的排法不在表里。
+ */
+export declare function applySetFreed(s: Scene, op: SetFreed): PaintOutcome;
 export {};

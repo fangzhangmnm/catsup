@@ -1,4 +1,5 @@
 import { Scene, type PoolRef, type DefId } from "../scene/scene.ts";
+import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { type ApplyResult, type Op } from "./ops.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 /** 撤销栈配额（字节）。 */
@@ -93,6 +94,22 @@ export declare class History<M = unknown> {
     canRedo(): boolean;
     depth(): number;
     position(): number;
+    /**
+     * 第 from 条指令起（到现在）某个定义第一次被改之前的那份网格体（施工单十八第 2 刀：收尾比这一步前后、记空出来的地方；只读，不延长那份的寿命——它本来就是撤销记录）。
+     * 找法：最早一条网格体档的记录（影子 = 那一下之前的表）或整场景档的快照（深拷）；都没有、只有骨架快照 = 这一步没换过它的表：定义还在 = unchanged，
+     * 定义这一步没了 = 骨架快照里共用的那份（没人再改过它）。slots = 那时的速查表（网格体档的记录不带：速查表只往后加，用现在的）。
+     */
+    /** 定义这一步没了时它的速查表：这一步里任何一份场景快照里的（速查表只往后加，哪一份都一样能翻代号）。 */
+    private slotsInStep;
+    meshBefore(def: DefId, from: number): {
+        kind: "unchanged";
+    } | {
+        kind: "absent";
+    } | {
+        kind: "mesh";
+        kernel: MeshKernel;
+        slots: readonly string[] | null;
+    };
     log(): readonly Op[];
     /** 撤销记录占的字节（估计）。 */
     /** 现在占多少字节（还能撤的那一段）。字节会变的成分现问一遍、顺手记下（volatileBytes）。 */

@@ -422,6 +422,7 @@ export declare class Editor {
     private _docRevision;
     private _settingsRev;
     private stepTouched;
+    private freedBase;
     private stepBefore;
     private stepLabel;
     private deferredBefore;
