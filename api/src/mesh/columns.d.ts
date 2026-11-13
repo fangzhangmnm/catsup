@@ -48,9 +48,24 @@ export interface OddFace {
     readonly face: ReadonlyMap<string, readonly number[]>;
     readonly corner: ReadonlyMap<string, CornerOdd>;
 }
-/** 内核的报告：这段时间里新面 / 改过的面当中「有列对不上」的那些（面编号 → 哪几列）。面已经不在了的不报。 */
+/** 这一步里没了的面（被操作明着删的不进）：为什么（原因由调用方给，比如塌了 / 重叠 / 夹层；内核不认它）、和哪张重叠、没了之前的样子。 */
+/**
+ * 面为什么没了（报告「没了的面」的原因；调用方给）：collapsed = 合并点之后不同的点不到三个；overlap = 合并点之后和另一张面是同一圈点（with = 留下的那张）；
+ * seam-wall = 强行对称删掉的躺在镜像面上的夹层面。新加一种 = 这里加一个值，收尾那一层（editor/paint-upkeep.ts GONE_WORDS）不填说法编译不过。
+ */
+export type GoneWhy = "collapsed" | "overlap" | "seam-wall";
+export interface GoneFace {
+    readonly why: GoneWhy;
+    readonly with?: number;
+    readonly shape: FaceShape;
+}
+/**
+ * 内核的报告：这段时间里新面 / 改过的面当中「有列对不上」的那些（面编号 → 哪几列）；面已经不在了的不报。
+ * gone = 这段时间里没了的面（列表，不拿面编号当键：编号同一步里可能被新面复用）。
+ */
 export interface FaceReport {
     readonly odd: ReadonlyMap<number, OddFace>;
+    readonly gone: readonly GoneFace[];
 }
 /** 面的旧样子。没有列的内核：ring / pts / corner / face 都是 null（只记材质，几乎不花时间）。 */
 export interface FaceShape {
@@ -97,8 +112,26 @@ export interface ColumnHost {
     pt(v: number): Pt3;
     hasF(f: number): boolean;
 }
+/** 一个数的并成：几个来源上的值按规则名取一个（回缺省值 = fill）。和列走的是同一个 pickMerged；合并点的边标记按位用它（merge-points.ts EDGE_FLAG_RULES）。 */
+export declare function mergeScalar(rule: MergeRule, values: readonly number[], fill: number): number;
 /**
  * 算一张新面 / 新环上的数：面上的列写进 data[f]，角上的列写进 data[slot × arity …]（slot = 这个环在 loopVert 里的起点）。
  * 返回这张面「对不上」的列（没有 = null）。调用方（MeshKernel.addFace / setFaceRing）保证数组已经长到能装下。
  */
 export declare function writeColumns(h: ColumnHost, origin: FaceOrigin, f: number, ring: readonly number[], slot: number): OddFace | null;
+/** 合并点一张面的输入：合并之前的样子 + 挤过之后的环（每个角 = 原环里哪几个角挤成的，连续一段）。 */
+export interface MergeCornerInput {
+    readonly shape: FaceShape;
+    readonly corners: readonly {
+        readonly src: readonly number[];
+    }[];
+}
+/**
+ * 合并点之后每张面挤过的环上每个角在每一列角上的列的值（面的下标 → 列 → 角数 × arity）。不管拓扑，只算数；全仓取值只在这个文件（守卫）。
+ * 连续的列：一伙 = 同一个点上、这一列的值逐位相同的那些角；环上相邻、合并到同一个点的两个角（挤成一个的那一段）各自的伙并成一大伙，一路传下去。
+ *   每一大伙取一个值：每个点上先把这一伙在那个点上的几个值等权平均（按值的字节排好再加），再按点的权重混（点按编号从小到大加；大伙里的点权重都是 0 = 等权）；
+ *   有格子的取整到格子。没并进大伙的角不动。加的先后都固定，和组的先后、面的先后无关（结果逐位相同）。
+ * 离散的列不并伙：挤成一个的角取权重最大的那个点的角（一样大取原环里靠前的）。
+ * weight = 组里每个点的权重（不在任何组里的点没有）。
+ */
+export declare function mergeCornerValues(cols: readonly CornerColumn[], faces: readonly MergeCornerInput[], weight: ReadonlyMap<number, number>): Map<string, Float32Array>[];

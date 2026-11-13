@@ -1,10 +1,10 @@
 import type { Pt3 } from "../kernel/geom.ts";
 import { ChangeLog } from "../kernel/change-log.ts";
-import { type ColumnDef, type CornerColumn, type FaceColumn, type FaceOrigin, type FaceReport, type FaceShape } from "./columns.ts";
-export type { ColumnDef, ColumnType, CornerColumn, CornerOdd, Domain, FaceColumn, FaceOrigin, FaceReport, FaceShape, MergeRule, OddFace } from "./columns.ts";
-export declare const F_SOFT = 1, F_SMOOTH = 2, F_SEAM = 4, F_HIDDEN = 8, F_WIRE = 16;
-/** 手标硬边（2026-10-28 Claude Opus 5.5；纪元账本 FM129 / FM131）：压过网格体的「默认平滑」，这条边永远是棱（画线、明暗断开）。和 F_SOFT / F_SMOOTH 互斥（标的时候清掉另两位）。 */
-export declare const F_SHARP = 32;
+import { type ColumnDef, type CornerColumn, type FaceColumn, type FaceOrigin, type FaceReport, type FaceShape, type GoneWhy } from "./columns.ts";
+import { type MergeGroup } from "./merge-points.ts";
+export type { ColumnDef, ColumnType, CornerColumn, CornerOdd, Domain, FaceColumn, FaceOrigin, FaceReport, FaceShape, GoneFace, GoneWhy, MergeRule, OddFace } from "./columns.ts";
+export type { MergeGroup, MergeTo } from "./merge-points.ts";
+export { F_SOFT, F_SMOOTH, F_SEAM, F_HIDDEN, F_WIRE, F_SHARP } from "./edge-bits.ts";
 /** 网格体的「默认平滑」（几何属性，不是画法——user 10-28「不要叫明暗方式，我们的语义就是几何，和representation没关系。默认平滑之类的？」；每个网格体一个；mesh/edge-smooth.ts 按它判没手标的边）：angle = 两侧面夹角小于 deg 算平滑（硬表面）/ smooth = 全平滑（软角色）/ hard = 全是棱（低多边形；
  *  新建的网格体默认这一档；文件里缺这一项怎么办归读的门口 format/migrate/mesh.ts）。 */
 export type SmoothDefaultMode = "angle" | "smooth" | "hard";
@@ -75,6 +75,8 @@ export declare class MeshKernel {
     faceCols: FaceColumn[];
     /** 「对不上」的面（面编号 → 哪几列）：用的那一层 takeReport() 拿走并清空；跟着来历传给新面（columns.ts）。 */
     private odd;
+    /** 这段时间里没了的面（removeFaceReported / 合并点；takeReport 拿走并清空；跟着 swapWith 换，拷贝不带）。 */
+    private goneList;
     vertexCount(): number;
     edgeCount(): number;
     faceCount(): number;
@@ -109,6 +111,9 @@ export declare class MeshKernel {
     /** 一次删一批孤立的点（没有边的；有边的 → 抛，和 removeVertex 一样）。邻接表只查一次（W-10）。 */
     removeVertices(vs: readonly number[]): void;
     removeEdge(e: number): void;
+    /** 删边不排空位表（一批删完调用方排一次：合并点那几段里中途不分配边，排一次和每次都排结果一样）。 */
+    private dropEdge;
+    private dropEdges;
     removeVertex(v: number): void;
     ensureEdge(a: number, b: number): number;
     /** 原地改一张面的环（劈面 / 并面 / 并点用）：旧环独占的边删掉、新环缺的边补上。origin = 新环从哪来（必填；旧样子要在改之前 shapeOf 记下）。 */
@@ -140,8 +145,20 @@ export declare class MeshKernel {
     setCornerValues(f: number, id: string, values: ArrayLike<number>): void;
     /** 给一张面在一列面上的列上写值。进改动日志、rev 动。 */
     setFaceValue(f: number, id: string, v: number): void;
-    /** 上一次拿走之后「对不上」的面（还活着的；面编号 → 哪几列），拿走即清空。 */
+    /** 上一次拿走之后「对不上」的面（还活着的；面编号 → 哪几列）和没了的面，拿走即清空。 */
     takeReport(): FaceReport;
+    /** 删面并记进报告「没了的面」（原因由调用方给，内核不认它；with = 和哪张重叠之类）：记下删之前的样子，再照 removeFace 删。 */
+    removeFaceReported(f: number, why: GoneWhy, withFace?: number): void;
+    /**
+     * 把边 e 的一头从 from 换成 to（还是那条边：编号、标记都不变）。要求：这条边现在不挂面（调用方先把面摘下来）、to 活着、换完的那一对点上还没有边。
+     * 合并点用（第七¾节第 2 条「只是一头换了点的边还是那条边」）；增量邻接一起改（check 的 M8 对拍守着）。
+     */
+    relinkEdgeEnd(e: number, from: number, to: number): void;
+    /**
+     * 合并点（规程第七¾节第二稿；规划在 merge-points.ts、角上的数在 columns.ts mergeCornerValues）：若干组点各合并成一个，所有组一次做完、和组的先后无关。
+     * 返回每组的幸存点（每组第一个点；照传进来的先后）。塌掉的面、合并出来同一圈点的重叠面删掉、进报告「没了的面」（原因 collapsed / overlap）。
+     */
+    mergePoints(groups: readonly MergeGroup[]): number[];
     setPos(v: number, p: Pt3): void;
     setFlags(e: number, mask: number, on: boolean): void;
     /** 整字节写边标记（算子搬标记用）；记日志。 */

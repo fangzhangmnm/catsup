@@ -12,7 +12,8 @@ export declare const MOVING_MARKS_WITH_HIDDEN: number;
 export declare const MOVE: Readonly<Record<number, string>>;
 /**
  * 并边（两条边并成一条：溶解二度点、整理里的有限溶解、删点）每一位怎么合（守卫：内核里每一位都要在这里有一格）：
- * both = 两条都有才留（手标三位：硬软边设计稿 §6 第 3 问，和硬表面体一致）；either = 有一条就留（接缝：断一截那一片就切不开；隐藏：不丢 user 标的）；
+ * both = 两条都有才留（手标三位：硬软边设计稿 §6 第 3 问，和硬表面体一致；隐藏：一条藏一条看得见，并完看得见的那条不能凭空没了——统筹 11-13 定，和硬表面 kernel/layers.ts 第④条一致，
+ *   以前是「有一条就留」）；either = 有一条就留（接缝：断一截那一片就切不开）；
  * structural = 结构位，调用的人按拓扑重算。
  */
 export declare const JOIN: Readonly<Record<number, "both" | "either" | "structural">>;

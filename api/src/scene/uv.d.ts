@@ -1,4 +1,4 @@
-import type { MeshKernel, ColumnDef, FaceReport } from "../mesh/mesh-kernel.ts";
+import type { MeshKernel, ColumnDef, FaceReport, GoneFace } from "../mesh/mesh-kernel.ts";
 import type { Guid } from "../format/guid.ts";
 import type { UvDoc } from "../format/document.ts";
 import type { Pt3 } from "../kernel/geom.ts";
@@ -43,6 +43,8 @@ export declare function remapUvCode(face: Map<string, number>, remap: (code: num
  *   代号一样、角上的坐标对不上 / 取不到：坐标照「取最前的」，这里判成没有位置（drop）。
  * drop = 现在还有位置、要拿掉的面；lost = 来源里有位置、收尾之后没有位置的面数（数出来、提示行说一句；不许悄悄丢）。
  */
+/** 报告里没了的一张面，没了之前在不在画布上（面上的代号 ≥ 0 = 有位置 = 有画）。收尾数「其中几张上有画」用。 */
+export declare const hadPaint: (g: GoneFace) => boolean;
 export declare function uvLosses(k: MeshKernel, report: FaceReport): {
     drop: number[];
     lost: number;
