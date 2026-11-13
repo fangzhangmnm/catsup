@@ -510,7 +510,7 @@ export class Editor {
   }
 
   // ---------- 只读 ----------
-  get tool(): Tool { return this._tool; } get toolHeld(): Hold { return this.hold.state; } private settleHold(hadOp: boolean): void { const b = this.hold.settle(this.gestureActive(), hadOp); if (b) this.setTool(b, "back"); } dropBorrow(): boolean { const h = this.hold.state; if (h.temp === null || this.gestureActive()) return false; this.setTool(h.base, "back"); return true; }   // 借来的工具（controller/tool-borrow.ts）：toolHeld = 底 + 借（左柱画实心 / 蓝框）；settleHold = 一步收尾 / 步外取消后问一次「做完了吗」；dropBorrow = 借着、什么都没做时 Esc 回去
+  get tool(): Tool { return this._tool; } get toolHeld(): Hold { return this.hold.state; } private settleHold(hadOp: boolean): void { const b = this.hold.settle(this.gestureActive(), hadOp); if (b) this.setTool(b, "back"); } dropBorrow(): boolean { const h = this.hold.state; if (h.temp === null || this.gestureActive()) return false; this.setTool(h.base, "back"); this.host.hint(null); return true; }   // 借来的工具（controller/tool-borrow.ts）：toolHeld = 底 + 借（左柱画实心 / 蓝框）；settleHold = 一步收尾 / 步外取消后问一次「做完了吗」；dropBorrow = 借着、什么都没做时 Esc 回去
   /** 活动池的内核（上下文所在的几何池；根上下文 = 根池）。 */
   get kernel(): Kernel { return this.scene.kernelOf(this.activePool()); }
   /** 活动池的身体种类（选区的 id 空间、工作台、指令的单位种类都跟它走；2026-10-27 接缝）。 */
@@ -791,7 +791,7 @@ export class Editor {
     if (how !== "back" && this.param?.phase === "after") { this.openParamSession(null); this.host.hint("刚才那一步的参数已收起（换了工具）"); }   // 马后炮寿命 = 栈顶没变 ∧ 工具没换 ∧ 没撤销过（设计稿 §7 第 4 条；user「切换工具…还是显示着“刚才”」）
     this._tool = t; this.hold.apply(how === "borrow" ? { e: "borrow", tool: t } : { e: "take", tool: t });
     this.originEdit = null;   // 改组件原点会话随换工具结束（beginComponentOrigin 在换完之后才开）
-    this.cancelGesture();   // 锁不动：每个工具各记各的（W-4），换过去就是那把工具自己记着的（以前吃锁的工具之间「先按 Y 再按 S」也带过去，2026-10-28；W-4 起只从不吃锁的工具交过去）
+    this.cancelGesture(how === "back");   // 锁不动：每个工具各记各的（W-4），换过去就是那把工具自己记着的（以前吃锁的工具之间「先按 Y 再按 S」也带过去，2026-10-28；W-4 起只从不吃锁的工具交过去）
     if (handOver.axis || handOver.plane) { this.locks.clear(prev); this.locks.set(t, handOver); }
     this.clearCharged();   // 充能生命周期 = 工具子步（user 2026-10-24）：换工具就清
     this.host.changed();
@@ -954,7 +954,7 @@ export class Editor {
     const c = { x: (lo.x + hi.x) / 2, y: (lo.y + hi.y) / 2, z: (lo.z + hi.z) / 2 };
     return mode === "corner" ? lo : mode === "center" ? c : mode === "bottom" ? { x: c.x, y: c.y, z: lo.z } : scale3(sum, 1 / vs.length);
   }
-  private cancelGesture(): void {
+  private cancelGesture(keepHint = false): void {   // keepHint：借来的工具做完回去（setTool back）= 提示行留着刚才那一步的结果（「倒角：1 条边」），别的取消照旧清
     this.host.softRing?.(null);   // 软选择的半径圈跟手势走
     this.anchor3 = null; this.gestureFront = undefined;
     for (const h of Object.values(this.handlers)) h.cancel();
@@ -974,7 +974,7 @@ export class Editor {
     this.host.marquee(null);
     this.toolTip = null;
     this.host.tip(null, 0, 0);
-    this.host.hint(null);
+    if (!keepHint) this.host.hint(null);
     if (this.dims) { this.dims = ""; this.host.readout?.(this.readoutText()); }
   }
 

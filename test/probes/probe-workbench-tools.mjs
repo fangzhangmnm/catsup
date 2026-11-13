@@ -2,8 +2,8 @@
 // probe-workbench-tools.mjs —— 工作台只发自己的工具（统筹 11-11，v0.19.47）。created 2026-11-11 by Claude Opus 5.5
 // 起因：画画工作台里按 E，以前编辑器的 setTool 悄悄换到自由建模、拿起建模的橡皮——人以为拿着画画的橡皮，拖一下删掉了模型（v0.19.46 实测「删除了 1 处」）。
 // 现在：setTool 不换工作台（拒收、说在哪）；工具键跨工作台只按键表的跳转表 TOOL_KEY_JUMPS 明着跨、提示行说「换到了『X』工作台」；画画工作台不在表里。
-//   A 硬表面：按 B → 表面 + 油漆桶；表面里按 L → 硬表面 + 画线（和 v0.19.46 一样，只多一句提示）
-//   B 自由建模（网格体）：按 B → 表面 + 油漆桶；按 L → 不动，说「它在『硬表面建模』里，管的是别的物件」（和 v0.19.46 一样）
+//   A 硬表面：按 B → 表面 + 油漆桶；表面里按 C → 硬表面 + 圆（和 v0.19.46 一样，只多一句提示；v0.19.104 起 L = 选连着的一块、不再是画线，这里换成 C）
+//   B 自由建模（网格体）：按 B → 表面 + 油漆桶；按 C → 不动，说「它在『硬表面建模』里，管的是别的物件」（和 v0.19.46 一样；原来用 L，同上换成 C）
 //   C 画画：每个工具键按一遍 → 工作台、手上的工具、撤销栈都不变；按 E 再拖一下 = 拿着的还是画画的笔（画上了、模型一点没少）；一笔当中按 E = 这一笔照常画完
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-workbench-tools.mjs [url]
 import { createRequire } from "node:module";
@@ -40,7 +40,7 @@ const press = async (key) => { await page.keyboard.press(key); await page.waitFo
 const clearHint = () => S(() => { const h = document.querySelector("#hint"); if (h) h.textContent = ""; });
 
 // ---------- A 硬表面 ----------
-console.log("\nA 硬表面建模：按 B → 表面 + 油漆桶（明着跳、说一句）；表面里按 L → 硬表面 + 画线");
+console.log("\nA 硬表面建模：按 B → 表面 + 油漆桶（明着跳、说一句）；表面里按 C → 硬表面 + 圆");
 await S(() => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z });
   e.setGrid({ ...e.grid, on: false });
@@ -52,15 +52,15 @@ const a0 = await st(); await clearHint();
 const aB = await press("b");
 check(a0.mode === "geometry" && aB.mode === "surface" && aB.tool === "paint" && /换到了「表面」工作台/.test(aB.hint), `硬表面按 B：${a0.mode} → ${aB.mode}、手上 ${aB.tool}、提示「${aB.hint}」`, JSON.stringify({ a0, aB }));
 await clearHint();
-const aL = await press("l");
-check(aL.mode === "geometry" && aL.tool === "line" && /换到了「硬表面建模」工作台/.test(aL.hint), `表面里按 L：→ ${aL.mode}、手上 ${aL.tool}、提示「${aL.hint}」`, JSON.stringify(aL));
+const aL = await press("c");
+check(aL.mode === "geometry" && aL.tool === "circle" && /换到了「硬表面建模」工作台/.test(aL.hint), `表面里按 C：→ ${aL.mode}、手上 ${aL.tool}、提示「${aL.hint}」`, JSON.stringify(aL));
 await press("Escape"); await S(() => globalThis.__catsup.editor.setTool("select"));
 const aE = await press("e");
 check(aE.mode === "geometry" && aE.tool === "erase", "硬表面里按 E：本工作台的橡皮，不跳", JSON.stringify(aE));
 await S(() => globalThis.__catsup.editor.setTool("select"));
 
 // ---------- B 自由建模（网格体）----------
-console.log("\nB 自由建模（网格体）：按 B → 表面 + 油漆桶；按 L → 不动、说这把工具在哪");
+console.log("\nB 自由建模（网格体）：按 B → 表面 + 油漆桶；按 C → 不动、说这把工具在哪");
 const def = await S(() => {
   const e = globalThis.__catsup.editor; e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("盒"); e.runAction("object.toMesh");
   const S0 = e.sceneRef, inst = [...S0.def(S0.root).instances.values()][0]; e.exitTo(0); e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected();
@@ -70,8 +70,8 @@ const b0 = await st(); await clearHint();
 const bB = await press("b");
 check(b0.mode === "freeform" && bB.mode === "surface" && bB.tool === "paint" && /换到了「表面」工作台/.test(bB.hint), `自由建模按 B：→ ${bB.mode}、手上 ${bB.tool}、提示「${bB.hint}」`, JSON.stringify({ b0, bB }));
 await S(() => { globalThis.__catsup.pickWorkbench("freeform"); globalThis.__catsup.editor.setTool("select"); }); await clearHint();
-const bL = await press("l");
-check(bL.mode === "freeform" && bL.tool === "select" && bL.pos === b0.pos && /「自由建模」工作台里没有这把工具（它在「硬表面建模」里，管的是别的物件）/.test(bL.hint), `自由建模按 L：不动，提示「${bL.hint}」`, JSON.stringify(bL));
+const bL = await press("c");
+check(bL.mode === "freeform" && bL.tool === "select" && bL.pos === b0.pos && /「自由建模」工作台里没有这把工具（它在「硬表面建模」里，管的是别的物件）/.test(bL.hint), `自由建模按 C：不动，提示「${bL.hint}」`, JSON.stringify(bL));
 
 // ---------- C 画画 ----------
 console.log("\nC 画画：工具键按一遍 → 工作台 / 手上的工具 / 撤销栈都不变；按 E 再拖 = 还是画画的笔；一笔当中按 E = 这一笔照常");
