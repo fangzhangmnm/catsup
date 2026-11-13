@@ -50,7 +50,7 @@ const setup = await S(async () => {
   e.commitOp({ op: "startPaint", def: instB.def, faces: [topB], uvSet: g(), textureGuid: texB, materialGuid: g(), names: { uvSet: "UV2", paint: "画二", material: "画二" }, color: [0.3, 0.5, 0.7], canvas: 256 });
   const matB = e.sceneRef.materials.length - 1;
   e.commitOp({ op: "meshPaintFaces", def: instB.def, faces: [sideB], material: matB });
-  const uvB = [...e.sceneRef.mesh(instB.def).uvSets.keys()][0], sideHasUv = !!e.sceneRef.mesh(instB.def).kernel.cornerValues(sideB, uvB);
+  const uvB = [...e.sceneRef.uvSets.keys()].find((g) => e.sceneRef.mesh(instB.def).kernel.hasColumn(g)),   /* 排法表在场景层（施工单十八第 1 刀） */ sideHasUv = !!e.sceneRef.mesh(instB.def).kernel.cornerValues(sideB, uvB);
   // 甲：六张面都开始画（按片排）
   await enter(instA);
   const kA = e.sceneRef.mesh(instA.def).kernel, texA = g();
