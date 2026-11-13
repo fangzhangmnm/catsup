@@ -2,7 +2,8 @@
 // ① 挪：在顶面上按下拖走松手 = 顶面四个点一起动、别的点不动、一步撤销；② 锁 Z 挪：斜着拖也只动 z；③ 转：全选 + 锁 Z 拖一圈 = z 不变、到轴心的距离不变；
 // ④ 缩：选顶面往外拖 = 顶面变大、z 不变；按住 Shift = 0.1 一档；⑤ 工作台守门：按画线键不跳进硬表面建模；⑥ 撤到头不崩。
 // ⑦ 报压感的笔（笔的设计稿第七节第 6 步：轻 = 选、重 = 抓；统筹 11-13）：轻按滑过东西 = 历史一步不多、几何不变；轻点 = 选中、点空白 = 取消；
-//    重按在选区外的东西上 → 滑 → 重按 = 挪的是它、一步撤销；重按 → 滑 → 抬笔 = 过了宽限落定；空处轻拖抬笔 = 框选；框到一半重按 = 选区不变、起抓；
+//    重按在选区外的东西上 → 滑 → 重按 = 挪的是它、一步撤销；重按 → 滑 → 抬笔 = 过了宽限落定；轻按着从空处拖一段再抬笔 = 选区不变、一步不多、屏幕上没有框
+//    （笔在这几把工具里不出框：user 11-13）；
 //    把手轻按住拖 = 动、松手落定；一下重按按住不放 = 只算一次；Esc 抓到一半 = 回原样、一步不多。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-transform.mjs
 import { createRequire } from "node:module";
@@ -118,14 +119,10 @@ res.pen = await (async () => {
     { await tap(topC); await sleep(600); const g0 = geo(), h0 = steps();
       await pdown(topC); await hard(topC); await glide(topC, up40(topC)); pf("pointerup", up40(topC), 0); await sleep(20); const during = { steps: steps() - h0, busy: e.gestureInProgress() }; await sleep(140);
       out.liftCommit = { during, steps: steps() - h0, changed: geo() !== g0 }; e.undo(); await sleep(30); }
-    // c. 空处轻拖抬笔 = 框选（框住整个盒子）
-    { await tap(blank); const g0 = geo(), far = { x: r.width - 60, y: r.height - 60 };
-      await pdown(blank); await glide(blank, far); await lift(far); out.box = { sel: selN(), same: geo() === g0 }; }
-    // c2. 框到一半重按 = 选区不变、起抓
-    { await tap(blank); await tap(topC); await sleep(600); const sel0 = selN(), h0 = steps();
-      await pdown(blank); await glide(blank, rightC); await hard(rightC);
-      out.boxHard = { selAfterHard: selN(), sel0, busy: e.gestureInProgress() };
-      await glide(rightC, up40(rightC)); await hard(up40(rightC)); await lift(up40(rightC)); out.boxHard.steps = steps() - h0; e.undo(); await sleep(30); }
+    // c. 轻按着从空处拖一段（扫过整个盒子）再抬笔 = 选区不变、一步不多、屏幕上没有框（user 11-13：笔在这几把工具里不出框）
+    { await tap(blank); await tap(topC); await sleep(600); const g0 = geo(), sel0 = selN(), h0 = steps(), far = { x: r.width - 60, y: r.height - 60 }, mq = document.getElementById("marquee");
+      await pdown(blank); await glide(blank, rightC); const midBox = !mq.hidden; await glide(rightC, far); const endBox = !mq.hidden; await lift(far);
+      out.noBox = { sel: selN(), sel0, steps: steps() - h0, same: geo() === g0, box: midBox || endBox || !mq.hidden }; }
     // d. 把手：选顶面、隔过连击窗口再点一下 = 出手柄；轻按住中心把手拖 = 动、松手落定
     { await tap(blank); await tap(topC); await sleep(600); await tap(topC); await sleep(600);
       const kind = e.pressKindAt(topC.x, topC.y), g0 = geo(), h0 = steps();
@@ -157,8 +154,7 @@ const ok = res.rail === "select,pp,move,rotate,scale,knife,erase,softErase,offse
   && res.pen.slide.same && res.pen.slide.steps === 0 && res.pen.slide.sel === 0 && res.pen.tapSel > 0 && res.pen.tapBlank === 0
   && res.pen.grabOther.mid.busy && res.pen.grabOther.steps === 1 && res.pen.grabOther.changed && res.pen.grabOther.rightFaceMoved && res.pen.grabOtherUndo
   && res.pen.liftCommit.during.steps === 0 && res.pen.liftCommit.during.busy && res.pen.liftCommit.steps === 1 && res.pen.liftCommit.changed
-  && res.pen.box.sel > 1 && res.pen.box.same
-  && res.pen.boxHard.selAfterHard === res.pen.boxHard.sel0 && res.pen.boxHard.busy && res.pen.boxHard.steps === 1
+  && res.pen.noBox.sel === res.pen.noBox.sel0 && res.pen.noBox.sel0 > 0 && res.pen.noBox.steps === 0 && res.pen.noBox.same && !res.pen.noBox.box
   && res.pen.handle.kind === "handle" && res.pen.handle.steps === 1 && res.pen.handle.changed
   && res.pen.heldOnce.held.busy && res.pen.heldOnce.held.steps === 0 && res.pen.heldOnce.steps === 1
   && res.pen.esc.same && res.pen.esc.steps === 0;

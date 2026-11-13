@@ -1,9 +1,11 @@
-// controller/grab-relay.ts —— 笔在「抓住东西做事」的工具里：轻的那一下 = 选（点选、点空白取消、空处拖框选 / 套索）和拖把手；重的那一下 = 抓住东西做这把工具的事。
+// controller/grab-relay.ts —— 笔在「抓住东西做事」的工具里：轻的那一下 = 点选（点空白取消）和拖把手；轻按着拖从哪儿起都只是找位置（不出框）；重的那一下 = 抓住东西做这把工具的事。
 // （笔的设计稿第三节、第七节第 6 步；统筹 11-13 定的五条。）created 2026-11-13 by Claude Opus 5.5
 //
 // 只管报压感的笔、只管 stance.ts PEN_PRESS 里是 grab 的工具（移动 / 旋转 / 缩放 / 沿法线 / 挤出 / 变换 / 插入·倒角）。鼠标、不报压感的笔照旧。
 // 编辑器那一套「按下 → 拖 → 松手」（steps 语法）一行不改：这里把笔的「轻 / 重」翻成它：
-//   · 落笔：这一点下面是把手 = 照旧按住拖（handle）；是空处 = 框选（box，按下时告诉编辑器 intent = select：有选区也框）；是东西 = 只找位置（seek，什么都不动）。
+//   · 落笔：这一点下面是把手 = 照旧按住拖（handle）；别的（东西、空处）= 只找位置（seek，什么都不动、不出框、不改选区）。
+//     不出框是 user 11-13 定的（统筹转；原话在讨论日记第八十轮）：要保住的核心动作是「笔放上去靠近图元 → 等它亮 → 重按 → 开始移动」，这个动作里不能掺框；
+//     框选唯一的用处是多选，而移动工具里的多选没有加选减选。要框选 / 套索、加选减选 = 切到「选」。要翻回「空处轻拖 = 框」只改 LIGHT_EMPTY_DRAG 这一处（框的那一段留着）。
 //     落笔那一下就很重（判到重按）= 当成一下重按处理；编辑器正在一下手势里（键盘起手跟着走）= 只找位置，重按 / 轻点 = 落定。
 //   · 重按（判到一次，点 = 压力猛升之前那一刻）：
 //       把手 = 不管（按住把手拖着呢）；正在抓 = 在这一点松手（落定），回到找位置；正在框 = 框作废（选区不变）、再按下面这条起抓；
@@ -32,9 +34,13 @@ export interface RelayEnv {
   readonly slop: number;
 }
 type Mode = "seek" | "handle" | "box" | "grab";
+/** 笔轻按落在空处再拖：seek = 只找位置（现在，user 11-13）；box = 框选（之前统筹定过、又改了）。只此一处。 */
+export const LIGHT_EMPTY_DRAG: "seek" | "box" = "seek";
 
 export class GrabRelay {
   private mode: Mode = "seek";
+  private readonly emptyDrag: "seek" | "box";
+  constructor(emptyDrag: "seek" | "box" = LIGHT_EMPTY_DRAG) { this.emptyDrag = emptyDrag; }
   private land = { x: 0, y: 0 };
   private travel = 0;
   private pressed = false;
@@ -46,8 +52,8 @@ export class GrabRelay {
     const kind = env.kindAt(at.x, at.y);
     if (kind === "handle") { this.mode = "handle"; return [{ a: "down", x: at.x, y: at.y, intent: null }]; }   // 重按落在把手上也算按住把手
     if (hit) return this.hard(hit, env);
-    if (kind === "empty") { this.mode = "box"; return [{ a: "down", x: at.x, y: at.y, intent: "select" }]; }
-    return [{ a: "move", x: at.x, y: at.y }];   // 落在东西上：只找位置
+    if (kind === "empty" && this.emptyDrag === "box") { this.mode = "box"; return [{ a: "down", x: at.x, y: at.y, intent: "select" }]; }
+    return [{ a: "move", x: at.x, y: at.y }];   // 落在东西上 / 空处：只找位置
   }
   move(at: { x: number; y: number }): RelayAction[] {
     this.travel = Math.max(this.travel, Math.hypot(at.x - this.land.x, at.y - this.land.y));

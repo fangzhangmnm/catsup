@@ -1,6 +1,6 @@
 // 笔轻 = 选、重 = 抓（controller/grab-relay.ts；笔的设计稿第七节第 6 步，统筹 11-13 定的五条）。created 2026-11-13 by Claude Opus 5.5
 import { describe, it, eq } from "./runner.mjs";
-import { GrabRelay, type PressKind, type RelayAction, type RelayEnv } from "../src/controller/grab-relay.ts";
+import { GrabRelay, LIGHT_EMPTY_DRAG, type PressKind, type RelayAction, type RelayEnv } from "../src/controller/grab-relay.ts";
 import type { PressHit } from "../src/controller/hard-press.ts";
 
 /** 假环境：x < 100 = 东西、100 ≤ x < 200 = 把手、别处 = 空处。 */
@@ -18,13 +18,16 @@ describe("笔轻 = 选、重 = 抓：输入层怎么翻", () => {
     const r = new GrabRelay(), e = env();
     r.down(P(10), null, e); r.move(P(12)); eq(s(r.up(P(12), e)), "down@10:select up@10");
   });
-  it("空处轻按 = 框（按下带「选」）、拖、抬笔 = 框选生效", () => {
+  it("空处轻按着拖 = 只找位置（不出框：user 11-13），抬笔 = 什么都不做；空处轻点 = 点一下（点空白取消选择）", () => {
+    eq(LIGHT_EMPTY_DRAG, "seek");
     const r = new GrabRelay(), e = env({ sel: true });
-    eq(s(r.down(P(300), null, e)), "down@300:select"); r.move(P(340)); eq(s(r.up(P(340), e)), "up@340");
+    eq(s(r.down(P(300), null, e)), "move@300"); r.move(P(340)); eq(s(r.up(P(340), e)), "");
+    const t = new GrabRelay(); t.down(P(300), null, e); eq(s(t.up(P(302), e)), "down@300:select up@300");
   });
-  it("框到一半来了重按 = 框作废、在猛升之前那一点起抓", () => {
-    const r = new GrabRelay(), e = env({ sel: true });
-    r.down(P(300), null, e); r.move(P(50)); eq(s(r.hard(hit(50), e)), "abort down@50:grab"); eq(r.state, "grab");
+  it("（翻回框选那一档时）空处轻按 = 框、拖、抬笔 = 框选生效；框到一半重按 = 框作废、起抓", () => {
+    const r = new GrabRelay("box"), e = env({ sel: true });
+    eq(s(r.down(P(300), null, e)), "down@300:select"); r.move(P(340)); eq(s(r.up(P(340), e)), "up@340");
+    const q = new GrabRelay("box"); q.down(P(300), null, e); q.move(P(50)); eq(s(q.hard(hit(50), e)), "abort down@50:grab"); eq(q.state, "grab");
   });
   it("重按 → 轻按滑 → 重按 = 抓、拖、落定；之后回到找位置，抬笔不再点一下", () => {
     const r = new GrabRelay(), e = env();

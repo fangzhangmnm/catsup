@@ -74,7 +74,7 @@ function touchesSelection(ctx: ToolCtx, sel: { verts: ReadonlySet<number>; edges
  */
 export function pressTarget(ctx: ToolCtx, at: { x: number; y: number; start?: GestureStart; intent?: "select" | "grab" }, tool: Tool): Target | "box" {
   const sel = ctx.selection(), st = stanceOf("freeform", tool), grab = st?.grab ?? "element";
-  if (at.intent === "select" && !grabUnder(ctx, at, grab)) return "box";   // 笔轻按落在空处 = 框选，有选区也框（第七节第 6 步，统筹 11-13 按推荐先定；要翻过来只改这一行）。鼠标照旧：有选区时空处拖 = 对选区做
+  if (at.intent === "select" && !grabUnder(ctx, at, grab)) return "box";   // 笔轻点空处 = 框（马上松手 = 点空白取消选择）；笔轻拖出不出框归 controller/grab-relay.ts LIGHT_EMPTY_DRAG（现在不出：user 11-13）。鼠标照旧：有选区时空处拖 = 对选区做
   if (sel.kind === "mesh" && (sel.verts.size || sel.edges.size || sel.faces.size)) {
     // 键盘起手（G / R / S / E / I；ToolPointer.start = "keyboard"，ctx.keyboardStart 唯一造处）= 永远对选区做（Blender）：不走「按在选区外的东西上 = 对它做」的三分法——
     // 不然光标正下方有个没选的点时，G 挪的是它不是选区（2026-10-28 夜 probe-soft-select 抓到；以前拿 pointerType 冒充，2026-10-29 改成一等字段，周账 F-125）
