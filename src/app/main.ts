@@ -42,6 +42,7 @@ import { mountMfd } from "./mfd.ts";
 import { stanceShown } from "../controller/chips.ts";
 import { selectModeFor } from "../editor/tool-config.ts";
 import { railFace } from "../controller/rail-face.ts";
+import { keyboardSeen, noteKeyEvent, onKeyboardSeen } from "./keyboard-seen.ts";
 import { keyBorrows } from "../controller/tool-borrow.ts";
 import { flippedValue, onSecond, secondModeOf } from "../controller/second-mode.ts";
 import { mountSoftSlider, stepRadius, type SoftSlider } from "./soft-slider.ts";
@@ -119,7 +120,7 @@ import { readForeignObj } from "../format/obj-import.ts";
 import { type ImportScene, isForeignGlb, readForeignGlb } from "../format/gltf-import.ts";
 import { attachGestures } from "./gestures.ts";
 import { Locomotion } from "./locomotion.ts";
-import { TOOL_CYCLES, chordLabel, keyDocs, modifierChords, resolveKey, toolKeyText, type KeyContext, type KeyEvt, TOOL_KEY_JUMPS } from "../controller/keymap.ts";
+import { TOOL_CYCLES, chordLabel, keyDocs, modifierChords, resolveKey, toolKeyText, type KeyContext, type KeyEvt, TOOL_KEY_JUMPS, toolKeysOf } from "../controller/keymap.ts";
 import { stanceOf, penPressOf } from "../controller/stance.ts";
 import { pressPulse } from "./ui/press-pulse.ts";
 import { RAIL_FLYOUT_PRESS_MS, MOD_PEEK_MS, LIFT_GRACE_MS } from "../controller/feel.ts";
@@ -502,8 +503,9 @@ const mkToolBtn = (t: Tool, flyout?: () => Tool[]): HTMLButtonElement => {
   b.type = "button"; b.className = "tool"; b.title = sp.key ? `${sp.label}（${sp.key}）` : sp.label;
   // 再点一下拿着的这把 = 换到另一种做法（controller/second-mode.ts；user 10-30「2同意」）；在另一种做法上 = 角上一个字
   const sm = secondModeOf(t, editor.modeId), second = sm?.kind === "option" && onSecond(sm, editor.config.get(t as never, sm.key as never)) ? sm : null;
-  b.innerHTML = `${iconHtml(sp.icon)}<span class="tool-label"></span>${flyout ? '<span class="tool-flyout" aria-hidden="true"></span>' : ""}${second ? '<span class="tool-badge" aria-hidden="true"></span>' : ""}`;
+  b.innerHTML = `${iconHtml(sp.icon)}<span class="tool-label"></span>${flyout ? '<span class="tool-flyout" aria-hidden="true"></span>' : ""}${second ? '<span class="tool-badge" aria-hidden="true"></span>' : ""}<span class="tool-key" aria-hidden="true"></span>`;
   (b.querySelector(".tool-label") as HTMLElement).textContent = sp.label;
+  (b.querySelector(".tool-key") as HTMLElement).textContent = toolKeyMark(t);   // 右上角很小很淡的快捷键（统筹 11-13 D）：按过实体键盘才显示（body.keys-seen，keyboard-seen.ts）
   if (second) { (b.querySelector(".tool-badge") as HTMLElement).textContent = second.badge; b.title += ` · 现在：${second.name}（再点一下换回；按住 ${second.mod} 临时换回）`; }
   if (editor.locked && !isReadOnlyTool(t)) { b.classList.add("held"); b.title = `${sp.label}（${HINT_LOCKED}）`; }   // 第四层（输入闸）：只读工具不灰，别的灰、点了说为什么
   const pick = (): void => { if (t === editor.tool && flipSecondMode(t)) return; hud.pick(t); };
@@ -525,6 +527,13 @@ const mkToolBtn = (t: Tool, flyout?: () => Tool[]): HTMLButtonElement => {
   b.addEventListener("contextmenu", (ev) => { ev.preventDefault(); openFlyout(); });
   return b;
 };
+/** 工具栏右上角的小字：键表里排第一的那个键（toolKeysOf 现算，不逐个写死；没有键 = 空）。字形用短的（␣ ⇥ ⇧ ⌃ ⌥），一两个字、不挤到图标。 */
+function toolKeyMark(t: Tool): string {
+  const k = toolKeysOf(editor.modeId, t, (x) => editor.modeTools().includes(x))[0];
+  if (!k) return "";
+  const G: Record<string, string> = { space: "␣", tab: "⇥", shift: "⇧", ctrl: "⌃", alt: "⌥", arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓" };
+  return k.chord.split("+").map((p) => G[p] ?? (p.length === 1 ? p.toUpperCase() : p)).join("");
+}
 /** 拿着的工具再被点一下：有另一种做法就切过去（选项 / 换工具），提示行说现在是哪种、怎么换回；没有 = false（照常 pick）。 */
 function flipSecondMode(t: Tool): boolean {
   const sm = secondModeOf(t, editor.modeId);
@@ -1592,7 +1601,7 @@ var mfdRef: { render(): void } | null = null;
 mfdRef = mountMfd($("hintWrap"), {
   ctx: () => keyContext(),
   stance: () => stanceOf(editor.modeId, shownTool()),
-  live: () => ({ held: { ...heldMods }, keys: lastPointerType === "mouse", pressing: canvasPresses.size > 0, finish: editor.finishLabel(), latched: { ...latchedMods } }),
+  live: () => ({ held: { ...heldMods }, keys: keyboardSeen(), pressing: canvasPresses.size > 0, finish: editor.finishLabel(), latched: { ...latchedMods } }),
   act: (a) => { if (a === "finish") editor.finishChain(); syncUi(); },   // 「收笔」「收刀」（W-7）= 和同一处再点一下同一条路
   latch: (m) => { setLatch(m, !latchedMods[m]); syncUi(); },   // 键鼠才印键名（user「ipad的时候能不能不显示键位」）
   press: (chord) => {   // 点芯片 = 按了这个键：和真按键走同一条（resolveKey → runKeyAction）
@@ -1611,6 +1620,8 @@ for (const t of ["pointerup", "pointercancel"] as const) window.addEventListener
 for (const t of ["pointerdown", "pointerup"] as const) canvas.addEventListener(t, () => queueMicrotask(() => mfdRef?.render()));
 // 实时响应按键（user 10-28 晚）：按下 / 松开都重画；按着哪几个修饰键自己记（键盘事件的 shiftKey 等是「这一下」的，松开那一下才知道没了）；切走窗口 = 全松
 const noteMods = (ev: KeyboardEvent): void => { heldMods.shift = ev.shiftKey; heldMods.ctrl = ev.ctrlKey || ev.metaKey; heldMods.alt = ev.altKey; queueMicrotask(() => mfdRef?.render()); };
+window.addEventListener("keydown", (ev) => noteKeyEvent(ev), { capture: true });   // 这次打开之后按过实体键盘吗（keyboard-seen.ts 一处判）：工具栏小字、键名芯片
+onKeyboardSeen(() => { document.body.classList.add("keys-seen"); queueMicrotask(() => syncUi()); });
 window.addEventListener("keydown", noteMods, { capture: true });
 window.addEventListener("keyup", noteMods, { capture: true });
 window.addEventListener("blur", () => { heldMods.shift = heldMods.ctrl = heldMods.alt = false; mfdRef?.render(); });

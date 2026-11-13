@@ -216,6 +216,11 @@ body.doc-locked .walk-btn[data-edits] { opacity: .45; }
 .tool.active .tool-label { color: #e7f0fb; }
 /* 「只管这一下」= 蓝色空心框（快捷键借来的工具，controller/tool-borrow.ts；以后快捷键按的锁也用它）；实心 .active = 一直拿着的（user 11-13「临时选中，它是一个蓝色的框」） */
 .once { box-shadow: inset 0 0 0 2px var(--accent); }
+/* 工具栏右上角的快捷键小字（统筹 11-13 D）：按过实体键盘才露（body.keys-seen，src/app/keyboard-seen.ts）；角上有「另一种做法」的橙色小字时挪到左上 */
+.tool-key { position: absolute; right: 3px; top: 2px; font: 600 8px/1 system-ui, sans-serif; color: var(--muted); opacity: .6; pointer-events: none; display: none; }
+body.keys-seen .tool-key:not(:empty) { display: block; }
+.tool-badge ~ .tool-key { right: auto; left: 3px; }
+.tool.active .tool-key { color: #e7f0fb; }
 /* 最近用过的非钉工具（≤ 2 格，屏幕矮就 0 格）；和钉死的长一样，只是会变 */
 .rail-sep { height: 6px; }   /* 左柱分组：只留空隙，不画线（user 10-24「|线不要试试」） */
 .tool { position: relative; }

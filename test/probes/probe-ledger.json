@@ -168,6 +168,7 @@
   "probe-select-keep.mjs": {"state":"green"},
   "probe-select-linked.mjs": {"state":"green"},
   "probe-temp-tool.mjs": {"state":"green"},
+  "probe-tool-keys.mjs": {"state":"green"},
   "probe-selecting.mjs": {"state":"green"},
   "probe-shapes.mjs": {"state":"green"},
   "probe-share-download.mjs": {"state":"green"},
