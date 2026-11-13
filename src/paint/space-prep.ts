@@ -53,7 +53,7 @@ export class SpacePrep {
 
   /** 一项目标的键（见文件头）。 */
   static keyOf(t: PaintTarget): string {
-    return `${meshId(t.mesh.kernel)}@${t.mesh.rev}|${t.uvSet}|${t.canvas.width}x${t.canvas.height}|${t.gap ?? 4}|${Array.prototype.join.call(t.xform, ",")}`;
+    return `${meshId(t.mesh.kernel)}@${t.mesh.rev}|${t.uvSet}|${t.canvas.width}x${t.canvas.height}|${t.gap ?? 4}|${Array.prototype.join.call(t.xform, ",")}|${t.others?.key ?? ""}`;   // 别的物件的面变了 = 每格归谁变了（施工单十八第 2 刀 b）
   }
 
   /** 落笔前问：null = 都现成、能直接用；"pending" = 有的还没建 / 过期了（要 ensure）；别的 = 建过、建不了的那个错（PaintLimitError 带人话）。 */

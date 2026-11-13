@@ -32,6 +32,8 @@ export interface ImageView {
   setLines(thin: Float32Array, thick: Float32Array, accent?: { readonly lines: Float32Array; readonly color: string }): void;
   /** 按编号取多边形（选中 / 悬停时涂一层用）。 */
   setRings(ring: (id: number) => ArrayLike<number> | undefined): void;
+  /** 垫在线下面的一层：faint = 淡淡盖一层的多边形（角上的 x, y…，格）；areas = 标出来的长方形（每个 4 个数 x0, y0, x1, y1，格）。这里不认识它们是什么（画布小窗：别的物件的面、空出来的地方）。 */
+  setBackdrop(faint: readonly ArrayLike<number>[], areas: ArrayLike<number>): void;
   /** 选中的编号 + 悬停的编号。 */
   setMarks(selected: Iterable<number>, hover: number | null): void;
   /** 整张图放进窗口。 */
@@ -56,6 +58,7 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
   let img: CanvasImageSource | null = null, W = 1, H = 1;
   let thin = new Float32Array(0), thick = new Float32Array(0), accent: { readonly lines: Float32Array; readonly color: string } | null = null;
   let ringOf: (id: number) => ArrayLike<number> | undefined = () => undefined;
+  let faint: readonly ArrayLike<number>[] = [], areas: ArrayLike<number> = [];
   let sel: number[] = [], hov: number | null = null;
   let tip: { x: number; y: number; d: number } | null = null;   // 悬停的笔印（格）
   let k = 1, ox = 0, oy = 0, fitted = false;   // 屏幕(CSS 像素) = 格 × k + o
@@ -83,6 +86,20 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
       for (let x = x0; x <= x1; x++) { const sx = Math.round(x * k + ox) + 0.5; g.moveTo(sx, y0 * k + oy); g.lineTo(sx, y1 * k + oy); }
       for (let y = y0; y <= y1; y++) { const sy = Math.round(y * k + oy) + 0.5; g.moveTo(x0 * k + ox, sy); g.lineTo(x1 * k + ox, sy); }
       g.strokeStyle = "rgba(0,0,0,0.18)"; g.lineWidth = 1; g.stroke();
+    }
+    // 垫底那一层：标出来的长方形（半透明红 + 虚线框）、淡淡盖一层的多边形（白纱 + 细边）
+    if (areas.length) {
+      g.fillStyle = "rgba(220,60,60,0.22)";
+      for (let i = 0; i + 3 < areas.length; i += 4) g.fillRect(areas[i] * k + ox, areas[i + 1] * k + oy, (areas[i + 2] - areas[i]) * k, (areas[i + 3] - areas[i + 1]) * k);
+      g.setLineDash([4, 3]); g.strokeStyle = "rgba(190,30,30,0.85)"; g.lineWidth = 1;
+      for (let i = 0; i + 3 < areas.length; i += 4) g.strokeRect(areas[i] * k + ox + 0.5, areas[i + 1] * k + oy + 0.5, (areas[i + 2] - areas[i]) * k - 1, (areas[i + 3] - areas[i + 1]) * k - 1);
+      g.setLineDash([]);
+    }
+    if (faint.length) {
+      g.beginPath();
+      for (const r of faint) { if (r.length < 6) continue; g.moveTo(r[0] * k + ox, r[1] * k + oy); for (let i = 2; i < r.length; i += 2) g.lineTo(r[i] * k + ox, r[i + 1] * k + oy); g.closePath(); }
+      g.fillStyle = "rgba(255,255,255,0.45)"; g.fill();
+      g.strokeStyle = "rgba(0,0,0,0.22)"; g.lineWidth = 1; g.stroke();
     }
     // 选中 / 悬停：涂一层
     const fill = (id: number, color: string): void => {
@@ -203,6 +220,7 @@ export function mountImageView(host: HTMLElement, hooks: ImageViewHooks): ImageV
     setImage(src, width, height) { const changed = width !== W || height !== H; img = src; W = Math.max(1, width); H = Math.max(1, height); if (changed) fitted = false; schedule(); },
     setLines(a, b, c) { thin = a; thick = b; accent = c && c.lines.length ? c : null; schedule(); },
     setRings(f) { ringOf = f; schedule(); },
+    setBackdrop(f, a) { faint = f; areas = a; schedule(); },
     setMarks(s, h) { sel = [...s]; hov = h; schedule(); },
     fit() { fitted = false; schedule(); },
     scale: () => k,

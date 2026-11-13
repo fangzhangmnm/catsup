@@ -52,7 +52,7 @@ export function paintsOf(s: Scene, def: number): { tex: string; name: string; ma
   for (const t of s.textures.values()) {
     if (t.content.kind !== "layered") continue;
     const p = paintPlaceOf(s, t.guid);
-    if (!p || p.def !== def) continue;
+    if (!p || !anyFaceWalksPaint(s, def, t.guid)) continue;   // 这个物件有面走这张画（施工单十八第 2 刀 b）
     const i = s.materials.indexOf(p.material);
     if (i >= 0) out.push({ tex: t.guid, name: t.name, material: i, uvSet: { guid: p.uvSet.guid, width: p.uvSet.width, height: p.uvSet.height, pxPerM: p.uvSet.pxPerM, ...(p.uvSet.fit === "density" ? { fit: "density" as const } : {}) } });
   }

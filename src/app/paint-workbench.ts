@@ -109,7 +109,7 @@ export class PaintWorkbench {
   /** 这个物件上走的画（贴图表里分层的那几张）。 */
   private paintsOn(def: number): string[] {
     const S = this.d.editor.sceneRef, out: string[] = [];
-    for (const t of S.textures.values()) if (t.content.kind === "layered" && paintPlaceOf(S, t.guid)?.def === def) out.push(t.guid);
+    for (const t of S.textures.values()) if (t.content.kind === "layered" && paintPlaceOf(S, t.guid) && anyFaceWalksPaint(S, def, t.guid)) out.push(t.guid);   // 这个物件有面走这张画（施工单十八第 2 刀 b：一张画可以在好几个物件上）
     return out;
   }
 

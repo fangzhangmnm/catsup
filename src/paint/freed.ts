@@ -13,8 +13,9 @@
 import type { Guid } from "../format/guid.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { DefId, Scene } from "../scene/scene.ts";
-import { hasUvColumns, uvAt, uvBoxes, uvSetOfFace } from "../scene/uv.ts";   // 贴图坐标只经 scene/uv.ts 问（守卫 paint-start-guard ⑦）
-import { cellRect, cornersRect } from "./layout.ts";
+import { hasUvColumns, uvAt, uvSetOfFace } from "../scene/uv.ts";   // 贴图坐标只经 scene/uv.ts 问（守卫 paint-start-guard ⑦）
+import { cornersRect } from "./layout.ts";
+import { uvSetOccupancy } from "./uvset-occupancy.ts";
 import { freedReach } from "../format/uvset-table.ts";
 
 /** [x0, y0, x1, y1)，单位格。 */
@@ -221,20 +222,11 @@ export function mergeFreed(old: readonly number[] | undefined, add: readonly Rec
   return flat;
 }
 
-/** 一套排法上，一个定义的面现在占着的格（layout.ts cellRect；全仓「占着」只有这一个算法）。 */
-function heldBy(b: { kernel: MeshKernel; uvSetSlots: readonly Guid[] }, g: Guid): Rect[] {
-  const bx = uvBoxes(b.kernel, b.uvSetSlots, g), out: Rect[] = [];
-  for (let i = 0; i + 3 < bx.length; i += 4) out.push(cellRect(bx[i], bx[i + 1], bx[i + 2], bx[i + 3]));
-  return out;
-}
-/** 这套排法上所有定义（except 除外）的面现在占着的格（按排法看所有物件，没有摆放的定义也算）；按这套画布能到的范围取过交集。 */
+/** 这套排法上所有定义（except 除外）的面现在占着的格：查「按排法看所有物件」那张表（uvset-occupancy.ts；施工单十八第 2 刀 b），按这套画布能到的范围取过交集。 */
 function heldOn(s: Scene, g: Guid, except: DefId | null): Rect[] {
-  const out: Rect[] = [], reach = reachOf(s, g);
+  const reach = reachOf(s, g), out: Rect[] = [];
   if (!reach) return out;
-  for (const d of s.defs.values()) {
-    if (d.id === except || d.body.kind !== "mesh" || !d.body.uvSetSlots.includes(g)) continue;   // 速查表里没有这一套 = 没有一张面的代号指着它（只是快筛）
-    out.push(...clampAll(heldBy(d.body, g), reach));
-  }
+  for (const e of uvSetOccupancy(s, g)) if (e.def !== except) out.push(...clampAll(e.boxes, reach));
   return out;
 }
 

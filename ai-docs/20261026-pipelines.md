@@ -1314,3 +1314,16 @@ freedOp：每个步开始就在的网格体 —— History.meshBefore（这一�
 「走不走画」：`Scene.facePaint` 只看面的材质 → 画 → 排法在表里，不再看网格体的速查表；渲染、开始画（`facesToStart`）、画画工作台「还没开始画」（`anyFaceWalksPaint`：先按材质槽筛、工作台按编辑器版本号记一次）同一个问法。
 统筹审后补（同一版）：进索引 / 进清单的框一律先和那套画布能到的范围取交集（`paint/freed.ts clampToReach` / `format/uvset-table.ts freedReach`：宽 = 行宽，高 = 行高和 4096 里大的；NaN / 空 = 不记）；文件里的 freed 出了这个范围 = 形状不对、带回、不自动找地方。之前那份的代号用一步开始时拷的速查表翻（`FreedBase.slots`），`History.meshBefore` 只给内核。
 
+## 追记 2026-11-13 夜（施工单十八第 2 刀 b，Claude Opus 5.5）：按排法看所有物件
+
+```
+「这套排法上谁占着哪里」= paint/uvset-occupancy.ts uvSetOccupancy(场景, 排法)：每个定义的面 → 多边形 + 占的格（cellRect），按内核对象 + 修改号 + 速查表缓存
+  补面当占着的 placementBlocked = freed + 别的定义的框    空地 freedOpenAreas = freed − 所有定义的框（查这张表）
+  空间里的笔 paintTargets：画在哪几个物件上（paintDefsOf）× 每份摆放一项；每项 others = 别的物件的多边形（参加每格归谁，归了它们的格 = −1）
+    → buildTargetGeo → buildTexelTable(自己的面, gap, others)    准备的缓存键多了 others.key（别的物件的内核 + 修改号）
+  画板 follow：每张画按它自己挂的那行排法跟（两张画挂一套排法 = 两块都跟）
+  画布小窗：自己的面 = 轮廓；别的物件的面 = 淡；空地 = 红虚线框
+```
+
+花的时间：表按内核修改号缓存，每个定义只在它变了之后重算一次（O(那个定义在这套排法上的面)）；准备（每格的表）只在 others.key 变了才重建，别的物件没变 = 和以前一样不重建。还随整个模型涨的点：同一套排法上的物件多了，每格归谁要扫它们所有的块（只在重建准备时）。
+

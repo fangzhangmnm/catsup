@@ -130,8 +130,13 @@ export const SAMPLE_Q = UV_Q;
 /** 取样点离格子中心最多几格（每格的表里偏移是 16 位、加 32768 存：−32768 … 32767 份）。取样点离中心不超过间隔的一半，所以 gap 最多 MAX_GAP。 */
 export const MAX_GAP = 63;
 
-/** 建表。gap = 铺的时候块之间留的格数（没人要的界线 = 它的一半；最多 MAX_GAP，超了 = 抛）。 */
-export function buildTexelTable(width: number, height: number, faces: readonly PaintFace[], gap = 4): TexelTable {
+/**
+ * 建表。gap = 铺的时候块之间留的格数（没人要的界线 = 它的一半；最多 MAX_GAP，超了 = 抛）。
+ * others = 同一套排法上别的物件的面（施工单十八第 2 刀 b：每格归谁按排法看所有物件）：只拿多边形（贴图坐标）参加「每格归最近的那块」，
+ *   归了它们的格在这张表里 = −1（这一笔碰不到）；和这张表自己的面贴图坐标完全相同的那块 = 自己的那块（共用一张画）。不进 polys / polyFaces / faces，
+ *   所以表的形状不变；没有 others = 和以前逐格一样。一样近：自己的块编号小、先来，留着。
+ */
+export function buildTexelTable(width: number, height: number, faces: readonly PaintFace[], gap = 4, others: readonly ArrayLike<number>[] = []): TexelTable {
   if (!(gap >= 0 && gap <= MAX_GAP)) throw new Error(`buildTexelTable: gap ${gap} out of range 0..${MAX_GAP} (sample offsets are stored as 16-bit 1/${SAMPLE_Q} cell units)`);
   const W = Math.max(0, Math.floor(width)), H = Math.max(0, Math.floor(height)), R = gap / 2;
   const idx = new Map<string, number>(), polys: Float64Array[] = [], polyFaces: number[][] = [], fp = new Map<number, FacePaint>();
@@ -142,9 +147,11 @@ export function buildTexelTable(width: number, height: number, faces: readonly P
     polyFaces[p].push(pf.face);
     fp.set(pf.face, { face: pf.face, poly: p, tris: pf.tris.map((t) => ({ ...t, uvf: Float64Array.from(t.uv), formula: formulaOf(t.uv, t.pos) })) });
   }
+  const own = polys.length, scan: Float64Array[] = [...polys];
+  for (const o of others) { const r = Float64Array.from(o), k = polyKey(r); if (idx.has(k)) continue; idx.set(k, scan.length); scan.push(r); }   // 别的物件的块（重复的并成一块）：编号排在自己的块后面
   const owner = new Int32Array(W * H).fill(-1), best = new Float64Array(W * H).fill(Infinity), inside = new Uint8Array(W * H);
   let overlapCells = 0;
-  polys.forEach((r, i) => {
+  scan.forEach((r, i) => {
     let mx = Infinity, my = Infinity, Mx = -Infinity, My = -Infinity;
     for (let j = 0; j < r.length; j += 2) { mx = Math.min(mx, r[j]); Mx = Math.max(Mx, r[j]); my = Math.min(my, r[j + 1]); My = Math.max(My, r[j + 1]); }
     const x0 = Math.max(0, Math.floor(mx - R - 0.5)), x1 = Math.min(W - 1, Math.ceil(Mx + R - 0.5)), y0 = Math.max(0, Math.floor(my - R - 0.5)), y1 = Math.min(H - 1, Math.ceil(My + R - 0.5));
@@ -174,6 +181,7 @@ export function buildTexelTable(width: number, height: number, faces: readonly P
       }
     }
   });
+  if (scan.length > own) for (let c = 0; c < owner.length; c++) if (owner[c] >= own) owner[c] = -1;   // 归了别的物件的格：这张表里没人要
   return { width: W, height: H, gap, polys, polyFaces, owner, faces: fp, overlapCells };
 }
 

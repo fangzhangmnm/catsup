@@ -32,6 +32,11 @@ export interface PaintTarget {
   readonly gap?: number;
   /** 这张面走不走这张画（场景那一层的问法；这里不认识材质）。 */
   walks(face: number): boolean;
+  /**
+   * 同一套排法上别的物件的面（施工单十八第 2 刀 b，paint/uvset-occupancy.ts）：参加每格归谁，这一笔碰不到它们的格。key = 它们这一刻的身份（缓存键：变了就重建），
+   * rings() = 它们的多边形（只在重建时取）。没有 = 只有这一个物件。
+   */
+  readonly others?: { readonly key: string; rings(): readonly ArrayLike<number>[] };
 }
 /** 一项目标算好的东西。三角形的编号 = 1-3a 格子里的编号（castRay 返回的那个）。 */
 export interface TargetGeo {
@@ -63,7 +68,7 @@ export const pathUnit = (targets: readonly PaintTarget[]): number => Math.min(..
 /** 建一项（O(三角形数)）。 */
 export function buildTargetGeo(target: PaintTarget): TargetGeo {
   const m = target.mesh, grid = buildTriGrid(m), n = grid.face.length, X = target.xform;
-  const table = buildTexelTable(target.canvas.width, target.canvas.height, paintFaces(m, target.uvSet), target.gap ?? 4);
+  const table = buildTexelTable(target.canvas.width, target.canvas.height, paintFaces(m, target.uvSet), target.gap ?? 4, target.others?.rings() ?? []);
   const wpos = new Float64Array(9 * n), wnorm = new Float64Array(3 * n), texelLen = new Float64Array(n), vids = new Int32Array(3 * n);
   for (let t = 0; t < n; t++) {
     const f = grid.face[t], ring = m.faceVerts(f), uv = m.uvAt(f, target.uvSet);

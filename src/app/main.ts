@@ -92,7 +92,7 @@ import type { PaintDeskDoc } from "../format/document.ts";
 import { mountPaintSliders } from "./paint-sliders.ts";
 import type { SpacePaintDeps } from "../paint/space-paint.ts";
 import { PAINT_STEP_LABELS } from "../editor/step-labels.ts";   // 画板登记处（贴图主线 1-3c）：一张贴图一块画板；这一张只有调试钩子 __catsup.paint 建
-import { meshBodyIssues, paintPlaceOf } from "../scene/paint.ts";
+import { meshBodyIssues, paintDefsOf, paintPlaceOf } from "../scene/paint.ts";
 import { placeFace, uvAt, uvBoxes, uvMesh } from "../scene/uv.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { buildTriGrid, pickSurface } from "../paint/surface-pick.ts";   // 调试钩子 __catsup.paint.cellAt：1-3a 的落点
@@ -2823,8 +2823,9 @@ let cellAtGrid: { k: object; rev: number; grid: ReturnType<typeof buildTriGrid> 
     lab: { layoutFaces, SpaceLayer, SPACE_TIP, SoftSpaceGpu, buildTargetGeo, tipReach, sphereTriDist, strokeTruth8, gpu: () => editor.renderer3.offscreenGpu(), targets: (guid: string) => { const b = paintBoards.get(guid); return b ? paintTargets(editor.worldGeom(), editor.sceneRef, guid, { width: b.width, height: b.height }) : []; } },
     /** 屏幕上一点（CSS 像素）按 1-3a 的落点落在这张画的哪一格（探针拿它和屏幕上读到的颜色对）；只看摆在最外层的那一份。 */
     cellAt: (guid: string, sx: number, sy: number) => {
-      const S = editor.sceneRef, place = paintPlaceOf(S, guid), body = place ? S.def(place.def).body : null;
-      const slot = place ? editor.worldGeom().slots.find((s) => s.pool.def === place.def && s.pool.group === null) : undefined;   // 按世界里的槽找（嵌在组件里的也找得到，1-4c）
+      const S = editor.sceneRef, place = paintPlaceOf(S, guid), defs = place ? paintDefsOf(S, guid) : [];   // 画在哪几个物件上（施工单十八第 2 刀 b）
+      const slot = place ? editor.worldGeom().slots.find((s) => defs.includes(s.pool.def) && s.pool.group === null) : undefined;   // 按世界里的槽找（嵌在组件里的也找得到，1-4c）
+      const body = slot ? S.def(slot.pool.def).body : null;
       if (!place || !body || body.kind !== "mesh" || !slot) return null;
       const k = body.kernel, m = uvMesh(k, body.uvSetSlots), r = editor.cam.ray(sx, sy, editor.vp()), X = invert(slot.xform);
       if (!cellAtGrid || cellAtGrid.k !== k || cellAtGrid.rev !== k.rev) cellAtGrid = { k, rev: k.rev, grid: buildTriGrid(m) };   // 探针一格一格问：格子按网格体 + 修改号留着

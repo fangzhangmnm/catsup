@@ -18,6 +18,8 @@ import type { PaintBoards } from "../paint/boards.ts";
 import { bytesSay, openMemory, paintTargetSize } from "../paint/open-memory.ts";
 import { xformScale } from "../paint/space-target.ts";
 import { buildTexelTable, paintFaces } from "../paint/texel-table.ts";
+import { occupancyKey, uvSetOccupancy } from "../paint/uvset-occupancy.ts";
+import { freedOpenAreas, openPieces } from "../paint/freed.ts";
 import { ID_STRIDE } from "../scene/world-view.ts";
 
 import { PALETTE } from "../minccino/index.ts";
@@ -198,7 +200,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     }
     if (tiled !== null && !tiledList().some((x) => x.tex === tiled)) { tiled = null; stamp = ""; }   // 那张平铺的画没了（撤销新建、清理）
     if (tiled !== null) {   // 平铺的画：一张图，没有轮廓、没有面
-      outline = null; key = ""; view.setLines(new Float32Array(0), new Float32Array(0)); view.setMarks([], null); hoverLine.hidden = true; hoverLine.textContent = "";
+      outline = null; key = ""; view.setLines(new Float32Array(0), new Float32Array(0)); view.setBackdrop([], []); view.setMarks([], null); hoverLine.hidden = true; hoverLine.textContent = "";
       empty.hidden = true;
       const t = tiledList().find((x) => x.tex === tiled)!, b = boards.get(tiled);
       statsLine.textContent = `平铺的画「${t.name}」 · ${sizeSay(tiled)}在模型上一张 ${mSay(t.sizeM[0])} × ${mSay(t.sizeM[1])} · 只在这里画${b ? ` · ${b.layerCount()} 层` : ""}`;
@@ -208,7 +210,7 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     if (tex === null || !all.some((p) => p.tex === tex)) { tex = all[0]?.tex ?? null; key = ""; stamp = ""; }
     const p = place();
     if (!p || def === null) {
-      outline = null; view.setLines(new Float32Array(0), new Float32Array(0)); view.setImage(null, 1, 1); hoverLine.hidden = true; statsLine.hidden = true;
+      outline = null; view.setLines(new Float32Array(0), new Float32Array(0)); view.setBackdrop([], []); view.setImage(null, 1, 1); hoverLine.hidden = true; statsLine.hidden = true;
       empty.hidden = false;
       empty.textContent = def === null ? "进到一个画过的物件里（或者选中它），这里显示它的画布" : "这个物件还没开始画：点上面的「开始画…」";
       hoverLine.textContent = ""; statsLine.textContent = ""; return;
@@ -216,13 +218,18 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     empty.hidden = true;
     const body = S.def(def).body;
     if (body.kind !== "mesh") return;
-    const k = body.kernel, nk = `${def}|${tex}|${p.uvSet.guid}|${p.uvSet.width}x${p.uvSet.height}|${k.rev}`;
+    const g = p.uvSet.guid, row = S.uvSets.get(g), nk = `${def}|${tex}|${g}|${p.uvSet.width}x${p.uvSet.height}|${body.kernel.rev}|${occupancyKey(S, g, def)}|${(row?.freed ?? []).join(",")}`;   // 别的物件的面、空出来的地方变了也重画（施工单十八第 2 刀 b）
+    const k = body.kernel;
     if (nk !== key) {
       key = nk; outlines++;
       const on = k.faces().filter((f) => S.facePaint(def!, faceMaterial(k, f))?.textureDoc.guid === tex);
       outline = atlasOutline(uvMesh(k, body.uvSetSlots), p.uvSet.guid, on, p.uvSet.width, p.uvSet.height, (a, b) => { const e = k.edgeOf(a, b); return e >= 0 && edgeMark(k, e, UV_SEAM); });
       view.setLines(outline.thin, outline.thick, { lines: outline.seam, color: SEAM_CSS });
       view.setRings((id) => outline?.rings.get(id));
+      // 别的物件在这套排法上的面画淡；空出来的地方 = freed 减去现在有面占着的格（paint/freed.ts 读法二）标出来（施工单十八第 2 刀 b）
+      const others = uvSetOccupancy(S, g).filter((e) => e.def !== def).flatMap((e) => e.rings), open = freedOpenAreas(S, g);
+      view.setBackdrop(others, Float32Array.from(open.flat()));
+      win.el.dataset.otherFaces = String(others.length); win.el.dataset.freedPieces = String(openPieces(open));   // 探针读
       if (hover !== null && !outline.rings.has(hover)) hover = null;
       owner = null; stamp = "";
     }
@@ -293,7 +300,8 @@ export function mountCanvasWindow(d: CanvasWindowDeps): CanvasWindow {
     const body = editor.sceneRef.def(def!).body;
     const c = document.createElement("canvas"); c.width = W; c.height = H;
     if (body.kind === "mesh") {
-      const t = buildTexelTable(W, H, paintFaces(uvMesh(body.kernel, body.uvSetSlots), uvSet), 4), img = new ImageData(W, H), px = img.data;
+      const others = uvSetOccupancy(editor.sceneRef, uvSet).filter((e) => e.def !== def).flatMap((e) => e.rings);   // 和空间里的笔同一张表：别的物件的面参加归属（施工单十八第 2 刀 b）
+      const t = buildTexelTable(W, H, paintFaces(uvMesh(body.kernel, body.uvSetSlots), uvSet), 4, others), img = new ImageData(W, H), px = img.data;
       for (let i = 0; i < W * H; i++) {
         const o = t.owner[i], x = i % W, y = (i / W) | 0;
         if (o < 0) { const v = (x + y) & 1 ? 200 : 235; px[4 * i] = px[4 * i + 1] = px[4 * i + 2] = v; }

@@ -9,6 +9,7 @@
 // ⑥ 开着小窗画一笔：一笔当中不读回、不重算线；抬笔之后读回一次，图上那一格有了颜色
 // ⑦ 「每格归谁」：面上的格子上了色、没人要的格子是棋盘格的灰
 // ⑧ 关掉：三维那边不再要亮；没在编辑这个物件时点小窗里的面 = 说一句、不动选区
+// ⑨ 空出来的地方（施工单十八第 2 刀 b）：删掉这张画上的一张面 → 小窗里标出一块（数「几块」= freed 减去占着的）；撤销 → 没了
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-canvas-window.mjs [url]
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -193,6 +194,18 @@ await page.setViewportSize({ width: 700, height: 520 }); await page.waitForTimeo
 const r7 = await rect();
 check(r7.x >= 0 && r7.y >= 0 && r7.x + r7.w <= 700 + 0.5 && r7.y + r7.h <= 520 + 0.5, `浏览器窗口缩到 700 × 520：小窗还在屏幕里（${Math.round(r7.x)},${Math.round(r7.y)} ${Math.round(r7.w)} × ${Math.round(r7.h)}）`);
 await page.setViewportSize({ width: 1280, height: 800 }); await frames(2);
+
+console.log("\n⑨ 空出来的地方（施工单十八第 2 刀 b：小窗里标出来，只标现在没有面占着的那部分；别的物件的面画淡——两个物件共用一套排法要等第 3 刀，单元测试 paint-shared-canvas 钉）");
+const ds = () => S(() => { const el = document.querySelector('.float-win[data-win="canvas"]'); return { freed: el.dataset.freedPieces ?? null, others: el.dataset.otherFaces ?? null }; });
+const d0 = await ds();
+check(d0.freed === "0" && d0.others === "0", `开始：没有空出来的地方、没有别的物件的面（${JSON.stringify(d0)}）`);
+const wNow = await W();
+await S(({ def, f }) => { globalThis.__catsup.editor.commitOp({ op: "meshDelete", def, faces: [f] }); }, { def: setup.def, f: wNow.faces[0] }); await frames(3);
+const d1 = await ds();
+check(d1.freed === "1", `删掉这张画上的一张面：小窗里标出一块空出来的地方（${JSON.stringify(d1)}）`);
+await S(() => globalThis.__catsup.editor.undo()); await frames(3);
+const d2 = await ds();
+check(d2.freed === "0", `撤销：空出来的地方没了（${JSON.stringify(d2)}）`);
 
 console.log("\n⑧ 关掉 / 没在编辑这个物件");
 await menu("每格归谁");

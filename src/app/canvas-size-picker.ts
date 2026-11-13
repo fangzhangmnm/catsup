@@ -13,7 +13,7 @@ import type { MeshSelection } from "../editor/tools.ts";
 import { gapForCanvas, layoutAppend, layoutFaces } from "../paint/layout.ts";
 import { placementBlocked } from "../paint/freed.ts";
 import { xformScale } from "../paint/space-target.ts";
-import { paintPlaceOf } from "../scene/paint.ts";
+import { paintDefsOf, paintPlaceOf } from "../scene/paint.ts";
 import { uvMesh } from "../scene/uv.ts";
 import { displayUnit, formatLength, parseQuantity, unitSystem } from "../editor/units.ts";
 import { openInputSheet, openRowsSheet, type SheetRow } from "./ui/sheets.ts";
@@ -38,7 +38,7 @@ export function recentCell(editor: Editor): number | null {
   let last: number | null = null;
   for (const t of S.textures.values()) {
     if (t.content.kind !== "layered") continue;
-    const p = paintPlaceOf(S, t.guid), slot = p && slots.find((x) => x.pool.def === p.def && x.pool.group === null);
+    const p = paintPlaceOf(S, t.guid), defs = p ? paintDefsOf(S, t.guid) : [], slot = p && slots.find((x) => defs.includes(x.pool.def) && x.pool.group === null);   // 画在哪几个物件上（施工单十八第 2 刀 b）：第一份摆在最外层的
     if (p && slot) last = xformScale(slot.xform) / p.uvSet.pxPerM;
   }
   return last;
