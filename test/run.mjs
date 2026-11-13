@@ -70,6 +70,7 @@ import "./mesh-edge-marks.test.ts";   // 网格体手标 + 默认平滑：指令
 import "./edge-mark-rules.test.ts";   // 边标记跟着拓扑操作怎么走：两张表 + 每个操作一行 + 不自己列位 + 接缝真跟着走（施工单二十二 A，2026-11-12 Opus）
 import "./probe-columns.test.ts";   // 探针列：一列全 1 的边列、一列全 7 的面列，照 OPS 表逐个操作看新元素带不带值（属性地基轮 3d，2026-11-13 Opus）
 import "./attribute-names.test.ts";   // 元素页的显示名 + 同义名守卫 + 核值快路和造边同一个规矩（属性地基轮 3½，2026-11-13 Opus）
+import "./paint-freed.test.ts";   // 空出来的地方：判法、清单怎么并、精确盖住、两组验收（施工单十八第 2 刀，2026-11-13 Opus）
 import "./auto-seams.test.ts";   // 自动标接缝：补完每片是一张盘、只加不减、确定性（施工单二十二第 1 刀后半，2026-11-12 Opus）
 import "./legacy-at-door.test.ts";   // 照顾旧东西的代码只住在门口：门口以外带 legacy 的名字只许是名单上的、搬走的旧键旧名不再出现（user 11-13，2026-11-12 Opus）
 import "./settings-door.test.ts";   // 文档 settings 的门口和搬家之前的写法对拍：3000 份随机老形状，打开逐项一样、存盘 JSON 逐字节一样（2026-11-12 Opus）
