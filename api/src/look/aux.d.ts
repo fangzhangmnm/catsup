@@ -11,6 +11,7 @@ declare const STANDARD_PALETTE: {
     readonly axisX: 13382451;
     readonly axisY: 3050327;
     readonly axisZ: 2845872;
+    readonly axisDir: 14034079;
     readonly gizmoX: 13382451;
     readonly gizmoY: 3050327;
     readonly gizmoZ: 2845872;

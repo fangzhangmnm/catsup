@@ -8,6 +8,7 @@ import type { AlignHand, AlignQuery, DrawPlane, HitResult3, PickKinds, Snap3 } f
 import type { WorldView } from "../scene/world-view.ts";
 import type { PoolRef } from "../scene/scene.ts";
 import type { Frame, Xform } from "../scene/xform.ts";
+import type { AxisConstraint } from "../controller/axis-constraint.ts";
 import type { Op } from "./ops.ts";
 import type { CatsUpToolConfig } from "./tool-config.ts";
 import type { QuantityTag } from "./units.ts";
@@ -60,10 +61,9 @@ export interface ToolCtx {
     kernel(): Kernel;
     /** 活动池是网格体时它的内核（本地坐标；不是网格体 → 抛）。自由建模工作台的工具用。 */
     mesh(): MeshKernel;
-    /** 方向锁锁住的轴（世界、单位长；没锁 = null）。不推断的工具自己投影用（applyLock 是给吸附结果用的）。 */
-    axisLockDir(): Pt3 | null;
-    /** 面锁的法向（世界、单位长；没锁 = null）。 */
-    planeLockNormal(): Pt3 | null;
+    /** 这一下现在被限制成什么（世界、单位长）：动作里按的轴键那份在就以它为准，没有 = 按钮锁着的那份（锁的一轮第二步；controller/axis-constraint.ts）。
+     *  不推断的工具（自由建模）照自己那一族用 controller/axis-apply.ts 的 moveLock / rotateLock / scaleLock 读，不自己按 kind 分叉。 */
+    axisConstraint(): AxisConstraint;
     /** 当前选区（活动池本地 id；只读）。 */
     selection(): Readonly<Selection>;
     /** 静态推断世界（全池合成，世界坐标）。 */
@@ -387,6 +387,8 @@ export interface ToolHandler {
     readonly previewOnHover?: boolean;
     /** A9 吃哪种锁：「axis」= 沿轴走（方向键锁轴、Shift+方向键锁面，自己调 ctx.applyLock）；「plane」= 先定平面（方向键直接锁平面，首点之后用 ctx.lockedPlane）；不写 = 不吃锁。 */
     readonly lock?: "axis" | "plane";
+    /** 动作里按轴键时这把工具要几个方向（语法模块 axisBegin 的 wants）：缺 = 1（画线 / 移动 / 挤出 / 旋转 / 缩放）；矩形 / 圆 = 2（第三步接）。 */
+    readonly axisWants?: 1 | 2;
     /** B43 人的尺度参考：手势中正在拖的那段的原始几何（世界系）；方向和挑哪个数归 scale-ref.ts readingOf。没有 = 不配参考。 */
     scaleGeom?(ctx: ToolCtx): ScaleGeom | null;
     /** 手势进行中？（底座 gestureActive 的一票；为真时 pointerMove 走 track、computeLive 走 live）。 */

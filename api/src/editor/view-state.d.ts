@@ -131,7 +131,7 @@ export interface ViewState {
     lockLines?: readonly {
         readonly through: Pt3;
         readonly dir: Pt3;
-        readonly color: "x" | "y" | "z" | "n";
+        readonly color: "x" | "y" | "z" | "dir" | "n";
     }[] | null;
     /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
     /** parts = 只画这几样（自由建模的手柄按工具分家：移动 = 箭头 + 平面块 + 中心、旋转 = 环 + 中心、缩放 = 方块 + 平面块 + 中心；tools/mesh-handles.ts）；不给 = 全画（硬表面的变换工具）。 */

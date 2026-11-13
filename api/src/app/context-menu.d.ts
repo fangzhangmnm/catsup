@@ -17,3 +17,8 @@ export declare function openSelectionMenu(editor: Editor, hud: HudModel, anchor:
 /** 右键菜单里某个子菜单现在有哪几项（露不露 = 放置表的工作台 + 指令数出来的个数，app 层不另判工作台；W-5）。 */
 export declare function submenuItems(hud: HudModel, label: string): PopupMenuItem[];
 export declare function openSubmenuAt(hud: HudModel, btn: HTMLElement, label: string): void;
+/**
+ * 动作外按 X（键表 delete.menu；统筹 11-13 按 user「动作里外」那条线定，锁的一轮第二步）：在光标处弹「删除 / 溶解」，不立刻删、也不是不做。
+ * 溶解只在网格体里选着边 / 点（没有面）时露：网格体面的溶解、硬表面的溶解都没有现成的命令（照统筹「没有现成的就先不放那一项」，已报统筹）。没有选区 = 不弹。
+ */
+export declare function openDeleteMenuAt(editor: Editor, cx: number, cy: number): void;

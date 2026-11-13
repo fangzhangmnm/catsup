@@ -53,13 +53,9 @@ export declare function chordOf(e: KeyEvt): Chord;
 export declare const GLOBAL: Layer;
 /** 自由建模工作台层（Blender 键位；user 10-27「能不能blender 快捷键无缝接上」）。 */
 export declare const FREEFORM: Layer;
-/** 操作工具层（自由建模的移动 / 旋转 / 缩放 / 变换 / 挤出 / 插入 / 沿法线）：= Blender 帮你自动按了 G，所以 X / Y / Z 永远 = 轴（手势里锁、手势外先锁）。 */
-export declare const OP_TOOLS: ReadonlySet<Tool>;
-export declare const TOOL_OPS: Layer;
-/** 手势中（自由建模）：X / Y / Z 锁轴、Shift = 锁面（Blender 同款）。 */
 export declare const GESTURE: Layer;
 /** 手势中打数（Blender「S Z 0」= 缩放、锁 Z、打 0、回车；user 10-28 晚「这也是一个新的模式」）：它说要就给它——数字 / 小数点 / 正负号、有数之后的单位字、退格、回车。
- *  X / Y / Z 它不要（单位里没有这三个字母）→ 落到下面的手势层照旧锁轴，打到一半也能锁。读法和单位文本框同一个（units.ts parseQuantity / quantityKey）。 */
+ *  X / Y / Z 它不要（单位里没有这三个字母）、N / T 在单位还没开始打时不要（units.ts quantityKey）→ 落到下面的手势层照旧当轴，打到一半也能锁。读法和单位文本框同一个（units.ts parseQuantity / quantityKey）。 */
 export declare const TYPING: Layer;
 export declare const PICK: Layer;
 /** 镜像会话（马前炮）：回车 = 应用（Esc = 取消走全局的 escape → editor.cancel）。 */
@@ -130,7 +126,7 @@ export interface ToolKey {
 export declare function toolKeysOf(mode: ModeId, tool: Tool, inMode?: (t: Tool) => boolean): ToolKey[];
 /** 工具提示里的键那一截（「M · G 键盘起手」；没有键 = ""）：pick 直接写键名；没有 pick 才写 cycle「再按 E / X」；modal 写「G 键盘起手」（同义的并成「Alt+S / Alt+W 键盘起手」）、带变体的写那条的名字（「Ctrl+B 倒角」）。 */
 export declare function toolKeyText(mode: ModeId, tool: Tool, inMode?: (t: Tool) => boolean): string;
-/** 肌肉记忆层面的「意思」：锁轴的几种时机（马上锁 / 先锁下一下 / 手势中锁）算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */
+/** 肌肉记忆层面的「意思」：锁轴的两条路（方向键 / 按钮的 lock.key、动作里的轴键 axis.press）算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */
 export declare function meaningOf(action: string): string;
 /** 拿来比的几个地方（会来回切的：两个建模工作台 × 拿着选择 / 移动，加验证、表面）。 */
 export declare const MUSCLE_CONTEXTS: Readonly<Record<string, Omit<KeyContext, "typingWants">>>;

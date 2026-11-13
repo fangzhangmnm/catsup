@@ -16,6 +16,7 @@ import { type ParamPanelState, type ParamSession, type ParamValue } from "./para
 import { type GizmoHandle } from "./plane-gizmo.ts";
 import type { FaceKey } from "./ops.ts";
 import { type LockAxis, type PlaneLock } from "./locks.ts";
+import type { AxisConstraint, AxisKey } from "../controller/axis-constraint.ts";
 import { type Ladder, type ScaleTipView } from "./scale-ref.ts";
 import { type ViewState } from "./view-state.ts";
 import { type LineStyle, type RenderProvider } from "../minccino/index.ts";
@@ -460,11 +461,12 @@ export declare class Editor {
     /** 面锁："x" / "y" / "z" = 法向是那根上下文轴的面；"face" = 光标下那张膜的面（光标下没膜 → 不锁，给提示）。 */
     setPlaneLock(p: PlaneLock | null): void;
     togglePlaneLock(p: PlaneLock): void;
-    /**
-     * 先按好锁、对下一下生效（自由建模的 X / Y / Z 在手势之外；user 10-28「然后移动的时候能不能x y z 这种设置锁轴？就是先按y的话可以对下一个操作生效」）：
-     * 不看当前工具（拿着选择工具先按 Y、再按 S 也算）；Shift = 锁面；再按同一个 = 解；下一下落定 / Esc / 取消 = 解（同手势里的锁）。
-     */
-    armLock(axis: LockAxis, plane: boolean): void;
+    /** 动作里按的轴键（快捷键那份，只管这一下；锁的一轮第二步 = editor/axis-keys.ts 接 controller/axis-constraint.ts）。按钮锁（上面这几个 set / toggle / lockKey）留着当寿命长的那份。 */
+    private readonly axisKeys;
+    /** 键表 axis.press（手势层 X / Y / Z / N / T，加 Shift）：记进这一下的约束，提示行说现在被限制成什么（挂在读数后面一直看得见，computeLive）、预演马上跟着变。 */
+    axisPress(key: AxisKey, shift: boolean): void;
+    /** 这一下现在被限制成什么：轴键那份在就以它为准，没有 = 按钮锁着的那份（设计稿第三节）。工具经 ToolCtx.axisConstraint 问，锁线也画它。 */
+    axisConstraintNow(): AxisConstraint;
     /** 方向键 / 触屏虚拟轴键的唯一入口：axis = 键对应的轴（→ X / ← Y / ↑ Z），null = ↓；plane = Shift。按当前工具的锁种分派。 */
     lockKey(axis: LockAxis | null, plane: boolean): void;
     /** 面锁下过 through 的平面（先定平面的工具在首点之后用；没锁 = null）。轴面的基 = 另外两根上下文轴。 */
@@ -882,7 +884,7 @@ export declare class Editor {
     /** 焊接选区（B19，SU Weld Edges）：成一条曲线，之后选中整条。 */
     weldSelection(): boolean;
     explodeCurveSelection(): void;
-    deleteSelection(): void;
+    deleteSelection(dissolve?: boolean): void;
     private deleteSelectionStep;
     /** 选区 → group（选中的膜 / 边搬进新 group；子 group / 实例选区一并进组——先建组再把它们挪进去）。 */
     makeGroup(): boolean;
