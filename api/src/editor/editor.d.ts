@@ -170,6 +170,7 @@ export declare const CIRCLE_SEGMENTS: 24;
 export { fmtLen, fmtDeg } from "./units.ts";
 import { SNAP_LABELS } from "./gesture-consts.ts";
 import type { PressHit } from "../controller/hard-press.ts";
+import { type Hold } from "../controller/tool-borrow.ts";
 import { type TypedInput } from "../controller/typed-input.ts";
 export { SNAP_LABELS };
 /** 子池选区项（相对活动上下文的直接子项）。 */
@@ -352,6 +353,7 @@ export declare class Editor {
     /** 上一次经过选区口子 / 装场景时的会话：选区变了 = 记一步「只改选区」（撤销也撤选区，user 10-27「这个我们要」；连续几下不合并，Blender 同款）。上下文变了（进 / 出组件）不算选区步，只刷新。 */
     private static sessionKey;
     private _tool;
+    private readonly hold;
     private _revision;
     private anchor3;
     private cursor3;
@@ -500,6 +502,9 @@ export declare class Editor {
     private nextKid;
     constructor(canvas: HTMLCanvasElement, host: EditorHost, r3: RenderProvider);
     get tool(): Tool;
+    get toolHeld(): Hold;
+    private settleHold;
+    dropBorrow(): boolean;
     /** 活动池的内核（上下文所在的几何池；根上下文 = 根池）。 */
     get kernel(): Kernel;
     /** 活动池的身体种类（选区的 id 空间、工作台、指令的单位种类都跟它走；2026-10-27 接缝）。 */
@@ -618,7 +623,7 @@ export declare class Editor {
     private slotsOfPick;
     /** 哪个工作台有这把工具、又管得了正在编辑的这种身体（among 限定；没有 = null）：给明着跨工作台的调用方用（键表的跳转表、步行相机、材质面板），setTool 自己不跨（统筹 11-11）。 */
     ownerModeOf(t: Tool, among?: readonly ModeId[]): ModeId | null;
-    setTool(t: Tool): void;
+    setTool(t: Tool, how?: "borrow" | "back"): void;
     /** 键盘 Esc 先问这里：声明了 escFinishes 的工具（刀）在等下一点时 = 收（开小窗），返回 true；再按一次才是原来的取消（W-8）。 */
     escToFinish(): boolean;
     cancel(): void;
