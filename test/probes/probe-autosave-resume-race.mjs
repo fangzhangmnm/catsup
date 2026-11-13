@@ -15,18 +15,15 @@
 // 判两层：库这一层 = 云端不是这次的字节 ⟹ 库的待传记号还在（2.2.7 上 A / C / D 都红）；两层合起来 = 库的记号没了的话，会话的 pushPending 还在
 //   （三维里它挡住了：心跳会补推、回前台的核对不快进）。但 offerPushLocalOnly 推完会按库的计数 noteCaughtUp——计数被错清成 0 时这一层也跟着清掉；
 //   探针里没造出这个时序（要开着那份先推、它的保存在别的份推的时候落定），是读代码的结论，见只查不改报告。
-// 用法：node test/probes/probe-autosave-resume-race.mjs [仓根目录，缺省 = 本仓]   （自己起 8767，≈ 30 s）。2.2.7 上应当红；收了 2.3.x 应当绿。
+// 用法：python3 -m http.server 8765 后 node test/probes/probe-autosave-resume-race.mjs [url]（≈ 30 s）。2.2.7 上红；收了 2.3.6 绿。
 import { createRequire } from "node:module";
-import { readFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MSAL_STUB, fakeDrive } from "./fake-cloud.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
-const repo = process.argv[2] ?? path.join(here, "../..");
 const { chromium } = createRequire(path.join(here, "../../../20260524 WeebPaint/package.json"))("playwright");
-const ORIGIN = "http://127.0.0.1:8767";
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json", ".wasm": "application/wasm", ".webmanifest": "application/manifest+json" };
+const url = process.argv.slice(2).find((a) => a.startsWith("http")) ?? process.env.PROBE_URL ?? "http://127.0.0.1:8765/";
 const B_ROUNDS = 6;
 let pass = 0, failN = 0;
 const check = (ok, what, extra = "") => { if (ok) { pass++; console.log("  ✓", what, extra && process.env.VERBOSE ? `  · ${extra}` : ""); } else { failN++; process.exitCode = 1; console.error("  ✗", what, extra ? `  ← ${extra}` : ""); } };
@@ -37,19 +34,13 @@ const errs = [];
 async function device() {
   const drive = fakeDrive();
   const ctx = await browser.newContext({ viewport: { width: 1100, height: 720 }, deviceScaleFactor: 1, serviceWorkers: "block" });
-  await ctx.route(`${ORIGIN}/**`, async (route) => {
-    let p = decodeURIComponent(new URL(route.request().url()).pathname); if (p === "/") p = "/index.html";
-    const f = path.join(repo, p);
-    if (!existsSync(f)) return route.fulfill({ status: 404, body: "" });
-    await route.fulfill({ status: 200, contentType: MIME[path.extname(f)] ?? "application/octet-stream", body: readFileSync(f) });
-  });
   await drive.attach(ctx);
   await ctx.route(/vendor\/msal\/msal-browser\.min\.js/, (r) => r.fulfill({ contentType: "text/javascript", body: MSAL_STUB }));
   await ctx.addInitScript(() => localStorage.setItem("__fake_msal", "ok"));
   await ctx.addInitScript(() => Object.defineProperty(navigator, "onLine", { configurable: true, get: () => !window.__off }));
   const page = await ctx.newPage(); page.setDefaultTimeout(20000);
   page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 200)));
-  await page.goto(`${ORIGIN}/`, { waitUntil: "load" });
+  await page.goto(url, { waitUntil: "load" });
   await page.waitForFunction(() => globalThis.__catsup?.session);
   const idle = () => page.waitForFunction(() => { const c = globalThis.__catsup, s = c.session; return !s.saving && !c.gate?.cloudGate?.isRunning?.() && !s.adopting; }, null, { timeout: 20000 });
   const draw = (dx) => page.evaluate((dx) => { const e = globalThis.__catsup.editor, P = (a, b, c = 0) => ({ x: a, y: b, z: c }); e.setGrid({ ...e.grid, on: false }); e.commitOp({ op: "addEdges", segs: [[P(dx, 0), P(dx + 1, 0)], [P(dx + 1, 0), P(dx + 1, 1)], [P(dx + 1, 1), P(dx, 1)], [P(dx, 1), P(dx, 0)]] }); }, dx);
