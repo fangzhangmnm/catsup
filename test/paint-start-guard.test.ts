@@ -27,13 +27,13 @@ describe("开始画：守卫（1-3b）", () => {
     // 施工单十八：layout 的形状只在 document.ts 这三个口里读（paintIn = 「这个材质是不是画」、paintUvSetOfRow = 「这一行挂在哪套排法上」、isOldPaintRow = 「是不是旧存法的画」）
     for (const at of ats) { const fn = Math.max(...["export function paintIn(", "export function paintUvSetOfRow(", "export function isOldPaintRow("].map((h) => doc.lastIndexOf(h, at))); assert(fn > 0 && !doc.slice(fn, at).includes("\n}\n"), `document.ts 第 ${doc.slice(0, at).split("\n").length} 行那一处在那三个口里`); }
   });
-  it("② 场景的排法表只在 paint-ops.ts 里加和改（startPaint 加一行、meshLayoutPaint 换高）；src/format/ 是读写文件那一层（读文件时建、粘贴落地时新建），scene.ts 只有两处克隆整张拷，不算", () => {
+  it("② 场景的排法表只在 paint-ops.ts 里加和改（startPaint 加一行、meshLayoutPaint 换高、setFreed 换清单）；src/format/ 是读写文件那一层（读文件时建、粘贴落地时新建），scene.ts 只有两处克隆整张拷，不算", () => {
     const sc = code(join("src", "scene", "scene.ts"));
     eq([...sc.matchAll(/\.uvSets\.(set|delete|clear)\(|\.uvSets\s*=[^=]/g)].length, [...sc.matchAll(/\.uvSets = new Map\(this\.uvSets\)/g)].length, "scene.ts 里写排法表的只有整张拷（两处克隆）");
     eq([...sc.matchAll(/\.uvSets = new Map\(this\.uvSets\)/g)].length, 2, "两处：骨架克隆、整份克隆");
     eq(hitsOf(/\.uvSets\.(set|delete|clear)\(|\.uvSets\s*=[^=]/g).filter((f) => !f.startsWith(join("src", "format") + "/") && f !== join("src", "scene", "scene.ts")).join(","), join("src", "editor", "paint-ops.ts"), "写 uvSets 的文件");
     const src = code(join("src", "editor", "paint-ops.ts")), writes = [...src.matchAll(/\.uvSets\.set\(/g)].length;
-    eq(writes, 2, "两处：startPaint、meshLayoutPaint");
+    eq(writes, 3, "三处：startPaint 加一行、meshLayoutPaint 换高、setFreed 换空出来的地方的清单（施工单十八第 2 刀）");
   });
   it("③ 拒绝的判断只有一个函数；第六节那几处（并物件 / 分成新物件 / 变成独立的 / 粘贴）+ 炸开网格体组件 + 网格体转硬表面 + 拷贝都调它", () => {
     eq(hitsOf(/export function paintMoveBlocked\(/g).join(","), join("src", "scene", "paint.ts"));

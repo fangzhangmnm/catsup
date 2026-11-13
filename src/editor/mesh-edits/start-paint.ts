@@ -7,7 +7,7 @@ import type { Command, MeshUnit } from "../commands/command.ts";
 import { mintGuid } from "../../format/guid.ts";
 import { PALETTE } from "../../minccino/palette.ts";
 import type { Scene } from "../../scene/scene.ts";
-import { paintPlaceOf } from "../../scene/paint.ts";
+import { anyFaceWalksPaint, paintPlaceOf } from "../../scene/paint.ts";
 
 const FACE_GREY: [number, number, number] = [((PALETTE.face >> 16) & 255) / 255, ((PALETTE.face >> 8) & 255) / 255, (PALETTE.face & 255) / 255];
 
@@ -19,7 +19,7 @@ export function facesToStart(s: Scene, u: Pick<MeshUnit, "def" | "sel">): number
   const body = s.def(u.def).body;
   if (body.kind !== "mesh") return [];
   const k = body.kernel, painted = (f: number): boolean => s.facePaint(u.def, faceMaterial(k, f)) !== null;
-  const picked = u.sel && u.sel.faces.size ? [...u.sel.faces] : body.uvSetSlots.length || k.faces().some(painted) ? [] : k.faces();
+  const picked = u.sel && u.sel.faces.size ? [...u.sel.faces] : anyFaceWalksPaint(s, u.def) ? [] : k.faces();   // 施工单十八第 2 刀：只看面走不走画（画过的面全换成普通材质之后再点 = 给全部的面开一张新的）
   return picked.filter((f) => k.hasF(f) && !painted(f));
 }
 

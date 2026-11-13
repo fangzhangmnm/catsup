@@ -11,6 +11,7 @@ import type { Editor } from "../editor/editor.ts";
 import { CANVAS_SIZES, facesToStart, paintsOf } from "../editor/mesh-edits/start-paint.ts";
 import type { MeshSelection } from "../editor/tools.ts";
 import { gapForCanvas, layoutAppend, layoutFaces } from "../paint/layout.ts";
+import { placementBlocked } from "../paint/freed.ts";
 import { xformScale } from "../paint/space-target.ts";
 import { paintPlaceOf } from "../scene/paint.ts";
 import { uvMesh } from "../scene/uv.ts";
@@ -84,7 +85,7 @@ export async function pickPaintStart(editor: Editor): Promise<PaintStartChoice |
     const next = (): void => {
       if (i >= addRows.length + CANVAS_SIZES.length + cells.length || !fill.alive()) return;
       if (i < addRows.length) {   // 加进已有的画：照补面的铺法试一遍（不改东西），放不下 = 灰掉写原因；按总大小开的画不长大（施工单十六第四节）
-        const p = existing[i], r = layoutAppend(uvMesh(k, body.uvSetSlots), p.uvSet.guid, [], faces, { width: p.uvSet.width, height: p.uvSet.height }, p.uvSet.pxPerM, { gap: gapForCanvas(p.uvSet.width), grow: p.uvSet.fit === "density" });
+        const p = existing[i], r = layoutAppend(uvMesh(k, body.uvSetSlots), p.uvSet.guid, [], faces, { width: p.uvSet.width, height: p.uvSet.height }, p.uvSet.pxPerM, { gap: gapForCanvas(p.uvSet.width), grow: p.uvSet.fit === "density", blocked: placementBlocked(S, def, p.uvSet.guid) });   // 和真补面同一个「占着」（施工单十八第 2 刀）
         if (!r.ok) fill.set(i, { blocked: p.uvSet.fit === "density" ? `加不进去：${r.reason}` : `这张画定的是 ${p.uvSet.width} × ${p.uvSet.height}，放不下了` });
       } else if (i >= addRows.length + CANVAS_SIZES.length) {   // 按一格多大：真铺一遍（只算不改）
         const r = fits(scale / cells[i - addRows.length - CANVAS_SIZES.length].m);

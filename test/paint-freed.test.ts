@@ -1,9 +1,11 @@
 // 空出来的地方（施工单十八第 2 刀 + 统筹 11-13 深夜补的三处）。created 2026-11-13 by Claude Opus 5.5
-// 钉：① 清单的并法（包住的、拼成长方形的随时并，超过 256 才做会多占地方的并，剪掉被占着的）；精确的「盖住」；
-//    ② 画过的面上切一刀 / 环切 / 细分 / 内插 / 倒角：freed 一个框都不多（旧位置被现在的面盖住）；
-//    ③ 删面、对称化丢掉的一半（编号被镜过来的新面复用）、换到另一套、合并点塌掉的面、转硬表面：旧位置 ⊆ freed ∪ 现在占着的；
-//    ④ 整列删掉（removeColumn 不逐张面进改动日志）：按全部面比，原来的位置都进 freed。每一步都照编辑器的做法：freedBaseline → 指令 → freedOp 进同一步。
-import { describe, it, eq, assert, todo } from "./runner.mjs";
+// 钉：① 清单的并法（包住的、拼成长方形的随时并，超过 256 才做会多占地方的并，剪掉被占着的；框多先按粗格子归拢；多跑一次结果一样）；精确的「盖住」；
+//    ② 画过的面上切一刀 / 环切 / 细分 / 内插：freed 一个框都不多（旧位置被现在的面盖住）；
+//    ③ 删面、对称化丢掉的一半（编号被镜过来的新面复用）、换到另一套、合并点塌掉的面、转硬表面、倒角（挨着的面缩掉一条）：旧位置 ⊆ freed ∪ 现在占着的；
+//    ④ 整列删掉（removeColumn 不逐张面进改动日志）：按全部面比，原来的位置都进 freed；
+//    ⑤ 同一步里先空出来、后补面（统筹预审第 1 条）：补面不落到这一步刚空出来的旧画上；⑥ freed 的两种读法（补面 = 加上占着的；空地 = 减去占着的、数几块）。
+// 每一步都照编辑器的做法：freedBaseline → 每条指令（改写 → 记 → 提交 → 收尾补进同一步，收尾每次补面之前先记一次空位）→ 整步最后 freedOp 进同一步。
+import { describe, it, eq, assert } from "./runner.mjs";
 import { Scene } from "../src/scene/scene.ts";
 import { History } from "../src/editor/history.ts";
 import type { Op } from "../src/editor/ops.ts";
@@ -12,25 +14,34 @@ import { addBox } from "../src/mesh/ops/index.ts";
 import { mintGuid } from "../src/format/guid.ts";
 import { translation } from "../src/scene/xform.ts";
 import { sceneBox } from "./format-scenes.ts";
-import { freedBaseline, freedOp } from "../src/editor/paint-freed.ts";
-import { UV_SET_COL, uvAt, uvSetOfFace } from "../src/scene/uv.ts";
-import { FREED_MAX, RectIndex, candidatesFor, lostPlaces, mergeFreed, type Rect } from "../src/paint/freed.ts";
+import { freedBaseline, freedOp, type FreedBase } from "../src/editor/paint-freed.ts";
+import { upkeepAfter, upkeepRewrite, upkeepSnapshot } from "../src/editor/paint-upkeep.ts";
+import { UV_AT_COL, UV_SET_COL, uvAt, uvSetOfFace } from "../src/scene/uv.ts";
+import { FREED_MAX, RectIndex, candidatesFor, freedOpenAreas, lostPlaces, mergeFreed, openPieces, placementBlocked, type Rect } from "../src/paint/freed.ts";
 import { cornersRect } from "../src/paint/layout.ts";
 import type { Guid } from "../src/format/guid.ts";
 
 const P = (x: number, y: number, z: number) => ({ x, y, z });
-/** 一个画过的网格体（x 从 x0 到 x1 的盒子），每一步照编辑器的做法收尾。 */
-function setup(x0 = 0, x1 = 1) {
+/** 一个画过的网格体（x 从 x0 到 x1 的盒子），每一步照编辑器的做法收尾（midStep = false：收尾补面之前不先记空位 = 修之前的样子，只给「这个例子有牙」用）。 */
+function setup(x0 = 0, x1 = 1, midStep = true) {
   const s0 = new Scene(sceneBox(2, 1.5)), d = s0.mintDef("画盒", sceneBox(1, 1)), k0 = new MeshKernel();
   addBox(k0, P(x0, 0, 0), P(x1, 1, 1));
   d.body = { kind: "mesh", kernel: k0, materialSlots: [], uvSetSlots: [] };
   s0.mintInstance(s0.root, null, d.id, translation(P(3, 0, 0)));
   const h = new History<string>(s0), cur = (): Scene => (h as unknown as { current: Scene }).current, def = d.id;
+  let base: FreedBase | null = null;
+  const env = { get scene() { return cur(); }, get mirrors() { return cur().meshMirrors; }, lastSide: new Map<number, -1 | 1>(), merging: false, freedNow: () => (midStep && base ? freedOp(cur(), h, base) : null) };
+  let notes = "";
   const step = (...ops: Op[]): void => {
-    const base = freedBaseline(cur(), h);
-    ops.forEach((op, i) => h.commit(cur(), op, i > 0, "b", { title: op.op }));
+    base = freedBaseline(cur(), h); notes = "";
+    ops.forEach((op0, i) => {
+      const op = upkeepRewrite(env, op0), snaps = upkeepSnapshot(env, op);
+      h.commit(cur(), op, i > 0, "b", { title: op.op });
+      if (snaps) notes += upkeepAfter(env, op, snaps, (o) => { h.commit(cur(), o, true, "b", { title: o.op }); });
+    });
     const fo = freedOp(cur(), h, base);
     if (fo) h.commit(cur(), fo, true, "b", { title: "freed" });
+    base = null;
   };
   const paint = (faces?: number[]): Guid => { const g = mintGuid(); step({ op: "startPaint", def, faces: faces ?? cur().mesh(def).kernel.faces(), uvSet: g, textureGuid: mintGuid(), materialGuid: mintGuid(), names: { uvSet: "UV", paint: "画", material: "画" }, color: [1, 1, 1], density: 16 }); return g; };
   const k = (): MeshKernel => cur().mesh(def).kernel, slots = (): readonly Guid[] => cur().mesh(def).uvSetSlots;
@@ -46,7 +57,7 @@ function setup(x0 = 0, x1 = 1) {
     }
     return bad;
   };
-  return { h, cur, def, step, paint, k, places, freed, uncovered };
+  return { h, cur, def, step, paint, k, places, freed, uncovered, notes: () => notes };
 }
 const top = (k: MeshKernel, z = 1): number => k.faces().find((f) => k.facePts(f).every((p) => Math.abs(p.z - z) < 1e-9))!;
 
@@ -71,23 +82,44 @@ describe("空出来的地方：清单和盖住（paint/freed.ts）", () => {
     const idx = new RectIndex(rs); for (const a of add) assert(idx.covers(a), `漏了 [${a.join(",")}]`);
     eq(mergeFreed(undefined, add.slice(0, 200), [])!.length / 4, 200, "不到 256 个：不做会多占地方的并");
   });
+  it("框很多（4 万个）：先按粗格子归拢，结果不超过 256 个、一个不漏；拿结果再并同一批 = 不变（多跑一次结果一样）", () => {
+    const add: Rect[] = []; let seed = 7; const rnd = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 40000; i++) { const x = Math.floor(rnd() * 4000), y = Math.floor(rnd() * 4000); add.push([x, y, x + 1 + Math.floor(rnd() * 12), y + 1 + Math.floor(rnd() * 12)]); }
+    const t0 = performance.now(), out = mergeFreed(undefined, add, [])!, ms = performance.now() - t0, rs: Rect[] = []; for (let i = 0; i < out.length; i += 4) rs.push([out[i], out[i + 1], out[i + 2], out[i + 3]]);
+    assert(rs.length <= FREED_MAX, `${rs.length} 个`);
+    const idx = new RectIndex(rs); for (const a of add) assert(idx.covers(a), `漏了 [${a.join(",")}]`);
+    eq(mergeFreed(out, add, []), null, "再并同一批：都已经被盖住 = 不变");
+    assert(ms < 2000, `4 万个框并了 ${ms.toFixed(0)} ms（不随框数平方涨）`);
+  });
+  it("多跑一次结果一样：小清单拿结果再并同一批 = 不变", () => {
+    const add: Rect[] = [[0, 0, 5, 5], [10, 0, 20, 5], [3, 3, 12, 9]], out = mergeFreed(undefined, add, [])!;
+    eq(mergeFreed(out, add, []), null);
+  });
+  it("两种读法：空地 = freed 减去现在有面占着的格（数「几块」和怎么切无关）；补面当占着的 = freed 加上别的定义占着的", () => {
+    eq(openPieces([[0, 0, 5, 10], [5, 0, 10, 10]]), 1, "共一段边 = 一块");
+    eq(openPieces([[0, 0, 5, 5], [5, 5, 10, 10]]), 2, "只碰到角 = 两块");
+    eq(openPieces([[0, 0, 4, 2], [0, 2, 2, 4], [2, 2, 4, 4]]), 1, "切法不同照样一块");
+    const t = setup(), g = t.paint(), f = top(t.k()), mine = t.places().get(f)!.r;
+    t.step({ op: "meshDelete", def: t.def, faces: [f] });
+    eq(openPieces(freedOpenAreas(t.cur(), g)), 1, "删掉一张面 = 一块空地");
+    const blocked = placementBlocked(t.cur(), t.def, g), bs: Rect[] = []; for (let i = 0; i < blocked.length; i += 4) bs.push([blocked[i], blocked[i + 1], blocked[i + 2], blocked[i + 3]]);
+    assert(new RectIndex(bs).covers(mine), "补面时删掉那张面的旧框当占着");
+  });
 });
 
-describe("画过的面上切开 / 细分 / 内插 / 倒角：freed 一个框都不多（旧位置被现在的面盖住）", () => {
+describe("画过的面上切开 / 细分 / 内插：freed 一个框都不多（旧位置被现在的面盖住）", () => {
   const cases: [string, (t: ReturnType<typeof setup>) => Op][] = [
     ["刀", (t) => { const f = top(t.k()), r = t.k().faceVerts(f); return { op: "meshKnife", def: t.def, face: f, path: [{ v: r[0] }, { v: r[2] }] }; }],
     ["环切", (t) => ({ op: "meshLoopCut", def: t.def, edge: t.k().fEdges(top(t.k()))[0], t: 0.5 })],
     ["细分", (t) => ({ op: "meshSubdivide", def: t.def, levels: 1 })],
     ["内插", (t) => ({ op: "meshInset", def: t.def, faces: [top(t.k())], dist: 0.1 })],
-    ["倒角", (t) => ({ op: "meshBevel", def: t.def, edges: [t.k().fEdges(top(t.k()))[0]], width: 0.1, segments: 1 })],
   ];
   for (const [name, mk] of cases) {
     const t = setup(), g = t.paint(), before = t.places();
     t.step(mk(t));
     const extra = t.freed(g).map((r) => r.join(",")).join(" | ");
     it(`${name}：旧位置都被盖住（freed ∪ 现在占着的）`, () => eq(t.uncovered(before).join("；"), ""));
-    if (name === "倒角" && extra) todo(`倒角：freed 记了 ${extra}——挨着的面缩掉一条、倒角带没有位置，那条里的旧画没人占着；验收怎么改等统筹定（11-13 深夜问了）`);
-    else it(`${name}：freed 一个框都不多`, () => eq(extra, ""));
+    it(`${name}：freed 一个框都不多`, () => eq(extra, ""));
   }
 });
 
@@ -108,6 +140,12 @@ describe("丢了位置的旧框都被 freed 盖住", () => {
     const t = setup(), g = t.paint(), before = t.places(), f = top(t.k());
     t.paint([f]);
     eq(t.uncovered(new Map([...before].filter(([x]) => x === f))).join("；"), ""); assert(t.freed(g).length > 0, "换走的那张在原来那套上的位置进了 freed");
+  });
+  it("倒角（挨着的两张面各缩掉一条，那一条里的旧画没有面占着 = 必须记；统筹 11-13 改正验收）：记的每个框都落在某张面的旧框里", () => {
+    const t = setup(), g = t.paint(), before = t.places();
+    t.step({ op: "meshBevel", def: t.def, edges: [t.k().fEdges(top(t.k()))[0]], width: 0.1, segments: 1 });
+    eq(t.uncovered(before).join("；"), ""); assert(t.freed(g).length > 0, "缩掉的那一条记了");
+    for (const r of t.freed(g)) assert([...before.values()].some((p) => p.g === g && p.r[0] <= r[0] && p.r[1] <= r[1] && p.r[2] >= r[2] && p.r[3] >= r[3]), `框 [${r.join(",")}] 不在任何一张面的旧框里`);
   });
   it("合并点塌掉的面", () => {
     const t = setup(), g = t.paint(), before = t.places(), f = top(t.k()), r = t.k().faceVerts(f);
@@ -132,5 +170,62 @@ describe("整列删掉：按这个定义的全部面比（removeColumn 不逐张
     eq(lost.lost.length, before.faces().length, "每张原来有位置的面都丢了位置"); eq(lost.held.length, 0);
     const out = mergeFreed(undefined, lost.lost, lost.held)!, rs: Rect[] = []; for (let i = 0; i < out.length; i += 4) rs.push([out[i], out[i + 1], out[i + 2], out[i + 3]]);
     const idx = new RectIndex(rs); for (const r of lost.lost) assert(idx.covers(r), "进了 freed");
+  });
+});
+
+describe("同一步里先空出来、后补面：补面不落到这一步刚空出来的旧画上（统筹预审第 1 条）", () => {
+  const meets = (a: Rect, b: Rect): boolean => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+  /** 溶解两张画过的面之间的边：并出来的那张两边的位置对不上 → 拿掉位置 → 同一步重新找地方。返回它新找到的框碰不碰两张原面的旧框。 */
+  const dissolve = (midStep: boolean) => {
+    const t = setup(0, 1, midStep), g = t.paint(), k = t.k(), e = k.edges().find((x) => k.eFaces(x).length === 2)!, [a, b] = k.eFaces(e), before = t.places(), olds = [before.get(a)!.r, before.get(b)!.r];
+    t.step({ op: "meshDelete", def: t.def, edges: [e], dissolve: true });
+    const now = t.places(), grown = [...now].filter(([f, p]) => p.g === g && (!before.has(f) || before.get(f)!.v !== p.v)).map(([, p]) => p.r);
+    return { t, g, before, grown, hits: grown.filter((r) => olds.some((o) => meets(r, o))).length };
+  };
+  it("溶解一条边：并出来的那张重新找到的地方不碰两张原面的旧框；旧位置都被盖住", () => {
+    const r = dissolve(true);
+    assert(r.grown.length > 0, "并出来的那张重新补了一块"); eq(r.hits, 0, "不碰两张原面的旧框");
+    eq(r.t.uncovered(r.before).join("；"), "");
+  });
+  it("（这个例子有牙：收尾补面之前不先记空位 = 修之前，就会落到旧框上）", () => eq(dissolve(false).hits > 0, true));
+  /** 同一步：删掉一张画过的面，再把另一张画过的面挤出去（侧面是新长的、走画、要补位置）。 */
+  const deleteThenGrow = (midStep: boolean) => {
+    const t = setup(0, 1, midStep), g = t.paint(), k = t.k(), [f, other] = k.faces(), before = t.places(), old = before.get(f)!.r;
+    t.step({ op: "meshDelete", def: t.def, faces: [f] }, { op: "meshExtrude", def: t.def, faces: [other], along: 0.3 });
+    const now = t.places(), grown = [...now].filter(([x, p]) => p.g === g && !before.has(x)).map(([, p]) => p.r);
+    return { t, before, grown, hits: grown.filter((r) => meets(r, old)).length };
+  };
+  it("删掉一张画过的面、同一步再挤出另一张：新长的面不落在删掉那张的旧框上；旧位置都被盖住", () => {
+    const r = deleteThenGrow(true);
+    assert(r.grown.length > 0, "挤出长了新面、补了位置"); eq(r.hits, 0);
+    eq(r.t.uncovered(r.before).join("；"), "");
+  });
+  it("（这个例子有牙：修之前，新长的面有一张落在删掉那张的旧框上）", () => eq(deleteThenGrow(false).hits > 0, true));
+  it("整步最后那次记空位 = 收尾里已经记过的就不再改（多跑一次结果一样）", () => {
+    const t = setup(), g = t.paint(), f = top(t.k()), h = t.h, base = freedBaseline(t.cur(), h);
+    h.commit(t.cur(), { op: "meshDelete", def: t.def, faces: [f] }, false, "b", { title: "del" });
+    const fo = freedOp(t.cur(), h, base)!; h.commit(t.cur(), fo, true, "b", { title: "freed" });
+    eq(freedOp(t.cur(), h, base), null, "再跑一次 = 没有要改的"); assert(t.freed(g).length > 0);
+  });
+});
+
+describe("给统筹确认的两件事（写进施工记录）", () => {
+  it("改动日志给的「这一步动过的面」包括新加的、删掉的、只改了角上贴图坐标的", () => {
+    const t = setup(); t.paint();
+    const k = t.k(), [a, b] = k.faces(), seq = k.changes.seq;
+    k.setCornerValues(a, UV_AT_COL.id, k.cornerValues(a, UV_AT_COL.id)!.map((x) => x + 1));   // 只改角上那一列
+    k.removeFaces([b]);
+    const vs = [P(5, 5, 5), P(6, 5, 5), P(6, 6, 5)].map((p) => k.addVertex(p)), nf = k.addFace(vs, { kind: "fresh", corner: new Map(), face: new Map() });
+    const got = new Set(k.changes.since(seq)!.faces);
+    assert(got.has(a), "只改了角上的"); assert(got.has(b), "删掉的"); assert(got.has(nf), "新加的");
+  });
+  it("整步中途 History.meshBefore(def, 这一步开始的位置) 拿到的是这一步开始之前的那一份", () => {
+    const t = setup(); t.paint();
+    const h = t.h, at = h.position(), [a, b] = t.k().faces();
+    h.commit(t.cur(), { op: "meshDelete", def: t.def, faces: [a] }, false, "b", { title: "1" });
+    const m1 = h.meshBefore(t.def, at); assert(m1.kind === "mesh" && m1.kernel.hasF(a) && m1.kernel.hasF(b), "第一条之后：两张都在");
+    h.commit(t.cur(), { op: "meshDelete", def: t.def, faces: [b] }, true, "b", { title: "2" });
+    const m2 = h.meshBefore(t.def, at); assert(m2.kind === "mesh" && m2.kernel.hasF(a) && m2.kernel.hasF(b), "第二条之后：还是这一步之前那份（两张都在）");
+    assert(!t.k().hasF(a) && !t.k().hasF(b), "现在两张都没了");
   });
 });

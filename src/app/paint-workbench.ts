@@ -22,7 +22,7 @@ import { SpaceFillStroke, fillAimOf } from "../paint/space-fill.ts";
 import { buildTriGrid, pickSurface, type TriGrid } from "../paint/surface-pick.ts";
 import { applyDir, applyPt, invert } from "../scene/xform.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
-import { paintPlaceOf } from "../scene/paint.ts";
+import { anyFaceWalksPaint, paintPlaceOf } from "../scene/paint.ts";
 import { uvMesh, type UvMesh } from "../scene/uv.ts";
 import type { PaintColor, Rgb } from "./paint-color.ts";
 import type { SpacePrep } from "../paint/space-prep.ts";
@@ -134,6 +134,15 @@ export class PaintWorkbench {
     return grid;
   }
 
+  /** 这个物件开始画过没有（scene/paint.ts anyFaceWalksPaint；悬停每一下都问 = 按编辑器的版本号记一次，场景没变不再走面）。 */
+  private startedMemo: { rev: number; def: number; v: boolean } | null = null;
+  private started(def: number): boolean {
+    const e = this.d.editor, m = this.startedMemo;
+    if (m && m.rev === e.revision && m.def === def) return m.v;
+    const v = anyFaceWalksPaint(e.sceneRef, def);
+    this.startedMemo = { rev: e.revision, def, v };
+    return v;
+  }
   /** 屏幕上这一点打到当前物件的哪张面、那张面走哪张画、落在哪一格。 */
   private aim(x: number, y: number): Aim {
     const e = this.d.editor, S = e.sceneRef, def = S.defOfContext(e.context), body = S.def(def).body;
@@ -146,7 +155,7 @@ export class PaintWorkbench {
     if (!fp) {
       const m = S.materialOfSlot(def, faceMaterial(k, hit.face)), tp = m ? S.tiledPaintOf(m) : null;
       if (tp) return { why: tiledOnlyInWindow(tp.textureDoc.name || m!.name) };   // 平铺的画（施工单二十一第 3 刀第二节第 6 条）：不画、说原因
-      if (!body.uvSetSlots.length) return { why: NOT_STARTED, start: true };
+      if (!this.started(def)) return { why: NOT_STARTED, start: true };   // 这个物件一张走画的面都没有 = 还没开始画（施工单十八第 2 刀：看面，不看速查表）
       return { face: hit.face, color: m ? [m.color[0], m.color[1], m.color[2]] : [0.84, 0.84, 0.84] };
     }
     const h2 = fp.uvSet.guid === anyUv ? hit : pickSurface(m, this.grid(m), fp.uvSet.guid, o, dir);

@@ -179,7 +179,7 @@ export class Scene {
     this.textures.set(t.guid, t);
   }
   /**
-   * 这张面走不走画（贴图主线 1-3b；全仓问这个）：面的材质过 paintIn 不是空、画挂的排法在场景的排法表里、这个网格体有那一列 → 那张画和那一套（施工单十八：不再看「画属于哪个物件」）；
+   * 这张面走不走画（贴图主线 1-3b；全仓问这个）：面的材质过 paintIn 不是空、画挂的排法在场景的排法表里 → 那张画和那一套（施工单十八：不再看「画属于哪个物件」；第 2 刀起也不看网格体的速查表）；
    * 有没有位置另问（这张面在那一列上有没有值）；
    * 差一样都按普通材质（底色）算 = null。网格体才有画（硬表面 = null）。
    */
@@ -188,7 +188,7 @@ export class Scene {
     if (!d || d.body.kind !== "mesh" || !this.uvSets.size) return null;
     const m = this.materialOfSlot(defId, slot), p = m ? paintIn(this.textures, m) : null;
     const row = p ? this.uvSets.get(p.uvSet) : undefined;
-    return row && d.body.uvSetSlots.includes(row.guid) ? { textureDoc: p!.textureDoc, uvSet: row } : null;   // 这个网格体在那一套上（速查表里有它；施工单十八第 1½ 刀）
+    return row ? { textureDoc: p!.textureDoc, uvSet: row } : null;   // 施工单十八第 2 刀：材质是画、画挂的排法在表里 = 走画；有没有位置只看这张面的代号（不看网格体的速查表）
   }
   /** 「这个材质用哪张图」（那个口；全仓问这个，不读材质里的字段）：颜色那一槽的第一张、而且是带尺寸的原图；不是 = null（按底色画）。查表，每张面都会问。 */
   colorMapOf(m: Material): ColorMap | null { return colorMapIn(this.textures, m); }

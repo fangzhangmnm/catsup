@@ -12,7 +12,7 @@ import { MATERIAL_INDEX, faceHidden, faceMaterial, givenFaceValues, unpackEdgeBy
 import { mintGuid, type Guid } from "../format/guid.ts";
 import { uniqueCopy } from "../format/scene-store.ts";
 import { COLOR_CHANNEL, COLOR_VALUE, assertSizedImage, paintIn, type ShelfItem, type TextureDoc } from "../format/document.ts";
-import { type PaintOutcome, applyMeshLayoutPaint, applyMeshPaintFaces, applyStartPaint } from "./paint-ops.ts";
+import { type PaintOutcome, applyMeshLayoutPaint, applyMeshPaintFaces, applySetFreed, applyStartPaint } from "./paint-ops.ts";
 import { type PaintMove, paintMoveBlocked } from "../scene/paint.ts";
 import { DEFINITION, TEXTURE, type DefinitionEntry } from "../format/entry-kinds.ts";
 import type { CurveSpec } from "../kernel/kernel.ts";
@@ -676,14 +676,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       s.addMaterial({ guid: op.materialGuid, name: op.name, color: [op.color[0], op.color[1], op.color[2]], channels: { [COLOR_CHANNEL]: [op.textureGuid] } });
       return { scene: s, events: [] };
     }
-    case "setFreed": {
-      for (const r of op.rows) if (!s.uvSets.has(r.uvSet)) throw new OpTargetError(`setFreed: uvSet ${r.uvSet}`);
-      for (const r of op.rows) {
-        const { freed: _was, ...rest } = s.uvSets.get(r.uvSet)!;
-        s.uvSets.set(r.uvSet, Object.freeze(r.freed.length ? { ...rest, freed: Object.freeze([...r.freed]) } : rest));
-      }
-      return { scene: s, events: [] };
-    }
+    case "setFreed": return paintOutcome(s, applySetFreed(s, op));
     case "purgeTextures": {
       if (s.texturesFrozen) throw new OpRejected(TEXTURES_FROZEN);
       if (s.shelfFrozen) throw new OpRejected(SHELF_FROZEN_PURGE);

@@ -1026,7 +1026,7 @@ export class Editor {
   private step<T>(fn: (pass: StepPass) => T, label?: StepLabel): T {
     if (this.stepDepth++ === 0) { this.freedBase = freedBaseline(this.scene, this.history); this.history.checkParked("step"); this.mirrorNote = ""; this.mirrorNoteShown = false; this.mirrorDeferred = false; this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; this.stepReason = null; this.stepBumped = false; this.stepTouched = false; this.stepBefore = this.deferredBefore ?? this.sessionSnap(); this.stepLabel = label; }
     else if (label && !this.stepLabel) this.stepLabel = label;
-    try { const out = fn(STEP_PASS); if (this.stepDepth === 1 && this.stepHasOp && !this.stepFailed && this.freedBase) { const fo = freedOp(this.scene, this.history, this.freedBase); if (fo) this.commitIn(STEP_PASS, fo); } return out; }   // 最外层收口之前：空出来的地方（施工单十八第 2 刀，paint-freed.ts）
+    try { const out = fn(STEP_PASS), p = STEP_PASS; if (this.stepDepth === 1 && this.stepHasOp && !this.stepFailed && this.freedBase) { const fo = freedOp(this.scene, this.history, this.freedBase); if (fo) this.commitIn(p, fo); } return out; }   // 最外层收口之前：空出来的地方（施工单十八第 2 刀，paint-freed.ts）
     finally { if (--this.stepDepth === 0) this.closeStep(); }
   }
   /**
@@ -1137,7 +1137,7 @@ export class Editor {
     return { op: { ...op, ...withMirrorCounterparts(m, ms.axis, op) } as Op, merges: [] };   // 第 3 层（计划书 §3）：点了谁就对谁做的，把对面的一起做（标记两种模式都补）
   }
   /** 强行对称的编排住 editor/mirror-force.ts（管不管 / 提交前记什么 / 提交后怎么补 / 换原点前先试）；这里只给环境、提交、问人。 */
-  private get forceEnv(): ForceEnv { return { scene: this.scene, mirrors: this.mirrors, lastSide: this.mirrorLastSide, merging: this.mirrorMerging }; }
+  private get forceEnv(): ForceEnv { return { scene: this.scene, mirrors: this.mirrors, lastSide: this.mirrorLastSide, merging: this.mirrorMerging, freedNow: () => (this.freedBase ? freedOp(this.scene, this.history, this.freedBase) : null) }; }
   private mirrorForceAfter(pass: StepPass, op: Op, snaps: UpkeepSnaps): void { const n = upkeepAfter(this.forceEnv, op, snaps, (o) => this.commitIn(pass, o)); if (n) this.mirrorNote = [this.mirrorNote, n].filter(Boolean).join("；"); }
   /** 第 1 层：换原点 / 应用缩放会把开着强行对称的网格体挪到镜像面一边 = 问「关掉镜像，照做 / 取消」（不硬拦）。挡下来了 = true。 */
   private forceOriginAsk(op: Op): boolean {

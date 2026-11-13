@@ -6,15 +6,17 @@ import { setFaceMaterial } from "../mesh/reserved-columns.ts";
 import type { Op } from "./ops.ts";
 import { uvSetAutoPlaces, type DefId, type Scene } from "../scene/scene.ts";
 import { COLOR_CHANNEL, COLOR_VALUE, paintIn } from "../format/document.ts";
-import { cellRect, gapForCanvas, layoutAppend, layoutFaces } from "../paint/layout.ts";
+import { gapForCanvas, layoutAppend, layoutFaces } from "../paint/layout.ts";
+import { placementBlocked } from "../paint/freed.ts";   // 补面时当占着的（读法一：freed 加上占着的；全仓一个）
 import { unplacedPaintFaces } from "../scene/paint.ts";
-import { onUvSet, placeFace, unplaceFace, uvBoxes, uvMesh } from "../scene/uv.ts";
+import { onUvSet, placeFace, unplaceFace, uvMesh } from "../scene/uv.ts";
 import type { Guid } from "../format/guid.ts";
 
 export type PaintOutcome = null | { readonly rejected: string } | { readonly target: string };
 type StartPaint = Extract<Op, { op: "startPaint" }>;
 type MeshPaintFaces = Extract<Op, { op: "meshPaintFaces" }>;
 type MeshLayoutPaint = Extract<Op, { op: "meshLayoutPaint" }>;
+type SetFreed = Extract<Op, { op: "setFreed" }>;
 
 /** 换别的定义的画上来的原因（startPaint / meshPaintFaces 共用）。 */
 export const OTHER_DEF_PAINT = "这张画是别的物件的：画只能换到它自己那个物件的面上";
@@ -71,20 +73,6 @@ export function applyStartPaint(s: Scene, op: StartPaint): PaintOutcome {
 }
 
 /**
- * 这套排法上别处占着的格（补面时也当占着；施工单十八第 2 刀）：空出来的地方（可能留着旧画）+ 别的定义在这一套上有位置的面（按排法看所有物件，没有摆放的定义也算）。
- * 「占着」的算法 = layout.ts cellRect（全仓一个）。
- */
-function blockedOn(s: Scene, def: number, g: Guid): number[] {
-  const out = [...(s.uvSets.get(g)?.freed ?? [])];
-  for (const d of s.defs.values()) {
-    if (d.id === def || d.body.kind !== "mesh" || !d.body.uvSetSlots.includes(g)) continue;   // 速查表里没有这一套 = 没有一张面的代号指着它（只是快筛）
-    const bx = uvBoxes(d.body.kernel, d.body.uvSetSlots, g);
-    for (let i = 0; i + 3 < bx.length; i += 4) out.push(...cellRect(bx[i], bx[i + 1], bx[i + 2], bx[i + 3]));
-  }
-  return out;
-}
-
-/**
  * 给走画但还没有位置的面补一块（1-3a 的「给新面补一块」，partial）：这个网格体上每一套被画用着的贴图坐标，找出走这张画、角上还没有值的面
  * （faces = 只看这些，收尾时 = 改动日志给的这一步动过的面；不给 = 全部），铺上；已经铺好的角一个数都不变。画布不够：按一格多大开的（fit = density）往下加高（256 的倍数），那一行换成新的高；
  * 按总大小开的（缺 fit，施工单十六第四节）不长大，放不下的面先没有位置（照底色）。
@@ -99,10 +87,23 @@ export function applyMeshLayoutPaint(s: Scene, op: MeshLayoutPaint): PaintOutcom
   for (const g of [...pending.keys()].sort()) {
     const row = s.uvSets.get(g)!;
     if (!uvSetAutoPlaces(row)) continue;   // fit 不认识 / 行里带着不认识的 freed：这套排法什么都不自动动（施工单十八 3.1）
-    const r = layoutAppend(uvMesh(k, b.uvSetSlots), g, [], pending.get(g)!, { width: row.width, height: row.height }, row.pxPerM, { partial: true, gap: gapForCanvas(row.width), grow: row.fit === "density", blocked: blockedOn(s, op.def, g) });   // 补面也按那张画布的宽留格（施工单十五第四节）；按总大小开的画布不长大（施工单十六第四节）
+    const r = layoutAppend(uvMesh(k, b.uvSetSlots), g, [], pending.get(g)!, { width: row.width, height: row.height }, row.pxPerM, { partial: true, gap: gapForCanvas(row.width), grow: row.fit === "density", blocked: placementBlocked(s, op.def, g) });   // 补面也按那张画布的宽留格（施工单十五第四节）；按总大小开的画布不长大（施工单十六第四节）
     if (!r.ok) continue;   // partial 不会走到这里（放不下的进 unplaced）
     for (const [f, v] of r.values) placeFace(k, b.uvSetSlots, f, g, v);
     if (r.height !== row.height) s.uvSets.set(g, Object.freeze({ ...row, height: r.height }));
+  }
+  return null;
+}
+
+/**
+ * 记空出来的地方（施工单十八第 2 刀；收尾自己补的指令，editor/paint-freed.ts freedOp 造）：这几行的 freed 换成新的清单；空清单 = 拿掉这个键。行是冻住的，换一份新的（撤销记的骨架快照照旧）。
+ * 场景的排法表只在这个文件里改（守卫 paint-start-guard ②）。拒绝（什么都不改）：有一行指的排法不在表里。
+ */
+export function applySetFreed(s: Scene, op: SetFreed): PaintOutcome {
+  for (const r of op.rows) if (!s.uvSets.has(r.uvSet)) return { target: `setFreed: uvSet ${r.uvSet}` };
+  for (const r of op.rows) {
+    const { freed: _was, ...rest } = s.uvSets.get(r.uvSet)!;
+    s.uvSets.set(r.uvSet, Object.freeze(r.freed.length ? { ...rest, freed: Object.freeze([...r.freed]) } : rest));
   }
   return null;
 }

@@ -3,6 +3,7 @@
  "asOf": "2026-11-11 v0.19.50（19 个旧红交代完；snap-base 偶发查清修好 = known-red 零行、flaky 零行；记录 = ai-docs/20261111-paint-1-4d-smooth.md「收尾：全部探针整跑一遍」和它下面的「19 个旧红的交代」）",
  "probes": {
   "bench-bake-paths.mts": {"state":"green","role":"perf"},
+  "bench-freed.mts": {"state":"green","role":"perf"},
   "bench-pools.mjs": {"state":"green","role":"perf"},
   "bench-scene.mjs": {"state":"green","role":"perf"},
   "fake-cloud.mjs": {"state":"helper","why":"假 MSAL + 假 Graph，给 probe-cloud-gate 这些探针 import 的工具，自己不是探针"},

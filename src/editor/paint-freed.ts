@@ -6,7 +6,7 @@ import type { Guid } from "../format/guid.ts";
 import type { Scene } from "../scene/scene.ts";
 import type { History } from "./history.ts";
 import type { Op } from "./ops.ts";
-import { candidatesFor, lostPlaces, mergeFreed, RectIndex, type MeshSide, type Rect } from "../paint/freed.ts";
+import { candidatesFor, heldAll, lostPlaces, mergeFreed, RectIndex, type MeshSide, type Rect } from "../paint/freed.ts";
 
 /** 一步开始时记的。 */
 export interface FreedBase { readonly at: number; readonly seqs: ReadonlyMap<number, number> }
@@ -27,6 +27,10 @@ export function freedOp(s: Scene, h: History, base: FreedBase): Op | null {
     const d = s.defs.get(def), now: MeshSide | null = d && d.body.kind === "mesh" ? { k: d.body.kernel, slots: d.body.uvSetSlots } : null;
     const before: MeshSide = { k: b.kernel, slots: b.slots ?? now?.slots ?? [] };
     for (const [g, e] of lostPlaces(before, now, candidatesFor(before, now, now ? seq : null))) { push(lost, g, e.lost); push(held, g, e.held); }
+  }
+  for (const d of s.defs.values()) {   // 这一步新出现的定义：它的面全算进现在占着的（统筹预审第 3 条；现在还没有操作会带着位置搬进新定义——第 3 刀放开搬家时补测试）
+    if (base.seqs.has(d.id) || d.body.kind !== "mesh") continue;
+    for (const [g, rs] of heldAll({ k: d.body.kernel, slots: d.body.uvSetSlots })) push(held, g, rs);
   }
   const rows: { uvSet: Guid; freed: number[] }[] = [];
   for (const g of [...new Set([...lost.keys(), ...held.keys()])].sort()) {

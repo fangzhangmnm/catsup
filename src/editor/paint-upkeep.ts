@@ -15,6 +15,7 @@ import { type ForceEnv, type ForcePaintHook, type ForceSnaps, forceAfter, forceS
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { MIRROR_TOL, coordOf, type MirrorAxis } from "../mesh/mirror.ts";
 import { unplacedPaintFaces } from "../scene/paint.ts";
+import { freedOpenAreas, openPieces } from "../paint/freed.ts";
 import { hadPaint, uvLosses } from "../scene/uv.ts";
 import type { FaceReport, GoneFace, GoneWhy } from "../mesh/mesh-kernel.ts";
 
@@ -80,7 +81,12 @@ export function upkeepAfter(env: ForceEnv, op: Op, snaps: UpkeepSnaps, commit0: 
   const touched = (def: number): Iterable<number> | null => { const sn = snaps.paint.get(def); return sn ? (env.scene.mesh(def).kernel.changes.since(sn.seq)?.faces ?? null) : null; };
   const live = (def: number): boolean => env.scene.defs.has(def) && env.scene.kindOf(def) === "mesh";
   const pendingOf = (def: number): number[] => (live(def) ? [...unplacedPaintFaces(env.scene, def, touched(def)).values()].flat() : []);
-  const layoutIn = (def: number, faces: readonly number[]): void => { if (faces.length) commit({ op: "meshLayoutPaint", def, faces: [...faces].sort((a, b) => a - b) }); };
+  const layoutIn = (def: number, faces: readonly number[]): void => {
+    if (!faces.length) return;
+    const fo = env.freedNow?.();   // 先记这一步到这一刻空出来的地方：新面不落到刚空出来的旧画上（施工单十八第 2 刀统筹预审第 1 条）
+    if (fo) commit(fo);
+    commit({ op: "meshLayoutPaint", def, faces: [...faces].sort((a, b) => a - b) });
+  };
   const handled = new Set<number>();
   // 并出来贴图坐标接不上的面：先拿掉位置（一条只拿掉、不铺的 meshLayoutPaint），后面的补位置 / 对称化照常把它们当「还没有位置」
   let dropped = 0;
@@ -107,6 +113,7 @@ export function upkeepAfter(env: ForceEnv, op: Op, snaps: UpkeepSnaps, commit0: 
   }
   let unplaced = 0;
   const fixed = new Set<string>();   // 放不下、而且画布定了大小（按总大小开的，不自己变大）的那几张画：提示行说是哪张、多大（施工单十六第四节）
+  const crowded = new Set<string>();   // 放不下的面在哪几套排法上（施工单十八第 2 刀：那几张画布上有没有空出来的地方留着旧画）
   for (const [def, sn] of snaps.paint) {
     if (!live(def)) continue;
     const k = env.scene.mesh(def).kernel;
@@ -114,11 +121,16 @@ export function upkeepAfter(env: ForceEnv, op: Op, snaps: UpkeepSnaps, commit0: 
     if (!handled.has(def)) layoutIn(def, pendingOf(def));
     for (const [g, fs] of unplacedPaintFaces(env.scene, def, touched(def))) {   // 补完还没有位置的 = 画布上放不下的
       unplaced += fs.length;
+      if (fs.length) crowded.add(g);
       const row = env.scene.uvSets.get(g);
       if (fs.length && row && row.fit !== "density") fixed.add(`${row.width} × ${row.height}`);
     }
   }
   if (unplaced) notes.push(`有 ${unplaced} 张面在画布上放不下，先照底色显示${fixed.size ? `（这张画定的是 ${[...fixed].join("、")}，不自己变大）` : ""}`);
+  if (unplaced) {   // 说事实（施工单十八第 2 刀）：数的是空出来的地方减去现在有面占着的格之后还剩几块（freed.ts 读法二），不是清单的长度；不提还没有的按钮
+    const pieces = [...crowded].sort().reduce((n, g) => n + (env.scene.uvSets.get(g)?.freed?.length ? openPieces(freedOpenAreas(env.scene, g)) : 0), 0);
+    if (pieces) notes.push(`${crowded.size > 1 ? "这几张画布上一共" : "这张画布上"}有 ${pieces} 块空出来的地方留着旧画，新面不往上放`);
+  }
   if (dropped) notes.push(`有 ${dropped} 张面的画没带过来（并面时两边的位置对不上）`);
   notes.push(...goneNotes(gone));
   return notes.join("；");

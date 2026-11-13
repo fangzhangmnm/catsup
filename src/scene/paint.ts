@@ -1,7 +1,7 @@
 // scene/paint.ts —— 画在场景这一层的问法（贴图主线 1-3b，施工单 ai-docs/20261110-paint-workorders-8.md）。created 2026-11-10 by Claude Opus 5.5
 // 哪些面走画（Scene.facePaint 是那一个问法，这里是它的批量用法）、规矩自检、哪些走画的面还没有位置、「带着画的面现在还搬不了」那个唯一的拒绝判断。
 // 不认识编辑器、不改场景：改场景的只有三条指令（editor/paint-ops.ts）。
-import { faceMaterial } from "../mesh/reserved-columns.ts";
+import { faceMaterial, materialColumn } from "../mesh/reserved-columns.ts";
 import type { DefId, Material, MeshBody, Scene, UvSetRow } from "./scene.ts";
 import { paintIn, tiledPaintIn, UV_CANVAS_EPS, type TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
@@ -9,7 +9,7 @@ import { hasUvColumns, uvAt, uvBoxes, uvCodeOf } from "./uv.ts";
 
 /** 这个网格体在哪几套排法上（网格体上的速查表；施工单十八第 1½ 刀起 = MeshBody.uvSetSlots，scene/uv.ts）。 */
 export const uvSetsOf = (b: MeshBody): readonly Guid[] => b.uvSetSlots;
-/** 这个网格体带不带贴图坐标（速查表空不空；从画换走的面位置还留着，所以和「有没有面走画」不是一回事。第 2 刀拿掉这个信号）。 */
+/** 这个网格体带不带贴图坐标（速查表空不空；从画换走的面位置还留着，所以和「有没有面走画」不是一回事）。施工单十八第 2 刀起只剩搬家的拒绝（paintMoveBlocked，第 3 刀开）用它；问「走不走画」一律看面。 */
 const hasUv = (b: MeshBody): boolean => b.uvSetSlots.length > 0;
 
 /** 第六节那几种动作碰到走画的面时的原因（拒绝之后场景一个字节不变）。 */
@@ -18,8 +18,24 @@ export const PAINT_CANT_MOVE = "这些面上有画：带着画的面现在还不
 /** 这张面走哪一套贴图坐标（走画 = 那一套的 GUID；不走 = null）。 */
 export function paintUvOf(s: Scene, def: DefId, f: number): Guid | null {
   const b = s.defs.get(def)?.body;
-  if (!b || b.kind !== "mesh" || !hasUv(b) || !b.kernel.hasF(f)) return null;
+  if (!b || b.kind !== "mesh" || !b.kernel.hasF(f)) return null;
   return s.facePaint(def, faceMaterial(b.kernel, f))?.uvSet.guid ?? null;
+}
+
+/**
+ * 这个物件有没有一张面走画（施工单十八第 2 刀：「开始画过没有」只看面，不看网格体的速查表——画过的面全换成普通材质之后，速查表还留着那一套）。
+ * 先按材质槽筛（没有一个槽是画 = 没有，不走面）；有才走面，碰到第一张就停。
+ */
+export function anyFaceWalksPaint(s: Scene, def: DefId): boolean {
+  const b = s.defs.get(def)?.body;
+  if (!b || b.kind !== "mesh") return false;
+  const paintSlots = new Set<number>();
+  for (let i = 0; i < b.materialSlots.length; i++) if (s.facePaint(def, i)) paintSlots.add(i);
+  if (!paintSlots.size) return false;
+  const c = materialColumn(b.kernel);   // 没有这一列 = 每张面都是缺省（−1，不是哪个槽）
+  if (!c) return false;
+  for (const f of b.kernel.faces()) if (paintSlots.has(c.data[f])) return true;
+  return false;
 }
 
 /**
@@ -83,7 +99,7 @@ export function meshBodyIssues(s: Scene, def: DefId): string[] {
  */
 export function unplacedPaintFaces(s: Scene, def: DefId, candidates: Iterable<number> | null): Map<Guid, number[]> {
   const out = new Map<Guid, number[]>(), b = s.defs.get(def)?.body;
-  if (!b || b.kind !== "mesh" || !hasUv(b)) return out;
+  if (!b || b.kind !== "mesh") return out;   // 施工单十八第 2 刀：不看速查表空不空（材质是画而没有位置的面 = 走画没位置，收尾去补）
   const k = b.kernel, seen = new Set<number>();
   for (const f of candidates ?? k.faces()) {
     if (seen.has(f)) continue;
