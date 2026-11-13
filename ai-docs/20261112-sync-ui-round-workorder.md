@@ -161,3 +161,8 @@ user：「你现在先跟小黑屋那边说明这个错误，然后进行最大�
 ## 施工记录
 
 （小弟写）
+
+- **第一版 = v0.19.74 已合已推**（main 76b9a270；2026-11-12，Claude Opus 5.5）。v0.19.73 没推过就作废：升号之后才照统筹撤回的决定改 `app-store.ts` 注释，`ship-main` 的规矩是升号后不许再改随 app 发出去的东西，所以重新升了一次号。
+  - 改了什么：`vendor-pkgs/internal-store-2.2.7.tgz` → `internal-store-2.3.6.tgz`（`pull-package.sh 2.3.6`；统筹核过和库仓发布的那一份 sha256 相同、tag v2.3.6 = 773ffe9）+ `package.json` 那一行 + lock；`src/app-store.ts` 只加两行注释把「正在存靠库的请求时限才放得下」标成欠账，`GRAPH_TRANSPORT` 原样（不写 `upload`）。图库库 0.8.10、加密库 0.2.2 没动；`lockByDefault` / `fileMarks` 没开；崩溃影子没碰。
+  - 验：全套 255 个文件 2410 过 0 红，**没改任何断言**；`probe-autosave-resume-race` 2.2.7 上 A / C / D 库这一层红 → 2.3.6 全绿；端到端 15 个绿 13，`probe-folder-home` 两条是底账里早就写着的老毛病（F-264 / F-265），race 探针第一遍红是探针把网址当仓目录（a747c199 修）；红线组 23ce8ad7、b1b1dcd2 两次都 8/8。
+  - 顺手：整跑脚本等服务起来时没读回应体，Node 24 的 undici 断言崩掉整个脚本两次（d9abc462 修，只改脚本）；三维 worktree 的 `node_modules` 原来是链到主目录的，收库前换成了自己的一份（不然 `npm install` 会把主目录的同步库也换成 2.3.6）。
