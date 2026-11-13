@@ -5,6 +5,9 @@
 //   ③ 拐了一个弯之后点到另一张面上 = 不下点、说原因。
 //   ④ 画过的方块（开始画、一张面一块）：右侧面拐弯切一刀 → 两张新面每个角的贴图坐标 = 原面那张平面映射在那一点的值（画都在原位），空出来的地方一个框都不多。
 //   ⑤ 强行对称开着（X 轴）：右侧面拐弯切一刀 → 左侧面也切出对称的一刀，所有点都有镜像的孪生点。
+//   ⑥ 用笔（带压力的 pointer 事件，走 seek-input 和重按判断那条真路；统筹 11-13）：画过的方块先在右侧面上用画笔画一笔草稿 → 换刀：轻按着滑 = 不下点、边上重按 = 起刀、
+//      面里重按两下 = 两个拐点、另一条边上重按 = 切到、抬笔 = 收刀。验：整条 = 一条指令一步撤销；轻按滑动途中一个点都没多下；草稿那一笔还在原来的三维位置
+//      （屏幕上同几个点下面还是有墨 + 画板字节一样 + 贴图坐标照第 ④ 组）；空位不变；抬笔后刀收了。反例：起刀、只下了面里的拐点、没切到边就抬笔 = 什么都没发生。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-knife-bend.mjs [地址]（或 PROBE_URL）
 import { createRequire } from "node:module";
 const { chromium } = createRequire(new URL("../../../20260524 WeebPaint/package.json", import.meta.url))("playwright");
@@ -87,6 +90,60 @@ res.mirror = await run(0, async () => { globalThis.__kbEnv.e.setMirror("force", 
   const vs = m().verts().map((v) => m().pt(v)), has = (q) => vs.some((p) => Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) < 1e-6);
   return { df: m().faceCount() - f0, twins: vs.every((p) => has({ x: -p.x, y: p.y, z: p.z })), check: m().check().join(";") };
 });
+// ⑥ 用笔：草稿 → 沿草稿切
+res.pen = await run(0, async () => {
+  const { e, def, m } = globalThis.__kbEnv, G = crypto.randomUUID(), T = crypto.randomUUID(), g = () => crypto.randomUUID();
+  e.commitOp({ op: "startPaint", def, faces: m().faces(), uvSet: G, textureGuid: T, materialGuid: g(), names: { uvSet: "UV", paint: "画", material: "画" }, color: [0.95, 0.95, 0.95], density: 16 });
+  globalThis.__kb = { G, T };
+}, async () => {
+  const { C, e, P, sleep, esc, m, def, S } = globalThis.__kbEnv, { G, T } = globalThis.__kb;
+  const c = document.getElementById("board"), r = c.getBoundingClientRect(), px = (p) => e.cam.angularPx(p, e.vp());
+  let pid = 60;
+  const pf = (type, q, p) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: r.left + q.x, clientY: r.top + q.y, pointerId: pid, pointerType: "pen", isPrimary: true, button: type === "pointermove" ? -1 : 0, buttons: type === "pointerup" ? 0 : 1, pressure: type === "pointerup" ? 0 : p }));
+  const lerp = (a, z, u) => ({ x: a.x + (z.x - a.x) * u, y: a.y + (z.y - a.y) * u });
+  const frame = async () => { e.draw(); await new Promise((ok) => requestAnimationFrame(ok)); };
+  // —— 草稿：画画工作台、画笔、在右侧面上横着画一笔（真的笔事件，压力 0.3–0.5 变）——
+  C.pickWorkbench("paint"); e.setTool("paintPen"); await frame(); await frame();
+  const sketch = []; for (let i = 0; i <= 12; i++) sketch.push(P(1, 0.15 + 0.7 * (i / 12), 0.5));
+  pid++; const s0 = px(sketch[0]); pf("pointerdown", s0, 0.3); await sleep(10);
+  for (const w of sketch.slice(1)) { pf("pointermove", px(w), 0.35 + 0.1 * Math.random()); await sleep(10); }
+  pf("pointerup", px(sketch[sketch.length - 1]), 0); await sleep(60); await frame(); await frame();
+  const board = () => { const b = C.paint.boards.get(T); if (!b) return "没有画板"; const d = b.wp.exportData(); let h = 2166136261; for (const n of d.nodes) if (n.pixels) for (const v of n.pixels.bytes) { h ^= v; h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
+  const inkAt = () => { const b = C.paint.boards.get(T); let n = 0, k = 0; for (const w of sketch.slice(1, -1)) { const q = px(w), cc = C.paint.cellAt(T, q.x, q.y); if (!cc?.cell) continue; k++; const v = b?.pixelAt(cc.cell[0], cc.cell[1]); if (v && v[3] > 0) n++; } return { inked: n, asked: k }; };
+  const ink0 = inkAt(), board0 = board(), steps0 = e.history.position();
+  // —— 换刀（回自由建模）——
+  C.pickWorkbench("freeform"); e.setTool("knife"); await frame();
+  const mx = Math.max(...m().verts().map((v) => m().pt(v).x)), right = m().faces().find((f) => m().facePts(f).every((p) => Math.abs(p.x - mx) < 1e-9));
+  const ps = m().facePts(right), uv = C.paint.uv.at(def, right, G), at = (i) => [uv[2 * i], uv[2 * i + 1]];
+  const [A, Bp, Cp] = [0, 1, 2].map((i) => ({ y: ps[i].y, z: ps[i].z, uv: at(i) }));
+  const det = (Bp.y - A.y) * (Cp.z - A.z) - (Cp.y - A.y) * (Bp.z - A.z);
+  const map = (y, z) => { const s1 = ((y - A.y) * (Cp.z - A.z) - (Cp.y - A.y) * (z - A.z)) / det, t = ((Bp.y - A.y) * (z - A.z) - (y - A.y) * (Bp.z - A.z)) / det; return [0, 1].map((kk) => A.uv[kk] + (Bp.uv[kk] - A.uv[kk]) * s1 + (Cp.uv[kk] - A.uv[kk]) * t); };
+  const freed0 = [...(S().uvSets.get(G)?.freed ?? [])].join(), f0 = m().faceCount(), before = new Set(m().faces()), h0 = e.history.position();
+  const k = e.handlers.knife, state = () => { const d = k.describe().meshKnife; return { start: d.start, bend: d.bend?.n ?? 0, steps: e.history.position() - h0, faces: m().faceCount() - f0 }; };
+  const pdown = async (w) => { pid++; const q = px(w); pf("pointerdown", q, 0.1); await sleep(10); for (let i = 0; i < 12; i++) { pf("pointermove", q, 0.15 + (i % 2 ? 0.01 : -0.01)); await sleep(10); } };
+  const glide = async (a, z) => { const qa = px(a), qz = px(z); for (let i = 1; i <= 10; i++) { pf("pointermove", lerp(qa, qz, i / 10), 0.15 + (i % 2 ? 0.01 : -0.01)); await sleep(10); } };
+  const hard = async (w) => { const q = px(w); for (const p of [0.3, 0.45, 0.6, 0.6, 0.6, 0.35, 0.2, 0.15, 0.15]) { pf("pointermove", q, p); await sleep(8); } };
+  const lift = async (w) => { pf("pointerup", px(w), 0); await sleep(140); };
+  const F0 = P(1, 0.5, 0.8), EA = P(1, 0, 0.3), I1 = P(1, 0.35, 0.7), I2 = P(1, 0.65, 0.25), EB = P(1, 1, 0.6);
+  const out = { ink0, board0Drawn: board0 !== "没有画板" };
+  await pdown(F0); await glide(F0, EA); out.slideToEdge = state();                     // 轻按着滑到边上：一个点都没下
+  await hard(EA); out.afterStart = state();                                              // 边上重按 = 起刀
+  await glide(EA, I1); out.slideToI1 = state(); await hard(I1); out.afterI1 = state();   // 面里重按 = 拐点
+  await glide(I1, I2); await hard(I2); out.afterI2 = state();
+  await glide(I2, EB); out.slideToEdgeB = state(); await hard(EB); out.afterCut = state();   // 另一条边上重按 = 切到
+  await lift(EB); out.lifted = { active: e.isGestureActive(), start: k.describe().meshKnife.start };
+  const fresh = m().faces().filter((f) => !before.has(f));
+  let worst = 0; for (const f of [right, ...fresh]) { const q = m().facePts(f), u = C.paint.uv.at(def, f, G); if (!u) { worst = Infinity; continue; } q.forEach((p, i) => { const w = map(p.y, p.z); worst = Math.max(worst, Math.hypot(w[0] - u[2 * i], w[1] - u[2 * i + 1])); }); }
+  await frame(); await frame();
+  out.after = { ink: inkAt(), boardSame: board() === board0, worstUvOff: worst, freedSame: [...(S().uvSets.get(G)?.freed ?? [])].join() === freed0, check: m().check().join(";"), newFaces: fresh.length, sketchSteps: h0 - steps0 };
+  // 反例：起刀、面里拐一个弯、没切到边就抬笔 = 什么都没发生
+  const h1 = e.history.position(), f1 = m().faceCount(), T0 = P(0.5, 0.5, 1), TE = P(0.5, 0, 1), TI = P(0.4, 0.4, 1);
+  await pdown(T0); await glide(T0, TE); await hard(TE); await glide(TE, TI); await hard(TI); const mid = state();
+  await lift(TI);
+  out.counter = { midBend: mid.bend, steps: e.history.position() - h1, faces: m().faceCount() - f1, active: e.isGestureActive(), start: k.describe().meshKnife.start };
+  e.undo(); await sleep(30); out.undoFaces = m().faceCount() - f0;
+  return out;
+});
 await browser.close();
 res.errs = errs;
 const checks = {
@@ -101,7 +158,18 @@ const checks = {
   "④ 空出来的地方一个框都不多": res.paint.freedSame,
   "④ 自检干净": res.paint.check === "",
   "⑤ 强行对称：两边都切了（跨镜像面的四张面也被劈开，强行对称本来的做法）、每个点都有镜像孪生": res.mirror.df >= 2 && res.mirror.twins && res.mirror.check === "",
-  "⑥ 没有页面错误": errs.length === 0,
+  "⑥ 笔：草稿画上了（画板有字节、草稿下面有墨）": res.pen.board0Drawn && res.pen.ink0.inked > 0 && res.pen.ink0.inked === res.pen.ink0.asked,
+  "⑥ 笔：轻按着滑到边上 = 一个点都没下": res.pen.slideToEdge.start === null && res.pen.slideToEdge.steps === 0,
+  "⑥ 笔：边上重按 = 起刀（还没有指令）": res.pen.afterStart.start !== null && res.pen.afterStart.steps === 0 && res.pen.afterStart.bend === 0,
+  "⑥ 笔：轻按滑进面里 = 没多下点": res.pen.slideToI1.bend === 0 && res.pen.slideToI1.steps === 0,
+  "⑥ 笔：面里重按两下 = 两个拐点（还没提交）": res.pen.afterI1.bend === 1 && res.pen.afterI2.bend === 2 && res.pen.afterI2.steps === 0 && res.pen.slideToEdgeB.bend === 2,
+  "⑥ 笔：另一条边上重按 = 切到，整条 = 一条指令一步撤销、面 +1": res.pen.afterCut.steps === 1 && res.pen.afterCut.faces === 1 && res.pen.afterCut.bend === 0,
+  "⑥ 笔：抬笔 = 收刀": !res.pen.lifted.active && res.pen.lifted.start === null,
+  "⑥ 笔：草稿那一笔还在原来的三维位置（同几个点下面还有墨、画板字节一样、贴图坐标 = 原面映射）": res.pen.after.ink.inked === res.pen.ink0.inked && res.pen.after.ink.asked === res.pen.ink0.asked && res.pen.after.boardSame && res.pen.after.worstUvOff <= 1 / 1024,
+  "⑥ 笔：空位不变、自检干净": res.pen.after.freedSame && res.pen.after.check === "" && res.pen.after.newFaces === 1,
+  "⑥ 笔反例：只下了面里的拐点就抬笔 = 什么都没发生": res.pen.counter.midBend === 1 && res.pen.counter.steps === 0 && res.pen.counter.faces === 0 && !res.pen.counter.active && res.pen.counter.start === null,
+  "⑥ 笔：撤销一步 = 那一刀撤掉": res.pen.undoFaces === 0,
+  "⑦ 没有页面错误": errs.length === 0,
 };
 const ok = Object.values(checks).every(Boolean);
 console.log(JSON.stringify({ checks, res }, null, 1));
