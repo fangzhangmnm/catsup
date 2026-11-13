@@ -1,6 +1,9 @@
 // tools/mesh-knife.ts —— 自由建模工作台的刀 + 环切（网格体；K）。created 2026-10-27 by Claude Opus 5.5
 // 设计稿 §2-1 / §2½ + 纪元账本 FM10 / FM11 / FM12：
-//   · 刀**要吸**（§2½「刀要吸、挪不要吸」：落点是拓扑，不吸就切出一堆差 0.1 mm 的碎边）——落点永远是光标下看得见的点或边上的点；
+//   · 落点跟吸附开关走（2026-11-13 user 改口，盖过 10-27 设计稿 §2½「刀要吸」：「自由建模的时候，如果你没有开吸附的时候，它是应该不会吸附终点的……
+//     你可以想象，自由建模就是艺术家而不是工程师」）。开关 = 和挪同一个（底 XOR Shift；底 = ctx.snapBase()：鼠标关、笔 / 手指跟右上角锁钮）：
+//     开着 = 端点 > 中点 > 边上的点（照旧）；关着 = 笔 / 光标正下方那一点在边上的位置，不拽到端点、不拽到中点（拾取只给了点 = 取它连着的边里离笔最近的那条），
+//     离端点不到 KNIFE_END_PX 个屏幕像素 = 就是那个端点（免得切出看不见的碎边；统筹加的，已报 user）。落点永远在看得见的点或边上；
 //   · 一下一下连着切：每两个落点之间切一刀（= 一步撤销），接着从刚切到的点往下切；Esc 收刀；两个点得在同一张面上（跨面先切到中间那条边上）；
 //   · 每个点 = 按下、滑动、松手才定（W-3 2026-11-10，user 11-10「第一个点改成按下、滑动、松手才定……后面的手感和线对齐」）：
 //     按下只开始找，落点标记跟着笔 / 光标沿边滑，松手那一刻的落点才算；鼠标点一下 = 原地按下松手。悬停预告：端点 > 中点 > 边上的点；
@@ -22,6 +25,8 @@ import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 
 export type KnifePoint = { v: number } | { e: number; t: number };
+/** 吸附关着时，离端点不到这么多屏幕像素 = 就是那个端点（统筹 11-13：免得切出看不见的碎边）。 */
+export const KNIFE_END_PX = 2;
 type Hit = { pt: KnifePoint; w: Pt3; kind: SnapKind };
 /** 这一串里切成的一刀（马后炮重切用）：提交的那条记录 + 刀口上的顶点（和 path 一一对应）。 */
 type Cut = { def: number; face: number; path: [KnifePoint, KnifePoint]; verts: number[] };
@@ -230,6 +235,7 @@ export class MeshKnifeTool implements ToolHandler {
     const c = ctx.classify(ctx.world(), ctx.pickStatic(s.x, s.y));   // 真身的拓扑（预演里那条边已经劈开了）
     if (c.kind !== "entity") return null;
     const m = ctx.mesh(), X = ctx.ctxXform(), h = c.local;
+    if (ctx.snapBase() === ctx.mods().shift) return this.freeAt(ctx, s, h);   // 吸附关着（底 XOR Shift = 关）：笔正下方那一点（2026-11-13 user）
     if (h.vertex !== undefined && m.hasV(h.vertex)) return { pt: { v: h.vertex }, w: applyPt(X, m.pt(h.vertex)), kind: "endpoint" };
     if (h.edge !== undefined && m.hasE(h.edge)) {
       const a = applyPt(X, m.pt(m.edgeA[h.edge])), b = applyPt(X, m.pt(m.edgeB[h.edge])), vp = ctx.vp(), fr = ctx.frame();
@@ -240,5 +246,24 @@ export class MeshKnifeTool implements ToolHandler {
       return { pt: { e: h.edge, t }, w: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t }, kind: "on-edge" };
     }
     return null;
+  }
+  /**
+   * 吸附关着的落点：拾取给了边 = 那条边；只给了点 = 这个点连着的边里离笔最近的那条（屏幕上）。边上取笔正下方那一点（不拽到中点）；
+   * 离两头不到 KNIFE_END_PX 个屏幕像素 = 就是那一头的点。拾取什么都没给 = null。
+   */
+  private freeAt(ctx: ToolCtx, s: { x: number; y: number }, h: { vertex?: number; edge?: number }): Hit | null {
+    const m = ctx.mesh(), X = ctx.ctxXform(), vp = ctx.vp(), fr = ctx.frame();
+    const seg = (e: number) => { const a = applyPt(X, m.pt(m.edgeA[e])), b = applyPt(X, m.pt(m.edgeB[e])); return { a, b, d: fr.distToSeg(s.x, s.y, a, b, vp) }; };
+    let e = h.edge !== undefined && m.hasE(h.edge) ? h.edge : -1;
+    if (e < 0 && h.vertex !== undefined && m.hasV(h.vertex)) {
+      let best = Infinity;
+      for (const x of m.vEdges(h.vertex)) { const d = seg(x).d.d; if (d < best) { best = d; e = x; } }
+    }
+    if (e < 0) return null;
+    const { a, b, d } = seg(e);
+    if (fr.distTo(s.x, s.y, a, vp) <= KNIFE_END_PX) return { pt: { v: m.edgeA[e] }, w: a, kind: "endpoint" };
+    if (fr.distTo(s.x, s.y, b, vp) <= KNIFE_END_PX) return { pt: { v: m.edgeB[e] }, w: b, kind: "endpoint" };
+    const t = Math.max(0.001, Math.min(0.999, Number.isFinite(d.t) ? d.t : 0.5));
+    return { pt: { e, t }, w: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t }, kind: "on-edge" };
   }
 }

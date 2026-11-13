@@ -172,6 +172,9 @@ const knob = async () => { const b = await page.locator('.float-win[data-win="ca
 const r0 = await rect();
 const railR = (await page.locator(".hud-rail-tools").boundingBox())?.x + (await page.locator(".hud-rail-tools").boundingBox())?.width;
 check(r0.x + r0.w / 2 < 640 && r0.x >= railR, `第一次开在左边、让开工具柱（窗 x ${Math.round(r0.x)}，工具柱右边 ${Math.round(railR)}；user 11-12「是context aware panel，不是viewport」）`);
+const hud0 = await S(() => { const b = (sel) => { const el = document.querySelector(sel); if (!el || el.hidden) return null; const q = el.getBoundingClientRect(); return q.width > 0 && q.height > 0 ? { l: q.left, t: q.top, r: q.right, b: q.bottom } : null; }; return { dial: b(".left-dial"), crumbs: b("#crumbs"), gizmo: b(".hud-gizmo") }; });
+const hits = (h) => !!h && r0.x < h.r && h.l < r0.x + r0.w && r0.y < h.b && h.t < r0.y + r0.h;
+check(!!hud0.dial && !hits(hud0.dial) && !hits(hud0.crumbs) && !hits(hud0.gizmo), `第一次开：不盖住绘制的滑杆那一列、左上的层级、右边的视图钮（2026-11-13 iPad 竖屏量出来以前盖住滑杆上半截；${JSON.stringify(hud0)}）`);
 let k = await knob(); await page.mouse.click(k.x, k.y); await frames(2);
 const r1 = await rect(), col1 = (await W()).collapsed;
 k = await knob(); await page.mouse.click(k.x, k.y); await frames(2);

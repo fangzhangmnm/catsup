@@ -45,6 +45,19 @@ export function screenBottomFloor(): number {
   return Math.max(drawer, kb);
 }
 
+/**
+ * 第一次开在左边（firstSide: "left"）时放在哪、多宽：左边 = 左侧露着的那几列（工具柱、绘制工作台的滑杆那一列）最右的那条边 + 8，
+ * 宽 = 原来的宽和「到右边视图那一列左边 − 8」里小的那个，上边不高于左上那行「在哪一层」（露着时）的下沿 + 6
+ * （不盖住左边的工具、右边的视图钮、左上的层级；2026-11-13 iPad 竖屏 656 × 1000 量过：以前只躲工具柱，盖住了滑杆上半截）。
+ */
+function firstLeftBox(w: number): { left: number; width: number; topMin: number } {
+  const shown = (sel: string): DOMRect | null => { const el = document.querySelector<HTMLElement>(sel); if (!el || el.hidden) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
+  const lefts = [shown(".hud-rail-tools"), shown(".left-dial")].filter((r): r is DOMRect => r !== null);
+  const left = lefts.length ? Math.max(...lefts.map((r) => r.right)) + 8 : 12, gz = shown(".hud-gizmo");
+  const cr = shown("#crumbs");
+  return { left, width: gz && gz.left > left ? Math.min(w, gz.left - 8 - left) : w, topMin: cr ? cr.bottom + 6 : 0 };
+}
+
 export function createBareFloatWin(spec: BareFloatWinSpec): BareFloatWin {
   const el = document.createElement("div"); el.className = "float-win bare-win"; el.dataset.win = spec.id; el.hidden = true; el.setAttribute("aria-label", spec.label);
   const body = document.createElement("div"); body.className = "bare-body";
@@ -74,7 +87,7 @@ export function createBareFloatWin(spec: BareFloatWinSpec): BareFloatWin {
     open(anchor) {
       const was = win.isOpen();
       win.open();
-      if (!was && !placed) { const a = anchor.getBoundingClientRect(), w = el.offsetWidth || 440, rail = spec.firstSide === "left" ? document.querySelector(".hud-rail-tools")?.getBoundingClientRect() : undefined; win.restore({ left: spec.firstSide === "left" ? (rail ? rail.right + 8 : 12) : a.right - w, top: a.bottom + 6 }); placed = true; }   // 第一次挨着钮；之后照这一次打开期间最后的位置
+      if (!was && !placed) { const a = anchor.getBoundingClientRect(), w = el.offsetWidth || 440; if (spec.firstSide === "left") { const f = firstLeftBox(w); win.restore({ left: f.left, top: Math.max(a.bottom + 6, f.topMin), ...(f.width < w ? { width: f.width } : {}) }); } else win.restore({ left: a.right - w, top: a.bottom + 6 }); placed = true; }   // 第一次挨着钮；之后照这一次打开期间最后的位置
       win.clamp();
     },
     close: () => win.close(),

@@ -8,6 +8,8 @@ export type KnifePoint = {
     e: number;
     t: number;
 };
+/** 吸附关着时，离端点不到这么多屏幕像素 = 就是那个端点（统筹 11-13：免得切出看不见的碎边）。 */
+export declare const KNIFE_END_PX = 2;
 /** 两个落点共有的那张面（最小 id）；没有 = null。 */
 export declare function commonFace(m: MeshKernel, a: KnifePoint, b: KnifePoint): number | null;
 export declare class MeshKnifeTool implements ToolHandler {
@@ -71,4 +73,9 @@ export declare class MeshKnifeTool implements ToolHandler {
      * 透视下标记跑偏——默认视角 8 像素，一条往里伸的 4 m 长边上 160 像素 / 1.2 m；正交下两者相同）。
      */
     private snapAt;
+    /**
+     * 吸附关着的落点：拾取给了边 = 那条边；只给了点 = 这个点连着的边里离笔最近的那条（屏幕上）。边上取笔正下方那一点（不拽到中点）；
+     * 离两头不到 KNIFE_END_PX 个屏幕像素 = 就是那一头的点。拾取什么都没给 = null。
+     */
+    private freeAt;
 }
