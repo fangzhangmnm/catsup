@@ -214,6 +214,8 @@ body.doc-locked .walk-btn[data-edits] { opacity: .45; }
 .tool:hover { background: var(--hover); }
 .tool.active { background: var(--accent); color: #fff; }
 .tool.active .tool-label { color: #e7f0fb; }
+/* 「只管这一下」= 蓝色空心框（快捷键借来的工具，controller/tool-borrow.ts；以后快捷键按的锁也用它）；实心 .active = 一直拿着的（user 11-13「临时选中，它是一个蓝色的框」） */
+.once { box-shadow: inset 0 0 0 2px var(--accent); }
 /* 最近用过的非钉工具（≤ 2 格，屏幕矮就 0 格）；和钉死的长一样，只是会变 */
 .rail-sep { height: 6px; }   /* 左柱分组：只留空隙，不画线（user 10-24「|线不要试试」） */
 .tool { position: relative; }

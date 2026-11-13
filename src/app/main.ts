@@ -42,6 +42,7 @@ import { mountMfd } from "./mfd.ts";
 import { stanceShown } from "../controller/chips.ts";
 import { selectModeFor } from "../editor/tool-config.ts";
 import { railFace } from "../controller/rail-face.ts";
+import { keyBorrows } from "../controller/tool-borrow.ts";
 import { flippedValue, onSecond, secondModeOf } from "../controller/second-mode.ts";
 import { mountSoftSlider, stepRadius, type SoftSlider } from "./soft-slider.ts";
 import { mountLeftDial } from "./left-dial.ts";
@@ -562,7 +563,7 @@ async function renameRoot(): Promise<void> {
 /** 矮的「⌄」展开条：弹整组（user「...和下箭头做矮一点」）。 */
 const mkMore = (tools: Tool[]): HTMLButtonElement => {
   const b = document.createElement("button");
-  b.type = "button"; b.className = "rail-more"; b.title = "这一组的全部工具"; b.innerHTML = iconHtml("more");   // user 10-24「工具栏用...不要用小箭头。也是黑色」
+  b.type = "button"; b.className = "rail-more"; b.title = "这一组的全部工具"; b.innerHTML = iconHtml("more"); b.dataset.holds = tools.join(",");   // user 10-24「工具栏用...不要用小箭头。也是黑色」
   b.addEventListener("click", () => togglePopupMenu<Tool>({ anchor: b, align: "start", items: () => flyoutItems(tools), onPick: (x) => hud.pick(x) }));
   return b;
 };
@@ -579,11 +580,21 @@ function allocate(): number[] {
   for (let i = 0; i < out.length && left > 0; i++) { const add = Math.max(0, Math.min(want[i] - out[i], left)); out[i] += add; left -= add; }
   return out;
 }
-function renderSlots(): void {
-  noteToolUse(editor.tool);
+/** 借来的那把（快捷键临时拿起，controller/tool-borrow.ts）：蓝色空心框框在它那一格上（小三角格 = 组里有它）；左柱上看不见 = 框在收着它的「…」上。
+ *  样式 .once =「只管这一下」，不挂在 .tool 上：以后快捷键按的锁（空心框只管这一下）也用它（统筹 11-13）。 */
+function markBorrowed(): void {
+  const t = editor.toolHeld.temp;
+  if (!t) return;
+  const has = (el: HTMLElement): boolean => (el.dataset.holds ?? "").split(",").includes(t);
+  const tools = [...toolbarEl.querySelectorAll<HTMLElement>(".tool[data-holds]")], mores = [...toolbarEl.querySelectorAll<HTMLElement>(".rail-more[data-holds]")];
+  (tools.find(has) ?? mores.find(has))?.classList.add("once");
+}
+function renderSlots(): void { layoutSlots(); markBorrowed(); }
+function layoutSlots(): void {
+  noteToolUse(editor.toolHeld.base);   // 借来的（快捷键临时拿起）不算用过：左柱不跟着长、小三角格不换脸
   toolbarEl.replaceChildren();
   const inMode = (t: Tool): boolean => editor.modeTools().includes(t);   // 左柱只排当前模式的工具（刀 ③：表面模式 = 选择 + 油漆桶）
-  const add = (t: Tool, fly?: () => Tool[]): void => { if (!inMode(t)) return; const b = mkToolBtn(t, fly); b.classList.toggle("active", t === editor.tool); toolbarEl.appendChild(b); };
+  const add = (t: Tool, fly?: () => Tool[]): void => { if (!inMode(t)) return; const b = mkToolBtn(t, fly); b.classList.toggle("active", t === editor.toolHeld.base); b.dataset.holds = (fly ? fly() : [t]).join(","); toolbarEl.appendChild(b); };
   const fixed = RAIL_FIXED[editor.modeId];
   if (fixed) {   // 这个工作台有自己定死的一列（自由建模 / 验证）；列里的小三角组（RAIL_FIXED_FLYOUTS）= 格子显示最近用的那把
     const groups = RAIL_FIXED_FLYOUTS[editor.modeId] ?? {};
@@ -1622,18 +1633,19 @@ function keyContext(): KeyContext {
  * 明着换工作台再拿工具（统筹 11-11）：要的工具不在当前工作台 → 先换到 among 里有这把工具、又管得了这种身体的工作台（编辑器 ownerModeOf），提示行说一句，再拿工具。
  * 编辑器的 setTool 自己从不换工作台（拒收、说在哪）。among：工具键 = 键表的跳转表 TOOL_KEY_JUMPS[当前工作台]（画画不在表里 = 出不去也进不来）；步行相机 / 材质面板 = 不限。
  */
-function takeTool(t: Tool, among?: readonly ModeId[]): void {
+function takeTool(t: Tool, among?: readonly ModeId[], how?: "borrow"): void {
   if (!editor.modeTools().includes(t)) {
     const m = editor.ownerModeOf(t, among);
-    if (m) { editor.setMode(m); syncUi(); editor.setTool(t); hintEl.textContent = `换到了「${editor.modes().find((x) => x.id === m)?.label ?? m}」工作台`; return; }
+    if (m) { editor.setMode(m); syncUi(); editor.setTool(t); hintEl.textContent = `换到了「${editor.modes().find((x) => x.id === m)?.label ?? m}」工作台`; return; }   // 跨工作台 = 真的换（不借）
   }
-  editor.setTool(t);
+  editor.setTool(t, how);
 }
 function toolKey(key: string, t: Tool): void {
   const cyc = KEY_CYCLES[key];
-  if (cyc && cyc.includes(editor.tool)) { const next = cyc[(cyc.indexOf(editor.tool) + 1) % cyc.length]; if (editor.modeTools().includes(next)) { editor.setTool(next); return; } }
+  const how = (x: Tool): "borrow" | undefined => (keyBorrows(editor.modeId, x) ? "borrow" : undefined);   // 自由建模里快捷键拿起的 = 借（controller/tool-borrow.ts；回「选」的 Space / Tab 除外）
+  if (cyc && cyc.includes(editor.tool)) { const next = cyc[(cyc.indexOf(editor.tool) + 1) % cyc.length]; if (editor.modeTools().includes(next)) { editor.setTool(next, how(next)); return; } }
   if (key === "a" && editor.tool === "arc") { const modes: string[] = ARC_MODES.map((m) => m.id), cur = editor.config.get("arc", "mode") as string; const nx = modes[(modes.indexOf(cur) + 1) % modes.length]; editor.config.set("arc", "mode", nx); hintEl.textContent = `弧：${ARC_MODES.find((m) => m.id === nx)?.label ?? nx}（再按 A 换下一种）`; syncUi(); return; }
-  takeTool(t, TOOL_KEY_JUMPS[editor.modeId] ?? []);   // 不在这个工作台：只按跳转表明着跨（画画不在表里）；跳不了 = setTool 拒收、说这把工具在哪
+  takeTool(t, TOOL_KEY_JUMPS[editor.modeId] ?? [], how(t));   // 不在这个工作台：只按跳转表明着跨（画画不在表里）；跳不了 = setTool 拒收、说这把工具在哪
 }
 function runKeyAction(action: string, ev: KeyboardEvent): void {
   const [verb, p1, p2] = action.split(":");
@@ -1661,7 +1673,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
       if (!editor.startModal(t, p2)) {
         if (t === "shrink") hintEl.textContent = "沿法线移动：先选点 / 边 / 面";
         else if (p2) hintEl.textContent = p2 === "bevelVerts" ? "倒角（点）：先选点" : "倒角：先选边（选面 = 倒它的边）";
-        else editor.setTool(t);
+        else editor.setTool(t, "borrow");   // 没选区：借着拿起（蓝框），做完一次回原来那把（统筹 11-13 C；以前退回成一直拿着）
       }
       syncUi(); return;
     }
@@ -1703,6 +1715,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
       // 自由建模的手势中（拖着 / 键盘起手 / 打数）→ 只取消这次操作、选区留着（Blender：G / S 里 Esc 只退回去；2026-10-28 晚「S Z 0」接线时改，硬表面照旧）
       if (editor.escToFinish()) { syncUi(); return; }   // 刀在等下一点：Esc = 收刀、开「切割」小窗（W-8，Fable 11-10）；再按一次才是取消
       if (editor.modeId === "freeform" && editor.isGestureActive() && !editor.mirrorActive()) { editor.abortGesture(); syncUi(); return; }
+      if (editor.dropBorrow()) { syncUi(); return; }   // 借着一把（蓝框）、什么都还没做：Esc = 回原来那把（统筹 11-13 C），这一下不再清选区
       // 手势中 / 有选区 → 取消；否则在 group / 组件里 → 退出一层（SU：Esc 关组）
       if (!editor.isGestureActive() && !editor.hasAnySelection() && editor.contextDepth() > 0) editor.exitContext(); else editor.cancel();
       return;

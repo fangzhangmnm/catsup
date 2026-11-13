@@ -189,7 +189,7 @@ export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（202
 import { SNAP_LABELS } from "./gesture-consts.ts";
 import { CHARGE_DWELL_MS } from "../controller/feel.ts";
 import { settleLift } from "../controller/lift-settle.ts"; import type { PressHit } from "../controller/hard-press.ts";
-import { lockLines, lockThrough } from "../controller/lock-guide.ts";
+import { lockLines, lockThrough } from "../controller/lock-guide.ts"; import { ToolHold, type Hold } from "../controller/tool-borrow.ts";
 import { stepSelection, type SelSets } from "../mesh/select-grow.ts";
 import { SNAP_BASE, deviceOf, stanceOf } from "../controller/stance.ts";
 import { createTypedInput, type TypedInput } from "../controller/typed-input.ts";
@@ -265,7 +265,7 @@ export class Editor {
   private history = new History<Session>(undefined, { onLeak: (w) => this.host?.trace?.({ kind: "fail", where: "history", op: null, message: `停放的重做尾巴漏到了「${w}」（已丢掉）` }) });
   /** 上一次经过选区口子 / 装场景时的会话：选区变了 = 记一步「只改选区」（撤销也撤选区，user 10-27「这个我们要」；连续几下不合并，Blender 同款）。上下文变了（进 / 出组件）不算选区步，只刷新。 */
   private static sessionKey(s: Session): string { return JSON.stringify(s); }
-  private _tool: Tool = "select";   // 开机 = 鼠标（选择）工具（user 10-27「硬建模默认也是鼠标工具」）
+  private _tool: Tool = "select"; private readonly hold = new ToolHold("select");   // 开机 = 鼠标（选择）工具（user 10-27「硬建模默认也是鼠标工具」）
   private _revision = 0;                  // 场景每次变（commit/undo/redo/load/进出上下文）+1；碰撞世界等消费方据此重建（只增不回拨：缓存按它认场景）
 
   // ---- 瞬态 ----
@@ -294,7 +294,7 @@ export class Editor {
     this.openParamSession(null);   // 换工作台：马前炮 / 马后炮都收
     this.mode = next;
     this.mode.enter?.(this.toolCtx);
-    if (!next.tools.includes(this._tool)) this._tool = this.locked && !isReadOnlyTool(next.defaultTool) && "tool" in next.whenLocked ? next.whenLocked.tool : next.defaultTool;   // 锁着：照这个工作台声明的只读工具（v0.19.48）
+    if (!next.tools.includes(this._tool)) this._tool = this.locked && !isReadOnlyTool(next.defaultTool) && "tool" in next.whenLocked ? next.whenLocked.tool : next.defaultTool; this.hold.apply({ e: "take", tool: this._tool });   // 锁着：照这个工作台声明的只读工具（v0.19.48）
     this.last = null;
     this.clearCharged();
     this.host.changed();
@@ -510,7 +510,7 @@ export class Editor {
   }
 
   // ---------- 只读 ----------
-  get tool(): Tool { return this._tool; }
+  get tool(): Tool { return this._tool; } get toolHeld(): Hold { return this.hold.state; } private settleHold(hadOp: boolean): void { const b = this.hold.settle(this.gestureActive(), hadOp); if (b) this.setTool(b, "back"); } dropBorrow(): boolean { const h = this.hold.state; if (h.temp === null || this.gestureActive()) return false; this.setTool(h.base, "back"); return true; }   // 借来的工具（controller/tool-borrow.ts）：toolHeld = 底 + 借（左柱画实心 / 蓝框）；settleHold = 一步收尾 / 步外取消后问一次「做完了吗」；dropBorrow = 借着、什么都没做时 Esc 回去
   /** 活动池的内核（上下文所在的几何池；根上下文 = 根池）。 */
   get kernel(): Kernel { return this.scene.kernelOf(this.activePool()); }
   /** 活动池的身体种类（选区的 id 空间、工作台、指令的单位种类都跟它走；2026-10-27 接缝）。 */
@@ -547,7 +547,7 @@ export class Editor {
     this.openParamSession(null);
     this.mode = next;
     this.mode.enter?.(this.toolCtx);
-    if (!next.tools.includes(this._tool)) this._tool = next.defaultTool;
+    if (!next.tools.includes(this._tool)) this._tool = next.defaultTool; this.hold.apply({ e: "take", tool: this._tool });
     this.last = null;
     this.clearCharged();
   }
@@ -780,16 +780,16 @@ export class Editor {
   // ---------- 工具 ----------
   /** 哪个工作台有这把工具、又管得了正在编辑的这种身体（among 限定；没有 = null）：给明着跨工作台的调用方用（键表的跳转表、步行相机、材质面板），setTool 自己不跨（统筹 11-11）。 */
   ownerModeOf(t: Tool, among?: readonly ModeId[]): ModeId | null { return workbenchOf(this.modeList, t, this.activeKind(), among)?.id ?? null; }
-  setTool(t: Tool): void {
+  setTool(t: Tool, how?: "borrow" | "back"): void {   // how：borrow = 快捷键临时拿起（自由建模，controller/tool-borrow.ts）；back = 借来的做完了回底下那把（不收马后炮：同一个动作的收尾，统筹 11-13）
     if (this.locked && !isReadOnlyTool(t)) { this.refuse(); return; }   // 演示锁：改模型的工具拿不起来，说为什么（user 11-05：只读工具全部能用）
     // 不吃锁的工具（选择）上先按好的锁 = 给下一把工具的（自由建模「先按 Y 再按 G」，键表 lock.arm）：换工具时交过去、这边不留；吃锁的工具各记各的、不带（W-4）
     const prev = this._tool, handOver = !this.handlers[prev]?.lock && !this.gestureActive() ? this.locks.of(prev) : NO_LOCK;
     if (!this.mode.tools.includes(t)) {   // 工作台只发自己的工具（统筹 11-11：以前这里悄悄 setMode 到拥有它的工作台——画画里按 E 就拿着建模的橡皮擦了模型）：拒收、说在哪；要跨 = 调用方先明着 setMode（工具键走键表的跳转表 TOOL_KEY_JUMPS、app 的 takeTool）。守卫：这里不许调 setMode（test/workbench-tools.test.ts）
       const here = workbenchOf(this.modeList, t, this.activeKind()), any = here ?? workbenchOf(this.modeList, t, null); if (any) this.host.hint(`「${this.mode.label}」工作台里没有这把工具（它在「${any.label}」里${here ? "" : "，管的是别的物件"}）`); return;
     }
-    this.last = null;
-    if (this.param?.phase === "after") { this.openParamSession(null); this.host.hint("刚才那一步的参数已收起（换了工具）"); }   // 马后炮寿命 = 栈顶没变 ∧ 工具没换 ∧ 没撤销过（设计稿 §7 第 4 条；user「切换工具…还是显示着“刚才”」）
-    this._tool = t;
+    if (how !== "back") this.last = null;
+    if (how !== "back" && this.param?.phase === "after") { this.openParamSession(null); this.host.hint("刚才那一步的参数已收起（换了工具）"); }   // 马后炮寿命 = 栈顶没变 ∧ 工具没换 ∧ 没撤销过（设计稿 §7 第 4 条；user「切换工具…还是显示着“刚才”」）
+    this._tool = t; this.hold.apply(how === "borrow" ? { e: "borrow", tool: t } : { e: "take", tool: t });
     this.originEdit = null;   // 改组件原点会话随换工具结束（beginComponentOrigin 在换完之后才开）
     this.cancelGesture();   // 锁不动：每个工具各记各的（W-4），换过去就是那把工具自己记着的（以前吃锁的工具之间「先按 Y 再按 S」也带过去，2026-10-28；W-4 起只从不吃锁的工具交过去）
     if (handOver.axis || handOver.plane) { this.locks.clear(prev); this.locks.set(t, handOver); }
@@ -805,7 +805,7 @@ export class Editor {
     if (this.liveOriginEdit()) { const t = this.originEdit!.prevTool; this.setTool(t); this.host.hint("改组件原点：取消了"); return; }   // 选区留着
     this.taps.cancel();
     this.last = null;
-    this.step((pass) => { this.clearSel(pass); this.cancelGesture(); this.host.changed(); this.draw(); }, { title: "取消选择" });
+    this.step((pass) => { this.hold.noteCancel(this.gestureActive()); this.clearSel(pass); this.cancelGesture(); this.host.changed(); this.draw(); }, { title: "取消选择" });
   }
 
   // ---------- 参考几何 / 轴（0.11 尺规纪元；世界坐标进、池本地坐标存）----------
@@ -1024,10 +1024,10 @@ export class Editor {
   }
   /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
   private step<T>(fn: (pass: StepPass) => T, label?: StepLabel): T {
-    if (this.stepDepth++ === 0) { this.freedBase = freedBaseline(this.scene, this.history); this.history.checkParked("step"); this.mirrorNote = ""; this.mirrorNoteShown = false; this.mirrorDeferred = false; this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; this.stepReason = null; this.stepBumped = false; this.stepTouched = false; this.stepBefore = this.deferredBefore ?? this.sessionSnap(); this.stepLabel = label; }
+    if (this.stepDepth++ === 0) { this.hold.begin(this.gestureActive()); this.freedBase = freedBaseline(this.scene, this.history); this.history.checkParked("step"); this.mirrorNote = ""; this.mirrorNoteShown = false; this.mirrorDeferred = false; this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; this.stepReason = null; this.stepBumped = false; this.stepTouched = false; this.stepBefore = this.deferredBefore ?? this.sessionSnap(); this.stepLabel = label; }
     else if (label && !this.stepLabel) this.stepLabel = label;
     try { const out = fn(STEP_PASS), p = STEP_PASS; if (this.stepDepth === 1 && this.stepHasOp && !this.stepFailed && this.freedBase) { const fo = freedOp(this.scene, this.history, this.freedBase); if (fo) this.commitIn(p, fo); } return out; }   // 最外层收口之前：空出来的地方（施工单十八第 2 刀，paint-freed.ts）
-    finally { if (--this.stepDepth === 0) this.closeStep(); }
+    finally { if (--this.stepDepth === 0) { this.closeStep(); this.settleHold(this.stepHasOp && !this.stepFailed); } }
   }
   /**
    * 一步结束时封账（设计稿 ai-docs/20261028-undo-step-regime.md §2 I1 / I4）：有 op 的步 → 把「之后」的会话封进栈顶那一步（重做回到它）；
@@ -3121,7 +3121,7 @@ export class Editor {
   // ---------- 上下文菜单（#19）给壳的三个小口 ----------
   /** 作废进行中的指针手势（长按弹菜单时），**选区保留**（cancel() 会清选区）。 */
   rightClickInGesture(): boolean { if (!this.gestureActive()) return false; if (!this.commitInPlace()) this.abortGesture(); return true; }   // 手势中右键（两种工作台一样，T102）：能原地留下的原地留下，别的只取消这一下；不在手势里 = false（app 弹菜单）
-  abortGesture(): void { this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.lasso?.(null); this.host.softRing?.(null); this.host.hint(null); this.draw(); }
+  abortGesture(): void { this.hold.noteCancel(this.gestureActive()); this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.lasso?.(null); this.host.softRing?.(null); this.host.hint(null); this.draw(); this.settleHold(false); }
   /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
   gestureInProgress(): boolean { return this.gestureActive(); } pressKindAt(x: number, y: number): "handle" | "thing" | "empty" | null { return this.handlers[this._tool]?.pressKind?.(this.toolCtx, { x, y }) ?? null; }   // pressKindAt = 这一点下面是把手 / 东西 / 空处（纯读；controller/grab-relay.ts 用）
   /** 指针下的实体是否已在选区里（右键 = 不在就先选它，SU 同款）。 */
@@ -3229,12 +3229,12 @@ export class Editor {
     if (this.mode.id !== "freeform" || this.gestureActive() || !this.lastPtr) return false;
     if (!this.mode.tools.includes(tool)) return false;
     const at = this.lastPtr;
-    if (this._tool !== tool) this.setTool(tool);
+    if (this._tool !== tool) this.setTool(tool, "borrow");
     const H = this.handlers[tool];
     if (!H?.startModal) return false;
     this.samples = []; this.downPoint = null;
     if (!H.startModal(this.toolCtx, at, variant)) return false;
-    this.armed = true; this.canArm = true; this.justCommitted = false;
+    this.armed = true; this.canArm = true; this.justCommitted = false; this.hold.noteModal();
     this.computeLive(); this.host.changed(); this.draw();
     return true;
   }
@@ -3314,7 +3314,7 @@ export class Editor {
   /** Ctrl+R（自由建模）：切到切割、下一下点边 = 环切。 */
   armLoopCut(): boolean {
     if (this.mode.id !== "freeform" || !this.mode.tools.includes("knife")) return false;
-    if (this._tool !== "knife") this.setTool("knife"); else this.cancelGesture();
+    if (this._tool !== "knife") this.setTool("knife", "borrow"); else this.cancelGesture();
     this.handlers.knife?.armLoop?.(this.toolCtx);
     this.draw();
     return true;
