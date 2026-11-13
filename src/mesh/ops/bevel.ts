@@ -11,7 +11,7 @@
 // 手标：不倒的边被换成新边时带上原来的标记；段数 > 1 时倒角带中间那几条纵向边标平滑（圆角看起来是圆的）。
 import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
 import { HAND_MARKS, MOVING_MARKS_WITH_HIDDEN, SMOOTH_MARK } from "../edge-mark-rules.ts";
-import { GROWN } from "../corner-columns.ts";
+import { GROWN } from "../columns.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 

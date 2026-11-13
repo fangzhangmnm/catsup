@@ -5,7 +5,7 @@
 // 主门（Fable 11-10）：check() 里「增量维护的表 = 当场从头重建的表（逐项、含先后）」，随机链每一步都要过——某一步 check() 报的若是这一条，直接算失败（不当成「这一步做不了」悄悄丢掉）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel, F_WIRE } from "../src/mesh/mesh-kernel.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { addBox, bevelEdges, catmullClark, deleteFaces, dissolveVertex, extrudeEdges, extrudeFaces, flipFaces, insetFaces, joinFaces, knife, loopCut, mergeVerts, splitEdge, splitFace } from "../src/mesh/ops/index.ts";
 import { symmetrize } from "../src/mesh/mirror.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
@@ -27,13 +27,16 @@ const BASES: Record<string, () => MeshKernel> = {
   fin: () => { const k = new MeshKernel(), a = k.addVertex(P(0, 0, 0)), b = k.addVertex(P(0, 0, 1)); for (const [x, y] of [[1, 0], [-1, 0.2], [0.1, 1]]) { const c = k.addVertex(P(x, y, 1)), d = k.addVertex(P(x, y, 0)); k.addFace([a, b, c, d], -1, FRESH); } return k; },
   loose: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); const a = k.addVertex(P(3, 0, 0)), b = k.addVertex(P(4, 0, 0)); k.setEdgeFlags(k.ensureEdge(a, b), F_WIRE); k.addVertex(P(5, 5, 5)); return k; },
   mirrorBox: () => { const k = new MeshKernel(); addBox(k, P(-1, 0, 0), P(1, 1, 1)); return k; },
-  columns: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(2, 1, 1)); k.addColumn({ guid: "uv", arity: 2, kind: "test" }); for (const f of k.faces()) k.setFaceValues(f, "uv", k.facePts(f).flatMap((p) => [p.x + p.z, p.y - p.x])); return k; },
+  columns: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(2, 1, 1)); k.addColumn({ id: "uv", on: "corner", type: { floats: 2 }, continuous: true, fill: 0, merge: "first", kind: "test" }); for (const f of k.faces()) k.setCornerValues(f, "uv", k.facePts(f).flatMap((p) => [p.x + p.z, p.y - p.x])); return k; },
 };
 const OPS = ["splitEdge", "splitFace", "knife", "loopCut", "inset", "extrudeFaces", "extrudeEdges", "bevel", "mergeVerts", "deleteFaces", "subdivide", "symmetrize", "joinFaces", "dissolveVertex", "flipFaces"] as const;
 
 /** 一条随机链：每一步在副本上做；做不了 / check() 报错 = 丢掉这一步（onBad 先看报错：主门那条 → 调用方算失败）。 */
 function chain(base: string, seed: number, steps: number, onBad?: (bad: string[], op: string, step: number) => void): { k: MeshKernel; done: number[] } {
   let k = BASES[base]();
+  // 第 1½ 刀（2026-11-13）：内核不再自己清掉对不上的面，只报告；「有没有值」改成面上一列整数（并成不一致回缺省值），
+  // 每一步之后照用它的那一层的做法（属性规程第二½节：用到某个意思的那一层每步之后自己读报告、自己检查）把角上对不上的面改回缺省值。这样和改之前的内核逐位相同（下面的样本没重冻）。
+  if (base === "columns") { k.addColumn({ id: "has", on: "face", type: "int", continuous: false, fill: 0, merge: "defaultIfMixed" }); for (const f of k.faces()) k.setFaceValue(f, "has", 1); k.takeReport(); }
   const r = rng(seed * 7919 + base.length), pick = <T>(xs: readonly T[]): T | undefined => xs.length ? xs[Math.floor(r() * xs.length)] : undefined, done = OPS.map(() => 0);
   for (let step = 0; step < steps; step++) {
     const c = k.clone(), oi = Math.floor(r() * OPS.length), op = OPS[oi], f = pick(c.faces()), e = pick(c.edges()), v = pick(c.verts());
@@ -54,6 +57,7 @@ function chain(base: string, seed: number, steps: number, onBad?: (bad: string[]
       else if (op === "dissolveVertex" && v !== undefined) dissolveVertex(c, v);
       else if (op === "flipFaces" && f !== undefined) flipFaces(c, [f]);
       else continue;
+      if (c.hasColumn("has")) { const rep = c.takeReport(); for (const [f, o] of rep.odd) if (o.corner.has("uv") && c.faceValue(f, "has") === 1) c.setFaceValue(f, "has", 0); }   // 每一步之后的检查
     } catch { continue; }
     const bad = c.check();
     if (bad.length) { onBad?.(bad, op, step); continue; }
@@ -69,7 +73,7 @@ function dump(k: MeshKernel): string {
   for (const v of k.verts()) { const p = k.pt(v); o.push(`v${v}:${bits(p.x)},${bits(p.y)},${bits(p.z)}|${[...k.vEdges(v)].join(",")}`); }
   for (const e of k.edges()) o.push(`e${e}:${k.edgeA[e]}-${k.edgeB[e]}/${k.edgeFlags[e]}|${[...k.eFaces(e)].join(",")}`);
   for (const f of k.faces()) o.push(`f${f}:${k.faceVerts(f).join(",")}/m${k.faceMat[f]}/x${k.faceFlags[f]}`);
-  for (const c of k.columnDefs()) for (const f of k.faces()) { const vals = k.cornerValues(f, c.guid); o.push(`c${f}:${vals ? [...vals].map(bits).join(",") : "-"}`); }
+  for (const c of k.columnDefs()) if (c.on === "corner") for (const f of k.faces()) { const vals = k.faceValue(f, "has") === 1 ? k.cornerValues(f, c.id) : null; o.push(`c${f}:${vals ? [...vals].map(bits).join(",") : "-"}`); }   // 没值 = 「-」（和改之前同一个写法）
   const nv = [P(9, 9, 9), P(10, 9, 9), P(9, 10, 9)].map((p) => k.addVertex(p)), nf = k.addFace(nv, -1, FRESH);
   o.push(`next v ${nv.join(",")} f ${nf} e ${k.fEdges(nf).join(",")}`);
   return o.join("\n");

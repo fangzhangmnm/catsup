@@ -1,7 +1,7 @@
 // mesh/ops/build.ts —— 建：空处建 n 边形、既有顶点填面、一次性几何体（盒子）。created 2026-10-27 by Claude Fable 5.1
 import type { Pt3 } from "../../kernel/geom.ts";
 import { MeshKernel } from "../mesh-kernel.ts";
-import { FRESH } from "../corner-columns.ts";
+import { FRESH } from "../columns.ts";
 
 /** 空处建多边形：新点 + 一张面。 */
 export function addPolygon(k: MeshKernel, pts: readonly Pt3[], mat = -1): { face: number; verts: number[] } {

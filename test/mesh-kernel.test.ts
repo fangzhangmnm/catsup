@@ -1,6 +1,6 @@
 // mesh 内核 M1（提案 ai-docs/20261027-mesh-kernel-proposal.md；2026-10-27 Claude Fable 5.1）：不变量 (M1)–(M6) 逐算子查 + 几个形状上的事实。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel, F_SOFT, F_WIRE, type FaceOrigin } from "../src/mesh/mesh-kernel.ts";
 import { addBox, addPolygon, deleteFaces, dissolveVertex, extrudeFaces, joinFaces, knife, mergeVerts, splitEdge, splitFace, translateVerts, flipFaces, loopCut, limitedDissolve, removeDoubles } from "../src/mesh/ops/index.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
@@ -10,19 +10,26 @@ const clean = (k: MeshKernel, where: string): void => { const bad = k.check(); e
 const sameShape = (a: MeshKernel, b: MeshKernel): boolean => JSON.stringify(a.toSnapshot()) === JSON.stringify(b.toSnapshot());
 
 /**
- * 带两列的内核（贴图主线 1-2 测试 E，2026-11-10 Claude Opus 5.5）：一列盖住全部面（"all"，每角 2 个数）、一列只盖住一半（"half"，每角 3 个数，隔一张给一张）。
- * 只在「凭空来的、没给值」的面上按位置填值（各条测试搭底子用的就是这种）；算子新建的面照它们自己的来历。整套原样再跑一遍：每步之后的自检带上 (M7)。
+ * 带三列的内核（贴图主线 1-2 测试 E，2026-11-10 Claude Opus 5.5；2026-11-13 第 1½ 刀照属性规程改成通用的列，列名都是测试自己起的）：
+ * 角上一列盖住全部面（"all"，每角 2 个连续小数）、角上一列只给一半的面写值（"half"，每角 3 个，隔一张给一张，别的留缺省值）、
+ * 面上一列整数（"tag"，并成不一致回缺省值）。只在「凭空来的、没给值」的面上按位置填值（各条测试搭底子用的就是这种）；算子新建的面照它们自己的来历。
+ * 整套原样再跑一遍：每步之后的自检带上 (M7)。
  */
 class ColMesh extends MeshKernel {
   private nFresh = 0;
-  constructor() { super(); this.addColumn({ guid: "all", arity: 2, kind: "test" }); this.addColumn({ guid: "half", arity: 3, kind: "test" }); }
+  constructor() {
+    super();
+    this.addColumn({ id: "all", on: "corner", type: { floats: 2 }, continuous: true, fill: 0, merge: "first", kind: "test" });
+    this.addColumn({ id: "half", on: "corner", type: { floats: 3 }, continuous: true, fill: 0, merge: "first", kind: "test" });
+    this.addColumn({ id: "tag", on: "face", type: "int", continuous: false, fill: -1, merge: "defaultIfMixed", kind: "test" });
+  }
   override addFace(ring: readonly number[], mat: number, origin: FaceOrigin): number {
-    if (origin.kind === "fresh" && !origin.values) {
+    if (origin.kind === "fresh" && !origin.corner && !origin.face) {
       const all = new Float32Array(ring.length * 2), half = new Float32Array(ring.length * 3);
       ring.forEach((v, i) => { const p = this.pt(v); all[2 * i] = p.x + 2 * p.y; all[2 * i + 1] = p.z - p.x; half[3 * i] = p.x; half[3 * i + 1] = p.y; half[3 * i + 2] = p.z; });
-      const values = new Map<string, Float32Array>([["all", all]]);
-      if (this.nFresh++ % 2 === 0) values.set("half", half);
-      origin = { kind: "fresh", values };
+      const corner = new Map<string, Float32Array>([["all", all]]), n = this.nFresh++;
+      if (n % 2 === 0) corner.set("half", half);
+      origin = { kind: "fresh", corner, face: new Map([["tag", n % 3]]) };
     }
     return super.addFace(ring, mat, origin);
   }

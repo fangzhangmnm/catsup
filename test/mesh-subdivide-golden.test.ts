@@ -4,7 +4,7 @@
 // 另一条：细分一次只重建几次邻接表（「没多做事」的直接证明；改之前 256 面要上千次）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel, F_SHARP } from "../src/mesh/mesh-kernel.ts";
-import { FRESH } from "../src/mesh/corner-columns.ts";
+import { FRESH } from "../src/mesh/columns.ts";
 import { addBox, addPolygon, catmullClark, deleteFaces, extrudeFaces } from "../src/mesh/ops/index.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 const { createHash } = (await import("node:crypto" as string)) as { createHash(a: string): { update(s: string): { digest(e: string): string } } };
@@ -41,8 +41,8 @@ const CASES: Record<string, () => MeshKernel> = {
     return k;
   },
   withColumn: () => {
-    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 2, 3)); k.addColumn({ guid: "uv", arity: 2, kind: "test" });
-    for (const f of k.faces()) k.setFaceValues(f, "uv", k.facePts(f).flatMap((p) => [p.x * 0.3 + p.z * 0.7 + f, p.y * 0.5 - p.x]));
+    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 2, 3)); k.addColumn({ id: "uv", on: "corner", type: { floats: 2 }, continuous: true, fill: 0, merge: "first", kind: "test" });
+    for (const f of k.faces()) k.setCornerValues(f, "uv", k.facePts(f).flatMap((p) => [p.x * 0.3 + p.z * 0.7 + f, p.y * 0.5 - p.x]));
     return k;
   },
   twice: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); catmullClark(k); return k; },
@@ -60,7 +60,7 @@ function dump(k: MeshKernel): string {
   for (const v of k.verts()) { const p = k.pt(v); o.push(`v${v}:${bits(p.x)},${bits(p.y)},${bits(p.z)}`); }
   for (const e of k.edges()) o.push(`e${e}:${k.edgeA[e]}-${k.edgeB[e]}/${k.edgeFlags[e]}`);
   for (const f of k.faces()) o.push(`f${f}:${k.faceVerts(f).join(",")}/m${k.faceMat[f]}/x${k.faceFlags[f]}`);
-  for (const c of k.columnDefs()) for (const f of k.faces()) { const vals = k.cornerValues(f, c.guid); o.push(`c${c.guid}.${f}:${vals ? [...vals].map(bits).join(",") : "-"}`); }
+  for (const c of k.columnDefs()) for (const f of k.faces()) { const vals = k.cornerValues(f, c.id); o.push(`c${c.id}.${f}:${vals ? [...vals].map(bits).join(",") : "-"}`); }
   // 接下来分到的编号（空闲编号表的状态）
   const nv = [P(9, 9, 9), P(10, 9, 9), P(9, 10, 9)].map((p) => k.addVertex(p)), nf = k.addFace(nv, -1, FRESH);
   o.push(`next v ${nv.join(",")} f ${nf} e ${k.fEdges(nf).join(",")}`);

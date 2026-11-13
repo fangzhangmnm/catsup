@@ -2,7 +2,7 @@
 // created 2026-10-27 by Claude Fable 5.1
 import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
 import { MOVING_MARKS } from "../edge-mark-rules.ts";
-import { GROWN } from "../corner-columns.ts";
+import { GROWN } from "../columns.ts";
 import type { Pt3 } from "../../kernel/geom.ts";
 
 export interface ExtrudeResult { newVerts: Map<number, number>; sides: number[]; }

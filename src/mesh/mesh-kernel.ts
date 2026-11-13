@@ -6,15 +6,16 @@
 // 不变量（test/mesh-kernel.test.ts 逐算子查）：(M1) 活面的环 ≥ 3 个不同的活顶点、环里没有重复顶点 (M2) 环上相邻顶点对都在边表里、边表里的边至少属于一张面或标为裸线
 // (M3) 标记只在活边上 (M4) 封闭流形块 V − E + F = 2 − 2g（只对流形块查）(M5) 删了的 id 不被任何活元素引用 (M6) 同算子在克隆上跑 = 同结果。
 // 这里只有数据 + 查询 + 最基本的生长 / 删除原语；拓扑算子在 mesh/ops/*.ts（每个一个文件，可扔）。
-// 角上的一列数 + 面的来历（2026-11-10 Claude Opus 5.5，贴图主线 1-2）：内核多一张「列」的表（和 loopVert 平行，NaN = 这个角没值）；
-// addFace / setFaceRing 必须交代来历（mesh/corner-columns.ts 的五种，那一段代码只有一份）。没有列的网格体：每次只多一个分支，行为逐字不变。
-// (M7) 一张面在一列上要么每个角都有值、要么都没有；列的数组装得下所有的角。
+// 通用的列 + 面的来历（2026-11-10 Claude Opus 5.5 起；2026-11-13 施工单十八第 1½ 刀改成对属性无感，mesh/columns.ts 头注释是全文）：
+// 角上的列（和 loopVert 平行，每角永远有数）+ 面上的列（每面一个整数）；addFace / setFaceRing 必须交代来历（columns.ts 的五种，那一段代码只有一份）。
+// 内核不知道列是什么意思，只报告「哪几列在来源之间对不上」（takeReport）。没有列的网格体：每次只多一个分支，行为逐字不变。
+// (M7) 列的数组装得下所有的角 / 所有的面。(M7½) 带 quantum 的角上的列：值 × quantum 是整数。
 // (M8) 增量维护的邻接 = 当场从头重建的邻接（每个点连着的边、每条边挨着的面，逐项、含先后；W-11）。
 import type { Pt3 } from "../kernel/geom.ts";
 import { triangulateFace } from "../format/triangulate.ts";
 import { ChangeLog } from "../kernel/change-log.ts";
-import { writeCorners, UV_Q, type ColumnDef, type CornerColumn, type FaceOrigin, type FaceShape } from "./corner-columns.ts";
-export type { ColumnDef, CornerColumn, FaceOrigin, FaceShape } from "./corner-columns.ts";
+import { checkColumnDef, sameColumnDef, writeColumns, type ColumnDef, type CornerColumn, type FaceColumn, type FaceOrigin, type FaceReport, type FaceShape, type OddFace } from "./columns.ts";
+export type { ColumnDef, ColumnType, CornerColumn, CornerOdd, Domain, FaceColumn, FaceOrigin, FaceReport, FaceShape, MergeRule, OddFace } from "./columns.ts";
 
 export const F_SOFT = 1, F_SMOOTH = 2, F_SEAM = 4, F_HIDDEN = 8, F_WIRE = 16;   // F_WIRE = 裸线（不属于任何面也合法）
 /** 手标硬边（2026-10-28 Claude Opus 5.5；纪元账本 FM129 / FM131）：压过网格体的「默认平滑」，这条边永远是棱（画线、明暗断开）。和 F_SOFT / F_SMOOTH 互斥（标的时候清掉另两位）。 */
@@ -29,18 +30,20 @@ export const SMOOTH_DEFAULT_NEW: SmoothDefault = { mode: "hard", deg: 30 };
 export const FF_HIDDEN = 1;
 
 export interface MeshSnapshot {
-  readonly version: 1; readonly minor: 0; readonly patch: 0;
+  readonly version: 2; readonly minor: 0; readonly patch: 0;   // 2（施工单十八第 1½ 刀）：列换成 corner / face 两种、每角都有数。只是内核自己的快照（测试、对拍），不落盘
   readonly positions: number[];          // x y z × 顶点（紧凑、重编）
   readonly faces: number[][];            // 每面顶点下标环
   readonly faceMat: number[];            // 每面材质槽（-1 = 默认）
   readonly edges: [number, number, number][];   // 带标记的边：[a, b, flags]（没标记的边不存，读回时由面推）
-  /** 角上的列（有列才有这个键）：每列每张面一项 = 角数 × arity 个数，或 null（这张面在这一列上没值）。 */
-  readonly columns?: readonly { readonly guid: string; readonly arity: number; readonly kind: string; readonly faces: readonly (readonly number[] | null)[] }[];
+  /** 角上的列（有才有这个键）：声明 + 每张面一项 = 角数 × 每角几个数。 */
+  readonly corner?: readonly { readonly def: ColumnDef; readonly faces: readonly (readonly number[])[] }[];
+  /** 面上的列（有才有这个键）：声明 + 每张面一个数。 */
+  readonly face?: readonly { readonly def: ColumnDef; readonly values: readonly number[] }[];
 }
 
 const grow = <T extends Float64Array | Int32Array | Uint8Array>(a: T, n: number): T => { if (n <= a.length) return a; const b = new (a.constructor as new (n: number) => T)(Math.max(n, a.length * 2, 16)); b.set(a as never); return b; };
-/** 列的数组长大：新长的那段填 NaN（= 没值）。 */
-const growCol = (a: Float32Array, n: number): Float32Array => { if (n <= a.length) return a; const b = new Float32Array(Math.max(n, a.length * 2, 16)).fill(NaN); b.set(a); return b; };
+/** 列的数组长大：新长的那段填这一列的 fill。 */
+const growCol = <T extends Float32Array | Int32Array>(a: T, n: number, fill: number): T => { if (n <= a.length) return a; const b = new (a.constructor as new (n: number) => T)(Math.max(n, a.length * 2, 16)); b.fill(fill); b.set(a as never); return b; };
 
 /**
  * 改动计数的全局时钟（2026-10-27 Claude Opus 5.5；user「undo完全是坏的」「undo之后操作还锁住了」的根）：rev 以前是每个内核自己的计数器，
@@ -75,10 +78,12 @@ export class MeshKernel {
   smoothDefault: SmoothDefault = SMOOTH_DEFAULT_NEW;
   /** 改动日志（编号 + 族谱，kernel/change-log.ts 同一份实现）：每个原语记下碰到的点 / 边 / 面；渲染缓存据此只重建改过的；clone = 分叉。 */
   changes = new ChangeLog();
-  /** 角上的列（贴图主线 1-2）：先后没有意思、认 GUID；data 和 loopVert 平行。只经 addColumn / ensureColumns 加。 */
-  columns: CornerColumn[] = [];
-  /** 这些算子里有几张面在某一列上丢了值（并面对不上）：算子的调用方 takeDroppedFaces() 拿走并清零。不许悄悄丢。 */
-  private dropped = 0;
+  /** 角上的列：先后没有意思、认 id；data 和 loopVert 平行。只经 addColumn / ensureColumns 加。 */
+  cornerCols: CornerColumn[] = [];
+  /** 面上的列：data[面编号]。只经 addColumn / ensureColumns 加。 */
+  faceCols: FaceColumn[] = [];
+  /** 「对不上」的面（面编号 → 哪几列）：用的那一层 takeReport() 拿走并清空；跟着来历传给新面（columns.ts）。 */
+  private odd = new Map<number, OddFace>();
 
   // ---------------- 基本查询
   vertexCount(): number { let n = 0; for (let i = 0; i < this.vCount; i++) if (this.vAlive[i]) n++; return n; }
@@ -123,7 +128,7 @@ export class MeshKernel {
     this.pos[3 * v] = p.x; this.pos[3 * v + 1] = p.y; this.pos[3 * v + 2] = p.z; this.vAlive[v] = 1;
     this.changes.v(v); this.touch(true); return v;
   }
-  /** 加一张面（顶点环）；相邻顶点对没有边的自动补边。环 < 3 个不同顶点 / 有重复 / 顶点不活 → 抛（人话）。origin = 这张面从哪来（必填：角上的数怎么来，corner-columns.ts）。 */
+  /** 加一张面（顶点环）；相邻顶点对没有边的自动补边。环 < 3 个不同顶点 / 有重复 / 顶点不活 → 抛（人话）。origin = 这张面从哪来（必填：角上的数怎么来，columns.ts）。 */
   addFace(ring: readonly number[], mat: number, origin: FaceOrigin): number {
     const distinct = new Set(ring);
     if (ring.length < 3 || distinct.size !== ring.length) throw new Error(`addFace: ring must have ≥ 3 distinct vertices (got ${ring.length}, ${distinct.size} distinct)`);
@@ -131,7 +136,8 @@ export class MeshKernel {
     const f = this.fFree.length ? this.fFree.pop()! : this.fCount++;
     this.faceStart = grow(this.faceStart, this.fCount); this.faceLen = grow(this.faceLen, this.fCount); this.fAlive = grow(this.fAlive, this.fCount); this.faceMat = grow(this.faceMat, this.fCount); this.faceFlags = grow(this.faceFlags, this.fCount);
     this.faceStart[f] = this.loopCount; this.faceLen[f] = ring.length; this.fAlive[f] = 1; this.faceMat[f] = mat; this.faceFlags[f] = 0; this.changes.f(f);
-    this.writeRing(ring, origin);
+    for (const c of this.faceCols) c.data = growCol(c.data, this.fCount, c.def.fill);
+    this.writeRing(f, ring, origin);
     for (let i = 0; i < ring.length; i++) this.ensureEdge(ring[i], ring[(i + 1) % ring.length]);
     this.linkRing(f);
     this.touch(true); return f;
@@ -141,7 +147,7 @@ export class MeshKernel {
     if (!this.hasF(f)) return;
     const vs = this.faceVerts(f);
     this.unlinkRing(f);
-    this.fAlive[f] = 0; this.fFree.push(f); this.fFree.sort((a, b) => b - a);
+    this.fAlive[f] = 0; this.fFree.push(f); this.fFree.sort((a, b) => b - a); this.odd.delete(f);
     this.changes.f(f); this.touch(true);
     for (let i = 0; i < vs.length; i++) { const e = this.edgeOf(vs[i], vs[(i + 1) % vs.length]); if (e >= 0 && this.eFaces(e).length === 0 && !(this.edgeFlags[e] & F_WIRE)) this.removeEdge(e); }
   }
@@ -204,88 +210,95 @@ export class MeshKernel {
     if (ring.length < 3 || distinct.size !== ring.length) throw new Error(`setFaceRing: ring must have ≥ 3 distinct vertices`);
     this.unlinkRing(f);
     this.faceStart[f] = this.loopCount; this.faceLen[f] = ring.length;
-    this.writeRing(ring, origin);
+    this.writeRing(f, ring, origin);
     for (let i = 0; i < ring.length; i++) this.ensureEdge(ring[i], ring[(i + 1) % ring.length]);
     this.linkRing(f);
     this.changes.f(f); this.touch(true);
     for (let i = 0; i < old.length; i++) { const e = this.edgeOf(old[i], old[(i + 1) % old.length]); if (e >= 0 && this.eFaces(e).length === 0 && !(this.edgeFlags[e] & F_WIRE)) this.removeEdge(e); }
   }
-  /** 环接在 loopVert 末尾（旧环的槽作废）；有列就按来历写角上的数（corner-columns.ts writeCorners，全仓唯一的那一段）。 */
-  private writeRing(ring: readonly number[], origin: FaceOrigin): void {
+  /** 环接在 loopVert 末尾（旧环的槽作废）；有列就按来历写面上的列和角上的数（columns.ts writeColumns，全仓唯一的那一段），对不上的记下来。 */
+  private writeRing(f: number, ring: readonly number[], origin: FaceOrigin): void {
     const slot = this.loopCount, n = ring.length;
     this.loopVert = grow(this.loopVert, slot + n);
     for (let i = 0; i < n; i++) this.loopVert[slot + i] = ring[i];
     this.loopCount += n;
-    if (!this.columns.length) return;
-    for (const c of this.columns) c.data = growCol(c.data, this.loopCount * c.arity);
-    if (writeCorners(this, origin, ring, slot)) this.dropped++;
+    if (!this.cornerCols.length && !this.faceCols.length) return;
+    for (const c of this.cornerCols) c.data = growCol(c.data, this.loopCount * c.arity, c.def.fill);
+    const odd = writeColumns(this, origin, f, ring, slot);
+    if (odd) this.odd.set(f, odd); else this.odd.delete(f);
   }
 
-  // ---------------- 角上的列（贴图主线 1-2）
-  /** 加一列（已经有同一个 GUID = 不动；arity 对不上 = 抛）。原有的面在这一列上全没值。 */
+  // ---------------- 列（施工单十八第 1½ 刀：内核不知道列是什么意思）
+  /** 加一列（同一个 id 已经有 = 声明一样就不动，不一样 = 抛；这一刀做不了的组合 = 抛「还没做」，columns.ts checkColumnDef）。原有的角 / 面填 fill。 */
   addColumn(def: ColumnDef): void {
-    const have = this.columns.find((c) => c.guid === def.guid);
-    if (have) { if (have.arity !== def.arity || have.kind !== def.kind) throw new Error(`addColumn: column ${def.guid} already has arity ${have.arity} / kind ${have.kind}`); return; }
-    if (!(def.arity >= 1 && Number.isInteger(def.arity))) throw new Error(`addColumn: arity must be a positive integer`);
-    if (def.kind === "uv" && def.arity !== 2) throw new Error(`addColumn: a uv column must have arity 2 (got ${def.arity})`);
-    this.columns.push({ guid: def.guid, arity: def.arity, kind: def.kind, ...(def.extra !== undefined ? { extra: def.extra } : {}), data: new Float32Array(Math.max(16, this.loopCount * def.arity)).fill(NaN) });
+    const arity = checkColumnDef(def), have = this.columnDef(def.id);
+    if (have) { if (!sameColumnDef(have, def)) throw new Error(`addColumn: column ${def.id} already exists with a different declaration`); return; }
+    const d: ColumnDef = Object.freeze({ ...def });
+    if (def.on === "corner") this.cornerCols.push({ def: d, id: d.id, arity, data: new Float32Array(Math.max(16, this.loopCount * arity)).fill(d.fill) });
+    else this.faceCols.push({ def: d, id: d.id, data: new Int32Array(Math.max(16, this.fCount)).fill(d.fill) });
     this.rev = ++meshRevClock;
   }
-  /** 别的内核的列在这边补上（整张面搬过来之前；原有的面在补上的列上全没值）。 */
+  /** 别的内核的列在这边补上（整张面搬过来之前；原有的面在补上的列上填 fill）。 */
   ensureColumns(defs: readonly ColumnDef[]): void { for (const d of defs) this.addColumn(d); }
-  columnDefs(): ColumnDef[] { return this.columns.map((c) => ({ guid: c.guid, arity: c.arity, kind: c.kind, ...(c.extra !== undefined ? { extra: c.extra } : {}) })); }
-  /** 有没有这一列（施工单十八：面走不走画 = 材质指着的画挂的排法、这个网格体有那一列）。 */
-  hasColumn(guid: string): boolean { return this.columns.some((c) => c.guid === guid); }
+  /** 全部列的声明（先角上的、再面上的；先后没有意思）。 */
+  columnDefs(): ColumnDef[] { return [...this.cornerCols.map((c) => c.def), ...this.faceCols.map((c) => c.def)]; }
+  /** 一列的声明；没有 = null。 */
+  columnDef(id: string): ColumnDef | null { return this.cornerCols.find((c) => c.id === id)?.def ?? this.faceCols.find((c) => c.id === id)?.def ?? null; }
+  /** 有没有这一列（两种都算）。 */
+  hasColumn(id: string): boolean { return this.cornerCols.some((c) => c.id === id) || this.faceCols.some((c) => c.id === id); }
   /** 面的旧样子（改之前记）：没有列 = 只记材质。 */
   shapeOf(f: number): FaceShape {
-    if (!this.columns.length) return { mat: this.faceMat[f], ring: null, pts: null, vals: null };
+    const odd = this.odd.get(f);
+    if (!this.cornerCols.length && !this.faceCols.length) return { mat: this.faceMat[f], ring: null, pts: null, corner: null, face: null, ...(odd ? { odd } : {}) };
     const ring = this.faceVerts(f), pts = new Float64Array(3 * ring.length);
     for (let i = 0; i < ring.length; i++) { const v = ring[i]; pts[3 * i] = this.pos[3 * v]; pts[3 * i + 1] = this.pos[3 * v + 1]; pts[3 * i + 2] = this.pos[3 * v + 2]; }
-    return { mat: this.faceMat[f], ring, pts, vals: this.faceValues(f) };
+    const c = this.columnsOf(f);
+    return { mat: this.faceMat[f], ring, pts, corner: c.corner, face: c.face, ...(odd ? { odd } : {}) };
   }
-  /** 这张面在这一列上各角的值（角数 × arity，拷一份）；没值 / 没这一列 = null。 */
-  cornerValues(f: number, guid: string): Float32Array | null {
-    const c = this.columns.find((x) => x.guid === guid);
+  /** 这张面在一列角上的列上各角的值（角数 × arity，拷一份）；没有这一列 / 面不在 = null。 */
+  cornerValues(f: number, id: string): Float32Array | null {
+    const c = this.cornerCols.find((x) => x.id === id);
     if (!c || !this.hasF(f)) return null;
+    const s = this.faceStart[f] * c.arity;
+    return c.data.slice(s, s + this.faceLen[f] * c.arity);
+  }
+  /** 这张面在一列面上的列上的值；没有这一列 / 面不在 = null。 */
+  faceValue(f: number, id: string): number | null {
+    const c = this.faceCols.find((x) => x.id === id);
+    return c && this.hasF(f) ? c.data[f] : null;
+  }
+  /** 这张面在每一列上的值（整张面搬到别的内核时交给 fresh；shapeOf 也用它）。 */
+  columnsOf(f: number): { corner: Map<string, Float32Array>; face: Map<string, number> } {
+    const corner = new Map<string, Float32Array>(), face = new Map<string, number>();
+    for (const c of this.cornerCols) { const s = this.faceStart[f] * c.arity; corner.set(c.id, c.data.slice(s, s + this.faceLen[f] * c.arity)); }
+    for (const c of this.faceCols) face.set(c.id, c.data[f]);
+    return { corner, face };
+  }
+  /** 给一张面在一列角上的列上整张写值（角数 × arity 个）。进改动日志、rev 动。 */
+  setCornerValues(f: number, id: string, values: ArrayLike<number>): void {
+    const c = this.cornerCols.find((x) => x.id === id);
+    if (!c) throw new Error(`setCornerValues: no corner column ${id}`);
+    if (!this.hasF(f)) throw new Error(`setCornerValues: face ${f} is not alive`);
     const s = this.faceStart[f] * c.arity, n = this.faceLen[f] * c.arity;
-    return Number.isNaN(c.data[s]) ? null : c.data.slice(s, s + n);
-  }
-  /**
-   * 这一列（每角两个数）上有值的每张活面的包围盒，摊平成 [横小, 纵小, 横大, 纵大, …]（贴图主线 1-3b：补面时「画布上哪里被占着」，一趟扫完、不拷每张面的值）。
-   * 没有这一列 / 不是每角两个数 = 空。
-   */
-  columnBoxes(guid: string): Float64Array {
-    const c = this.columns.find((x) => x.guid === guid);
-    if (!c || c.arity !== 2) return new Float64Array(0);
-    const out: number[] = [], d = c.data;
-    for (let f = 0; f < this.fCount; f++) {
-      if (!this.fAlive[f]) continue;
-      const s = this.faceStart[f] * 2, n = this.faceLen[f];
-      if (Number.isNaN(d[s])) continue;
-      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-      for (let i = 0; i < n; i++) { const x = d[s + 2 * i], y = d[s + 2 * i + 1]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-      out.push(x0, y0, x1, y1);
-    }
-    return Float64Array.from(out);
-  }
-  /** 这张面在每一列上的值（GUID → 角数 × arity）；没值的列不在表里。整张面搬到别的内核时交给 fresh。 */
-  faceValues(f: number): Map<string, Float32Array> {
-    const out = new Map<string, Float32Array>();
-    for (const c of this.columns) { const v = this.cornerValues(f, c.guid); if (v) out.set(c.guid, v); }
-    return out;
-  }
-  /** 给一张面在一列上整张写值（values = 角数 × arity；null = 清成没值）。进改动日志、rev 动。往角上放数的只有 1-3 的铺法和测试。 */
-  setFaceValues(f: number, guid: string, values: ArrayLike<number> | null): void {
-    const c = this.columns.find((x) => x.guid === guid);
-    if (!c) throw new Error(`setFaceValues: no column ${guid}`);
-    if (!this.hasF(f)) throw new Error(`setFaceValues: face ${f} is not alive`);
-    const s = this.faceStart[f] * c.arity, n = this.faceLen[f] * c.arity;
-    if (values && values.length !== n) throw new Error(`setFaceValues: need ${n} numbers, got ${values.length}`);
-    for (let i = 0; i < n; i++) c.data[s + i] = values ? values[i] : NaN;
+    if (values.length !== n) throw new Error(`setCornerValues: need ${n} numbers, got ${values.length}`);
+    for (let i = 0; i < n; i++) c.data[s + i] = values[i];
     this.changes.f(f); this.rev = ++meshRevClock;
   }
-  /** 上一次拿走之后有几张面在某一列上丢了值（并面对不上 / 缺值）；拿走即清零。 */
-  takeDroppedFaces(): number { const n = this.dropped; this.dropped = 0; return n; }
+  /** 给一张面在一列面上的列上写值。进改动日志、rev 动。 */
+  setFaceValue(f: number, id: string, v: number): void {
+    const c = this.faceCols.find((x) => x.id === id);
+    if (!c) throw new Error(`setFaceValue: no face column ${id}`);
+    if (!this.hasF(f)) throw new Error(`setFaceValue: face ${f} is not alive`);
+    if (!Number.isInteger(v)) throw new Error(`setFaceValue: ${v} is not an integer`);
+    c.data[f] = v; this.changes.f(f); this.rev = ++meshRevClock;
+  }
+  /** 上一次拿走之后「对不上」的面（还活着的；面编号 → 哪几列），拿走即清空。 */
+  takeReport(): FaceReport {
+    const odd = new Map<number, OddFace>();
+    for (const [f, o] of this.odd) if (this.hasF(f)) odd.set(f, o);
+    this.odd = new Map();
+    return { odd };
+  }
   setPos(v: number, p: Pt3): void { this.pos[3 * v] = p.x; this.pos[3 * v + 1] = p.y; this.pos[3 * v + 2] = p.z; this.changes.v(v); this.touch(false); }
   setFlags(e: number, mask: number, on: boolean): void { if (!this.hasE(e)) return; this.edgeFlags[e] = on ? this.edgeFlags[e] | mask : this.edgeFlags[e] & ~mask; this.changes.e(e); this.rev = ++meshRevClock; }
   /** 整字节写边标记（算子搬标记用）；记日志。 */
@@ -381,7 +394,7 @@ export class MeshKernel {
     m.edgeA = this.edgeA.slice(); m.edgeB = this.edgeB.slice(); m.eAlive = this.eAlive.slice(); m.edgeFlags = this.edgeFlags.slice(); m.eCount = this.eCount; m.eFree = [...this.eFree];
     m.edgeKey = new Map(this.edgeKey); m.rev = this.rev; m.faceFlags = this.faceFlags.slice(); m.smoothDefault = this.smoothDefault;
     m.changes = this.changes.fork();   // 族谱：渲染缓存从原件切到副本只重建差的
-    m.columns = this.columns.map((c) => ({ ...c, data: c.data.slice() }));
+    m.cornerCols = this.cornerCols.map((c) => ({ ...c, data: c.data.slice() })); m.faceCols = this.faceCols.map((c) => ({ ...c, data: c.data.slice() }));   // 「对不上」的标记不带过去（新的一本）
     m.vHead = this.vHead.slice(); m.eNext = this.eNext.slice(); m.eFHead = this.eFHead.slice(); m.lNext = this.lNext.slice(); m.lEdge = this.lEdge.slice(); m.lFace = this.lFace.slice();   // 邻接跟着拷（W-11）
     return m;
   }
@@ -396,7 +409,7 @@ export class MeshKernel {
     [this.edgeA, o.edgeA] = [o.edgeA, this.edgeA]; [this.edgeB, o.edgeB] = [o.edgeB, this.edgeB]; [this.eAlive, o.eAlive] = [o.eAlive, this.eAlive]; [this.edgeFlags, o.edgeFlags] = [o.edgeFlags, this.edgeFlags]; [this.eCount, o.eCount] = [o.eCount, this.eCount]; [this.eFree, o.eFree] = [o.eFree, this.eFree];
     [this.edgeKey, o.edgeKey] = [o.edgeKey, this.edgeKey]; [this.vHead, o.vHead] = [o.vHead, this.vHead]; [this.eNext, o.eNext] = [o.eNext, this.eNext]; [this.eFHead, o.eFHead] = [o.eFHead, this.eFHead]; [this.lNext, o.lNext] = [o.lNext, this.lNext]; [this.lEdge, o.lEdge] = [o.lEdge, this.lEdge]; [this.lFace, o.lFace] = [o.lFace, this.lFace]; [this.triCache, o.triCache] = [o.triCache, this.triCache];
     [this.rev, o.rev] = [o.rev, this.rev]; [this.changes, o.changes] = [o.changes, this.changes]; [this.smoothDefault, o.smoothDefault] = [o.smoothDefault, this.smoothDefault];
-    [this.columns, o.columns] = [o.columns, this.columns]; [this.dropped, o.dropped] = [o.dropped, this.dropped];
+    [this.cornerCols, o.cornerCols] = [o.cornerCols, this.cornerCols]; [this.faceCols, o.faceCols] = [o.faceCols, this.faceCols]; [this.odd, o.odd] = [o.odd, this.odd];
   }
   /** 紧凑快照（去空位、id 重编：存 / 导出时整理，user 10-27「catsup rule: organize in export/save」）。 */
   toSnapshot(): MeshSnapshot {
@@ -406,14 +419,16 @@ export class MeshKernel {
     for (let f = 0; f < this.fCount; f++) if (this.fAlive[f]) { faces.push(this.faceVerts(f).map((v) => map[v])); faceMat.push(this.faceMat[f]); live.push(f); }
     const edges: [number, number, number][] = [];
     for (let e = 0; e < this.eCount; e++) if (this.eAlive[e] && this.edgeFlags[e]) edges.push([map[this.edgeA[e]], map[this.edgeB[e]], this.edgeFlags[e]]);
-    const columns = this.columns.map((c) => ({ guid: c.guid, arity: c.arity, kind: c.kind, faces: live.map((f) => { const v = this.cornerValues(f, c.guid); return v ? Array.from(v) : null; }) }));
-    return { version: 1, minor: 0, patch: 0, positions, faces, faceMat, edges, ...(columns.length ? { columns } : {}) };   // 没有列 = 和以前逐字一样
+    const corner = this.cornerCols.map((c) => ({ def: c.def, faces: live.map((f) => Array.from(this.cornerValues(f, c.id)!)) }));
+    const face = this.faceCols.map((c) => ({ def: c.def, values: live.map((f) => c.data[f]) }));
+    return { version: 2, minor: 0, patch: 0, positions, faces, faceMat, edges, ...(corner.length ? { corner } : {}), ...(face.length ? { face } : {}) };
   }
   static fromSnapshot(s: MeshSnapshot): MeshKernel {
     const m = new MeshKernel();
     for (let i = 0; i + 2 < s.positions.length; i += 3) m.addVertex({ x: s.positions[i], y: s.positions[i + 1], z: s.positions[i + 2] });
-    for (const c of s.columns ?? []) m.addColumn({ guid: c.guid, arity: c.arity, kind: c.kind });
-    s.faces.forEach((r, i) => { const values = new Map<string, Float32Array>(); for (const c of s.columns ?? []) { const v = c.faces[i]; if (v) values.set(c.guid, Float32Array.from(v)); } m.addFace(r, s.faceMat[i] ?? -1, { kind: "fresh", values }); });   // 快照装载 = 凭空来的、直接给值
+    for (const c of s.corner ?? []) m.addColumn(c.def);
+    for (const c of s.face ?? []) m.addColumn(c.def);
+    s.faces.forEach((r, i) => { m.addFace(r, s.faceMat[i] ?? -1, { kind: "fresh", corner: new Map((s.corner ?? []).map((c) => [c.def.id, Float32Array.from(c.faces[i])])), face: new Map((s.face ?? []).map((c) => [c.def.id, c.values[i]])) }); });   // 快照装载 = 凭空来的、直接给值
     for (const [a, b, fl] of s.edges) { const e = m.ensureEdge(a, b); m.edgeFlags[e] = fl; }
     m.rev = ++meshRevClock;
     return m;
@@ -441,16 +456,17 @@ export class MeshKernel {
       if (this.edgeKey.get(this.keyOf(this.edgeA[e], this.edgeB[e])) !== e) bad.push(`edge ${e}: key index mismatch`);
     }
     for (const [k, e] of this.edgeKey) if (!this.hasE(e) || this.keyOf(this.edgeA[e], this.edgeB[e]) !== k) bad.push(`edge key ${k} → ${e} stale`);
-    // (M7) 角上的列：数组装得下所有的角；一张面在一列上要么每个角（每个分量）都有值、要么都没有
-    for (const c of this.columns) {
-      if (c.data.length < this.loopCount * c.arity) bad.push(`column ${c.guid}: array shorter than the corners`);
+    // (M7) 列的数组装得下所有的角 / 所有的面
+    for (const c of this.cornerCols) if (c.data.length < this.loopCount * c.arity) bad.push(`corner column ${c.id}: array shorter than the corners`);
+    for (const c of this.faceCols) if (c.data.length < this.fCount) bad.push(`face column ${c.id}: array shorter than the faces`);
+    // (M7½) 带 quantum 的角上的列：每张活面上的值 × quantum 是整数（这列数的格子；施工单十八第四节起贴图坐标就是 1024）
+    for (const c of this.cornerCols) {
+      const qn = c.def.quantum;
+      if (qn === undefined) continue;
       for (let f = 0; f < this.fCount; f++) {
         if (!this.fAlive[f]) continue;
         const s = this.faceStart[f] * c.arity, n = this.faceLen[f] * c.arity;
-        let nan = 0; for (let i = 0; i < n; i++) if (Number.isNaN(c.data[s + i])) nan++;
-        if (nan !== 0 && nan !== n) bad.push(`face ${f}: column ${c.guid} has values on some corners but not all`);
-        // (M7½) 贴图坐标那一种：每个有值的数乘 UV_Q 是整数（施工单十八第四节：存成整数再读回来逐位相同）
-        if (c.kind === "uv" && nan === 0) for (let i = 0; i < n; i++) { const q = c.data[s + i] * UV_Q; if (q !== Math.round(q)) { bad.push(`face ${f}: uv column ${c.guid} value ${c.data[s + i]} is not a multiple of 1/${UV_Q}`); break; } }
+        for (let i = 0; i < n; i++) { const q = c.data[s + i] * qn; if (q !== Math.round(q)) { bad.push(`face ${f}: corner column ${c.id} value ${c.data[s + i]} is not a multiple of 1/${qn}`); break; } }
       }
     }
     // (M8) 邻接（增量维护，W-11）= 当场从头重建的表：每个点连着的边、每条边挨着的面，逐项、含先后（Fable 11-10 定的主门）

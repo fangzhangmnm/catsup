@@ -2,7 +2,7 @@
 // 三角汤存不住 n 边形（四边形存成两个三角形读回来还是两个三角形）。现在没有任何用户入口能造出 mesh 身体（转换指令 M3 一起来），所以没有用户数据经过这条有损路；
 // M3 落地前不许接 UI。外来 glb 导入（user 10-27「导入直接成 mesh」）以后也走 meshFromTriangles。created 2026-10-27 by Claude Fable 5.1
 import { F_SHARP, F_SMOOTH, F_SOFT, MeshKernel } from "./mesh-kernel.ts";
-import { FRESH } from "./corner-columns.ts";
+import { FRESH } from "./columns.ts";
 
 export interface TriSoup { positions: Float32Array; indices: Uint32Array; triMaterial?: Uint16Array; }
 const NO_MAT = 0xffff;

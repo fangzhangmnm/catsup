@@ -5,7 +5,7 @@
 // 拉一个圈出来接着挤出 / 补洞，Blender 加圆时「填充：无」那种）。
 import type { Pt3 } from "../../kernel/geom.ts";
 import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
-import { FRESH } from "../corner-columns.ts";
+import { FRESH } from "../columns.ts";
 
 export type PrimitiveKind = "circleLoop" | "squareLoop" | "box" | "cylinder" | "cone" | "sphere" | "plane";
 export interface PrimitiveFrame { o: Pt3; x: Pt3; y: Pt3; z: Pt3; }

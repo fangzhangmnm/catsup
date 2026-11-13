@@ -58,7 +58,7 @@ export function catmullClark(m: MeshKernel): number {
   }
   // 角上的数（贴图主线 1-2，Fable 裁定 ①）：每个四边形 = 原面 f 的一块；取样处 = [原来第 i 个角照抄, 这条边两端**原位置**的中点, 原面各角原位置的平均, 另一条边的中点]
   // ——画跟着拓扑走，不跟着平滑挪（平滑后的点可能离原面很远）。旧样子在 removeFace 之前记；没有列 = 只记材质、不造取样处表。
-  const shapes = new Map<number, FaceShape>(), hasCols = m.columns.length > 0;
+  const shapes = new Map<number, FaceShape>(), hasCols = m.cornerCols.length > 0;   // 取样处表只对角上的列有用；面上的列照来历照抄
   for (const f of faces) shapes.set(f, m.shapeOf(f));
   const plain = new Map<number, FaceOrigin>([...shapes].map(([f, of]) => [f, { kind: "piece", of }]));
   const originOf = (q: { f: number; i: number }): FaceOrigin => {

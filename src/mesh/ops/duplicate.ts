@@ -1,7 +1,7 @@
 // mesh/ops/duplicate.ts —— 复制选中的几何（Blender Shift+D）、补洞 / 桥接（Blender F / Bridge Edge Loops）。created 2026-10-28 by Claude Opus 5.5
 // user 10-28 夜「12做」（复制选中的几何；补洞和桥接）。纯算子：只按参数加点加面，确定性（同一份内核 + 同一组参数 = 同一批新 id，撤销 / 重放靠它）。
 import type { MeshKernel } from "../mesh-kernel.ts";
-import { FRESH } from "../corner-columns.ts";
+import { FRESH } from "../columns.ts";
 import type { Pt3 } from "../../kernel/geom.ts";
 
 export interface MeshSel { readonly faces?: readonly number[]; readonly edges?: readonly number[]; readonly verts?: readonly number[] }
