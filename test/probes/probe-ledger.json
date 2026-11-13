@@ -63,6 +63,7 @@
   "probe-gizmo-nav.mjs": {"state":"green"},
   "probe-gridplane.mjs": {"state":"green"},
   "probe-guide-select.mjs": {"state":"green"},
+  "probe-hard-press.mjs": {"state":"green"},
   "probe-hand-busy.mjs": {"state":"green"},
   "probe-hide-windows.mjs": {"state":"green"},
   "probe-hide.mjs": {"state":"green"},

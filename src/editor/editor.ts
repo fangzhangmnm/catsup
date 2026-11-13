@@ -126,7 +126,7 @@ export interface ToolPointer {
   /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。缺省 = 本帧 distTo（editor.movedSinceDown）。 */
   travel?: number;
   /** 事件自己发生的时间（ms，PointerEvent.timeStamp）：抬笔结算按它算停了多久（controller/lift-settle.ts）；画画的一笔按它算时间（施工单二十 1a）。键盘起手 / 程序造的没有。 */
-  at?: number; pressure?: number;   // pressure = 压感（PointerEvent.pressure，0..1）：只有画画的一笔用（controller/stroke-clock.ts 只信笔的；鼠标 / 手指报的 0.5 / 0 不是压感）；键盘起手 / 程序造的没有
+  at?: number; pressure?: number; press?: PressHit;   // press = 这一下判到重按（输入层 app/gestures.ts 喂 controller/hard-press.ts；点下在 press.x / y = 压力猛升之前那一刻，不是这一下的 x / y；工具不读 pressure）；pressure = 压感（PointerEvent.pressure，0..1）：只有画画的一笔用（controller/stroke-clock.ts 只信笔的；鼠标 / 手指报的 0.5 / 0 不是压感）；键盘起手 / 程序造的没有
 }
 
 /** 选区快照（撤销 / 重做还原用；ctx = 当时的上下文键）。 */
@@ -188,7 +188,7 @@ import { SEGMENT_TIERS, SEG_MAX, clampSegments, segMin, segmentNote, tierOf, tie
 export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）
 import { SNAP_LABELS } from "./gesture-consts.ts";
 import { CHARGE_DWELL_MS } from "../controller/feel.ts";
-import { settleLift } from "../controller/lift-settle.ts";
+import { settleLift } from "../controller/lift-settle.ts"; import type { PressHit } from "../controller/hard-press.ts";
 import { lockLines, lockThrough } from "../controller/lock-guide.ts";
 import { stepSelection, type SelSets } from "../mesh/select-grow.ts";
 import { SNAP_BASE, deviceOf, stanceOf } from "../controller/stance.ts";

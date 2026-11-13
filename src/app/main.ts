@@ -119,7 +119,8 @@ import { type ImportScene, isForeignGlb, readForeignGlb } from "../format/gltf-i
 import { attachGestures } from "./gestures.ts";
 import { Locomotion } from "./locomotion.ts";
 import { TOOL_CYCLES, chordLabel, keyDocs, modifierChords, resolveKey, toolKeyText, type KeyContext, type KeyEvt, TOOL_KEY_JUMPS } from "../controller/keymap.ts";
-import { stanceOf } from "../controller/stance.ts";
+import { stanceOf, penPressOf } from "../controller/stance.ts";
+import { pressPulse } from "./ui/press-pulse.ts";
 import { RAIL_FLYOUT_PRESS_MS, MOD_PEEK_MS } from "../controller/feel.ts";
 import { type AvatarSpec, AVATAR_DEFAULT, STATURE_MAX, STATURE_MIN, jumpReach, resolveAvatar } from "../player/body.ts";
 import { formatQuantity } from "../editor/units.ts";
@@ -1240,6 +1241,8 @@ const gestures = attachGestures(canvas, editor, {
   // #23 user「move反而是点两下」「旋转和move对齐」：移动 = 点两下、旋转 = 点三下，笔 / 手指也开；画线 / 矩形 / 推拉在笔 / 手指上仍只拖（误触连线案）
   latched: () => latchedMods,   // 键名芯片锁住的修饰键（iPad 没键盘：Shift / Ctrl / Alt = 开关）
   armable: (pt) => pt === "mouse" || pt === "pen" || editor.tool === "move" || editor.tool === "rotate",   // 笔也点两下（B23）；手指只在移动 / 旋转（#23）
+  // 重按（笔的设计稿第七节第 2 步）：只有用重按的工具（stance.ts PEN_PRESS）笔尖闪一圈 + 黑匣子记一行（调判法的数看它）；别的工具里按重了什么都不发生
+  onHardPress: (hit, cx, cy) => { if (!penPressOf(editor.modeId, editor.tool)) return; pressPulse(cx, cy); note("press", `重按（${hit.how === "down" ? "落笔就重" : "猛升"}）底 ${hit.base.toFixed(2)} → ${hit.p.toFixed(2)}`); },
 });
 // 视图 = 右上角导航 gizmo（Blender / Unity 式；user 2026-10-21「视图之类的能不能参考unity blender editor」）。视图弹层退役；透视 / 步行 / 穿墙 / 粗线稿进 ☰。
 // 放在 locomotion 之后（render 立刻会问 isWalking）。

@@ -468,6 +468,10 @@ body.doc-locked .walk-btn[data-edits] { opacity: .45; }
 .work-bar .wb-run { position: absolute; top: 0; bottom: 0; left: 0; width: 35%; background: var(--accent); animation: wb-slide 1.1s ease-in-out infinite; will-change: transform; }
 @keyframes wb-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
 @media (prefers-reduced-motion: reduce) { .work-bar .wb-run { animation: none; width: 100%; opacity: .6; } }
+/* 重按：笔尖闪一圈（app/ui/press-pulse.ts；笔的设计稿第二节第 5 条） */
+.press-pulse { position: fixed; width: 28px; height: 28px; margin: -14px 0 0 -14px; border: 2px solid var(--accent); border-radius: 50%; pointer-events: none; z-index: 60; animation: press-pulse 260ms ease-out forwards; }
+@keyframes press-pulse { from { transform: scale(.35); opacity: 1; } to { transform: scale(1.25); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .press-pulse { animation: press-pulse-still 260ms linear forwards; } @keyframes press-pulse-still { from { opacity: .9; } to { opacity: 0; } } }
 /* 键名芯片（MFD；app/mfd.ts，账本 UX19）：提示行上面一排固定槽位；能点的芯片带底、只显示的（修饰键）是描边 */
 .mfd { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; pointer-events: auto; text-shadow: none; flex-wrap: wrap; }
 .mfd[hidden] { display: none; }

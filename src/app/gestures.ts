@@ -21,9 +21,10 @@
 
 import type { Editor, ToolPointer } from "../editor/editor.ts";
 import { FINGER_DOUBLE_TAP_MS, FINGER_DOUBLE_TAP_PX, LONG_PRESS_MS, GESTURE_TAP_MAX_MS, GESTURE_TAP_MAX_MOVE, PALM_PEN_GUARD_MS, STALE_TOUCH_MS, SINGLE_TAP_MS, UNLOCK_PX } from "../controller/feel.ts";   // 时间 / 距离的数值住手感表（2026-10-28）
+import { pressDown, pressMove, type PressHit, type PressState } from "../controller/hard-press.ts";   // 重按（笔的设计稿第七节第 2 步）：判法在那里，这里只喂笔的样本
 
 type Role = "tool" | "orbit" | "pan" | "hold" | "multi";
-interface Tracked { type: string; role: Role; x: number; y: number; downX: number; downY: number; downAt: number; lastAt: number; }
+interface Tracked { type: string; role: Role; x: number; y: number; downX: number; downY: number; downAt: number; lastAt: number; press?: PressState; }   // press = 笔的工具指针这一下的重按状态
 interface GestureTap { firstDownTime: number; isTap: boolean; maxCount: number; start: Map<number, { x: number; y: number }>; }
 
 export interface GestureOpts {
@@ -50,6 +51,8 @@ export interface GestureOpts {
   longPressEnabled?(): boolean;
   /** 「点两下 / 点三下」是否可用（缺省 = 只有鼠标）：#23 移动 / 旋转对笔和手指也开。 */
   armable?(pointerType: string): boolean;
+  /** 笔的工具指针判到一次重按（hard-press.ts）：hit = 点下在哪（画布本地）；clientX / Y = 同一点的 client 坐标（笔尖闪一圈用）。同一下也带在递给编辑器的 ToolPointer.press 上。 */
+  onHardPress?(hit: PressHit, clientX: number, clientY: number): void;
 }
 
 
@@ -70,6 +73,18 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
   const tp = (ev: PointerEvent): ToolPointer => {
     const s = local(ev), L = opts.latched?.() ?? { shift: false, ctrl: false, alt: false };   // 锁住的修饰键 = 一直按着（iPad 没键盘）
     return { x: s.x, y: s.y, clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType, armable: opts.armable ? opts.armable(ev.pointerType) : ev.pointerType === "mouse", shiftKey: ev.shiftKey || L.shift, copy: ev.ctrlKey || ev.altKey || ev.metaKey || L.ctrl || L.alt, altKey: ev.altKey || L.alt, at: ev.timeStamp, pressure: ev.pressure };   // at = 事件自己的时间：抬笔结算按它算停了多久（不按处理时刻：帧慢不算人停）；pressure = 压感（画画的一笔要）
+  };
+  /** 重按：只喂笔的工具指针（按下 = 落笔，之后每个移动；浏览器合并掉的样本也喂，判得准些）。判到 = 告诉宿主，并返回它（带在这一下的 ToolPointer 上）。工具不读压力（设计稿第五节）。 */
+  const feedPress = (ev: PointerEvent, t: Tracked): PressHit | null => {
+    if (ev.pointerType !== "pen") return null;
+    const r = canvas.getBoundingClientRect(), co = t.press ? ev.getCoalescedEvents?.() ?? [] : [];
+    let hit: PressHit | null = null;
+    for (const e of co.length ? co : [ev]) {
+      const s = { t: e.timeStamp, p: e.pressure, x: e.clientX - r.left, y: e.clientY - r.top }, step = t.press ? pressMove(t.press, s) : pressDown(s);
+      t.press = step.state; hit = step.hit ?? hit;
+    }
+    if (hit) opts.onHardPress?.(hit, hit.x + r.left, hit.y + r.top);
+    return hit;
   };
   const touches = (): [number, Tracked][] => [...pointers.entries()].filter(([, p]) => p.type === "touch");
   const toolPointerActive = (): boolean => [...pointers.values()].some((p) => p.role === "tool");
@@ -155,7 +170,8 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     if (base.role === "tool") {
       if (opts.toolBlocked?.()) { base.role = "hold"; return; }   // 充能中落笔 = 无事发生（既不画也不转相机）
       lastTool = tp(ev);
-      editor.pointerDown(lastTool);
+      const hit = feedPress(ev, base);
+      editor.pointerDown(hit ? { ...lastTool, press: hit } : lastTool);   // press 只带在这一下上：lastTool 相机动了会重放（retrack），不许把同一次重按再递一遍
     }
   }
 
@@ -172,7 +188,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     t.x = s.x; t.y = s.y; t.lastAt = performance.now();
     if (ev.pointerType === "pen") lastPenActivity = t.lastAt;
     switch (t.role) {
-      case "tool": lastTool = tp(ev); editor.pointerMove(lastTool); return;
+      case "tool": { lastTool = tp(ev); const hit = feedPress(ev, t); editor.pointerMove(hit ? { ...lastTool, press: hit } : lastTool); return; }   // 同上：重按不进 lastTool
       case "orbit": if (opts.look?.(dx, dy)) { editor.draw(); return; } if (toolPointerActive() && opts.cameraLocked?.()) return; editor.cam.orbit(dx, dy); retrack(); editor.draw(); return;
       case "pan": if (opts.look?.(dx, dy)) { editor.draw(); return; } if (toolPointerActive() && opts.cameraLocked?.()) return; editor.cam.pan(dx, dy, editor.vp()); retrack(); editor.draw(); return;
       case "multi": {
