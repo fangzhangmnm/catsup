@@ -321,7 +321,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const views = new Map<number, Uint8Array>();
   for (const i of collectBufferViewRefs([topLevel, extensions, documentExtra, definitionsExtra, brepKeep ?? {}, referencesExtraRaw, texturesExtraRaw, uvSetsExtraRaw])) views.set(i, new Uint8Array(view(i)));
   references.extra = referencesExtraRaw;   // 直通的未知键（里面的 bufferView 仍是文件里的旧索引；写入器经 carry.views 重映射）
-  paintReadChecks(definitions, materials, textures, uvSets, notes);   // 画这一层的收口（1-2½）：别的定义借用单品的画 → 那一格当没有材质；layout 指不到 → 孤儿；走画的面没有位置 → 记一笔
+  paintReadChecks(definitions, materials, textures, uvSets, notes);   // 画这一层的收口（1-2½；施工单十八第 1 刀改写）：uv 列对着排法表、画挂的排法不在表里 → 孤儿、旧存法的画 → 不当画、走画的面没有位置 → 记一笔（paint-read.ts 头注释）
   const settingsIn = isObj(docExt.settings) ? (docExt.settings as Record<string, unknown>) : {};
   const bake = isObj(docExt.bake) ? (docExt.bake as Record<string, unknown>) : {};
   return {

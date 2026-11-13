@@ -65,7 +65,7 @@ const boxMesh = (m: MeshKernel): void => { addBox(m, P(0, 0, 0), P(2, 1, 1)); };
 const uvOf = (s: Scene, def: number): string => s.mesh(def).kernel.columnDefs().find((c) => c.kind === "uv")!.guid;   // 施工单十八：排法表在场景层，网格体上是 uv 列
 
 describe("开始画（1-3b 测试 A）", () => {
-  it("做完：uvSets 多一行、贴图表多一行（分层、没有字节、layout 指着这个定义和这一套）、材质多一个、这些面走画、每个角有位置、自检没毛病；撤销 / 重做 / 重放逐位", () => {
+  it("做完：uvSets 多一行、贴图表多一行（分层、没有字节、layout = { uvSet } 指着这一套排法）、材质多一个、这些面走画、每个角有位置、自检没毛病；撤销 / 重做 / 重放逐位", () => {
     const r = rig(boxMesh), faces = r.k().faces(), before = canon(r.s, r.def), t0 = r.s.textures.size, m0 = r.s.materials.length;
     const op = startOp(r.def, faces), sBefore = r.s.clone();
     eq(r.step(op), "", "收尾没话说");
