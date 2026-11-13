@@ -228,3 +228,7 @@ src/app/session.ts:1132:    if (this.home.kind === "gallery") return this.lazy ?
 src/app/session.ts:1138:    const ok = await this.save();
 src/app/session.ts:1184:  async flushLocal(): Promise<void> { if (this.adopting) await this.adopting; if (this.home.kind === "gallery" && !this.lazy &
 ```
+
+- **二之一第二次停（11-13，统筹）**：照统筹一度改口做完了（v0.19.75，全套 2422 绿、红线组 8/8、`probe-count-after-save` 旧红新绿），统筹看了改动后决定**不发**，提交整串留在 `wip/sync-2-1-count-after-save`（d8cd7d62），**没合、没推**；seams 回到 v0.19.74，v0.19.75 这个号没花掉。原因：① 照「只落本机」的口径，退出登录原来那次保存（在线时会顺手把开着的这份推上去）不推了，在线退出会把没传的改动留在这台设备上，比原来差——口径的毛病；② user 定的办法：安全的东西发现了不立刻修，进总账，等专门做安全的时候停下来慢慢修（统筹已在家族周账 F-276 后面补了一句）。
+  - **以后接着做时还差的**：退出登录那一处要保住原来「在线时把开着的这份传上去」的行为（比如先照原来那样 `flushLocal` 存（会推）、再数），还原出厂护栏和离开文件夹家照分支上的做法；分支上探针 `probe-count-after-save` 的 A 段（退出登录）要跟着改成「在线时推上去了 / 离线时留着待传且挂库」两种。
+  - 留在 seams 上的只有一处探针的修：`probe-cloud-gate` 退出登录那一段原来只等 store 放掉就读，读到半路（和二之一无关的竞速，分支上那版多了几拍才撞上），改成等「已经改挂临时模型」再读。
