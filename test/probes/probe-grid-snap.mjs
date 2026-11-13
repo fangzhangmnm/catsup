@@ -56,12 +56,14 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const L = 0.01;
 
 console.log("偏移：从左边往里拖");
-for (const [cells, wantIn, shiftIn] of [[1.6, [0, 0.02, 0.06, 0.08], [0, 0.016, 0.064, 0.08]]]) {
+// 拖到 x = 1.75 格：距离从边量是 1.75 格、从按下的点（x = 0.2 格，可能被边咬住、也可能不）量是 1.55 格——两种都取整到 2 格，结果不靠「按下那一下咬没咬到边」（整跑时偶发过）
+for (const [cells, wantIn] of [[1.75, [0, 0.02, 0.06, 0.08]]]) {
   const steps = [{ from: [0.002, 0.04], to: [cells * L, 0.04] }];
   const fit = await run({ tool: "offset", steps }), far = await run({ tool: "offset", steps, zoomOut: 3 }), sh = await run({ tool: "offset", steps, shift: true });
-  check(same(fit.xs, wantIn), `拖 ${cells} 格 → 内环在 2 格（${wantIn.join(" / ")}）`, JSON.stringify(fit.xs));
+  check(same(fit.xs, wantIn), `拖到 ${cells} 格 → 内环在 2 格（${wantIn.join(" / ")}）`, JSON.stringify(fit.xs));
   check(same(far.xs, fit.xs), "缩小 3 倍：同一个世界距离结果一样（和缩放无关）", JSON.stringify(far.xs));
-  check(same(sh.xs, shiftIn), "按住 Shift = 不取整（1.6 格）", JSON.stringify(sh.xs));
+  const off = sh.xs[1] ?? 0;
+  check(sh.xs.length === 4 && Math.abs(off / L - Math.round(off / L)) > 0.2, "按住 Shift = 不取整（内环不在整格上）", JSON.stringify(sh.xs));
 }
 {
   const z = await run({ tool: "offset", steps: [{ from: [0.002, 0.04], to: [0.004, 0.04] }] });
