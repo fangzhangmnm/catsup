@@ -40,7 +40,7 @@ async function serve(dir) {
   const port = 8900 + Math.floor(Math.random() * 90);
   const p = spawn("python3", ["-m", "http.server", String(port), "--bind", "127.0.0.1"], { cwd: dir, stdio: "ignore" });
   const url = `http://127.0.0.1:${port}/`;
-  for (let i = 0; i < 50; i++) { try { const r = await fetch(url); if (r.ok) break; } catch { /* 还没起来 */ } await new Promise((r) => setTimeout(r, 100)); }
+  for (let i = 0; i < 50; i++) { try { const r = await fetch(url); await r.arrayBuffer().catch(() => {}); if (r.ok) break; } catch { /* 还没起来 */ } await new Promise((r) => setTimeout(r, 100)); }   // 回应体一定读完：不读的话 Node 24 的 undici 在 python http.server 关连接时会断言崩掉整个脚本（11-12 两次）
   return { url, stop: () => p.kill() };
 }
 /** 跑一个探针：退出码、用时、日志路径。 */
