@@ -312,7 +312,9 @@ export function docPenDesk(): CatsupDocument {
   doc.desk.paint = { color: "#c03050", brushes: { pen: { size: 18, opacity: 0.75, hardness: 0.6, extra: {} }, eraser: { size: 48, opacity: 1, hardness: 0.9, extra: {} }, sketch: { size: 6, opacity: 0.9, hardness: 0.75, extra: {} }, wash: { size: 4, extra: { flow: 0.3 } } }, active: { brush: "sketch", eraser: "eraser", fill: "fill-face" }, extra: { future: true } };
   return doc;
 }
-export const DOC_SAMPLES: Record<string, () => CatsupDocument> = { referenced: docReferenced, snap20: docSnap20, penDesk: docPenDesk };
+/** 毫米单位制（2026-11-13）：settings.unitSystem = "metric-mm"、吸附 1 mm，不写旧键 displayUnit。 */
+export function docUnitMm(): CatsupDocument { const doc = newDocument(sceneBox().toBrep(), "unitMm"); const { displayUnit: _old, ...rest } = doc.settings; doc.settings = { ...rest, unitSystem: "metric-mm", snapIncrement: 0.001, gridStep: 0.001, gridSubdiv: 1, absoluteGrid: true }; return doc; }
+export const DOC_SAMPLES: Record<string, () => CatsupDocument> = { referenced: docReferenced, snap20: docSnap20, penDesk: docPenDesk, unitMm: docUnitMm };
 /** 场景指纹：每个池的指纹 + group / instance 结构。 */
 export function sceneFingerprint(s: Scene): string {
   const parts: string[] = [];

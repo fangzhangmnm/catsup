@@ -4,7 +4,7 @@ import { add3, cross3, dot3, normalize3, scale3, sub3 } from "../kernel/geom.ts"
 import type { Frame } from "../scene/xform.ts";
 
 /** 与旋转工具同一套手感：15° 一档，离档 ≤ 1.5° 吸上去；参考点离圆心至少 1 cm。 */
-export const PROT_SNAP_DEG = 1.5, PROT_MIN = 0.01;   // PROT_SNAP_DEG = 和坐标轴平行的角度窗（「具体的东西」）；15° 档归 increments.ts gridSnap、一律取整（2026-11-12 起没有窗）
+export const PROT_SNAP_DEG = 1.5;   // PROT_SNAP_DEG = 和坐标轴平行的角度窗（「具体的东西」）；15° 档归 increments.ts gridSnap、一律取整（2026-11-12 起没有窗）
 
 /** 点 q 相对参考方向（center→ref）绕 axis 的有向角（弧度，右手）。 */
 export function angleAbout(center: Pt3, axis: Pt3, ref: Pt3, q: Pt3): number {

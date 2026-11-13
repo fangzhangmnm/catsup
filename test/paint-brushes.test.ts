@@ -15,19 +15,19 @@ const mk = () => {
 const desk = (p: Partial<PaintDeskDoc>): PaintDeskDoc => ({ brushes: {}, active: {}, extra: {}, ...p });
 
 describe("每支笔的旋钮 + 换笔（施工单二十 1b）", () => {
-  it("出厂：笔 = 平涂 50 / 1 / 0.9（v0.19.69 照画画软件的「平涂」）、橡皮 24 / 1 / 0.8（和以前的工具配置一样）", () => {
+  it("出厂：笔 = 草稿笔 6 / 1 / 0.75（user 11-13「默认草稿笔」；以前是平涂）、橡皮 24 / 1 / 0.8（和以前的工具配置一样）", () => {
     const { pb, knobs } = mk(); pb.apply(null);
-    eq(pb.current("paintPen"), "pen"); eq(pb.current("paintEraser"), "eraser"); eq(pb.current("eyedrop"), null);
-    eq(knobs(), "50 / 1 / 0.9"); eq(knobs("paintEraser"), "24 / 1 / 0.8");
+    eq(pb.current("paintPen"), "sketch"); eq(pb.current("paintEraser"), "eraser"); eq(pb.current("eyedrop"), null);
+    eq(knobs(), "6 / 1 / 0.75"); eq(knobs("paintEraser"), "24 / 1 / 0.8");
   });
-  it("换成草稿笔：手上的旋钮存回普通笔、套上草稿笔的初值（6 / 1 / 0.75）；上限 = 80；换回来各是各的", () => {
+  it("换笔：手上的旋钮存回原来那支、套上新那支的初值；换回来各是各的（出厂草稿笔 → 平涂 50 / 1 / 0.9 → 回草稿笔）", () => {
     const { cfg, pb, knobs } = mk(); pb.apply(null);
     cfg.set("paintPen", "size", 30); cfg.set("paintPen", "opacity", 0.6);
-    cfg.set("paintPen", "brush", "sketch");
-    eq(pb.current("paintPen"), "sketch"); eq(knobs(), "6 / 1 / 0.75"); eq(pb.sizeMax("paintPen"), 80);
-    cfg.set("paintPen", "size", 50);
-    cfg.set("paintPen", "brush", "pen"); eq(knobs(), "30 / 0.6 / 0.9", "普通笔的旋钮回来了");
-    cfg.set("paintPen", "brush", "sketch"); eq(knobs(), "50 / 1 / 0.75", "草稿笔的也还在");
+    cfg.set("paintPen", "brush", "pen");
+    eq(pb.current("paintPen"), "pen"); eq(knobs(), "50 / 1 / 0.9");
+    cfg.set("paintPen", "size", 40);
+    cfg.set("paintPen", "brush", "sketch"); eq(knobs(), "30 / 0.6 / 0.75", "草稿笔的旋钮回来了"); eq(pb.sizeMax("paintPen"), 80);
+    cfg.set("paintPen", "brush", "pen"); eq(knobs(), "40 / 1 / 0.9", "平涂的也还在");
   });
   it("大小不超过这支笔的上限：直接 set 到 300 夹回 80；换到上限小的笔时带过去的也夹", () => {
     const { cfg, pb } = mk(); pb.apply(null);
@@ -50,11 +50,11 @@ describe("每支笔的旋钮 + 换笔（施工单二十 1b）", () => {
     const { pb, knobs } = mk();
     const prev = desk({ brushes: { wash: { size: 4, extra: { flow: 0.3 } }, pen: { size: 15, extra: { grain: 0.7 } } }, active: { brush: "wash", fill: "fill-face" } });
     pb.apply(prev);
-    eq(pb.current("paintPen"), "pen", "active 指着本版没有的笔 = 默认那支"); eq(knobs(), "15 / 1 / 0.9");
+    eq(pb.current("paintPen"), "sketch", "active 指着本版没有的笔 = 默认那支（11-13 起草稿笔）"); eq(knobs(), "6 / 1 / 0.75");
     const d = pb.toDesk(prev);
     eq(JSON.stringify(d.brushes.wash), JSON.stringify({ size: 4, extra: { flow: 0.3 } }), "本版没有的笔原样");
     eq(JSON.stringify(d.brushes.pen.extra), JSON.stringify({ grain: 0.7 }), "这支笔里不认识的键留着");
-    eq(d.active.fill, "fill-face", "本版没有的 tool 原样"); eq(d.active.brush, "pen", "认识的 tool 写现在拿的");
+    eq(d.active.fill, "fill-face", "本版没有的 tool 原样"); eq(d.active.brush, "sketch", "认识的 tool 写现在拿的");
   });
   it("apply 的过程中不报；换笔 / 改旋钮各报一声（main.ts 收到才写回桌面态）", () => {
     const { cfg, pb, changes } = mk();

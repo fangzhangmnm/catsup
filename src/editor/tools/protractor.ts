@@ -1,5 +1,6 @@
 // tools/protractor.ts —— 量角器（SU Protractor）：0.11 尺规纪元 ⑥（2026-10-24，Claude Fable 5.1；设计稿 §4）。
 // 三下：圆心（定平面 = 转轴）→ 参考方向 → 转到角度（15° 咬合 + VCB 度数）→ 过圆心的**角度参考线**。预演复用旋转工具的量角器圆环。
+import { gestureMinLen, longEnough } from "../gesture-consts.ts";
 import { dot3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { gridSnap, snapIsGridOnly } from "../increments.ts";
@@ -11,7 +12,7 @@ import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
-import { PROT_MIN, angleAbout, axisAlignAngle, projectToAxisPlane, rotateDir } from "../protractor-geom.ts";
+import { angleAbout, axisAlignAngle, projectToAxisPlane, rotateDir } from "../protractor-geom.ts";
 
 const fmtDeg = (rad: number): string => `${((rad * 180) / Math.PI).toFixed(1)}°`;
 
@@ -53,7 +54,7 @@ export class ProtractorTool implements ToolHandler {
       this.relock(ctx);
       const sn = this.snapAt(ctx, ev.x, ev.y, true);
       const q = projectToAxisPlane(sn.p, this.center!, this.axis());
-      if (dist3(q, this.center!) < PROT_MIN) { ctx.hint("量角器：参考点离圆心太近"); return; }
+      if (!longEnough(ctx, this.center!, dist3(q, this.center!), sn.kind !== null)) { ctx.hint("量角器：参考点离圆心太近"); return; }   // 以前写死 1 厘米（PROT_MIN），毫米零件上用不了：动没动按屏幕像素、吸到的只看几何（2026-11-13）
       this.ref = q; this.angle = 0;
       this.stage = 2;
       ctx.hint("量角器 ③/③：转到角度再点一下 → 角度参考线（15° 咬合；输度数可精确）");
@@ -86,7 +87,7 @@ export class ProtractorTool implements ToolHandler {
     const ray = ctx.frame().ray(s.x, s.y, ctx.vp()), raw = snapIsGridOnly(sn0.kind) ? rayPlane(ray.origin, ray.dir, this.axis(), dot3(this.axis(), this.center)) : null;
     const sn = raw ? { ...sn0, p: raw, kind: null } : sn0;
     const q = projectToAxisPlane(sn.p, this.center, this.axis());
-    if (dist3(q, this.center) < PROT_MIN) return;
+    if (dist3(q, this.center) < gestureMinLen(ctx, this.center)) return;   // 光标离圆心不到几个像素：角度没意义
     let ang = angleAbout(this.center, this.axis(), this.ref!, q);
     this.snappedDetent = false;
     let axisKind: "axis-x" | "axis-y" | "axis-z" | null = null;

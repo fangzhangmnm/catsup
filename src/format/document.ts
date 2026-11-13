@@ -12,7 +12,7 @@ import { DEFAULT_LAYER_GUID, mintGuid, type Guid } from "./guid.ts";
 export type BakeMode = "wysiwyg" | "engine";
 
 export interface DocumentSettings {
-  displayUnit: string;      // "m" | "cm" | "mm" | "ft-in"
+  displayUnit?: string;     // "m" | "cm" | "mm" | "ft-in"；毫米单位制不写（2026-11-13，新值只认 unitSystem）
   gridStep: number;         // 米
   snapIncrement: number;    // 米：吸附长度（3.4 起是主的；3.3 以前 = gridStep / gridSubdiv，写入时派生）
   /** 单位制（3.4，2026-10-30；可选键）：metric / imperial / dnd = 显示单位 + 网格进位 + 吸附档一起（editor/grid-settings.ts）。缺 = 按老键猜。 */

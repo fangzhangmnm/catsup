@@ -7,7 +7,7 @@
 // 不碰模型、不进撤销、不标脏（和以前一样）。画画软件的 dial 也是每支笔记自己的大小 / 浓度。
 import type { CatsUpToolConfig } from "../editor/tool-config.ts";
 import type { PaintDeskDoc, PaintKnobsDesk } from "../format/document.ts";
-import { BRUSHES, type BrushId } from "../paint/brush-records.ts";
+import { BRUSHES, DEFAULT_BRUSH, type BrushId } from "../paint/brush-records.ts";
 import { brushKindOfTool, recordToolOf } from "../paint/brush-kinds.ts";
 
 type PenTool = "paintPen" | "paintEraser";
@@ -32,7 +32,7 @@ export function createPaintBrushes(cfg: CatsUpToolConfig, changed: () => void): 
   const stored = new Map<BrushId, Knobs>();
   /** 碰过的笔（载入时文件里有的 + 拿起过的）：只写这些。 */
   const touched = new Set<BrushId>();
-  const cur: Record<PenTool, BrushId> = { paintPen: "pen", paintEraser: "eraser" };
+  const cur: Record<PenTool, BrushId> = { paintPen: DEFAULT_BRUSH.brush, paintEraser: DEFAULT_BRUSH.eraser };   // 新文件默认 = 草稿笔（DEFAULT_BRUSH 一处说）
   let applying = false;
 
   const isPen = (t: string): t is PenTool => (PEN_TOOLS as readonly string[]).includes(t);

@@ -52,6 +52,6 @@ export function settingsNow(s: DocumentSettings): SettingsNow {
  */
 export function settingsForFile(s: DocumentSettings, now: { readonly absoluteGrid: boolean; readonly unitSystem: UnitSystemId; readonly snapIncrement: number; readonly gridPlane: "xy" | "yz" | "xz"; readonly gridHidden: boolean }): DocumentSettings {
   const { scaleRef: _oldSingle, ...rest } = s as DocumentSettings & { scaleRef?: string };
-  const legacy = unitSystemRow(now.unitSystem).legacy, preset = legacy.gridPreset;   // 给旧版本照写的旧键（表里那一行说写什么）
+  const legacy = unitSystemRow(now.unitSystem).legacy, preset = legacy.gridPreset;   // 给旧版本照写的旧键（表里那一行说写什么；毫米那一行没有 displayUnit = undefined = JSON 里不写这个键）
   return { ...rest, absoluteGrid: now.absoluteGrid, unitSystem: now.unitSystem, snapIncrement: now.snapIncrement, gridStep: now.snapIncrement, gridSubdiv: 1, displayUnit: legacy.displayUnit, ...(now.gridPlane !== "xy" ? { gridPlane: now.gridPlane } : { gridPlane: undefined }), gridPreset: preset, gridHidden: now.gridHidden ? true : undefined };
 }

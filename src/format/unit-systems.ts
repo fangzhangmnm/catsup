@@ -6,7 +6,7 @@
 // 住 format/：单位制是文件设置的一项，读写门口要认 id 和旧键；这里纯数据、不 import 任何东西（format 不 import editor）。
 // 数据一律存米（SI）；这张表只管显示和输入（user 10-22「引擎统一吃 SI，显示层换」）。
 
-export type UnitSystem = "metric" | "imperial" | "dnd";
+export type UnitSystem = "metric" | "metric-mm" | "imperial" | "dnd";
 
 /** 显示 / 输入的长度单位（units.ts LengthUnit 的一部分）：不带单位的数按它算。 */
 export type SystemDisplay = "m" | "mm" | "ft";
@@ -18,10 +18,10 @@ export interface UnitSystemRow {
   readonly hint: string;
   /** 显示 / 不带单位的数按什么。 */
   readonly display: SystemDisplay;
-  /** 读数（提示、吸附标签、数值回显）怎么写：auto-si = 按大小自动挑 fm … Gm；ft-in = 英尺英寸。 */
-  readonly readout: "auto-si" | "ft-in";
-  /** 整齐长度（网格一层 / 吸附一档）的短写：si = 按大小挑；imperial = 英寸分数 / 英寸 / 英尺。 */
-  readonly stepStyle: "si" | "imperial";
+  /** 读数（提示、吸附标签、数值回显）怎么写：auto-si = 按大小自动挑 fm … Gm；mm = 一律毫米（最多两位小数、末尾的零去掉）；ft-in = 英尺英寸。 */
+  readonly readout: "auto-si" | "mm" | "ft-in";
+  /** 整齐长度（网格一层 / 吸附一档）的短写：si = 按大小挑；mm = 一律毫米；imperial = 英寸分数 / 英寸 / 英尺。 */
+  readonly stepStyle: "si" | "mm" | "imperial";
   /** 网格自动换层的进位表（米，从细到粗；相邻两层整数倍）。 */
   readonly ladder: readonly number[];
   /** 吸附的几档（米，从细到粗；每档整除进位表里比它粗的下一层）。 */
@@ -32,8 +32,9 @@ export interface UnitSystemRow {
   readonly miles: boolean;
   /** 速度那半按哪一家（D&D 当英制）。 */
   readonly speedFamily: "metric" | "imperial";
-  /** 给旧版本照写的旧键（3.4 之前的读者靠 displayUnit 显示、靠 gridPreset 认制式；gridPreset 缺 = 公制）。 */
-  readonly legacy: { readonly displayUnit: "m" | "mm" | "ft-in"; readonly gridPreset?: "architectural" | "dnd" };
+  /** 给旧版本照写的旧键（3.4 之前的读者靠 displayUnit 显示、靠 gridPreset 认制式；gridPreset 缺 = 公制）。
+   *  缺 displayUnit = 不写（毫米那一行：统筹 11-13「pre-alpha，舍去历史包袱」——不给旧版本照顾，旧版本见到新值按公制开）。 */
+  readonly legacy: { readonly displayUnit?: "m" | "ft-in"; readonly gridPreset?: "architectural" | "dnd" };
 }
 
 export const IN_M = 0.0254, FT_M = 0.3048;
@@ -53,6 +54,14 @@ export const UNIT_SYSTEM_ROWS: readonly UnitSystemRow[] = [
     display: "m", readout: "auto-si", stepStyle: "si",
     ladder: SI_LADDER, snaps: [0.001, 0.01, 0.05, 0.1, 0.2, 0.5, 1], defaultSnap: 0.2,
     miles: false, speedFamily: "metric", legacy: { displayUnit: "m" },
+  },
+  {
+    // 毫米（user 11-12「然后毫米可以，我建议是毫米，毫米更舒服。加一个新的单位制吧……就加一个工业设计的毫米单位制」）：工业设计 / 3D 打印。
+    //   读数一律写毫米（1.5 米写 1500 mm，工业设计的习惯）；吸附 0.1 … 100 mm、默认 1 mm；网格进位同公制（十倍一层，每档整除比它粗的下一层）。
+    id: "metric-mm", label: "毫米", hint: "工业设计、3D 打印；不带单位的数按毫米",
+    display: "mm", readout: "mm", stepStyle: "mm",
+    ladder: SI_LADDER, snaps: [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1], defaultSnap: 0.001,
+    miles: false, speedFamily: "metric", legacy: {},
   },
   {
     id: "imperial", label: "英制", hint: "英尺英寸",

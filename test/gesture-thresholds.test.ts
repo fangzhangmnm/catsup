@@ -19,7 +19,7 @@ describe("工具里没有写死的世界长度门槛", () => {
     const bad: string[] = [];
     for (const f of files) {
       if (f === "gesture-consts.ts" || !(f.startsWith("tools/") || f.endsWith("-geom.ts"))) continue;
-      for (const m of code(fs.readFileSync(new URL(f, ROOT), "utf8")).matchAll(/\b(?:const|let)\s+([A-Z][A-Z0-9_]*_(?:MIN|LEN))\s*=\s*0?\.0\d/g)) bad.push(`${f}: ${m[1]}`);
+      for (const m of code(fs.readFileSync(new URL(f, ROOT), "utf8")).matchAll(/(?:\b(?:const|let)\s+|,\s*)([A-Z][A-Z0-9_]*_(?:MIN|LEN))\s*=\s*0?\.0\d/g)) bad.push(`${f}: ${m[1]}`);
     }
     eq(bad.join("；"), "");
   });

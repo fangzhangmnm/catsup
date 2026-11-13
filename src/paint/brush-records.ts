@@ -67,7 +67,7 @@ export const BRUSH_IDS = Object.keys(BRUSHES) as BrushId[];
 export const isBrushId = (s: unknown): s is BrushId => typeof s === "string" && Object.prototype.hasOwnProperty.call(BRUSHES, s);
 export const brushRecord = (id: BrushId): BrushRecord => BRUSHES[id];
 /** 每种 tool 默认的那支（桌面态 active 指着这一版没有的笔 / 没记 = 用它）。 */
-export const DEFAULT_BRUSH: Readonly<Record<BrushRecord["tool"], BrushId>> = { brush: "pen", eraser: "eraser" };
+export const DEFAULT_BRUSH: Readonly<Record<BrushRecord["tool"], BrushId>> = { brush: "sketch", eraser: "eraser" };   // 新文件默认草稿笔（user 11-13「默认草稿笔」；以前是平涂）；文件里存着当前笔的照旧用它
 /** 这种 tool 有哪几支（表里的顺序 = 下拉里的顺序）。 */
 export const brushesOfTool = (tool: BrushRecord["tool"]): BrushId[] => BRUSH_IDS.filter((id) => BRUSHES[id].tool === tool);
 

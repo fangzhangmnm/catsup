@@ -14,6 +14,7 @@
   "probe-pp-snap.mjs": {"state":"green","role":"guard"},
   "probe-gesture-px.mjs": {"state":"green","role":"guard"},
   "probe-grid-snap.mjs": {"state":"green","role":"guard"},
+  "probe-unit-mm.mjs": {"state":"green","role":"guard"},
   "probe-autosave-resume-race.mjs": {"state":"green","role":"guard"},
   "probe-vcb-keys.mjs": {"state":"green","role":"guard"},
   "probe-axes-point.mjs": {"state":"green"},

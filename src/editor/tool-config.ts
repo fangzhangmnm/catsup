@@ -160,7 +160,7 @@ export class ToolConfig<T extends OptionTable> {
 import { SURFACE_TIERS } from "./surface-assign.ts";
 import { ARC_MODES } from "./arc-build.ts";
 import { BOOLEAN_DEFAULT } from "../controller/stance.ts";
-import { BRUSHES, brushesOfTool } from "../paint/brush-records.ts";
+import { BRUSHES, DEFAULT_BRUSH, brushesOfTool } from "../paint/brush-records.ts";
 /** 画画工作台「笔」那把工具上能挑的几支（笔的表里 tool = brush 的那几行，表里的顺序；施工单二十 1b）。 */
 const PEN_BRUSHES = brushesOfTool("brush").map((id) => ({ id, label: BRUSHES[id].name }));
 /** 工具 → 选项组：表面指派工具（油漆桶 / 以后的碰撞、贴图投影）共用 `surface` 一组（user「锐角阈值和模式的持久化不同工具共享」）。 */
@@ -275,7 +275,7 @@ export const TOOL_OPTIONS = {
   paintPen: {
     // 拿的是哪支笔（施工单二十 1b；带文字的下拉 = 家规「四项以上用带文字的」，现在三项也照样用）。大小 / 浓度 / 硬度是这支笔的旋钮：换笔时 app 把它们存回上一支、套上这一支的（app/paint-brushes.ts）。
     //   跟文件走 = 桌面态 1.6 paint.active.brush（main.ts 套上 / 写回）。
-    brush: { kind: "enum", label: "笔", values: PEN_BRUSHES, def: "pen", scope: "doc" },
+    brush: { kind: "enum", label: "笔", values: PEN_BRUSHES, def: DEFAULT_BRUSH.brush, scope: "doc" },   // 新文件默认 = 草稿笔（brush-records.ts DEFAULT_BRUSH 一处说）
     size: { kind: "number", label: "大小", def: 12, min: 1, max: 400, step: 1, unit: "像素", scope: "doc", elsewhere: true },
     opacity: { kind: "number", label: "浓度", def: 1, min: 0.05, max: 1, step: 0.05, scope: "doc", elsewhere: true },
     hardness: { kind: "number", label: "硬度", def: 0.8, min: 0, max: 1, step: 0.05, scope: "doc" },

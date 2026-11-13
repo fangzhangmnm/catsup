@@ -45,7 +45,9 @@ export const MILE_M = 1609.344;
  */
 export function fmtStep(m: number, sys: UnitSystem = system): string {
   const trim = (v: number): string => String(Number(v.toPrecision(6)));
-  if (unitSystemRow(sys).stepStyle === "si") { const [u, k] = metricUnit(m); return `${trim(m / k)} ${u}`; }
+  const style = unitSystemRow(sys).stepStyle;
+  if (style === "si") { const [u, k] = metricUnit(m); return `${trim(m / k)} ${u}`; }
+  if (style === "mm") return `${trim(m * 1000)} mm`;   // 毫米单位制：一律毫米
   const inch = m / UNIT_M.in, ft = inch / 12;
   const tail = Math.abs(m) >= MILE_M ? `（约 ${Number((Math.abs(m) / MILE_M).toFixed(Math.abs(m) >= 10 * MILE_M ? 0 : 1))} mi）` : "";
   if (ft >= 1 && Math.abs(ft - Math.round(ft)) < 1e-6) return `${Math.round(ft)} ft${tail}`;
@@ -71,7 +73,9 @@ export function formatLength(m: number, unit: LengthUnit, digits = 1): string {
   return (Math.abs(val - shown) > 1e-6 ? "~" : "") + shown.toFixed(digits) + ` ${sub}`;
 }
 /** 看的字（提示 / 吸附标签 / 读数 / 网格标记）：按当前单位制；英制 / D&D ≥ 1 英里后面加「约 x mi」（不进网格进位、不进输入框）。 */
-export function fmtLen(m: number, digits = 1): string { return formatLength(m, display, digits) + aboutMiles(m); }
+export function fmtLen(m: number, digits = 1): string { return (unitSystemRow(system).readout === "mm" ? mmReadout(m) : formatLength(m, display, digits)) + aboutMiles(m); }
+/** 毫米单位制的读数：一律毫米，最多两位小数、末尾的零去掉（1500 mm、1.5 mm、0.25 mm）；取整过的前面带「~」。 */
+function mmReadout(m: number): string { const v = m * 1000, shown = Number(v.toFixed(2)); return (Math.abs(v - shown) > 1e-9 ? "~" : "") + `${shown} mm`; }
 export function aboutMiles(m: number): string { return unitSystemRow(system).miles && Math.abs(m) >= MILE_M ? `（约 ${Number((Math.abs(m) / MILE_M).toFixed(Math.abs(m) >= 10 * MILE_M ? 0 : 1))} mi）` : ""; }
 
 /** 面积读数：米制 < 1 m² 念 cm²（原行为）；cm / mm 念各自的平方；英制念平方英尺（英寸单位念平方英寸）。 */
@@ -93,7 +97,7 @@ export function fmtVcbLength(m: number, unit: LengthUnit): string {
   if (unit === "in") return `${Number((m / UNIT_M.in).toFixed(2))}"`;
   if (unit === "m") { const [u, k] = metricUnit(m); return `${Number((m / k).toPrecision(7))} ${u}`; }   // 公制按大小挑单位、精确到 7 位有效数字
   const v = m / UNIT_M[unit];
-  return `${Number(v.toFixed(1))} ${unit}`;
+  return `${Number(v.toPrecision(7))} ${unit}`;   // 回显要精确（毫米单位制 0.25 mm 不许回显成 0.3 mm；以前这条路没人走，2026-11-13）
 }
 
 /** 文档 settings.displayUnit ↔ 显示单位（格式里英尺英寸一直写作 "ft-in"）。 */

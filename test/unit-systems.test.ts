@@ -23,7 +23,7 @@ describe("单位制一张表：每一行都齐", () => {
     for (const s of S) { const up = L.find((l) => l > s * (1 + 1e-9)); if (!up) continue; const k = up / s; assert(Math.abs(k - Math.round(k)) < 1e-6, `吸附 ${s} 整除比它粗的下一层 ${up}`); }
     assert(S.some((s) => Math.abs(s - r.defaultSnap) < 1e-12), "默认档在档位里");
     eq(DEFAULT_SNAP[r.id], r.defaultSnap); eq(gridLadder(r.id), L); eq(snapLevels(r.id), S);
-    assert(["m", "mm", "ft-in"].includes(r.legacy.displayUnit), "旧键 displayUnit 写得出来");
+    assert(r.legacy.displayUnit === undefined || ["m", "ft-in"].includes(r.legacy.displayUnit), "旧键 displayUnit：要么写得出来，要么不写（毫米：统筹 11-13 不给旧版本照顾）");
     const out = settingsForFile(DEFAULT_SETTINGS, { absoluteGrid: true, unitSystem: r.id, snapIncrement: r.defaultSnap, gridPlane: "xy", gridHidden: false });
     eq(out.displayUnit, r.legacy.displayUnit); eq(out.gridPreset, r.legacy.gridPreset);
     eq(settingsNow(out).unitSystem, r.id, "写出去读回来还是它");

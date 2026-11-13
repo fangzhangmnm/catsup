@@ -20,7 +20,7 @@ import { bytesSay, openMemory, paintTargetSize, type PaintTargetSize } from "../
 /** 打开这张画时显卡上固定占多少 + 画的时候再多多少。 */
 export function memSay(n: number, h = n, target?: PaintTargetSize): string { const m = openMemory(n, h, target); return `打开占 ${bytesSay(m.fixed)}（画的时候再多 ${bytesSay(m.stroke)}）`; }
 /** 一格多大（米）念出来：米制下不到 1 厘米念毫米、否则念厘米；英制念英寸。 */
-export function cellSay(m: number): string { return (unitSystem(displayUnit()) === "imperial" ? formatLength(m, "in", 2) : formatLength(m, m < 0.01 ? "mm" : "cm", 1)).replace(/^~/, ""); }   // 前面已经说了「约」，单位模块表示取整的「~」去掉
+export function cellSay(m: number): string { return (unitSystem(displayUnit()) === "imperial" ? formatLength(m, "in", 2) : formatLength(m, displayUnit() === "mm" || m < 0.01 ? "mm" : "cm", 1)).replace(/^~/, ""); }   // 前面已经说了「约」，单位模块表示取整的「~」去掉
 
 /** 这份文件里最近建的那张画的画布边长（贴图表里最后一张分层的画走的那一套坐标的宽）；没有 = null。 */
 export function recentCanvas(editor: Editor): number | null {

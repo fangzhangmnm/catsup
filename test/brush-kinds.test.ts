@@ -140,8 +140,8 @@ describe("笔的表长出草稿笔、勾线笔（施工单二十 1b）", () => {
   });
   it("每把工具拿的是哪支：挑的是这把工具上的笔 = 它；没挑、这一版没有的、别的工具上的 = 默认那支；吸管 = null", () => {
     eq(brushKindsOfTool("paintPen").join(), "pen,sketch,ink"); eq(brushKindsOfTool("paintEraser").join(), "eraser"); eq(brushKindsOfTool("eyedrop").length, 0);
-    eq(brushKindOfTool("paintPen", "ink"), "ink"); eq(brushKindOfTool("paintPen"), DEFAULT_BRUSH.brush); eq(brushKindOfTool("paintPen", "wash"), "pen", "本版没有的笔");
-    eq(brushKindOfTool("paintPen", "eraser"), "pen", "别的工具上的笔"); eq(brushKindOfTool("paintEraser", "sketch"), "eraser"); eq(brushKindOfTool("eyedrop", "pen"), null);
+    eq(brushKindOfTool("paintPen", "ink"), "ink"); eq(brushKindOfTool("paintPen"), DEFAULT_BRUSH.brush); eq(brushKindOfTool("paintPen", "wash"), DEFAULT_BRUSH.brush, "本版没有的笔");
+    eq(brushKindOfTool("paintPen", "eraser"), DEFAULT_BRUSH.brush, "别的工具上的笔 = 这把工具默认那支（11-13 起草稿笔）"); eq(brushKindOfTool("paintEraser", "sketch"), "eraser"); eq(brushKindOfTool("eyedrop", "pen"), null);
   });
   it("一支笔在这里能不能用（笔的模型第四节）：模型上全部能用；带着宿主不认得的取值 = 不能用 + 说是哪一样", () => {
     for (const k of BRUSH_KIND_IDS) eq(brushUnusableWhy(BRUSHES[k] as BrushRecord, SURFACE_HOST), null, `${k} 在模型上能用`);
