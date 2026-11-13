@@ -25,8 +25,13 @@ describe("键表：什么时候按 X 是什么意思", () => {
     }
     eq(act(ctx({ mode: "freeform", tool: "select" }), K("KeyT")), "tool.key:t:tape", "动作外 T 照旧是卷尺");
   });
-  it("硬表面：X = 橡皮（工具键）；G = 建组件；L = 选连着的一块、Shift+L = 拿掉（Blender；user 11-13 批，画线只剩 K）", () => {
-    eq(act(ctx({}), K("KeyX")), "tool.key:x:erase"); eq(act(ctx({}), K("KeyG")), "component.make"); eq(act(ctx({}), K("KeyL")), "select.linked");
+  it("硬表面：动作外 X = 删除小菜单（橡皮只剩 E；锁的一轮第三步）；动作里 X / Y / Z / N / T（加 Shift）= 轴键；G = 建组件；L = 选连着的一块、Shift+L = 拿掉（Blender；user 11-13 批，画线只剩 K）", () => {
+    eq(act(ctx({}), K("KeyX")), "delete.menu"); eq(act(ctx({}), K("KeyE")), "tool.key:e:erase");
+    for (const tool of ["line", "move", "rect", "circle", "tape"] as const) for (const k of ["x", "y", "z", "n", "t"]) {
+      eq(act(ctx({ tool, gesture: true }), K(`Key${k.toUpperCase()}`)), `axis.press:${k}`, `硬表面 ${tool} 手势中 ${k}`);
+      eq(act(ctx({ tool, gesture: true }), K(`Key${k.toUpperCase()}`, k, { shift: true })), `axis.press:${k}:shift`, `硬表面 ${tool} 手势中 Shift+${k}`);
+    }
+    eq(act(ctx({ tool: "line", gesture: true }), K("KeyG")), "component.make", "沿边滑那条只在自由建模"); eq(act(ctx({}), K("KeyG")), "component.make"); eq(act(ctx({}), K("KeyL")), "select.linked");
     eq(act(ctx({}), K("KeyL", "L", { shift: true })), "select.linked:remove"); eq(act(ctx({}), K("KeyK")), "tool.key:k:line");
   });
   it("L / Shift+L：自由建模也是选连着的一块；手势进行中、画画里不响应", () => {
@@ -50,12 +55,14 @@ describe("键表：什么时候按 X 是什么意思", () => {
   it("镜像会话回车 = 应用；数值小窗要的键先给它；方向键锁 / Shift+Tab 格点", () => {
     eq(act(ctx({ mirrorSession: true }), K("Enter", "Enter")), "mirror.apply");
     eq(act(ctx({ typingWants: (e) => e.key === "5" }), K("Digit5", "5")), "typing.key");
-    eq(act(ctx({}), K("ArrowRight", "ArrowRight")), "lock.key:x"); eq(act(ctx({}), K("Tab", "Tab", { shift: true })), "grid.toggle");
-    eq(act(ctx({ mode: "freeform", tool: "select" }), K("ArrowRight", "ArrowRight")), "lock.key:x", "自由建模拿着选择工具的方向键先锁拿掉了（锁的一轮第二步），落到全局的方向键锁（第三步两边一起退）");
-    eq(act(ctx({ mode: "freeform", tool: "move", lockStyle: "axis" }), K("ArrowRight", "ArrowRight")), "lock.key:x", "吃锁的工具 = 直接锁");
+    eq(act(ctx({}), K("Tab", "Tab", { shift: true })), "grid.toggle");
+    // 方向键锁两边都退了（user「锁xyz就xyz，不用方向键」；锁的一轮第三步）：方向键空出来、什么都不绑
+    for (const c of [ctx({}), ctx({ tool: "line", lockStyle: "axis", gesture: true }), ctx({ mode: "freeform", tool: "select" }), ctx({ mode: "freeform", tool: "move", lockStyle: "axis" })])
+      for (const k of ["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown"]) { eq(act(c, K(k, k)), "∅", `${c.mode}/${c.tool} ${k}`); eq(act(c, K(k, k, { shift: true })), "∅", `${c.mode}/${c.tool} Shift+${k}`); }
   });
   it("栈的形状：自由建模 + 操作工具 + 手势中 = 全局 / 工作台 / 工具 / 手势 / 数值小窗", () => {
     eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > gesture > typing");
+    eq(layersOf(ctx({ tool: "line", gesture: true })).map((l) => l.id).join(" > "), "global > gesture > typing", "硬表面的动作里也压着手势层（轴键）");
     eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: false, mirrorSession: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > mirror-session > typing > freeform:pick", "不在手势里：打字层（数值小窗）在镜像会话下面；1 / 2 / 3 拾取层压在它上面（没在打字时，v0.17.48）");
   });
   it("披露：按住修饰键时这一层有什么（modifierChords）——自由建模 Ctrl 有环切 / 倒角；硬表面和自由建模动作外 Shift+Z 都 = 缩放到全部（操作工具层拿掉了）；披露的每一条 = 真按下去生效的那条", () => {
@@ -81,7 +88,7 @@ describe("键表：什么时候按 X 是什么意思", () => {
     eq(README_SECTIONS.find((x) => x.id === "keys")?.body, KEYS_TABLE, "帮助页「快捷键」= 生成的表");
   });
   it("肌肉记忆冲突（UX15）：同一个键在会来回切的几个地方意思不同 = 只许是登记过、等 user 拍的那几个；登记了但已经不冲突的 = 该删", () => {
-    eq(meaningOf("lock.key:x"), meaningOf("axis.press:x")); eq(meaningOf("lock.key:z:plane"), meaningOf("axis.press:z:shift")); eq(meaningOf("tool.key:s:scale"), meaningOf("modal:scale"));
+    eq(meaningOf("axis.press:x"), "锁 X"); eq(meaningOf("axis.press:z:shift"), "锁 Z 面"); eq(meaningOf("tool.key:s:scale"), meaningOf("modal:scale"));
     const now = muscleConflicts(), known = new Set(Object.keys(KNOWN_CONFLICTS));
     const fresh = [...now].filter(([ch]) => !known.has(ch)).map(([ch, m]) => `${ch}: ${[...m].map(([k, v]) => `${k}@${v.join("/")}`).join(" | ")}`);
     eq(fresh.join("; "), "", "新冒出来的肌肉记忆冲突（想清楚、登记进 KNOWN_CONFLICTS、告诉 user）");

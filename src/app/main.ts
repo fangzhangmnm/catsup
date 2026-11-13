@@ -1714,7 +1714,6 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "mesh.makeFace": editor.runAction("mesh.makeFace"); syncUi(); return;   // Blender F（自由建模；右键菜单「造面（F）」同一条）
     case "mesh.loopCutArm": editor.armLoopCut(); syncUi(); return;
     case "move.slideToggle": editor.toggleSlideOnce(); syncUi(); return;   // 移动中再按 G = 这一次沿边滑（Blender G G；工具条「沿边滑」= 常驻模式）
-    case "lock.key": editor.lockKey(p1 === "none" ? null : (p1 as "x" | "y" | "z"), p2 === "plane"); syncUi(); return;   // 方向键（A9）
     case "axis.press": editor.axisPress(p1 as "x" | "y" | "z" | "n" | "t", p2 === "shift"); syncUi(); return;   // 动作里的轴键（锁的一轮第二步：语法模块 controller/axis-constraint.ts）
     case "tool.key": toolKey(p1, p2 as Tool); return;
     case "component.make": if (editor.hasGeometrySelection() || editor.hasPoolSelection()) editor.makeComponent(hex4()); return;   // SU：G = 建组件

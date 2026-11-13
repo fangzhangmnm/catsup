@@ -53,7 +53,7 @@ const B = (chord: Chord, action: string, label: string, when?: Binding["when"]):
 const notWalking = (c: KeyContext): boolean => !c.walking;
 
 /** 工具键（SketchUp 对齐，user 2026-09-02「默认对齐 SU」）：同一个键再按一下 = 组里换下一把（app 层做轮换）。步行时空格 / E / S / Q / A / T 归走路。 */
-const TOOL_KEYS: readonly [Chord, Tool][] = [["space", "select"], ["r", "rect"], ["c", "circle"], ["a", "arc"], ["m", "move"], ["q", "rotate"], ["s", "scale"], ["p", "pp"], ["f", "offset"], ["w", "followme"], ["b", "paint"], ["e", "erase"], ["t", "tape"], ["tab", "select"], ["x", "erase"]];
+const TOOL_KEYS: readonly [Chord, Tool][] = [["space", "select"], ["r", "rect"], ["c", "circle"], ["a", "arc"], ["m", "move"], ["q", "rotate"], ["s", "scale"], ["p", "pp"], ["f", "offset"], ["w", "followme"], ["b", "paint"], ["e", "erase"], ["t", "tape"], ["tab", "select"]];   // X 不再是橡皮的第二个键（锁的一轮第三步：X 让给轴键 / 动作外的删除小菜单；橡皮只剩 E，统筹 11-13）
 const TAKEN_BY_WALK = new Set<Chord>(["space", "e", "s", "q", "a", "t"]);
 
 /** 全局层（最底）。 */
@@ -79,10 +79,9 @@ export const GLOBAL: Layer = {
     B("ctrl+g", "group.make", "建组"), B("ctrl+j", "objects.join", "把选中的合并进光标下那个（Blender Ctrl+J）", (c) => c.actableSelection), B("ctrl+shift+g", "group.explode", "炸开"),
     B("ctrl+z", "undo", "撤销"), B("ctrl+shift+z", "redo", "重做"), B("ctrl+y", "redo", "重做"),
     B("delete", "delete", "删除", (c) => c.anySelection), B("backspace", "delete", "删除", (c) => c.anySelection),
+    B("x", "delete.menu", "删除（光标处弹小菜单；硬表面没有现成的溶解）", (c) => c.mode === "geometry" && !c.walking),   // 动作外 X（统筹 11-13 第 1 条，两个工作台都是；动作里 = 手势层的轴键）
     B("escape", "escape", "取消 / 退一层"),
-    // 方向键锁（A9，SketchUp 同款）：→ X / ← Y / ↑ Z / ↓ 解；Shift+方向键 = 面锁
-    B("arrowright", "lock.key:x", "锁 X", notWalking), B("arrowleft", "lock.key:y", "锁 Y", notWalking), B("arrowup", "lock.key:z", "锁 Z", notWalking), B("arrowdown", "lock.key:none", "解锁", notWalking),
-    B("shift+arrowright", "lock.key:x:plane", "面锁 YZ", notWalking), B("shift+arrowleft", "lock.key:y:plane", "面锁 XZ", notWalking), B("shift+arrowup", "lock.key:z:plane", "面锁 XY", notWalking), B("shift+arrowdown", "lock.key:none:plane", "面锁：光标下的面", notWalking),
+    // 方向键锁（A9）2026-11-13 退掉：user「锁xyz就xyz，不用方向键」（锁的一轮第三步）；方向键空出来先不绑别的
   ],
 };
 
@@ -110,7 +109,7 @@ export const GESTURE: Layer = {
   id: "gesture",
   bindings: [
     ...AXIS_KEY_NAMES.flatMap(([k, one, plane]) => [B(k, `axis.press:${k}`, one), B(`shift+${k}`, `axis.press:${k}:shift`, plane)]),
-    B("g", "move.slideToggle", "这一次沿边滑（Blender G G）", (c) => c.tool === "move"),
+    B("g", "move.slideToggle", "这一次沿边滑（Blender G G）", (c) => c.mode === "freeform" && c.tool === "move"),
   ],
 };
 /** 手势中打数（Blender「S Z 0」= 缩放、锁 Z、打 0、回车；user 10-28 晚「这也是一个新的模式」）：它说要就给它——数字 / 小数点 / 正负号、有数之后的单位字、退格、回车。
@@ -137,7 +136,7 @@ export function layersOf(c: KeyContext): Layer[] {
   const out: Layer[] = [GLOBAL];
   const freeform = c.mode === "freeform" && !c.walking;
   if (freeform) out.push(FREEFORM);
-  if (freeform && c.gesture) out.push(GESTURE);
+  if ((freeform || (c.mode === "geometry" && !c.walking)) && c.gesture) out.push(GESTURE);   // 轴键：两个建模工作台的动作里都是（锁的一轮第三步接上硬表面）
   if (c.gesture) out.push(TYPING);   // 手势中：打数压在手势层上面（数字 / 单位先给它，X Y Z 不是量的字、照旧锁轴）
   if (c.mirrorSession) out.push(MIRROR);
   if (!c.gesture) out.push(TYPING);   // 刚做完一步：数值小窗在镜像会话下面、步行层下面（同一层对象，两个位置）
@@ -200,7 +199,7 @@ export function chordLabel(ch: Chord): string {
 export const LAYER_DOCS: Readonly<Record<string, { title: string; when: string }>> = {
   global: { title: "到处都在", when: "" },
   "workbench:freeform": { title: "自由建模", when: "在网格体里" },
-  gesture: { title: "自由建模 · 手势进行中", when: "按下了还没落定（轴键只管这一下：落定 / 取消就没了；同一个键再按 = 取消它）" },
+  gesture: { title: "建模 · 手势进行中（硬表面 / 自由建模）", when: "按下了还没落定（轴键只管这一下：落定 / 取消就没了；同一个键再按 = 取消它）" },
   "freeform:pick": { title: "自由建模 · 拾取范围", when: "在网格体里、没在打数时（Blender 的 1 / 2 / 3）" },
   typing: { title: "打数", when: "手势进行中直接打（移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线；S Z 0 = 沿 Z 压平；回车 / 点一下 = 定，退格改，Esc 取消）；或刚做完一步、右下角小窗亮着时打数字按精确值重做" },
   "mirror-session": { title: "镜像会话", when: "硬表面「镜像…」把手出来时" },
@@ -229,7 +228,7 @@ export function keyDocs(toolLabel: (t: Tool) => string): { title: string; when: 
 // user 10-28 晚「tooltip你没有更新，这背后有什么架构问题和可以设计瑞士奶酪的修」：以前左柱按钮的提示读 main.ts 工具表里手写的键名（第二份拷贝，而且不分工作台：
 // 自由建模「删除（E）」，可那里 E = 挤出键盘起手）。键表 v0.16.3 立的时候、帮助页 v0.16.17 改生成的时候都没把它收进来。现在提示 = 这里按真按键（resolveKey）现算。
 /** 同一个键再按一下 = 组里换下一把（user 10-25；app 层 toolKey 做轮换，数据住这里，提示也读它）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
-export const TOOL_CYCLES: Readonly<Record<Chord, readonly Tool[]>> = { e: ["erase", "weldErase", "softErase"], x: ["erase", "weldErase", "softErase"], r: ["rect", "crect", "rrect"], t: ["tape", "protractor", "axes"] };
+export const TOOL_CYCLES: Readonly<Record<Chord, readonly Tool[]>> = { e: ["erase", "weldErase", "softErase"], r: ["rect", "crect", "rrect"], t: ["tape", "protractor", "axes"] };
 /**
  * 工具键能跨到哪些工作台（统筹 11-11）：在这一行的工作台里按工具键、要的工具不在这里 = 明着换到这一行列出的工作台里有这把工具、又管得了正在编辑的这种身体的那个
  * （按工作台表的先后），提示行说一句「换到了『X』工作台」，再拿工具。没在表里 = 不跳：编辑器的 setTool 拒收、说这把工具在哪（它自己从不换工作台）。
@@ -279,9 +278,9 @@ export function toolKeyText(mode: ModeId, tool: Tool, inMode?: (t: Tool) => bool
 
 // ---------- 肌肉记忆冲突（账本 UX15，user 10-28「其实玩游戏最怕的就是两个魂系游戏，一个的x是紧急躲避，一个的x是喝药」）----------
 // 原则：同一个键在会来回切的几个地方意思不许不同；没有孟婆汤，就让冲突看得见、逐条拍。守卫 test/keymap.test.ts：新冒出来的冲突 = 红；下面登记的 = 已知、等 user 拍。
-/** 肌肉记忆层面的「意思」：锁轴的两条路（方向键 / 按钮的 lock.key、动作里的轴键 axis.press）算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */
+/** 肌肉记忆层面的「意思」：轴键（axis.press，两个建模工作台的动作里同一套）按轴算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */
 export function meaningOf(action: string): string {
-  const lock = /^(?:lock\.key|axis\.press):([xyz])(:plane|:shift)?$/.exec(action);
+  const lock = /^axis\.press:([xyz])(:shift)?$/.exec(action);
   if (lock) return `锁 ${lock[1].toUpperCase()}${lock[2] ? " 面" : ""}`;
   const tool = /^tool\.key:[^:]+:(.+)$/.exec(action), modal = /^modal:([a-z]+)/.exec(action);
   const verb = tool?.[1] ?? modal?.[1];
@@ -323,6 +322,5 @@ export const KNOWN_CONFLICTS: Readonly<Record<Chord, string>> = {
   g: "硬表面 = 建组件（SketchUp）· 自由建模 = 抓起来移动（Blender）",
   k: "硬表面 = 画线 · 自由建模 = 切割（user 10-29「brep里面K也是线，先这样弄一下，之后可以好好理」：画线本来就能切开面，算同一个「切」的手感）",
   r: "硬表面 = 矩形 · 自由建模 = 旋转（Blender）",
-  x: "硬表面 = 橡皮（轮换）· 自由建模 = 动作外弹「删除 / 溶解」小菜单（动作里 = 轴；统筹 11-13，锁的一轮第二步）",
 };
 
