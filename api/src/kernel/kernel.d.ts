@@ -275,6 +275,12 @@ export declare class Kernel {
     /** 隐藏 / 显示一批面（DT49：面层 hidden = 1；子膜按血缘继承）。 */
     setFaceHidden(ids: readonly FaceId[], on: boolean): void;
     isFaceHidden(id: FaceId): boolean;
+    /**
+     * 这条共面软边能不能自动并掉（FM80「看不见又没视觉效果的软边 = 谜语人」；统筹 11-13 收成这一处）：软边、恰两张不同的膜、同一平面、两侧材质相同、藏没藏相同、边本身没藏。
+     * 两侧材质不同 / 一张藏一张露 / 边藏着 = 有视觉效果，不是谜语人，不并（并了会丢：材质只剩前一张的、露着的被藏掉、藏着的边没了）。全部显示之后两边一样了，它就又归自动并和修复「清理碎渣」管，不另加自愈。
+     * 用的人：moveVertices 末尾的 180° 自动并；scene/kinds.ts meshToBrepWith 转回硬表面时并共面三角形。
+     */
+    flatSoftMergeable(eid: EdgeId): boolean;
     isEdgeHidden(id: EdgeId): boolean;
     /** 给一批边打 / 去一个边层（软化 / 硬化工具）。 */
     setEdgeLayer(name: string, ids: readonly EdgeId[], on: boolean): void;
