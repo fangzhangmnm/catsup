@@ -53,7 +53,7 @@ const B = (chord: Chord, action: string, label: string, when?: Binding["when"]):
 const notWalking = (c: KeyContext): boolean => !c.walking;
 
 /** 工具键（SketchUp 对齐，user 2026-09-02「默认对齐 SU」）：同一个键再按一下 = 组里换下一把（app 层做轮换）。步行时空格 / E / S / Q / A / T 归走路。 */
-const TOOL_KEYS: readonly [Chord, Tool][] = [["space", "select"], ["l", "line"], ["r", "rect"], ["c", "circle"], ["a", "arc"], ["m", "move"], ["q", "rotate"], ["s", "scale"], ["p", "pp"], ["f", "offset"], ["w", "followme"], ["b", "paint"], ["e", "erase"], ["t", "tape"], ["tab", "select"], ["x", "erase"]];
+const TOOL_KEYS: readonly [Chord, Tool][] = [["space", "select"], ["r", "rect"], ["c", "circle"], ["a", "arc"], ["m", "move"], ["q", "rotate"], ["s", "scale"], ["p", "pp"], ["f", "offset"], ["w", "followme"], ["b", "paint"], ["e", "erase"], ["t", "tape"], ["tab", "select"], ["x", "erase"]];
 const TAKEN_BY_WALK = new Set<Chord>(["space", "e", "s", "q", "a", "t"]);
 
 /** 全局层（最底）。 */
@@ -69,6 +69,9 @@ export const GLOBAL: Layer = {
     B(".", "view.zoomTo", "缩放到选区"),
     B("shift+tab", "grid.toggle", "格点吸附开 / 关"),
     B("\\", "ui.hideWindows", "藏起 / 叫回所有窗（手指 = 四指轻点）"),   // user 10-30「一键藏起所有窗，像 Procreate 四指轻点全屏。 现在就可以做」
+    // L / Shift+L = 选连着的一块 / 拿掉（Blender；user 11-13 批：两个建模工作台都是，硬表面画线只剩 K）；手势进行中、步行、画画里不响应
+    B("l", "select.linked", "选连着的一块（光标下打中的那一块加进选区；Blender L）", (c) => (c.mode === "geometry" || c.mode === "freeform") && !c.gesture && !c.walking),
+    B("shift+l", "select.linked:remove", "从选区拿掉光标下连着的那一块（Blender Shift+L）", (c) => (c.mode === "geometry" || c.mode === "freeform") && !c.gesture && !c.walking),
     B("ctrl+a", "select.all", "全选"), B("ctrl+i", "select.invert", "反选"), B("alt+a", "select.none", "全不选"),
     B("ctrl+x", "edit.cut", "剪切", (c) => c.actableSelection), B("ctrl+c", "edit.copy", "拷贝", (c) => c.actableSelection), B("ctrl+v", "edit.paste", "粘贴（原位）"),
     B("ctrl+s", "doc.save", "保存"), B("ctrl+o", "doc.open", "打开本地文件…"),   // 以前直接写在 main.ts 的文档级 keydown 里、不在键表（帮助页不列、冲突守卫看不见；user 10-30「ctrl o ctrl s 修」）

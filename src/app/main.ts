@@ -1666,6 +1666,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
       syncUi(); return;
     }
     case "select.all": editor.selectAll(); syncUi(); return;
+    case "select.linked": if (!editor.selectLinkedAt(p1 === "remove")) hintEl.textContent = p1 === "remove" ? "Shift+L：光标下面没有东西（拿掉的是光标停着的那一块）" : "L：光标下面没有东西（选的是光标停着的那一块）"; syncUi(); return;
     case "select.invert": editor.invertSelection(); return;
     case "select.none": editor.deselectAll(); return;
     case "delete.ifAny": if (editor.hasAnySelection()) editor.deleteSelection(); syncUi(); return;
