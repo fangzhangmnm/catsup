@@ -17,14 +17,19 @@ const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object
 const ROW_KEYS = new Set(["guid", "name", "width", "height", "pxPerM", "fit", "freed"]);
 /** 画布每边的上限（格）：内存里 32 位浮点能把 1/1024 格表示精确的上限（施工单十八 3.1）。 */
 export const UV_CANVAS_MAX_SIDE = 16384;
+/** 铺法自己能把画布长到多大（按一格多大开的画布往下加高的上限；paint/layout.ts 的缺省 maxSize）。 */
+export const UV_LAYOUT_MAX_SIDE = 4096;
+/** 一行排法的画布能到的最大范围 [0, 宽) × [0, 高)：宽 = 这一行的宽；高 = 这一行的高和铺法上限里大的那个（施工单十八第 2 刀统筹预审 B：旧画只可能在这里面）。 */
+export function freedReach(width: number, height: number): readonly [number, number] { return [width, Math.max(height, UV_LAYOUT_MAX_SIDE)]; }
 
-/** freed 的形状对不对：整数、四个一组、每组 x0 < x1、y0 < y1、都 ≥ 0。 */
-function freedOk(x: unknown): x is number[] {
+/** freed 的形状对不对：整数、四个一组、每组 x0 < x1、y0 < y1、都 ≥ 0、不出这一行画布能到的范围（freedReach）。超出 = 形状不对（不悄悄截短）。 */
+function freedOk(x: unknown, reach: readonly [number, number]): x is number[] {
   if (!Array.isArray(x) || x.length % 4 !== 0) return false;
   for (let i = 0; i < x.length; i += 4) {
     const [a, b, c, d] = x.slice(i, i + 4) as unknown[];
     if (![a, b, c, d].every((v) => typeof v === "number" && Number.isInteger(v) && v >= 0)) return false;
     if (!((a as number) < (c as number) && (b as number) < (d as number))) return false;
+    if ((c as number) > reach[0] || (d as number) > reach[1]) return false;
   }
   return true;
 }
@@ -44,7 +49,7 @@ export function readUvSetRows(list: unknown, view: (bv: number) => Uint8Array, n
     if (typeof r.fit !== "string") { bad(r.guid, name, "bad-fit"); continue; }
     const extra: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(r)) if (!ROW_KEYS.has(k)) extra[k] = v;
-    const freed = r.freed === undefined ? undefined : freedOk(r.freed) ? Object.freeze([...r.freed]) : (extra.freed = r.freed, undefined);   // 形状不对 = 当不认识的键带回
+    const freed = r.freed === undefined ? undefined : freedOk(r.freed, freedReach(r.width, r.height)) ? Object.freeze([...r.freed]) : (extra.freed = r.freed, undefined);   // 形状不对 = 当不认识的键带回
     kept.push(Object.freeze({ guid: r.guid, name, width: r.width, height: r.height, pxPerM: r.pxPerM, fit: r.fit, ...(freed?.length ? { freed } : {}), ...(Object.keys(extra).length ? { extra: carryJson(extra, view) } : {}) }));
   }
   const count = new Map<string, number>();

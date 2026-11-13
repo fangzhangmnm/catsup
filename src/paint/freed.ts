@@ -15,9 +15,22 @@ import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { DefId, Scene } from "../scene/scene.ts";
 import { hasUvColumns, uvAt, uvBoxes, uvSetOfFace } from "../scene/uv.ts";   // 贴图坐标只经 scene/uv.ts 问（守卫 paint-start-guard ⑦）
 import { cellRect, cornersRect } from "./layout.ts";
+import { freedReach } from "../format/uvset-table.ts";
 
 /** [x0, y0, x1, y1)，单位格。 */
 export type Rect = readonly [number, number, number, number];
+/**
+ * 一个框和这张画布能到的范围 [0, w) × [0, h) 取交集（统筹预审 B：面角上的坐标是文件里写什么就是什么、退化面上也可能除出无穷大；旧画只可能在画布里）。
+ * 交集不是有限数（NaN）或者是空的 = null（不记、不进索引）。进 RectIndex / 清单之前一律先过这里。
+ */
+export function clampToReach(r: Rect, w: number, h: number): Rect | null {
+  const x0 = Math.max(0, r[0]), y0 = Math.max(0, r[1]), x1 = Math.min(w, r[2]), y1 = Math.min(h, r[3]);
+  return Number.isFinite(x0) && Number.isFinite(y0) && Number.isFinite(x1) && Number.isFinite(y1) && x0 < x1 && y0 < y1 ? [x0, y0, x1, y1] : null;
+}
+/** 一套排法画布能到的范围（format/uvset-table.ts freedReach）；表里没有这一行 = null。 */
+export function reachOf(s: Scene, g: Guid): readonly [number, number] | null { const row = s.uvSets.get(g); return row ? freedReach(row.width, row.height) : null; }
+/** 一堆框按一套排法的范围取交集（null 的扔掉）。 */
+export function clampAll(rs: readonly Rect[], reach: readonly [number, number]): Rect[] { const out: Rect[] = []; for (const r of rs) { const c = clampToReach(r, reach[0], reach[1]); if (c) out.push(c); } return out; }
 /** 一份网格体：内核 + 速查表（代号 → 排法 GUID）。 */
 export interface MeshSide { readonly k: MeshKernel; readonly slots: readonly Guid[] }
 /** 会多占地方的并从多少个框以上才做（统筹 11-13 深夜：256）。 */
@@ -78,6 +91,7 @@ export class RectIndex {
   private readonly bins = new Map<number, number[]>();
   readonly rects: readonly Rect[];
   constructor(rects: readonly Rect[]) {
+    for (const r of rects) if (!r.every(Number.isFinite)) throw new Error(`RectIndex: non-finite rect [${r.join(",")}] (clamp with clampToReach first)`);   // 格子循环的上界从框算：无穷大 = 永远不停
     this.rects = rects;
     rects.forEach((r, i) => { for (const key of this.keys(r)) { const l = this.bins.get(key); if (l) l.push(i); else this.bins.set(key, [i]); } });
   }
@@ -213,12 +227,13 @@ function heldBy(b: { kernel: MeshKernel; uvSetSlots: readonly Guid[] }, g: Guid)
   for (let i = 0; i + 3 < bx.length; i += 4) out.push(cellRect(bx[i], bx[i + 1], bx[i + 2], bx[i + 3]));
   return out;
 }
-/** 这套排法上所有定义（except 除外）的面现在占着的格（按排法看所有物件，没有摆放的定义也算）。 */
+/** 这套排法上所有定义（except 除外）的面现在占着的格（按排法看所有物件，没有摆放的定义也算）；按这套画布能到的范围取过交集。 */
 function heldOn(s: Scene, g: Guid, except: DefId | null): Rect[] {
-  const out: Rect[] = [];
+  const out: Rect[] = [], reach = reachOf(s, g);
+  if (!reach) return out;
   for (const d of s.defs.values()) {
     if (d.id === except || d.body.kind !== "mesh" || !d.body.uvSetSlots.includes(g)) continue;   // 速查表里没有这一套 = 没有一张面的代号指着它（只是快筛）
-    out.push(...heldBy(d.body, g));
+    out.push(...clampAll(heldBy(d.body, g), reach));
   }
   return out;
 }

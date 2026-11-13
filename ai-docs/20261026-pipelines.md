@@ -1312,4 +1312,5 @@ freedOp：每个步开始就在的网格体 —— History.meshBefore（这一�
 
 还随整个模型涨的点：整列加 / 删、定义没了时按那个定义的全部面比（一次，线性）；`freedOpenAreas` 要收这一套上所有定义的面的框（只在提示行真有放不下的面时算）。
 「走不走画」：`Scene.facePaint` 只看面的材质 → 画 → 排法在表里，不再看网格体的速查表；渲染、开始画（`facesToStart`）、画画工作台「还没开始画」（`anyFaceWalksPaint`：先按材质槽筛、工作台按编辑器版本号记一次）同一个问法。
+统筹审后补（同一版）：进索引 / 进清单的框一律先和那套画布能到的范围取交集（`paint/freed.ts clampToReach` / `format/uvset-table.ts freedReach`：宽 = 行宽，高 = 行高和 4096 里大的；NaN / 空 = 不记）；文件里的 freed 出了这个范围 = 形状不对、带回、不自动找地方。之前那份的代号用一步开始时拷的速查表翻（`FreedBase.slots`），`History.meshBefore` 只给内核。
 

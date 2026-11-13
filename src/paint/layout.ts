@@ -11,6 +11,7 @@
 //   只有一张面的片不动，和「一张面一块」逐位相同）。
 import type { Pt3 } from "../kernel/geom.ts";
 import { quantizeUv } from "../scene/uv.ts";
+import { UV_LAYOUT_MAX_SIDE } from "../format/uvset-table.ts";   // 铺法的画布上限（freed 能到的范围也用它）
 
 /** 铺法要的那一点几何（MeshKernel 满足；测试可以给假的）。开始画（layoutFaces）只要这些。 */
 export interface LayoutGeom {
@@ -325,7 +326,7 @@ function tryDensity(m: LayoutGeom, units: readonly Unit[], density: number, W: n
 
 /** 给一批面铺贴图坐标（一张面一块）。不改内核：values = 每张面每个角的 [横, 纵, 横, 纵…]（格）。 */
 export function layoutFaces(m: LayoutGeom, faces: readonly number[], opts: LayoutOptions = {}): LayoutResult {
-  const gap = Math.max(0, Math.round(opts.gap ?? 4)), maxSize = opts.maxSize ?? 4096, base = opts.base ?? 1024;
+  const gap = Math.max(0, Math.round(opts.gap ?? 4)), maxSize = opts.maxSize ?? UV_LAYOUT_MAX_SIDE, base = opts.base ?? 1024;
   const fs = [...new Set(faces)].sort((a, b) => a - b);
   if (!fs.length) return { ok: true, width: base, height: 256, density: opts.density ?? 0, blocks: [], values: new Map() };
   const units = opts.style === "patches" ? patchesOf(m, fs, { maxDeg: opts.maxDeg, minFill: opts.minFill, orient: opts.orient }) : unitsByFace(fs);
@@ -398,7 +399,7 @@ export function cornersRect(v: ArrayLike<number>): [number, number, number, numb
  * partial（meshLayoutPaint 用）：加到上限还放不下的面不铺、记进 unplaced，其余照铺；不给 = 放不下就整个不铺、说原因（1-3a 的行为）。
  */
 export function layoutAppend(m: LayoutMesh, guid: string, placed: readonly number[], add: readonly number[], canvas: { width: number; height: number }, density: number, opts: Omit<LayoutOptions, "density" | "base"> & { readonly blocked?: ArrayLike<number>; readonly partial?: boolean; /** 画布能不能往下长（缺 = 能；施工单十六第四节：按总大小开的画 = 不能，fit = "size"）。 */ readonly grow?: boolean } = {}): LayoutResult {
-  const gap = Math.max(0, Math.round(opts.gap ?? 4)), maxSize = opts.maxSize ?? 4096, W = canvas.width;
+  const gap = Math.max(0, Math.round(opts.gap ?? 4)), maxSize = opts.maxSize ?? UV_LAYOUT_MAX_SIDE, W = canvas.width;
   const C = Math.max(1, Math.ceil(W / 256)), gw = Math.ceil(W / C), gh = Math.ceil(Math.max(maxSize, canvas.height) / C);
   const occ = new Uint8Array(gw * gh), run = new Int32Array(gw * gh);   // run[j·gw + i] = 第 j 行从第 i 格往右连着几格空
   const rerun = (j0: number, j1: number): void => { for (let j = j0; j < j1; j++) { let n = 0; for (let i = gw - 1; i >= 0; i--) { n = occ[j * gw + i] ? 0 : n + 1; run[j * gw + i] = n; } } };

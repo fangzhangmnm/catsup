@@ -4,6 +4,7 @@
 //    ③ 删面、对称化丢掉的一半（编号被镜过来的新面复用）、换到另一套、合并点塌掉的面、转硬表面、倒角（挨着的面缩掉一条）：旧位置 ⊆ freed ∪ 现在占着的；
 //    ④ 整列删掉（removeColumn 不逐张面进改动日志）：按全部面比，原来的位置都进 freed；
 //    ⑤ 同一步里先空出来、后补面（统筹预审第 1 条）：补面不落到这一步刚空出来的旧画上；⑥ freed 的两种读法（补面 = 加上占着的；空地 = 减去占着的、数几块）。
+//    ⑦ 坏坐标不卡死（统筹预审 B）：角上 Infinity / 1e9 / NaN、文件里出了画布范围的 freed；⑧ 翻之前那份的代号用一步开始时的速查表（统筹预审 C）。
 // 每一步都照编辑器的做法：freedBaseline → 每条指令（改写 → 记 → 提交 → 收尾补进同一步，收尾每次补面之前先记一次空位）→ 整步最后 freedOp 进同一步。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Scene } from "../src/scene/scene.ts";
@@ -19,6 +20,9 @@ import { upkeepAfter, upkeepRewrite, upkeepSnapshot } from "../src/editor/paint-
 import { UV_AT_COL, UV_SET_COL, uvAt, uvSetOfFace } from "../src/scene/uv.ts";
 import { FREED_MAX, RectIndex, candidatesFor, freedOpenAreas, lostPlaces, mergeFreed, openPieces, placementBlocked, type Rect } from "../src/paint/freed.ts";
 import { cornersRect } from "../src/paint/layout.ts";
+import { freedReach, readUvSetRows } from "../src/format/uvset-table.ts";
+import { uvSetAutoPlaces } from "../src/scene/scene.ts";
+import type { FormatReadNotes } from "../src/format/migrate/index.ts";
 import type { Guid } from "../src/format/guid.ts";
 
 const P = (x: number, y: number, z: number) => ({ x, y, z });
@@ -229,3 +233,46 @@ describe("给统筹确认的两件事（写进施工记录）", () => {
     assert(!t.k().hasF(a) && !t.k().hasF(b), "现在两张都没了");
   });
 });
+
+describe("坏坐标不卡死（统筹预审 B：进索引 / 进清单之前先和画布能到的范围取交集）", () => {
+  for (const bad of [Infinity, -Infinity, 1e9, NaN]) {
+    it(`一张面角上的坐标是 ${bad}：删掉它不卡、清单里没有非有限数、没有画布外的框；另一张坏面还在时两种读法不卡、都是有限数`, () => {
+      const t = setup(), g = t.paint(), k = t.k(), [f, live] = k.faces();
+      for (const x of [f, live]) { const v = Array.from(k.cornerValues(x, UV_AT_COL.id)!); v[0] = bad; v[3] = bad; k.setCornerValues(x, UV_AT_COL.id, v); }
+      const row = t.cur().uvSets.get(g)!, [W, H] = freedReach(row.width, row.height);
+      t.step({ op: "meshDelete", def: t.def, faces: [f] });
+      for (const r of t.freed(g)) { assert(r.every(Number.isFinite), `非有限数 [${r.join(",")}]`); assert(r[0] >= 0 && r[1] >= 0 && r[2] <= W && r[3] <= H, `画布外 [${r.join(",")}]（范围 ${W} × ${H}）`); }
+      assert(freedOpenAreas(t.cur(), g).every((r) => r.every(Number.isFinite)), "空地都是有限数");
+      assert(placementBlocked(t.cur(), -1, g).every(Number.isFinite), "补面当占着的都是有限数（-1 = 所有定义都算）");
+    });
+  }
+  it("文件里的 freed：正好到画布能到的边 = 认；出了范围（宽多 1 / 1e9）= 形状不对，当不认识的键带回、这套排法不自动找地方（不悄悄截短）", () => {
+    const base = { guid: mintGuid(), name: "UV", width: 256, height: 256, pxPerM: 100, fit: "density" }, read = (freed: number[]) => readUvSetRows([{ ...base, freed }], () => new Uint8Array(0), {} as FormatReadNotes)[0];
+    const H = freedReach(256, 256)[1], ok = read([0, 0, 256, H]);
+    eq(ok.freed?.join(), `0,0,256,${H}`, "正好到边"); assert(uvSetAutoPlaces(ok));
+    for (const freed of [[0, 0, 257, 10], [0, 0, 10, H + 1], [0, 0, 1e9, 1e9]]) {
+      const r = read(freed);
+      eq(r.freed, undefined, `[${freed.join(",")}] 不当 freed 用`); assert(!uvSetAutoPlaces(r), `[${freed.join(",")}] 带回、不自动找地方`);
+    }
+  });
+  it("RectIndex 不收非有限数的框（坏坐标必须先取交集；格子循环的上界从框算）", () => {
+    let threw = false; try { new RectIndex([[0, 0, Infinity, 1]]); } catch { threw = true; }
+    assert(threw);
+  });
+});
+
+describe("翻之前那份的代号用一步开始时的速查表（统筹预审 C：不假设速查表只往后加）", () => {
+  it("同一步里速查表重排、面的代号跟着重编（以后「拿掉、清理」会这样）：只有删掉那张面的旧框进 freed，另一套一个框都不多", () => {
+    const t = setup(), g1 = t.paint(), f2 = top(t.k()), g2 = t.paint([f2]);
+    eq(t.cur().mesh(t.def).uvSetSlots.join(), [g1, g2].join(), "两套");
+    const g2Before = t.freed(g2).map((r) => r.join()).join("|"), before = t.places(), victim = t.k().faces().find((f) => f !== f2)!, h = t.h, base = freedBaseline(t.cur(), h);
+    h.commit(t.cur(), { op: "meshDelete", def: t.def, faces: [victim] }, false, "b", { title: "del" });
+    const k = t.k(); t.cur().mesh(t.def).uvSetSlots.reverse();   // 只在内存里模拟：速查表重排 + 每张面的代号跟着改
+    for (const f of k.faces()) { const c = k.faceValue(f, UV_SET_COL.id) ?? -1; if (c >= 0) k.setFaceValue(f, UV_SET_COL.id, 1 - c); }
+    eq(t.places().get(f2)!.g, g2, "重编之后面还在原来那套上");
+    const fo = freedOp(t.cur(), h, base); if (fo) h.commit(t.cur(), fo, true, "b", { title: "freed" });
+    eq(t.freed(g2).map((r) => r.join()).join("|"), g2Before, "另一套一个框都不多");
+    assert(new RectIndex(t.freed(g1)).covers(before.get(victim)!.r), "删掉那张的旧框进了它那一套");
+  });
+});
+

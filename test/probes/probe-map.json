@@ -28,7 +28,7 @@
   { "when": ["src/editor/move/"], "probes": ["probe-move-copy.mjs", "probe-move-grid.mjs", "probe-twin-preview.mjs"], "why": "移动 / 复制" },
   { "when": ["src/editor/modes/"], "probes": ["probe-mesh-workbench.mjs", "probe-workbench-cross.mjs", "probe-reload-mode.mjs", "probe-surface.mjs"], "why": "工作台 / 模式" },
   { "when": ["src/editor/*"], "probes": ["probe-undo-session.mjs", "probe-undo-fuzz.mjs", "probe-clipboard.mjs", "probe-hover.mjs"], "why": "编辑器本体（撤销、剪贴板、悬停拾取）" },
-  { "when": ["src/paint/freed.ts", "src/editor/paint-freed.ts"], "probes": ["bench-freed.mts"], "why": "记空出来的地方花多久（施工单十八第 2 刀统筹预审第 2 条）：一步删掉 4 万张画过的面，记空位不许比删面本身慢、清单不超过 256、再跑一次没有要改的" },
+  { "when": ["src/paint/freed.ts", "src/editor/paint-freed.ts", "src/editor/paint-upkeep.ts", "src/editor/history.ts"], "probes": ["bench-freed.mts", "probe-paint-freed.mjs"], "why": "空出来的地方：真的编辑器一步里中途记一次、最后再记一次，撤销 / 重做逐个回去 / 回来，再做一步基线不乱（probe-paint-freed）；记空位花多久（bench-freed，统筹预审第 2 条）：一步删掉 4 万张画过的面，记空位不许比删面本身慢、清单不超过 256、再跑一次没有要改的" },
   { "when": ["src/editor/history.ts", "src/paint/boards.ts", "src/paint/space-paint.ts", "src/editor/last-step.ts"], "probes": ["probe-paint-undo.mjs", "probe-undo-fuzz.mjs"], "why": "撤销：画的每一步进三维的撤销栈（1-8a）+ 编辑器级撤销随机串" },
   { "when": ["src/editor/editor.ts", "src/editor/history.ts", "src/app/session.ts"], "probes": ["probe-step-atomic.mjs"], "why": "一步全有或全无：被拒（护栏 / 物件锁 / 演示锁）= 场景、历史、重做、改动号、画板都不动，状态栏是原因（2026-11-13 a12b）" },
   { "when": ["src/editor/gesture-consts.ts", "src/editor/tools/scale.ts", "src/editor/tools/transform.ts", "src/controller/feel.ts"], "probes": ["probe-transform.mjs"], "why": "移动 / 旋转 / 缩放的手柄（面心柄、角柄、等比）：v0.19.72 手势门槛改按像素时缩放面心柄回归，那时这几个文件没带出这个探针、隔了几版才跑到（统筹 11-13 补）" },

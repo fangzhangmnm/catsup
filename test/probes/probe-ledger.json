@@ -118,6 +118,7 @@
   "probe-offset-grid.mjs": {"state":"green"},
   "probe-old-blank-paint.mjs": {"state":"green"},
   "probe-onebit.mjs": {"state":"green"},
+  "probe-paint-freed.mjs": {"state":"green"},
   "probe-paint-display.mjs": {"state":"green"},
   "probe-paint-gpu-release.mjs": {"state":"green"},
   "probe-paint-open-memory.mjs": {"state":"green"},

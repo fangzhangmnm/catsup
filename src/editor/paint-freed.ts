@@ -6,14 +6,18 @@ import type { Guid } from "../format/guid.ts";
 import type { Scene } from "../scene/scene.ts";
 import type { History } from "./history.ts";
 import type { Op } from "./ops.ts";
-import { candidatesFor, heldAll, lostPlaces, mergeFreed, RectIndex, type MeshSide, type Rect } from "../paint/freed.ts";
+import { candidatesFor, clampAll, heldAll, lostPlaces, mergeFreed, reachOf, RectIndex, type MeshSide, type Rect } from "../paint/freed.ts";
 
-/** 一步开始时记的。 */
-export interface FreedBase { readonly at: number; readonly seqs: ReadonlyMap<number, number> }
+/**
+ * 一步开始时记的：History 走到哪一条、每个网格体改动日志的号、每个网格体的速查表（拷一份，数组很短）。
+ * 速查表一定用这一份翻「之前那份」的代号（统筹预审 C）：不假设速查表只往后加——以后删表项 / 重编代号（材质面板「拿掉、清理」那一轮）时，用现在的表翻会翻到别的排法上 = 漏记。
+ * 只在一步里面有意义（编辑器 step 深度 0 → 1 时记；步结束后不清，下一步开始时换新的；ForceEnv.freedNow 只在 step 里被调）。
+ */
+export interface FreedBase { readonly at: number; readonly seqs: ReadonlyMap<number, number>; readonly slots: ReadonlyMap<number, readonly Guid[]> }
 export function freedBaseline(s: Scene, h: History): FreedBase {
-  const seqs = new Map<number, number>();
-  for (const d of s.defs.values()) if (d.body.kind === "mesh") seqs.set(d.id, d.body.kernel.changes.seq);
-  return { at: h.position(), seqs };
+  const seqs = new Map<number, number>(), slots = new Map<number, readonly Guid[]>();
+  for (const d of s.defs.values()) if (d.body.kind === "mesh") { seqs.set(d.id, d.body.kernel.changes.seq); slots.set(d.id, [...d.body.uvSetSlots]); }
+  return { at: h.position(), seqs, slots };
 }
 /** 这一行的 freed 这一版认不认得（行里带着不认识的 freed = 更新版写的，原样带回、不碰；施工单十八 3.1）。 */
 const freedKnown = (extra: unknown): boolean => !(extra && typeof extra === "object" && "json" in extra && (extra as { json: unknown }).json !== null && typeof (extra as { json: unknown }).json === "object" && "freed" in ((extra as { json: object }).json));
@@ -25,7 +29,7 @@ export function freedOp(s: Scene, h: History, base: FreedBase): Op | null {
     const b = h.meshBefore(def, base.at);
     if (b.kind !== "mesh") continue;
     const d = s.defs.get(def), now: MeshSide | null = d && d.body.kind === "mesh" ? { k: d.body.kernel, slots: d.body.uvSetSlots } : null;
-    const before: MeshSide = { k: b.kernel, slots: b.slots ?? now?.slots ?? [] };
+    const before: MeshSide = { k: b.kernel, slots: base.slots.get(def) ?? [] };   // 之前那份的代号用一步开始时的速查表翻
     for (const [g, e] of lostPlaces(before, now, candidatesFor(before, now, now ? seq : null))) { push(lost, g, e.lost); push(held, g, e.held); }
   }
   for (const d of s.defs.values()) {   // 这一步新出现的定义：它的面全算进现在占着的（统筹预审第 3 条；现在还没有操作会带着位置搬进新定义——第 3 刀放开搬家时补测试）
@@ -34,10 +38,10 @@ export function freedOp(s: Scene, h: History, base: FreedBase): Op | null {
   }
   const rows: { uvSet: Guid; freed: number[] }[] = [];
   for (const g of [...new Set([...lost.keys(), ...held.keys()])].sort()) {
-    const row = s.uvSets.get(g);
-    if (!row || !freedKnown(row.extra)) continue;
-    const hs = held.get(g) ?? [], idx = hs.length ? new RectIndex(hs) : null;
-    const add = (lost.get(g) ?? []).filter((r) => !idx || !idx.covers(r));   // 整个被这一步动过的面现在占着的格盖住 = 不记
+    const row = s.uvSets.get(g), reach = reachOf(s, g);
+    if (!row || !reach || !freedKnown(row.extra)) continue;
+    const hs = clampAll(held.get(g) ?? [], reach), idx = hs.length ? new RectIndex(hs) : null;   // 先和画布能到的范围取交集（统筹预审 B：坏坐标不进索引）
+    const add = clampAll(lost.get(g) ?? [], reach).filter((r) => !idx || !idx.covers(r));   // 整个被这一步动过的面现在占着的格盖住 = 不记
     const next = mergeFreed(row.freed, add, hs);
     if (next) rows.push({ uvSet: g, freed: next });
   }
