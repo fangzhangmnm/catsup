@@ -50,6 +50,10 @@ export declare class MeshTransformTool implements ToolHandler {
     /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
     private box;
     /** 点一下 = 选（和选择工具同一套）；只有拖才是操作（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上（没拖）= 什么都不动。 */
+    pressKind(ctx: ToolCtx, at: {
+        x: number;
+        y: number;
+    }): "handle" | "thing" | "empty";
     tap(ctx: ToolCtx, ev: ToolPointer): void;
     hover(ctx: ToolCtx, s: {
         x: number;

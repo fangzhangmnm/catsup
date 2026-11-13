@@ -69,7 +69,8 @@ export declare function stanceOf(mode: ModeId, tool: Tool): Stance | undefined;
  * grab = 重按起、重按或抬笔落定（移动 / 缩 / 转 / 挤出 / 插入 / 倒角，第七节第 6 步）；不在表里 = 轻按就算点击（选东西、按钮、拖柄、橡皮、笔刷、画画的一笔）。
  * 判到重按时笔尖闪一圈只给表里的工具（不在表里的工具里按重了什么都不发生，不该闪）。重按怎么判在 hard-press.ts，工具自己不读压力。
  * 进表的工具，输入翻成「找位置 / 下点 / 抬笔」在 editor/seek-input.ts；报压感的笔抬起先等抬笔宽限（feel.ts LIFT_GRACE_MS，设置里能改）。
- * 刀第一个进来（第七节第 3 步，2026-11-13 Claude Opus 5.5）。
+ * 刀第一个进来（第七节第 3 步）；移动 / 旋转 / 缩放 / 沿法线 / 挤出 / 变换 / 插入·倒角 = grab（第七节第 6 步：笔轻 = 选、重 = 抓，翻译在 controller/grab-relay.ts；2026-11-13 Claude Opus 5.5）。
+ * 过渡的做法（统筹 11-13）：只许这张表知道哪把工具算哪一族，别处不许按工具名分叉；「命令和工具分家」那一轮手势重做时并进每把工具自己的手势定义。
  */
 export type PenPress = "seek" | "grab";
 export declare const PEN_PRESS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, PenPress>>>>>;

@@ -33,6 +33,10 @@ export declare class MeshPullTool implements ToolHandler {
     private handleW;
     private snapT;
     /** 点一下 = 选（同选择工具），只有拖才挤出（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上没拖 = 不动。 */
+    pressKind(ctx: ToolCtx, at: {
+        x: number;
+        y: number;
+    }): "handle" | "thing" | "empty";
     tap(ctx: ToolCtx, ev: ToolPointer): void;
     hover(ctx: ToolCtx, s: {
         x: number;

@@ -40,7 +40,21 @@ export declare function pressTarget(ctx: ToolCtx, at: {
     x: number;
     y: number;
     start?: GestureStart;
+    intent?: "select" | "grab";
 }, tool: Tool): Target | "box";
+/**
+ * 这一点下面是把手 / 东西 / 空处（第七节第 6 步：笔轻 = 选、重 = 抓，输入层落笔时先问；controller/grab-relay.ts）。
+ * 纯读：不画悬停、不改选区、不记把手（handles.grip 只算，MeshHandles.hover 才记高亮）。东西 = 这把工具按它的立场抓得到的（grab 列：面 / 点边面）。
+ */
+export declare function pressKindOf(ctx: ToolCtx, at: {
+    x: number;
+    y: number;
+}, tool: Tool, handles?: {
+    grip(ctx: ToolCtx, s: {
+        x: number;
+        y: number;
+    }): unknown;
+} | null): "handle" | "thing" | "empty";
 /** 目标 = 整个选区（网格体；还活着的点 / 边 / 面，按 id 排）；没选区 = null。按在操纵手柄上（tools/mesh-handles.ts）的那一下也走它：手柄下面压着别的东西也不换目标。 */
 export declare function selectionTarget(ctx: ToolCtx): Target | null;
 /** 右下角「选区」两档：多选（= 一直按着 Shift）？ */

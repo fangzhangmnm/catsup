@@ -19,6 +19,10 @@ export declare class MeshInsetTool implements ToolHandler {
     private segments;
     /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
     private box;
+    pressKind(ctx: ToolCtx, at: {
+        x: number;
+        y: number;
+    }): "handle" | "thing" | "empty";
     tap(ctx: ToolCtx, ev: ToolPointer): void;
     active(): boolean;
     cancel(): void;
