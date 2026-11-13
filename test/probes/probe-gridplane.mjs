@@ -1,4 +1,4 @@
-// 网格面 yz（v0.13.14；user「grid可以配置成xy yz xz，这样方便我吸附画立面」）：开网格 + yz → 视图窗口「单位」页勾着 YZ（v0.17.64 起；以前是「栅格」页 / 右下芯片）；画线首点在空处悬停 = 格点，落在 x=0 的立面格点上。created 2026-10-24 by Claude Fable 5.1
+// 网格面 yz（v0.13.14；user「grid可以配置成xy yz xz，这样方便我吸附画立面」）：开网格 + yz → 视图窗口「单位」页勾着 YZ（v0.17.64 起；以前是「栅格」页 / 右下芯片）；画线首点在空处悬停 = 格点，落在 x=0 的立面格点上。2026-11-13 改：「单位」页 v0.19.76 起在右上渲染窗（浮窗），不在 ☰ 弹出菜单。created 2026-10-24 by Claude Fable 5.1
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const url = process.argv[2] ?? "http://127.0.0.1:8765/";
@@ -11,8 +11,8 @@ await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setGrid({ on
 // v0.13.51：右下芯片收进视图 ☰「栅格」页（user「先把右下收到右上汉堡里」）→ 读那一页勾着的栅格面；吸附钮菜单的「栅格设置…」直接跳到这一页
 await page.locator(".gizmo-snap").click({ button: "right" }); await page.waitForTimeout(150);
 await page.locator(".popup-menu button", { hasText: "单位设置…" }).click(); await page.waitForTimeout(150);   // 3.4 起栅格设置住视图窗口「单位」页（user 10-30）
-const chip = await page.evaluate(() => { const m = document.querySelector(".popup-menu"); const tab = m?.querySelector(".menu-tab.on")?.textContent ?? ""; return `${tab}:${m?.querySelector('[data-menu-id^="plane:"] .menu-value')?.textContent ?? ""}`; });   // v0.18.13 起单位 / 栅格设置住 ☰（弹出菜单）的「单位」页，不在视图窗口（2026-11-11 改）
-await page.evaluate(() => { for (let k = 0; k < 4 && globalThis.__catsup.test.inputGate.owner() !== "scene"; k++) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true })); }); await page.waitForTimeout(80);   // 看完照正路关 ☰（Esc → 输入闸交给菜单）；开着时画布上第一下会被门口吞掉关菜单（2026-11-11 改）
+const chip = await page.evaluate(() => { const w = [...document.querySelectorAll(".float-win")].find((x) => x.querySelector('[data-menu-id^="plane:"]')); const tab = w?.querySelector(".menu-tab.on")?.textContent ?? ""; return `${tab}:${w?.querySelector('[data-menu-id^="plane:"] .menu-value')?.textContent ?? ""}`; });   // v0.19.76 起「单位」页住右上渲染窗（浮窗「渲染 | 单位」的第二页；以前在 ☰ 弹出菜单里）
+await page.evaluate(() => [...document.querySelectorAll(".float-win")].find((x) => x.querySelector('[data-menu-id^="plane:"]'))?.querySelector(".float-close")?.click()); await page.waitForTimeout(80);   // 看完点浮窗的 ×（浮窗不抢输入，但开着会盖住画布上要悬停的那一点）
 const s = await page.evaluate(() => { const e = globalThis.__catsup.editor; return e.cam.angularPx({ x: 0, y: 2.13, z: 1.02 }, e.vp()); });
 await page.mouse.move(box.x + s.x, box.y + s.y); await page.waitForTimeout(120);
 const tip = await page.evaluate(() => { const t = document.getElementById("tip"); return t.hidden ? null : t.textContent; });
