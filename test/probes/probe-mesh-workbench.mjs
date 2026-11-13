@@ -39,7 +39,7 @@ const res = await page.evaluate(async () => {
   // ③ brep 专属动词在网格体池里：诚实拒绝、不崩、不记步
   const pos0 = e.history.position();
   out.hudInMesh = hud.edits().filter((x) => !x.hidden).map((x) => x.id);
-  e.hideSelection(); const h1 = hint(); e.makeGroup(); const h2 = hint(); e.softenSelection(true); const h3 = hint();   // 删除在网格体里能用了（v0.15.22），换隐藏当「SU 专属动词」的例子
+  e.explodeCurveSelection(); const h1 = hint(); e.makeGroup(); const h2 = hint(); e.softenSelection(true); const h3 = hint();   // 删除在网格体里能用了（v0.15.22）、隐藏也能用了（2026-11-13 自由建模 H），换炸开曲线当「硬表面专属动词」的例子
   out.brepVerbs = { pos: e.history.position() - pos0, faces: e.selection.faces.size, hints: [h1, h2, h3].map((h) => /硬表面体的动词/.test(h ?? "")) };
   // ④ 挪：网格体池里选中顶面 → runAction("move", dz=0.5) → 顶面四个点上去；撤销回来
   e.deselectAll(); await click(P(0.5, 0.5, 1));

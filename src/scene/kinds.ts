@@ -1,7 +1,7 @@
 // scene/kinds.ts —— kind 登记表（契约 ai-docs/20261024-object-model-contract.md §2 / §5）：每种身体声明可用模式、能 cast 到哪（丢什么）、对齐几何、包围盒。
 // 加 kind = 加一条登记，不改既有的；cast 只在表里有的方向上成功、不做部分转换（user 2026-10-24「每个物体有一个kind，可以换，换了要explicit cast op用户点确认」）。
 // created 2026-10-24 by Claude Fable 5.1 · 2026-10-27 mesh 身体换成可编辑的 mesh 内核（src/mesh/），brep → mesh 出多边形面不出三角汤（edited by Claude Fable 5.1）
-import { HIDE_EDGE, SMOOTH, SOFT, edgeMarkReader, faceHidden, faceMaterial, givenFaceValues, setEdgeMark } from "../mesh/reserved-columns.ts";
+import { HIDE_EDGE, SMOOTH, SOFT, edgeColumn, edgeMarkReader, faceHidden, faceMaterial, givenFaceValues, hiddenColumn, setEdgeMark } from "../mesh/reserved-columns.ts";
 import { cross3, ptKey3, quantize3, sub3, type PlaneParams, type Pt3 } from "../kernel/geom.ts";
 import type { BodyKind } from "./body-kind.ts";
 import type { Body, BrepBody, DefId, MeshBody, Scene } from "./scene.ts";
@@ -49,7 +49,7 @@ export const BREP_KIND: KindDef<BrepBody> = {
 export const MESH_KIND: KindDef<MeshBody> = {
   id: "mesh", label: "网格",
   modes: ["freeform", "surface", "paint"],   // paint = 画画（贴图主线 1-7）   // surface = 表面（油漆桶）：W-12（2026-11-11）起网格体的面也能涂   // 自由建模工作台（modes/freeform.ts；2026-10-27 接缝：壳 + 选择；刀 / 拉 / 环切 = M4 Opus）
-  castsTo: [{ to: "brep", loses: ["不平的面（折成平面块，块之间加软边）", "隐藏的面", "裸线（不属于任何面的边）", "软边 / 平滑标记（改按弯折角度重判）"] }],
+  castsTo: [{ to: "brep", loses: ["不平的面（折成平面块，块之间加软边）", "裸线（不属于任何面的边）", "软边 / 平滑标记（改按弯折角度重判）"] }],   // 隐藏的面 / 边照带（统筹 11-13 b）；带不过去的那种（背靠背一藏一露）转之前问：meshToBrepCheck
   alignGeometry(b) {
     const m = b.kernel, points = m.verts().map((v) => m.pt(v));
     const look = edgeLookOf(m), hid = edgeMarkReader(m, HIDE_EDGE);   // 每条边都问：三列一次拿在手里
@@ -146,15 +146,16 @@ const inTriangle = (p: Pt3, a: Pt3, b: Pt3, c: Pt3): boolean => {
 /**
  * 网格的面落回膜的两侧（计划书 §9.3-6）：网格面朝着的那一侧 = 它的材质或默认正面，没有网格面朝着的那一侧 = 默认背面；重合反向的两张面（内核按三个点去重成一张膜）材质各落各侧。
  * 认法：干净的三角形按三个角认回来；被结算机切过的按面里一个点落在哪些三角形里认。在并共面的三角形之前跑（并的时候要比两侧）。
+ * 藏（统筹 11-13 b）：落到一张膜上的网格面全藏着 = 这张膜藏；有藏有露（背靠背的两张一张藏一张露、或者叠着的面被切过）= 膜只能整张藏或整张露 → 露着。
+ * 返回会这样露出来的藏面有几张（按网格体的面数，不按膜数；转之前问的就是这个数）。
  */
-function carryMeshSides(kernel: Kernel, m: MeshKernel, tris: ArrayLike<number>, faceOfTri: ArrayLike<number>, backSlot: () => number): void {
-  interface Src { a: Pt3; b: Pt3; c: Pt3; n: Pt3; slot: number }
-  const src: Src[] = [], byCorners = new Map<string, Src[]>();
+function carryMeshSides(kernel: Kernel, m: MeshKernel, tris: ArrayLike<number>, faceOfTri: ArrayLike<number>, backSlot: () => number): number {
+  interface Src { a: Pt3; b: Pt3; c: Pt3; n: Pt3; slot: number; hid: boolean; f: number }
+  const src: Src[] = [], byCorners = new Map<string, Src[]>(), hide: number[] = [], shown = new Set<number>();
   const cornersKey = (pts: readonly Pt3[]): string => pts.map((p) => ptKey3(quantize3(p))).sort().join("|");
   for (let i = 0; i + 2 < tris.length; i += 3) {
     const f = faceOfTri[i / 3];
-    if (faceHidden(m, f)) continue;
-    const a = m.pt(tris[i]), b = m.pt(tris[i + 1]), c = m.pt(tris[i + 2]), s: Src = { a, b, c, n: cross3(sub3(b, a), sub3(c, a)), slot: faceMaterial(m, f) };
+    const a = m.pt(tris[i]), b = m.pt(tris[i + 1]), c = m.pt(tris[i + 2]), s: Src = { a, b, c, n: cross3(sub3(b, a), sub3(c, a)), slot: faceMaterial(m, f), hid: faceHidden(m, f), f };
     src.push(s);
     const key = cornersKey([a, b, c]), list = byCorners.get(key);
     if (list) list.push(s); else byCorners.set(key, [s]);
@@ -175,28 +176,64 @@ function carryMeshSides(kernel: Kernel, m: MeshKernel, tris: ArrayLike<number>, 
     const onSide: [number | null, number | null] = [null, null];   // 这一侧朝着它的网格面的槽；null = 没有网格面朝这侧
     for (const s of hits) { const side = dot(s.n, plane.n) >= 0 ? 0 : 1; if (onSide[side] === null || onSide[side]! < 0) onSide[side] = s.slot; }
     for (const side of [0, 1] as const) { const v = onSide[side]; if (v === null) kernel.setFaceMaterial([f.id], backSlot(), [side]); else if (v >= 0) kernel.setFaceMaterial([f.id], v, [side]); }
+    const h = hits.filter((x) => x.hid);
+    if (h.length === hits.length) hide.push(f.id); else for (const x of h) shown.add(x.f);
   }
+  if (hide.length) kernel.setFaceHidden(hide, true);
+  return shown.size;
+}
+/**
+ * 网格体上藏着的边落回膜的边（统筹 11-13 b）：两头的点量化后是同一对 = 同一条；被结算机切开的 = 膜的边两头都落在那条藏边的线段上。在并共面的三角形之前跑（藏着的边不并掉，见 meshToBrepWith）。
+ * 返回带不过去的条数（两头的点被并掉了之类）；不挨面的裸线不算（裸线整条不转，丢掉清单里写着）。
+ */
+function carryHiddenEdges(kernel: Kernel, m: MeshKernel): number {
+  const hid = edgeMarkReader(m, HIDE_EDGE), key = (a: Pt3, b: Pt3): string => { const x = ptKey3(quantize3(a)), y = ptKey3(quantize3(b)); return x < y ? `${x}|${y}` : `${y}|${x}`; };
+  const want = new Map<string, readonly [Pt3, Pt3]>();
+  for (const e of m.edges()) if (hid(e) && m.eFaces(e).length) { const a = m.pt(m.edgeA[e]), b = m.pt(m.edgeB[e]); want.set(key(a, b), [a, b]); }
+  if (!want.size) return 0;
+  const on: number[] = [], got = new Set<string>(), rest: { id: number; a: Pt3; b: Pt3 }[] = [];
+  for (const e of kernel.edges()) { const a = kernel.graph.pt(e.a), b = kernel.graph.pt(e.b), k = key(a, b); if (want.has(k)) { on.push(e.id); got.add(k); } else rest.push({ id: e.id, a, b }); }
+  const onSeg = (p: Pt3, [a, b]: readonly [Pt3, Pt3]): boolean => { const ab = sub3(b, a), ap = sub3(p, a), L = dot(ab, ab); if (L <= 0) return false; const t = dot(ap, ab) / L; if (t < -1e-9 || t > 1 + 1e-9) return false; const d = sub3(ap, { x: ab.x * t, y: ab.y * t, z: ab.z * t }); return dot(d, d) <= 1e-12; };
+  let lost = 0;
+  for (const [k, seg] of want) { if (got.has(k)) continue; const pieces = rest.filter((r) => onSeg(r.a, seg) && onSeg(r.b, seg)); if (pieces.length) on.push(...pieces.map((r) => r.id)); else lost++; }
+  if (on.length) kernel.setEdgeLayer("hidden", on, true);
+  return lost;
 }
 /**
  * mesh → brep：三角化（约束 Delaunay，同屏幕）→ 导入那条「三角形 → 膜」管线（kernel/from-triangles.ts：量化合点 → 分平面 → 整批装 → 谓词挑脏的交结算机）。
- * 共面的三角形并成一张膜（盒子回来还是 6 张；两侧不一样的不并）；不平的 n 边形折成平面块、块之间按 softDeg 变软；隐藏的面不带。
+ * 共面的三角形并成一张膜（盒子回来还是 6 张；两侧不一样的不并）；不平的 n 边形折成平面块、块之间按 softDeg 变软。
  * 两侧（计划书 §2.9「这是这种身体的表示法」）：环朝的那侧 = 它的材质 / 默认正面，另一侧 = 默认背面；重合反向的两张面并成一张膜、材质各落各侧。brep → mesh → brep 两侧都保住。
+ * 藏（统筹 11-13 b；以前藏着的面不带 = 悄悄少了）：藏着的面照转、膜照藏，藏着的边照藏（carryMeshSides / carryHiddenEdges）；藏没藏不一样的不并、藏着的边不并掉。
+ * 带不过去的两种数在返回值里（mixedHidden = 和露着的面合成一张膜、只好露出来的藏面张数；lostHiddenEdges = 对不上的藏边条数）：「转回硬表面体」转之前问（meshToBrepCheck）。
  */
-export function meshToBrep(b: MeshBody, softDeg: number): BrepBody {
+export function meshToBrepWith(b: MeshBody, softDeg: number): { body: BrepBody; mixedHidden: number; lostHiddenEdges: number } {
   const m = b.kernel, verts = m.verts(), idx = new Map<number, number>(verts.map((v, i) => [v, i]));
   const positions = verts.map((v) => m.pt(v));
   const { tris, faceOfTri } = m.triangles();
   const t: number[] = [];
-  for (let i = 0; i < tris.length; i += 3) { if (faceHidden(m, faceOfTri[i / 3])) continue; t.push(idx.get(tris[i])!, idx.get(tris[i + 1])!, idx.get(tris[i + 2])!); }
+  for (let i = 0; i < tris.length; i += 3) t.push(idx.get(tris[i])!, idx.get(tris[i + 1])!, idx.get(tris[i + 2])!);
   const { kernel } = kernelFromTriangles(positions, t, { softDeg });
   const slots = [...b.materialSlots];
-  carryMeshSides(kernel, m, tris, faceOfTri, () => { let i = slots.indexOf(BUILTIN_BACK_SLOT); if (i < 0) { i = slots.length; slots.push(BUILTIN_BACK_SLOT); } return i; });
+  const mixedHidden = carryMeshSides(kernel, m, tris, faceOfTri, () => { let i = slots.indexOf(BUILTIN_BACK_SLOT); if (i < 0) { i = slots.length; slots.push(BUILTIN_BACK_SLOT); } return i; });
+  const lostHiddenEdges = carryHiddenEdges(kernel, m);
   kernel.faceLayers.backSlot = slots.indexOf(BUILTIN_BACK_SLOT);
-  const sameSides = (x: number, y: number): boolean => kernel.faceMaterialOf(x, 0) === kernel.faceMaterialOf(y, 0) && kernel.faceMaterialOf(x, 1) === kernel.faceMaterialOf(y, 1);
-  // 共面的三角形并回一张膜（同 FM80「软边两侧 180° 自动并掉」：软边、恰两张不同的膜、同一平面 → 擦边机 MERGE）；盒子回来还是 6 张、不留谜语人软边
-  const flat = kernel.edges().filter((e) => { if (!kernel.isSoft(e.id) || e.faceLinks.length !== 2 || e.faceLinks[0] === e.faceLinks[1]) return false; const pa = kernel.planeOf(e.faceLinks[0]), pb = kernel.planeOf(e.faceLinks[1]); return !!pa && !!pb && pa.id === pb.id && sameSides(e.faceLinks[0], e.faceLinks[1]); }).map((e) => e.id);
+  const sameSides = (x: number, y: number): boolean => kernel.faceMaterialOf(x, 0) === kernel.faceMaterialOf(y, 0) && kernel.faceMaterialOf(x, 1) === kernel.faceMaterialOf(y, 1) && kernel.isFaceHidden(x) === kernel.isFaceHidden(y);
+  // 共面的三角形并回一张膜（同 FM80「软边两侧 180° 自动并掉」：软边、恰两张不同的膜、同一平面 → 擦边机 MERGE）；盒子回来还是 6 张、不留谜语人软边。藏着的边是人标的、不并掉
+  const flat = kernel.edges().filter((e) => { if (!kernel.isSoft(e.id) || kernel.isEdgeHidden(e.id) || e.faceLinks.length !== 2 || e.faceLinks[0] === e.faceLinks[1]) return false; const pa = kernel.planeOf(e.faceLinks[0]), pb = kernel.planeOf(e.faceLinks[1]); return !!pa && !!pb && pa.id === pb.id && sameSides(e.faceLinks[0], e.faceLinks[1]); }).map((e) => e.id);
   if (flat.length) kernel.eraseEdges(flat);
-  return { kind: "brep", kernel, groups: new Map(), nextGroup: 1, materialSlots: slots, guides: emptyGuides() };
+  return { body: { kind: "brep", kernel, groups: new Map(), nextGroup: 1, materialSlots: slots, guides: emptyGuides() }, mixedHidden, lostHiddenEdges };
+}
+export function meshToBrep(b: MeshBody, softDeg: number): BrepBody { return meshToBrepWith(b, softDeg).body; }
+/**
+ * 「转回硬表面体」转之前要问的数（统筹 11-13 b：带不过去的转之前明着说、让人选）：和真转是同一份算法（照转一遍、只要数）。
+ * 网格体上一张藏面、一条挨面的藏边都没有 = 不用转就知道是 0（不藏东西的网格体不多花时间）。
+ */
+export function meshToBrepCheck(b: MeshBody, softDeg: number): { mixedHidden: number; lostHiddenEdges: number } {
+  const m = b.kernel, fc = hiddenColumn(m), ec = edgeColumn(m, HIDE_EDGE);
+  const any = (!!fc && m.faces().some((f) => fc.data[f] === 1)) || (!!ec && m.edges().some((e) => ec.data[e] === 1 && m.eFaces(e).length > 0));
+  if (!any) return { mixedHidden: 0, lostHiddenEdges: 0 };
+  const r = meshToBrepWith(b, softDeg);
+  return { mixedHidden: r.mixedHidden, lostHiddenEdges: r.lostHiddenEdges };
 }
 /** 显式 cast（op 层调用）：只认登记表里的方向。opts.softDeg = mesh → brep 的软边角度（缺 = 20°）。 */
 export function castBody(body: Body, to: BodyKind, opts?: { softDeg?: number }): Body {

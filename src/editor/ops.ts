@@ -8,7 +8,8 @@
 // 解析失败（目标已不在）→ 抛 OpTargetError：单机 = 这批不落地（History 回滚）；联机 = 上层政策，这里不裁。
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
 import { declareRingEdges } from "../mesh/ops/ring-edges.ts";
-import { MATERIAL_INDEX, faceHidden, faceMaterial, givenFaceValues, unpackEdgeByte } from "../mesh/reserved-columns.ts";
+import { HIDE_EDGE, MATERIAL_INDEX, faceHidden, faceMaterial, givenFaceValues, setEdgeMark, setFaceHidden, unpackEdgeByte } from "../mesh/reserved-columns.ts";
+import { showEverything } from "../scene/hidden.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
 import { uniqueCopy } from "../format/scene-store.ts";
 import { COLOR_CHANNEL, COLOR_VALUE, assertSizedImage, paintIn, type ShelfItem, type TextureDoc } from "../format/document.ts";
@@ -134,8 +135,9 @@ export type Op =
   | { op: "setLocked"; at: PoolRef; group?: number; instance?: number; on: boolean }
   /** 改名（0.18 物品栏纪元 I4）：instance 给了 = 这一份自己的名字（空 / null = 去掉，回到显示组件名）；def 给了 = 组件定义的名字（摆了几份都跟着变；不许空）。 */
   | { op: "rename"; at: PoolRef; instance?: number; def?: number; name: string | null }
-  /** 隐藏 / 显示（DT49；at = 所在的池）：一个子实例（藏父连子）和 / 或这个池里的一批面 / 边（面层 / 边层 hidden；「挖洞看里面」）。只藏不删：不画、不吸、点不中。 */
-  | { op: "setHidden"; at: PoolRef; instance?: number; faces?: FaceKey[]; edges?: EdgeKey[]; on: boolean }
+  /** 隐藏 / 显示（DT49；at = 所在的池）：一个子实例（藏父连子）和 / 或这个池里的一批面 / 边（面层 / 边层 hidden；「挖洞看里面」）。只藏不删：不画、不吸、点不中。
+   *  网格体（at.def 是网格体，统筹 11-13）：meshFaces / meshEdges = 面 / 边的编号（保留列 hide_poly / hide_edge）；faces / edges（坐标寻址）只给硬表面。 */
+  | { op: "setHidden"; at: PoolRef; instance?: number; faces?: FaceKey[]; edges?: EdgeKey[]; meshFaces?: number[]; meshEdges?: number[]; on: boolean }
   /** 全部显示：整个场景里所有被隐藏的实例、面、边都放回来（DT49）。 */
   | { op: "unhideAll" }
   // ---------- 0.14 物体模型（契约 ai-docs/20261024-object-model-contract.md）----------
@@ -775,20 +777,16 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
         if (op.faces?.length) kernel.setFaceHidden(op.faces.map((f) => resolveFace(kernel, f)), op.on);
         if (op.edges?.length) kernel.setEdgeLayer("hidden", op.edges.map((e) => resolveEdge(kernel, e)), op.on);
       }
-      return { scene: s, events: [] };
-    }
-    case "unhideAll": {
-      for (const d of s.defs.values()) {
-        for (const inst of d.instances.values()) delete inst.hidden;
-        if (d.body.kind !== "brep") continue;
-        for (const k of [d.body.kernel, ...[...d.body.groups.values()].map((g) => g.kernel)]) {
-          const fs = k.faces().filter((f) => k.isFaceHidden(f.id)).map((f) => f.id), es = k.edges().filter((e) => k.isEdgeHidden(e.id)).map((e) => e.id);
-          if (fs.length) k.setFaceHidden(fs, false);
-          if (es.length) k.setEdgeLayer("hidden", es, false);
-        }
+      if (op.meshFaces?.length || op.meshEdges?.length) {   // 网格体的面 / 边（自由建模 H / Shift+H；哪些由 mesh/hide-plan.ts 定，这里只照单写）。先全查完再动手：有一个不在 = 什么都不改
+        const m = meshOf(s, op.at.def).kernel;
+        for (const f of op.meshFaces ?? []) if (!m.hasF(f)) throw new OpTargetError(`face ${f}`);
+        for (const e of op.meshEdges ?? []) if (!m.hasE(e)) throw new OpTargetError(`edge ${e}`);
+        for (const f of op.meshFaces ?? []) setFaceHidden(m, f, op.on);
+        for (const e of op.meshEdges ?? []) setEdgeMark(m, e, HIDE_EDGE, op.on);
       }
       return { scene: s, events: [] };
     }
+    case "unhideAll": { showEverything(s); return { scene: s, events: [] }; }   // 每种身体怎么藏只在 scene/hidden.ts 认一次（统筹 11-13 清点 a：以前这里只看硬表面）
     case "meshMove": { moveVerts(meshOf(s, op.def).kernel, op.moves); return { scene: s, events: [] }; }
     case "meshAddPrimitive": { addPrimitive(meshOf(s, op.def).kernel, op.kind, op.frame, op.size, op.segments); return { scene: s, events: [] }; }
     case "meshInset": { insetFaces(meshOf(s, op.def).kernel, op.faces, op.dist); return { scene: s, events: [] }; }
@@ -1022,7 +1020,7 @@ export function describeOp(op: Op): string {
     case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${op.sides ? ` sides=${op.sides.filter((x) => x === 0).length}+/${op.sides.filter((x) => x === 1).length}-` : ""}${at}`;
     case "setEdgeLayers": return `setEdgeLayers n=${op.edges.length} ${op.on ? "+" : "-"}${op.layers.join(",")}${at}`;
     case "eraseGroup": return `eraseGroup ${op.group}${at}`;
-    case "setHidden": return `setHidden ${op.on ? "on" : "off"}${op.instance !== undefined ? ` instance ${op.instance}` : ""}${op.faces?.length ? ` faces=${op.faces.length}` : ""}${op.edges?.length ? ` edges=${op.edges.length}` : ""}${at}`;
+    case "setHidden": return `setHidden ${op.on ? "on" : "off"}${op.instance !== undefined ? ` instance ${op.instance}` : ""}${op.faces?.length ? ` faces=${op.faces.length}` : ""}${op.edges?.length ? ` edges=${op.edges.length}` : ""}${op.meshFaces?.length ? ` meshFaces=${op.meshFaces.length}` : ""}${op.meshEdges?.length ? ` meshEdges=${op.meshEdges.length}` : ""}${at}`;
     case "unhideAll": return "unhideAll";
     case "rename": return `rename ${op.instance !== undefined ? `instance ${op.instance}` : `def ${op.def}`} → ${op.name ?? "(去掉)"}`;
     case "setLocked": return `setLocked ${op.on ? "on" : "off"} ${op.group !== undefined ? `group ${op.group}` : `instance ${op.instance}`}${at}`;

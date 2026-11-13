@@ -276,3 +276,30 @@ describe("翻之前那份的代号用一步开始时的速查表（统筹预审 
   });
 });
 
+
+// 藏面不是删面（统筹 11-13 藏面藏边那一刀第 5 条）：藏着的面照样占着它在画布上的位置——不进空位清单，新面不许落到它的画上，全部显示之后它的位置一格不变。added 2026-11-13 by Claude Opus 5.5
+describe("藏着的面仍然占着它的位置", () => {
+  const overlaps = (a: Rect, b: Rect): boolean => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+  it("画过的面藏起来 = 空位清单不变；之后挤出的新面（自动进这张画）不压藏着的那张；全部显示之后它角上的贴图坐标一个数不变", () => {
+    const t = setup(), g = t.paint(), [hid, other] = t.k().faces(), before = t.places(), old = before.get(hid)!;
+    t.step({ op: "setHidden", at: { def: t.def, group: null }, meshFaces: [hid], on: true });
+    eq(t.freed(g).length, 0, "藏 = 不空出东西"); eq(t.places().get(hid)!.v, old.v, "藏了位置不动");
+    t.step({ op: "meshExtrude", def: t.def, faces: [other], along: 0.3 });
+    const grown = [...t.places()].filter(([x, p]) => p.g === g && !before.has(x)).map(([, p]) => p.r);
+    assert(grown.length > 0, "挤出长了新面、补了位置"); eq(grown.filter((r) => overlaps(r, old.r)).length, 0, "新面不压藏着的那张");
+    t.step({ op: "unhideAll" }); eq(t.places().get(hid)!.v, old.v);
+  });
+  it("统筹给的路：藏一张、删另一张、补回一张面、加进这张画 = 新面不压藏着的那张；全部显示之后藏着那张的位置一格不变", () => {
+    const t = setup(), g = t.paint(), k0 = t.k(), [hid, gone] = k0.faces(), ring = k0.faceVerts(gone), old = t.places().get(hid)!;
+    t.step({ op: "setHidden", at: { def: t.def, group: null }, meshFaces: [hid], on: true });
+    t.step({ op: "meshDelete", def: t.def, faces: [gone] });
+    const fs0 = new Set(t.k().faces());
+    t.step({ op: "meshMakeFace", def: t.def, ring });
+    const nf = t.k().faces().find((f) => !fs0.has(f))!, slot = t.k().column("material_index")!.data[hid], mat = t.cur().mesh(t.def).materialSlots[slot];
+    assert(nf !== undefined && t.places().get(nf) === undefined, "补回来的面一开始不在画上");
+    t.step({ op: "meshPaintFaces", def: t.def, faces: [nf], material: mat }, { op: "meshLayoutPaint", def: t.def, faces: [nf] });
+    const p = t.places().get(nf);
+    assert(p !== undefined && p.g === g, "新面进了这张画"); eq(overlaps(p!.r, old.r), false, "不压藏着的那张");
+    t.step({ op: "unhideAll" }); eq(t.places().get(hid)!.v, old.v);
+  });
+});

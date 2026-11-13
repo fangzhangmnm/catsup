@@ -105,6 +105,7 @@ export function opTier(s: Scene, op: Op): { tier: OpTier; at?: PoolRef; def?: De
   if (KERNEL_OPS.has(op.op)) {
     if (op.op === "mirror" && o.instances?.length) return { tier: "scene" };
     if (op.op === "setHidden" && o.instance !== undefined) return { tier: "skeleton" };
+    if (op.op === "setHidden" && o.at && s.defs.has(o.at.def) && s.kindOf(o.at.def) === "mesh") return { tier: "mesh", def: o.at.def };   // 网格体的藏面 / 藏边（meshFaces / meshEdges）= 改那一个网格体的列
     if (op.op === "plugin" && o.name === "hierarchy") return { tier: "scene" };
     const at = o.at ?? { def: s.root, group: null };
     if (!s.hasPool(at) || s.kindOf(at.def) !== "brep") return { tier: "scene" };

@@ -87,6 +87,7 @@
   "probe-lock-plane-drag.mjs": {"state":"green"},
   "probe-lock.mjs": {"state":"green"},
   "probe-fill-strip.mjs": {"state":"green"},
+  "probe-hide-mesh.mjs": {"state":"green"},
   "probe-make-face.mjs": {"state":"green"},
   "probe-make-nest.mjs": {"state":"green"},
   "probe-make-planar.mjs": {"state":"green"},

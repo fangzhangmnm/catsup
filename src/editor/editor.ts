@@ -28,7 +28,7 @@ import { snapHoldTol } from "./snap-hysteresis.ts";
 import { type ForceEnv, forceSideFor, forcesOn, originNeedsAsk } from "./mirror-force.ts";
 import { type FreedBase, type UpkeepSnaps, freedBaseline, freedOp, upkeepAfter, upkeepRewrite, upkeepSnapshot } from "./paint-upkeep.ts";   // 每一步做完的收尾 = 强行对称 + 画的位置（1-3b）
 import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, mirrorTwins, withMirrorCounterparts, pickSide, sideLabel, sideOfElements, trySymmetrize } from "../mesh/mirror.ts";
-import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts"; import { HIDE_EDGE, edgeMark, faceMaterial } from "../mesh/reserved-columns.ts";   // 保留名 material_index（属性地基轮 3b）
+import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts"; import { HIDE_EDGE, edgeMark, faceMaterial } from "../mesh/reserved-columns.ts"; import { planHide, vertHidden } from "../mesh/hide-plan.ts"; import { hiddenCount, type HiddenCount } from "../scene/hidden.ts";   // 保留名 material_index（属性地基轮 3b）
 import { marqueeScreen, areaTest, type ScreenArea } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, type BrepSelection, type SelMode, circleSegmentsOnPlane, emptySelection, mergeSel, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
@@ -2176,7 +2176,7 @@ export class Editor {
     const q = c.ask?.(this.repairCtx, units, v0);   // 先问一句（跨种类转）：点了「做」才带着补的参数跑；不能问 = 如实说没做
     if (q) {
       if (!this.host.confirm) { this.host.hint(`${c.title}：${q.message}（这里不能问，没做）`); return 0; }
-      void this.host.confirm(q.title, q.message, q.okLabel).then((ok) => { if (ok) this.runObjectNow(c, units, { ...v0, ...q.params }); else { this.host.hint(`${c.title}：没做（你选了不转）`); this.draw(); } });
+      void this.host.confirm(q.title, q.message, q.okLabel).then((ok) => { const v1 = { ...v0, ...q.params }, e1 = ok ? c.estimate?.(this.repairCtx, units, v1) : null, go = (): void => { this.runObjectNow(c, units, v1); }; if (ok && e1 && e1.seconds >= Editor.ERASE_ASK_SECONDS) this.runSlow(c.title, go); else if (ok) go(); else { this.host.hint(`${c.title}：没做（你选了不转）`); this.draw(); } });
       return 0;
     }
     const est = c.estimate?.(this.repairCtx, units, v0);
@@ -2439,9 +2439,17 @@ export class Editor {
    * 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：选中组件的缩放烘进组件本身的几何，这一份只剩旋转 + 平移；
    * 同一组件的别的份乘反比补偿，看起来不变。组件里有转过的子组件时会斜切 → 护栏拦下并说明。一次 = 一步。
    */
-  hasHideableSelection(): boolean { return this.hasGeometrySelection() || this.selectedPools.size > 0; }   // 点不单独藏；参考几何不藏（藏的指令不认它）
-  /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。 */
-  hideSelection(): number { return this.step((pass) => this.hideSelectionStep(pass)); }
+  hasHideableSelection(): boolean { return this.hasGeometrySelection() || this.hasPointSelection() || this.selectedPools.size > 0; }   // 点不单独藏（只选了点按 H = 说一句，不静默）；参考几何不藏（藏的指令不认它）
+  /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。others = 藏没选中的（Shift+H；只在网格体里，统筹 11-13）。 */
+  hideSelection(others = false): number { return this.step((pass) => !others ? this.hideSelectionStep(pass) : this.activeKind() === "mesh" ? this.hideMeshIn(pass, true) : (this.host.hint("藏没选中的（Shift+H）只在自由建模里"), 0)); }
+  /** 网格体的藏（藏哪些面 / 边 = mesh/hide-plan.ts；点不单独藏）：一条 setHidden。others = 藏没选中的：选区留着、藏起来的点拿掉、自己收尾。返回藏了几样。 */
+  private hideMeshIn(pass: StepPass, others: boolean): number {
+    const def = this.activePool().def, m = this.scene.mesh(def).kernel, sel = this.selection, p = sel.faces.size || sel.edges.size ? planHide(m, sel, others) : { faces: [], edges: [] }, n = p.faces.length + p.edges.length;
+    if (!sel.faces.size && !sel.edges.size) { this.host.hint(`点不单独藏：选面或边再按 ${others ? "Shift+H" : "H"}`); return 0; }
+    if (n) this.commitIn(pass, { op: "setHidden", at: { def, group: null }, meshFaces: p.faces, meshEdges: p.edges, on: true }); else this.host.hint(others ? "没选中的都已经藏着了" : "选中的都已经藏着了");
+    if (others && n) { for (const v of [...sel.verts]) if (vertHidden(m, v)) sel.verts.delete(v); this.afterSelect(pass); this.host.hint(`藏起没选中的 ${p.faces.length} 张面、${p.edges.length} 条边；Alt+H 全部放回来`); this.host.changed(); this.draw(); }
+    return n;
+  }
   private hideSelectionStep(pass: StepPass): number {
     const at = this.activePool(), def = at.def;
     let n = 0;
@@ -2461,7 +2469,7 @@ export class Editor {
       }
       for (const i of this.scene.def(def).instances.values()) if (i.parent !== null && tree.has(i.parent) && !i.hidden) { this.commitIn(pass, { op: "setHidden", at: { def, group: i.parent }, instance: i.id, on: true }); n++; }
     }
-    if (this.activeKind() !== "brep" && this.hasGeometrySelection() && !this.selectedPools.size) { this.requireBrep("隐藏"); return 0; }   // 网格体的面 / 线还藏不了：如实说（物件照藏）
+    if (this.activeKind() === "mesh" && (this.hasGeometrySelection() || this.hasPointSelection())) n += this.hideMeshIn(pass, false);   // 网格体的面 / 线（自由建模 H；统筹 11-13）；只选了点 = 说一句、物件照藏
     if (this.selectedPools.size) n += this.runAction("hide");   // 直接选中的实例（同一步；两种身体都行）
     if (!n) return 0;
     this.clearSel(pass);
@@ -2469,16 +2477,8 @@ export class Editor {
     this.host.changed(); this.draw();
     return n;
   }
-  /** 整个场景里被隐藏的东西：组件份数 + 面 + 线（视图菜单「全部显示（N）」用）。 */
-  hiddenCount(): { instances: number; faces: number; edges: number } {
-    const c = { instances: 0, faces: 0, edges: 0 };
-    for (const d of this.scene.defs.values()) {
-      for (const i of d.instances.values()) if (i.hidden) c.instances++;
-      if (d.body.kind !== "brep") continue;
-      for (const k of [d.body.kernel, ...[...d.body.groups.values()].map((g) => g.kernel)]) { for (const f of k.faces()) if (k.isFaceHidden(f.id)) c.faces++; for (const e of k.edges()) if (k.isEdgeHidden(e.id)) c.edges++; }
-    }
-    return c;
-  }
+  /** 整个场景里被隐藏的东西：组件份数 + 面 + 线（视图菜单「全部显示（N）」用；每种身体只在 scene/hidden.ts 认一次）。 */
+  hiddenCount(): HiddenCount { return hiddenCount(this.scene); }
   /** 全部显示（一条 op，可撤销）。返回放回了几样。 */
   unhideAll(): number {
     return this.step((pass) => {

@@ -382,7 +382,8 @@ const hud: HudModel = {
     { id: "selectAll", layer: "empty", label: "全选", icon: "select" },   // 清空模型 = 这里全选再删（user 10-30「清空模型归右键，而且可能就是全选删除，我们这里不需要清空画布快捷键」）
     { id: "enter", layer: "child", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
     { id: "rename", layer: "child", label: "改名…", icon: "rename", hidden: editor.selectedPoolKeys().filter((k) => k.startsWith("i")).length !== 1 },   // 0.18 I4：层级窗的「…」和画布右键同一张表
-    { id: "hideGeometry", layer: "geometry", label: "隐藏", icon: "visibility-hide", hidden: brepOnly || !(editor.hasGeometrySelection() || editor.hasGroupSelection()) },   // 几何 / 组的藏（硬表面）；物件的藏在上面的注册表行
+    { id: "hideGeometry", layer: "geometry", label: "隐藏", icon: "visibility-hide", hidden: !(editor.hasGeometrySelection() || editor.hasGroupSelection()) },   // 几何 / 组的藏（两种身体都有：网格体 = 面 / 边，统筹 11-13）；物件的藏在上面的注册表行
+    { id: "hideOthers", layer: "geometry", label: "隐藏没选中的", icon: "visibility-hide", hidden: !brepOnly || !editor.hasGeometrySelection() },   // brepOnly = 这一层不是硬表面（= 网格体）。Shift+H（Blender 成套的；只在网格体里）：笔 / 手指也要够得着
     { id: "componentOrigin", layer: "child", label: "改组件原点…", icon: "axes", hidden: !editor.canEditComponentOrigin() },   // DT86：物体的指令（SU 右键「更改轴」、Blender「设置原点」）；user「专门入口同意，赞。这样小白能找到」
     // 修复指令（DT85）：有选区 = 选中的、没选 = 整个物体；含子物体默认开（数字按现在的范围算）。新指令不进 ☰（user 10-26「以后这些指令不住汉堡，等攒多了我帮他们找家」）
     { id: "repairPanel", layer: "self", label: "修复…", icon: "wrench", hidden: editor.repairPanelOpen() || !editor.repairWorth() },   // T6 / DT6 + DT9：修复面板（几步一起跑 = 一步撤销）+「检查」高亮微折软边
@@ -437,6 +438,7 @@ const hud: HudModel = {
       case "explodeCurve": editor.explodeCurveSelection(); break;
       case "enter": editor.enterSelected(); break;
       case "hideGeometry": editor.hideSelection(); break;
+      case "hideOthers": editor.hideSelection(true); break;
       case "componentOrigin": editor.beginComponentOrigin(); syncUi(); break;
       case "repairPanel": editor.beginRepairPanel(); break;
       case "exit": editor.exitContext(); break;
@@ -1711,6 +1713,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "tool.key": toolKey(p1, p2 as Tool); return;
     case "component.make": if (editor.hasGeometrySelection() || editor.hasPoolSelection()) editor.makeComponent(hex4()); return;   // SU：G = 建组件
     case "hide": if (editor.hasHideableSelection()) editor.hideSelection(); return;   // Blender：H（DT49）
+    case "hide.others": editor.hideSelection(true); return;   // Blender：Shift+H（自由建模层，统筹 11-13）
     case "show.all": editor.unhideAll(); return;
     case "view.zoomExtents": editor.zoomExtents(); return;
     case "view.zoomTo": editor.zoomTo(); return;   // Blender 小键盘 .

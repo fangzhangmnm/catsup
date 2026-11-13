@@ -37,3 +37,110 @@ describe("DT49 隐藏 / 全部显示", () => {
     eq(JSON.stringify(counts(s)), JSON.stringify(counts(sceneGrouped())));
   });
 });
+
+// ---------------------------------------------------------------- 网格体的藏（统筹 11-13：自由建模 H / Shift+H / Alt+H；a = 全部显示扫网格体；b = 转回硬表面带上藏面）。added 2026-11-13 by Claude Opus 5.5
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
+import { addBox } from "../src/mesh/ops/index.ts";
+import { planHide, vertHidden } from "../src/mesh/hide-plan.ts";
+import { HIDE_EDGE, edgeMark, faceHidden, givenFaceValues } from "../src/mesh/reserved-columns.ts";
+import { hiddenCount } from "../src/scene/hidden.ts";
+import { History } from "../src/editor/history.ts";
+import { faceKey } from "../src/editor/ops.ts";
+import { meshToBrep, meshToBrepCheck } from "../src/scene/kinds.ts";
+import { sceneBox, oneSided } from "./format-scenes.ts";
+import { IDENTITY } from "../src/scene/xform.ts";
+
+const Q = (x: number, y: number, z: number) => ({ x, y, z });
+/** 一个网格体组件（闭合方块，6 张四边形）摆在根上。 */
+function meshScene(): { s: Scene; def: number; m: () => MeshKernel } {
+  const s = new Scene(sceneBox()), d = s.mintDef("块", sceneBox()), k = new MeshKernel();
+  addBox(k, Q(0, 0, 0), Q(1, 1, 1));
+  d.body = { kind: "mesh", kernel: k, materialSlots: [], uvSetSlots: [] };
+  s.mintInstance(s.root, null, d.id, IDENTITY);
+  return { s, def: d.id, m: () => s.mesh(d.id).kernel };
+}
+const meshHid = (m: MeshKernel) => ({ faces: m.faces().filter((f) => faceHidden(m, f)).length, edges: m.edges().filter((e) => edgeMark(m, e, HIDE_EDGE)).length });
+const brepHid = (s: Scene, def: number) => { const k = s.brep(def).kernel; return { faces: k.faces().length, hidden: k.faces().filter((f) => k.isFaceHidden(f.id)).length, hiddenEdges: k.edges().filter((e) => k.isEdgeHidden(e.id)).length }; };
+
+describe("网格体的藏（自由建模 H / Shift+H）", () => {
+  it("H 藏一张面：面藏、它的四条边还挨着露着的面 = 不藏；点都还露着", () => {
+    const { m } = meshScene(), k = m(), top = k.faces()[0];
+    const p = planHide(k, { faces: new Set([top]), edges: new Set() }, false);
+    eq(JSON.stringify([p.faces, p.edges.length]), JSON.stringify([[top], 0]));
+  });
+  it("H 藏整块（六张面全选）：六张面 + 十二条边全藏（不留线框），点跟着边全藏", () => {
+    const { m } = meshScene(), k = m(), p = planHide(k, { faces: new Set(k.faces()), edges: new Set() }, false);
+    eq(p.faces.length, 6); eq(p.edges.length, 12);
+  });
+  it("Shift+H 选着一张面：另外五张面藏、只挨着藏面的八条边藏、挨着选中那张的四条留着；选中的那张不动", () => {
+    const { m } = meshScene(), k = m(), keep = k.faces()[0], p = planHide(k, { faces: new Set([keep]), edges: new Set() }, true);
+    eq(p.faces.length, 5); assert(!p.faces.includes(keep), "选中的不藏"); eq(p.edges.length, 8);
+    const ring = new Set<number>(); const vs = k.faceVerts(keep); vs.forEach((v, i) => ring.add(k.edgeOf(v, vs[(i + 1) % vs.length])));
+    assert(p.edges.every((e) => !ring.has(e)), "选中那张面的边不藏");
+  });
+  it("op setHidden（meshFaces / meshEdges）：照单写；有一个编号不在 = 整条拒、什么都没改；点跟着边（vertHidden）", () => {
+    const { s, def, m } = meshScene(), k0 = m(), keep = k0.faces()[0], p = planHide(k0, { faces: new Set([keep]), edges: new Set() }, true);
+    let threw = false;
+    try { applyOp(s, { op: "setHidden", at: { def, group: null }, meshFaces: [...p.faces, 9999], on: true }); } catch { threw = true; }
+    assert(threw, "不在的面 = 拒"); eq(JSON.stringify(meshHid(m())), JSON.stringify({ faces: 0, edges: 0 }), "拒了 = 一个都没改");
+    applyOp(s, { op: "setHidden", at: { def, group: null }, meshFaces: p.faces, meshEdges: p.edges, on: true });
+    eq(JSON.stringify(meshHid(m())), JSON.stringify({ faces: 5, edges: 8 }));
+    const k = m(), onKeep = new Set(k.faceVerts(keep)), hv = k.verts().filter((v) => vertHidden(k, v));
+    eq(hv.length, 4); assert(hv.every((v) => !onKeep.has(v)), "藏起来的点 = 不在留着的那张面上的四个");
+  });
+  it("a：全部显示的数和放回来都算上网格体（以前只看硬表面）", () => {
+    const { s, def, m } = meshScene(), k = m();
+    applyOp(s, { op: "setHidden", at: { def, group: null }, meshFaces: [k.faces()[1], k.faces()[2]], meshEdges: [k.edges()[0]], on: true });
+    eq(JSON.stringify(hiddenCount(s)), JSON.stringify({ instances: 0, faces: 2, edges: 1 }));
+    const back = applyOp(s, { op: "unhideAll" }).scene;
+    eq(JSON.stringify(hiddenCount(back)), JSON.stringify({ instances: 0, faces: 0, edges: 0 }));
+    eq(JSON.stringify(meshHid(back.mesh(def).kernel)), JSON.stringify({ faces: 0, edges: 0 }));
+  });
+  it("撤销：网格体的藏 = 一步、记成网格体那一档（不整份拷场景）；撤了连第一次建的藏面列都回去", () => {
+    const { s, def, m } = meshScene(), h = new History(s), cols0 = m().columnDefs().map((c) => c.id).join(",");
+    h.commit(s, { op: "setHidden", at: { def, group: null }, meshFaces: [m().faces()[0]], on: true });
+    eq(meshHid(m()).faces, 1);
+    h.undo(); eq(meshHid(m()).faces, 0); eq(m().columnDefs().map((c) => c.id).join(","), cols0, "列也回去");
+    h.redo(s); eq(meshHid(m()).faces, 1);
+  });
+});
+
+describe("b：转回硬表面带上藏面（统筹 11-13；以前藏着的面不带 = 悄悄少）", () => {
+  const roundTrip = (s: Scene, def: number): Scene => applyOp(applyOp(s, { op: "castDefinition", def, to: "mesh" }).scene, { op: "castDefinition", def, to: "brep" }).scene;
+  for (const sided of [true, false]) it(`硬表面藏两张面 → 网格体 → 硬表面，再走一圈：面数不变、那两张还藏着、全部显示放得回来（${sided ? "单面" : "两侧都出 = 背靠背两张"}）`, () => {
+    let s = new Scene(sceneBox()); const d = s.mintDef("盒", sceneBox()); s.mintInstance(s.root, null, d.id, IDENTITY); if (sided) oneSided(s, d.id);
+    const k = s.brep(d.id).kernel, two = k.faces().slice(1, 3).map((f) => faceKey(k, f.id));
+    s = applyOp(s, { op: "setHidden", at: { def: d.id, group: null }, faces: two, on: true }).scene;
+    const before = brepHid(s, d.id); eq(before.hidden, 2);
+    s = roundTrip(s, d.id); eq(JSON.stringify(brepHid(s, d.id)), JSON.stringify(before), "第一圈");
+    s = roundTrip(s, d.id); eq(JSON.stringify(brepHid(s, d.id)), JSON.stringify(before), "第二圈");
+    s = applyOp(s, { op: "unhideAll" }).scene; eq(brepHid(s, d.id).hidden, 0); eq(brepHid(s, d.id).faces, before.faces);
+  });
+  it("网格体整块藏了（面 + 边）→ 硬表面：面和边都还藏着（不冒出一副线框）；带得过去 = 不问", () => {
+    const { s, def, m } = meshScene(), k = m(), p = planHide(k, { faces: new Set(k.faces()), edges: new Set() }, false);
+    applyOp(s, { op: "setHidden", at: { def, group: null }, meshFaces: p.faces, meshEdges: p.edges, on: true });
+    eq(JSON.stringify(meshToBrepCheck(s.mesh(def), 20)), JSON.stringify({ mixedHidden: 0, lostHiddenEdges: 0 }));
+    const b = applyOp(s, { op: "castDefinition", def, to: "brep" }).scene;
+    eq(JSON.stringify(brepHid(b, def)), JSON.stringify({ faces: 6, hidden: 6, hiddenEdges: 12 }));
+  });
+  it("藏了一张面的网格体：藏面和露着的同一平面上不并（藏没藏不一样）、藏着的那张转过去还藏着", () => {
+    const { s, def, m } = meshScene(), k = m();
+    applyOp(s, { op: "setHidden", at: { def, group: null }, meshFaces: [k.faces()[3]], on: true });
+    const b = applyOp(s, { op: "castDefinition", def, to: "brep" }).scene;
+    eq(JSON.stringify(brepHid(b, def)), JSON.stringify({ faces: 6, hidden: 1, hiddenEdges: 0 }));
+  });
+  it("带不过去的那种：背靠背两张一藏一露 = 合成一张膜只能露着，转之前数得出来（meshToBrepCheck），真转出来的就是露着的", () => {
+    const m = new MeshKernel(), v = [Q(0, 0, 0), Q(1, 0, 0), Q(1, 1, 0), Q(0, 1, 0)].map((p) => m.addVertex(p));
+    m.addFace(v, { kind: "fresh", face: givenFaceValues(m, {}) });
+    const back = m.addFace([...v].reverse(), { kind: "fresh", face: givenFaceValues(m, { hidden: true }) });
+    assert(faceHidden(m, back), "背面那张藏着");
+    const body = { kind: "mesh" as const, kernel: m, materialSlots: [], uvSetSlots: [] };
+    eq(JSON.stringify(meshToBrepCheck(body, 20)), JSON.stringify({ mixedHidden: 1, lostHiddenEdges: 0 }));
+    const b = meshToBrep(body, 20);
+    eq(b.kernel.faces().length, 1); eq(b.kernel.faces().filter((f) => b.kernel.isFaceHidden(f.id)).length, 0, "露着（转之前问过的就是这个）");
+  });
+  it("网格体登记的「转回硬表面丢掉什么」里不再写「隐藏的面」", async () => {
+    const { KINDS } = await import("../src/scene/kinds.ts");
+    assert(!KINDS.mesh.castsTo.some((c) => c.loses.some((l) => l.includes("隐藏"))), "丢掉清单里没有隐藏");
+  });
+});

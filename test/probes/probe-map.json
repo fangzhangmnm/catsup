@@ -3,6 +3,7 @@
  "rules": [
   { "when": ["src/app/keyboard-seen.ts", "src/app/main.ts", "styles.css"], "probes": ["probe-tool-keys.mjs", "probe-mfd.mjs"], "why": "工具栏右上角快捷键小字 + 键名芯片印不印键名：这次打开之后按过实体键盘才显示（只认真按键；笔点过 / 脚本假按键不算；统筹 11-13 D）" },
   { "when": ["src/controller/tool-borrow.ts", "src/editor/editor.ts", "src/app/main.ts", "src/controller/keymap.ts"], "probes": ["probe-temp-tool.mjs"], "why": "快捷键拿起的工具是借的（自由建模）：做完一下 / Esc / 收刀回原来那把、左柱实心 + 蓝框、借用结束不收马后炮、点左柱 / 硬表面照旧一直拿着（统筹 11-13 C）" },
+  { "when": ["src/mesh/hide-plan.ts", "src/scene/hidden.ts", "src/scene/kinds.ts", "src/editor/objects/index.ts"], "probes": ["probe-hide-mesh.mjs", "probe-undo-fuzz.mjs"], "why": "自由建模藏面藏边（H / Shift+H / Alt+H + 右键）、全部显示算上网格体、转回硬表面带上藏面（带不过去先问）、藏面画不上（统筹 11-13）" },
   { "when": ["src/editor/tools/selecting.ts", "src/controller/keymap.ts"], "probes": ["probe-select-linked.mjs"], "why": "L / Shift+L = 选连着的一块 / 拿掉（两种工作台；手势中不响应；空处 = 不变不记一步；硬表面画线只剩 K；user 11-13 批）" },
   { "when": ["src/mesh/ops/make-face.ts", "src/mesh/ops/duplicate.ts"], "probes": ["probe-make-face.mjs", "probe-fill-strip.mjs", "probe-mesh-mirror.mjs"], "why": "造面（Blender F）：五种选法各造一张 / 一条边、自检干净、一步撤销；拒绝说原因不提交；画过的盒子补面不带画、别的面不变；强行对称另一半跟着（统筹插队单 11-13）" },
   { "when": ["src/editor/tools/selecting.ts", "src/editor/tools/select.ts"], "probes": ["probe-select-keep.mjs", "probe-selecting.mjs", "probe-guide-select.mjs"], "why": "替换档单击点中已经选着的 = 选区不变（面 / 子物体 / 参考线同一口径），Shift / Ctrl / 多选档照各自的意思，点空白清空；自由建模的点选 / 框 / 按下三分法（user 11-13，统筹 A）" },

@@ -1366,3 +1366,12 @@ freedOp：每个步开始就在的网格体 —— History.meshBefore（这一�
 - 它把轻重翻成编辑器现成的 steps 语法要的「按下（带 intent）→ 拖 → 松手」（或者作废这一下）。编辑器那一套一行不改。
 - 要问的：`Editor.pressKindAt`（把手 / 东西 / 空处，纯读）、`gestureInProgress`、`hasActableSelection`。
 - 碰多少东西：落笔和每次重按各一次拾取（和点一下一样）；移动照旧。
+
+## 追记 2026-11-13（统筹「藏面藏边」那一刀，Claude Opus 5.5）：自由建模的藏、全部显示、转回硬表面带上藏面
+- **藏（自由建模 H / Shift+H，右键「隐藏」「隐藏没选中的」）**：`Editor.hideSelection(others)` → `hideMeshIn` → `mesh/hide-plan.ts planHide`（纯计算：藏哪些面、哪些边）→ 一条 `setHidden { meshFaces, meshEdges }`（网格体的编号；硬表面照旧 `faces / edges` 坐标寻址）。撤销记成网格体那一档（`history.ts opTier`），一步。
+  - 边跟着面（Blender 同款）：挨着的面这一下之后全藏着的边一起藏；挨着露着的面就留着。点不单独藏、跟着边（`vertHidden` = world-view 的 hiddenVerts 同一条）。只选了点 = 说一句、不做。
+  - 碰多少东西：`planHide` 扫一遍这个网格体的面和边（O(面 + 边)），用户按一下才跑。
+- **全部显示 / 数藏了几样**：两处都只走 `scene/hidden.ts`（`hiddenCount` / `showEverything`，每种身体一个分支、`Record<BodyKind>` 让类型检查逼着新身体登记）。以前 editor 和 ops 各写一遍「只看硬表面」= 网格体的藏面数不到、放不回来。O(所有定义的面 + 边)，视图菜单每次画都数一遍（和以前硬表面一样）。
+- **转回硬表面（`meshToBrepWith`）**：藏着的面照转（以前不转 = 悄悄少）；`carryMeshSides` 落到一张膜上的网格面全藏 = 膜藏，有藏有露 = 露着、数进 `mixedHidden`；`carryHiddenEdges` 按两头的点（量化后）认藏边，切开的按线段认，对不上的数进 `lostHiddenEdges`；并共面三角形时藏没藏不一样的不并、藏着的边不并掉。
+  - 「转回硬表面体」转之前 `meshToBrepCheck`：网格体上一张藏面、一条挨面的藏边都没有 = 直接 0；有 = 照转一遍只要数（转两遍的代价只落在藏了东西的网格体上），两个数有一个不是 0 就弹框，点了「照样转」才转；慢的照样走顶边进度条。
+  - 还随整个模型涨的点：有藏东西时这一次多转一遍。
