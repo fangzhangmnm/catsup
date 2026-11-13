@@ -23,14 +23,14 @@ describe("工作台只发自己的工具", () => {
     eq(Object.keys(TOOL_KEY_JUMPS).sort().join(","), ALL.filter((m) => m !== "paint").sort().join(","), "表里的行 = 除画画以外的工作台（新工作台默认不在表里，要通才登记 = 改这里）");
   });
   it("编辑器的 setTool 不换工作台：函数体里没有 setMode（要跨工作台 = 调用方先明着 setMode）", () => {
-    const s = readFileSync("src/editor/editor.ts", "utf8"), i = s.indexOf("  setTool(t: Tool): void {");
+    const s = readFileSync("src/editor/editor.ts", "utf8"), i = s.indexOf('  setTool(t: Tool, how?: "borrow" | "back"): void {');
     assert(i >= 0, "找不到 setTool");
     const j = s.indexOf("\n  }\n", i), body = s.slice(i, j);
     assert(!/setMode\(/.test(body.split("\n").filter((l) => !/^\s*\/\//.test(l)).map((l) => l.replace(/\/\/.*$/, "")).join("\n")), "setTool 里调了 setMode");
   });
   it("app 的工具键走跳转表：toolKey 不在当前工作台时只按 TOOL_KEY_JUMPS[当前工作台] 明着跨", () => {
     const m = readFileSync("src/app/main.ts", "utf8"), i = m.indexOf("function toolKey("), body = m.slice(i, m.indexOf("\n}\n", i));
-    assert(/takeTool\(t, TOOL_KEY_JUMPS\[editor\.modeId\] \?\? \[\]\)/.test(body), "toolKey 没按跳转表走");
+    assert(/takeTool\(t, TOOL_KEY_JUMPS\[editor\.modeId\] \?\? \[\](, how\(t\))?\)/.test(body), "toolKey 没按跳转表走");   // how(t) = 自由建模里快捷键拿起的是借的（v0.19.105，controller/tool-borrow.ts）
   });
   it("每个工作台都声明了锁上时拿哪把只读工具（whenLocked；v0.19.48）：就在这里拿 = 单子上有；去别处拿 = 别的工作台有、管得了这个工作台的身体", () => {
     for (const m of workbenches()) {
@@ -54,7 +54,7 @@ describe("工作台只发自己的工具", () => {
   it("src 里每一处调 setTool 的地方都表态了（v0.19.48；v0.19.47 漏的就是这一类：以为 setTool 会替人换工作台）", () => {
     // 加一处 = 这里加一行，写明它拿的是哪种：当前工作台单子上的 / 走 takeTool（明着换工作台）/ 照声明（先明着 setMode）
     const SITES: Record<string, { n: number; why: string }> = {
-      "src/editor/editor.ts": { n: 7, why: "holdChanged 照工作台声明（要换先 setMode）；改组件原点拿 axes（先查这个工作台有没有）、结束 / 取消拿回原来那把（同一个工作台）×3；键盘起手 startModal 和环切 armLoopCut 只在自由建模里" },
+      "src/editor/editor.ts": { n: 9, why: "借来的工具做完一次 / 什么都没做按 Esc 回底下那把 ×2（同一个工作台；controller/tool-borrow.ts，v0.19.105）；holdChanged 照工作台声明（要换先 setMode）；改组件原点拿 axes（先查这个工作台有没有）、结束 / 取消拿回原来那把（同一个工作台）×3；键盘起手 startModal 和环切 armLoopCut 只在自由建模里" },
       "src/app/paint-workbench.ts": { n: 1, why: "吸完色回到画画的笔（画画工作台自己的）" },
       "src/app/main.ts": { n: 9, why: "左柱 / 笔刷小三角（只列这个工作台的工具）；离开步行放回选择（验证工作台有）；takeTool ×2（明着换工作台的那一口）；轮换组（只轮这个工作台有的）；键盘起手没选区时（只在自由建模）；开机拿选择（硬表面有）；画布小窗的吸管取完色回到上一把笔（吸管只在画画工作台，笔也是这个工作台的；施工单二十一第 2 刀）" },
     };

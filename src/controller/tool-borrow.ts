@@ -38,7 +38,7 @@ export const keyBorrows = (mode: string, tool: Tool): boolean => mode === "freef
 /**
  * 借来的那把这一下做完了吗（只在没有手势在进行时问）：
  * modal = 这次是键盘起手（G / R / S / E / I…）进去的——手势一收（落定、取消、原地留下，提交被拒也算）就算完；
- * cancelled = 有手势时被取消了（Esc / 右键）；atStart ∧ hadOp = 这一步开始时手势在进行、这一步提交了改动（拖完落定、点落定、收刀、环切切完）。
+ * cancelled = 有手势时被收了（Esc / 右键取消，或者收刀 / 收笔：切好的那几刀早就提交了，收的那一下本身不提交）；atStart ∧ hadOp = 这一步开始时手势在进行、这一步提交了改动（拖完落定、点落定、收刀、环切切完）。
  * 点一下选东西、框选、手势外按 Delete / 右键菜单里的指令都不算（借着移动先点一个点再拖，是常用的）。
  */
 export function runEnded(r: { readonly busy: boolean; readonly modal: boolean; readonly cancelled: boolean; readonly atStart: boolean; readonly hadOp: boolean }): boolean {
@@ -59,8 +59,8 @@ export class ToolHold {
   begin(busy: boolean): void { this.atStart = busy; }
   /** 键盘起手成功了（这一次借用到手势收了就算完）。 */
   noteModal(): void { this.modal = true; }
-  /** 取消（Esc / 右键）：有手势在进行才算「做完」。 */
-  noteCancel(busy: boolean): void { if (busy) this.cancelled = true; }
+  /** 这一次被收了：取消（Esc / 右键）、收刀 / 收笔（编辑器 endChain：「收」钮、同一处再点、Esc、抬笔）——有手势在进行才算「做完」。 */
+  noteEnd(busy: boolean): void { if (busy) this.cancelled = true; }
   /** 一步收尾 / 步外的取消之后问：借来的做完了 → 返回要回去的那把（底），不然 null。没借的时候只清记号。 */
   settle(busy: boolean, hadOp: boolean): Tool | null {
     if (busy) return null;

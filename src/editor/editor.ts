@@ -805,7 +805,7 @@ export class Editor {
     if (this.liveOriginEdit()) { const t = this.originEdit!.prevTool; this.setTool(t); this.host.hint("改组件原点：取消了"); return; }   // 选区留着
     this.taps.cancel();
     this.last = null;
-    this.step((pass) => { this.hold.noteCancel(this.gestureActive()); this.clearSel(pass); this.cancelGesture(); this.host.changed(); this.draw(); }, { title: "取消选择" });
+    this.step((pass) => { this.hold.noteEnd(this.gestureActive()); this.clearSel(pass); this.cancelGesture(); this.host.changed(); this.draw(); }, { title: "取消选择" });
   }
 
   // ---------- 参考几何 / 轴（0.11 尺规纪元；世界坐标进、池本地坐标存）----------
@@ -3121,7 +3121,7 @@ export class Editor {
   // ---------- 上下文菜单（#19）给壳的三个小口 ----------
   /** 作废进行中的指针手势（长按弹菜单时），**选区保留**（cancel() 会清选区）。 */
   rightClickInGesture(): boolean { if (!this.gestureActive()) return false; if (!this.commitInPlace()) this.abortGesture(); return true; }   // 手势中右键（两种工作台一样，T102）：能原地留下的原地留下，别的只取消这一下；不在手势里 = false（app 弹菜单）
-  abortGesture(): void { this.hold.noteCancel(this.gestureActive()); this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.lasso?.(null); this.host.softRing?.(null); this.host.hint(null); this.draw(); this.settleHold(false); }
+  abortGesture(): void { this.hold.noteEnd(this.gestureActive()); this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.lasso?.(null); this.host.softRing?.(null); this.host.hint(null); this.draw(); this.settleHold(false); }
   /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
   gestureInProgress(): boolean { return this.gestureActive(); } selectLinkedAt(remove: boolean): boolean { return !!this.lastPtr && !this.gestureActive() && selectLinked(this.toolCtx, this.lastPtr, remove); } pressKindAt(x: number, y: number): "handle" | "thing" | "empty" | null { return this.handlers[this._tool]?.pressKind?.(this.toolCtx, { x, y }) ?? null; }   // pressKindAt = 这一点下面是把手 / 东西 / 空处（纯读；controller/grab-relay.ts 用）
   /** 指针下的实体是否已在选区里（右键 = 不在就先选它，SU 同款）。 */
@@ -3721,7 +3721,7 @@ export class Editor {
   /** 「收」（W-7）：声明了 sameSpotEnds 的工具定了点、在等下一点时 = 左下芯片那颗钮的字（工具给）；不是这时候 = null。点它 = finishChain = 和「同一处再点一下」同一条路（endChain）：做成的留着，只是不接下一段。 */
   finishLabel(): string | null { const H = this.handlers[this._tool], waiting = H?.grammar === "steps" ? this.armed && H.active() && !!this.anchor3 : !!H?.awaitsClick?.(); return H?.finishLabel && waiting ? H.finishLabel : null; }   // direct 工具（刀）自己说在不在等下一点；声明了 finishLabel = 有这颗钮（刀撤了「同一处再点 = 收」，钮照旧：笔的设计稿第四节）
   finishChain(): void { this.step(() => { if (this.finishLabel() !== null) { this.endChain(); this.draw(); } }); }
-  private endChain(): void { this.host.hint(null); this.handlers[this._tool]?.onEndChain?.(this.toolCtx); this.cancelGesture(); this.host.changed(); }   // onEndChain 先于 cancel：工具在收的这一刻交代（刀开小窗、可以写提示）
+  private endChain(): void { this.hold.noteEnd(this.gestureActive()); this.host.hint(null); this.handlers[this._tool]?.onEndChain?.(this.toolCtx); this.cancelGesture(); this.host.changed(); }   // onEndChain 先于 cancel：工具在收的这一刻交代（刀开小窗、可以写提示）
   private pointerDownStep(ev: ToolPointer): void {
     if (!isReadOnlyTool(this._tool) && this.refuse()) return;   // 第三层（输入闸）：改模型的工具的指针在这一个口全拒——鼠标 / 笔 / 手指 / 键盘起手 / 回车落定都从这进；相机不走这里；只读工具照用
     this.lastPtrType = ev.pointerType;   // 键盘起手的那一下带的也是真设备（keyboardStart 填的）

@@ -2,7 +2,8 @@
 // 网格体盒子、鼠标 + 键盘：
 // ① 选着顶面按 G → 左柱「选」实心 + 「移动」蓝框 → 点一下落定 → 蓝框没了、还是「选」、历史 +1
 // ② G 再 Esc → 回「选」、历史不多、几何不变
-// ③ 马后炮：G 挪完回到「选」→ 小窗还在、改一个值 → 几何跟着变、历史还是一步（统筹：不收马后炮）
+// ③ 借用结束不收马后炮：选一条边 Ctrl+B（倒角，键盘起手 = 借插入·倒角）→ 点落定 → 回到「选」、倒角小窗还在 → 改宽度 → 几何跟着变、历史还是一步
+//   （自由建模的移动 G 没有记「刚才那一步」：既没有马后炮小窗、数值小窗也不收字，main 上本来就这样，不为 C 新加；统筹 11-13）
 // ④ 拿着刀（点左柱）按 G 挪完 → 回到刀
 // ⑤ G 途中按 R = 蓝框跳到旋转（G 那一下取消）；再按 R 起手旋转 → 点落定 → 回最开始的「选」
 // ⑥ 没选区按 G → 蓝框借移动 → 点一个角点（选它）还借着 → 按住它拖走 → 回「选」
@@ -46,13 +47,18 @@ const res = await page.evaluate(async () => {
     out.g1 = { during: st(), rail: await rail() };
     await glide(top, { x: top.x, y: top.y - 60 }); await clickAt({ x: top.x, y: top.y - 60 });
     out.g1.after = st(); out.g1.railAfter = await rail(); out.g1.dSteps = out.g1.after.steps - s0.steps; out.g1.moved = topZ() > 1.01;
-    // ③ 马后炮：回到「选」之后小窗还在、改一个值 → 几何跟着变、历史还是一步
-    const pp = e.paramPanel(); out.after = { title: pp?.title ?? null, fields: pp?.fields?.map((f) => f.key) ?? [], steps0: e.history.steps(), sum0: sum() };
-    const fk = pp?.fields?.find((f) => f.def.kind === "number" || f.def.kind === "quantity" || f.def.kind === "length")?.key;
-    if (pp && fk) { e.setParam(fk, (typeof pp.values[fk] === "number" ? pp.values[fk] : 0.5) + 0.25); await sleep(30); out.after.key = fk; }
-    else if (pp?.fields?.some((f) => f.key === "copy")) { e.setParam("copy", true); await sleep(30); out.after.key = "copy"; }
-    out.after.changed = sum() !== out.after.sum0; out.after.dSteps = e.history.steps() - out.after.steps0; out.after.tool = e.tool;
     e.undo(); await sleep(20); }
+  // ③
+  { hud.pick("select"); await sleep(10); e.deselectAll();
+    const zt = topZ(), ed = m().edges().find((x) => [m().edgeA[x], m().edgeB[x]].every((v) => Math.abs(m().pt(v).z - zt) < 1e-6) && Math.abs(m().pt(m().edgeA[x]).y - m().pt(m().edgeB[x]).y) < 1e-6);
+    e.selection.edges.add(ed); e.draw();
+    const mid = px(P((m().pt(m().edgeA[ed]).x + m().pt(m().edgeB[ed]).x) / 2, m().pt(m().edgeA[ed]).y, zt)), s0 = e.history.steps();
+    await hover(mid); key("b", "KeyB", { ctrlKey: true }); await sleep(30); const dur = st();
+    await glide(mid, { x: mid.x + 4, y: mid.y - 40 }); await clickAt({ x: mid.x + 4, y: mid.y - 40 });   // 横着离开这条边 = 有宽度（顺着边拖 = 宽度 0、不提交）
+    const pp = e.paramPanel(); out.after = { during: dur, back: st(), title: pp?.title ?? null, fields: pp?.fields?.map((f) => f.key) ?? [], steps0: e.history.steps(), dStepsCommit: e.history.steps() - s0, sum0: sum() };
+    if (pp && pp.fields.some((f) => f.key === "width")) { e.setParam("width", (pp.values.width ?? 0.1) * 0.5); await sleep(30); }
+    out.after.changed = sum() !== out.after.sum0; out.after.dSteps = e.history.steps() - out.after.steps0; out.after.tool = e.tool;
+    for (let i = 0; i < 2 && e.history.steps() > s0; i++) { e.undo(); await sleep(10); } }
   // ②
   await selTop();
   { const s0 = st(), g0 = sum(); await hover(top); key("g", "KeyG"); await sleep(30); await glide(top, { x: top.x + 30, y: top.y - 40 });
@@ -100,8 +106,8 @@ const R = res;
 chk("① G 起手：手上 = 移动、底 = 选、手势在", R.g1.during.tool === "move" && R.g1.during.base === "select" && R.g1.during.temp === "move" && R.g1.during.gesture, R.g1.during);
 chk("① 左柱：「选」实心、「移动」蓝框", R.g1.rail.active.some((h) => h.split(",").includes("select")) && R.g1.rail.once.some((h) => h.split(",").includes("move")), R.g1.rail);
 chk("① 点一下落定 → 回「选」、蓝框没了、挪了、历史 +1", R.g1.after.tool === "select" && R.g1.after.temp === null && R.g1.railAfter.once.length === 0 && R.g1.moved && R.g1.dSteps === 1, { after: R.g1.after, rail: R.g1.railAfter, moved: R.g1.moved, d: R.g1.dSteps });
-chk("③ 回到「选」之后马后炮小窗还在", !!R.after.title, R.after);
-chk("③ 在小窗里改值 → 几何变了、历史还是一步、工具还是「选」", R.after.changed && R.after.dSteps === 0 && R.after.tool === "select", R.after);
+chk("③ Ctrl+B 借插入·倒角（蓝框）→ 落定回到「选」、倒角小窗还在", R.after.during.temp === "offset" && R.after.back.tool === "select" && R.after.back.temp === null && R.after.title === "倒角" && R.after.dStepsCommit === 1, R.after);
+chk("③ 在倒角小窗里改宽度 → 几何变了、历史还是一步、工具还是「选」", R.after.changed && R.after.dSteps === 0 && R.after.tool === "select", R.after);
 chk("② G 再 Esc → 回「选」、历史不多、几何不变", R.g2.after.tool === "select" && R.g2.after.temp === null && R.g2.dSteps === 0 && R.g2.same && R.g2.rail.once.length === 0, R.g2);
 chk("④ 拿着刀按 G：底 = 刀、借移动", R.g4.during.base === "knife" && R.g4.during.temp === "move", R.g4.during);
 chk("④ 挪完回到刀", R.g4.after.tool === "knife" && R.g4.after.temp === null, R.g4.after);

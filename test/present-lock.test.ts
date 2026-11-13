@@ -82,7 +82,7 @@ describe("演示锁的护栏各层都在（每层各自承重；行为在探针�
     for (const head of ["  undo(): void {", "  redo(): void {", "  startModal(", "private pointerDownStep("]) assert(fn(head).includes("this.refuse()"), `${head} 没问闸`);
     assert(/this\.host\.editHold\?\.\(\); if \(h\) return \{ ok: false, error: h\.why \}/.test(fn("  applyVcb(")), "applyVcb 没问闸");
     assert(fn("private previewApply(").includes("this.host.editHold?.()"), "previewApply 没问闸");
-    assert(/this\.locked && !isReadOnlyTool\(t\)/.test(fn("  setTool(t: Tool): void {")), "换工具没问");
+    assert(/this\.locked && !isReadOnlyTool\(t\)/.test(fn('  setTool(t: Tool, how?: "borrow" | "back"): void {')), "换工具没问");
     assert(!/_locked|lockedSay|setLocked\(on: boolean\)/.test(ed.replace(/setLocked: "[^"]*"/, "")), "编辑器里不再有第二份锁的真值");
   });
   it("只读工具的名单：选择 / 走路 / 卷尺 / 量角器；它们不进改模型的那一拨（user 11-05「只读工具比如walk之类的应该全量可以的」）", () => {

@@ -52,8 +52,8 @@ describe("ToolHold：编辑器里那一个字段", () => {
   });
   it("手势中 Esc（步外的取消）→ 回去；没借的时候取消什么都不回", () => {
     const h = new ToolHold("select"); h.apply({ e: "borrow", tool: "move" });
-    h.noteCancel(true); eq(h.settle(false, false), "select");
-    const g = new ToolHold("move"); g.noteCancel(true); eq(g.settle(false, false), null);
+    h.noteEnd(true); eq(h.settle(false, false), "select");
+    const g = new ToolHold("move"); g.noteEnd(true); eq(g.settle(false, false), null);
   });
   it("G 起手途中按 R（借旋转、G 那一下被换工具取消）：G 的记号不带给 R——借着旋转点一下选东西不回去", () => {
     const h = new ToolHold("select"); h.apply({ e: "borrow", tool: "move" }); h.noteModal();
