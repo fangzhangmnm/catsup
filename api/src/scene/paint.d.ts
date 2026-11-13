@@ -9,20 +9,20 @@ export declare const PAINT_CANT_MOVE = "\u8FD9\u4E9B\u9762\u4E0A\u6709\u753B\uFF
 export declare function paintUvOf(s: Scene, def: DefId, f: number): Guid | null;
 /**
  * 这个物件有没有一张面走画（施工单十八第 2 刀：「开始画过没有」只看面，不看网格体的速查表——画过的面全换成普通材质之后，速查表还留着那一套）。
- * 先按材质槽筛（没有一个槽是画 = 没有，不走面）；有才走面，碰到第一张就停。
+ * texture = 只算走这张画的（2b：一张画在哪几个物件上）；不给 = 走哪张画都算。先按材质槽筛（没有一个槽是那样的画 = 没有，不走面）；有才走面，碰到第一张就停。
  */
-export declare function anyFaceWalksPaint(s: Scene, def: DefId): boolean;
+export declare function anyFaceWalksPaint(s: Scene, def: DefId, texture?: Guid): boolean;
 /**
- * 这张画铺在哪（画板登记处跟着坐标改大小、垫底色用；贴图主线 1-3c）：贴图表里这一行是画、有材质的颜色那一槽指着它、它挂的排法在场景的排法表里、有网格体带着那一列
- * → 那个定义、那一套、指着它的第一个材质（底色）；差一样 = null。layout 照旧只经 paintIn 读。
- * 施工单十八第 1 刀：排法不属于哪个物件了，「那个定义」= 带着这一列的定义（编号最小的）。带着画的面这一刀还搬不动（paintMoveBlocked 全拒），所以只会有一个；
- *   第 2 刀改成「所有定义」（每格归谁的表按排法收所有定义的面）。
+ * 这张画铺在哪套排法上（画板登记处跟着坐标改大小、垫底色用；存盘裁高；贴图主线 1-3c）：贴图表里这一行是画、有材质的颜色那一槽指着它、它挂的排法在场景的排法表里
+ * → 那一套、指着它的第一个材质（底色）；差一样 = null。layout 照旧只经 paintIn 读。
+ * 施工单十八第 2 刀 b：不再给「那个定义」——一套排法上可以有好几个物件的面（哪几个 = paintDefsOf）；也不再要求有网格体带着那一列（排法在表里就算铺着）。
  */
 export declare function paintPlaceOf(s: Scene, texture: Guid): {
-    def: DefId;
     uvSet: UvSetRow;
     material: Material;
 } | null;
+/** 这张画画在哪几个物件上（有一张面走这张画的定义，按编号；没有摆放的定义也算）。空间里的笔、画画工作台列画、画布小窗都问这个（施工单十八第 2 刀 b）。 */
+export declare function paintDefsOf(s: Scene, texture: Guid): DefId[];
 /**
  * 一张画在哪（画板登记处：画板在不在、底色、能不能变热、给渲染器什么图；存盘：底色。施工单二十一第 3 刀）：两种——
  * uv = 铺在一套贴图坐标上的（就是 paintPlaceOf）；tiled = 平铺的画（CATSUP_textures 1.2：有材质的颜色那一槽指着它、分层 + sizeM、没有 layout）→ sizeM 和指着它的第一个材质。

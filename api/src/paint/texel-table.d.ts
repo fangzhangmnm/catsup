@@ -69,8 +69,13 @@ export declare const distToTri: (t: ArrayLike<number>, px: number, py: number) =
 export declare const SAMPLE_Q = 1024;
 /** 取样点离格子中心最多几格（每格的表里偏移是 16 位、加 32768 存：−32768 … 32767 份）。取样点离中心不超过间隔的一半，所以 gap 最多 MAX_GAP。 */
 export declare const MAX_GAP = 63;
-/** 建表。gap = 铺的时候块之间留的格数（没人要的界线 = 它的一半；最多 MAX_GAP，超了 = 抛）。 */
-export declare function buildTexelTable(width: number, height: number, faces: readonly PaintFace[], gap?: number): TexelTable;
+/**
+ * 建表。gap = 铺的时候块之间留的格数（没人要的界线 = 它的一半；最多 MAX_GAP，超了 = 抛）。
+ * others = 同一套排法上别的物件的面（施工单十八第 2 刀 b：每格归谁按排法看所有物件）：只拿多边形（贴图坐标）参加「每格归最近的那块」，
+ *   归了它们的格在这张表里 = −1（这一笔碰不到）；和这张表自己的面贴图坐标完全相同的那块 = 自己的那块（共用一张画）。不进 polys / polyFaces / faces，
+ *   所以表的形状不变；没有 others = 和以前逐格一样。一样近：自己的块编号小、先来，留着。
+ */
+export declare function buildTexelTable(width: number, height: number, faces: readonly PaintFace[], gap?: number, others?: readonly ArrayLike<number>[]): TexelTable;
 /**
  * 每块画布多边形有哪些格（归属表 owner 的另一种排法，油漆桶用；2026-11-13 Claude Opus 5.5，统筹「按『哪块多边形有哪些格』记一次、表变了再重算」）：
  * runs[p] = 这块的行段 [x, y, 长度, x, y, 长度…]（按行、行内从左到右），cells[p] = 格数。和 owner 逐格相同（守卫 test/paint-bucket.test.ts）。

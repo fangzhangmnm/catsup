@@ -32,6 +32,8 @@ export interface ImageView {
     }): void;
     /** 按编号取多边形（选中 / 悬停时涂一层用）。 */
     setRings(ring: (id: number) => ArrayLike<number> | undefined): void;
+    /** 垫在线下面的一层：faint = 淡淡盖一层的多边形（角上的 x, y…，格）；areas = 标出来的长方形（每个 4 个数 x0, y0, x1, y1，格）。这里不认识它们是什么（画布小窗：别的物件的面、空出来的地方）。 */
+    setBackdrop(faint: readonly ArrayLike<number>[], areas: ArrayLike<number>): void;
     /** 选中的编号 + 悬停的编号。 */
     setMarks(selected: Iterable<number>, hover: number | null): void;
     /** 整张图放进窗口。 */
