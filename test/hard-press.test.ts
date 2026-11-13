@@ -115,6 +115,10 @@ describe("重按：只有输入层喂压力，工具不读设备（设计稿第�
     const all = fs.readdirSync(decodeURIComponent(new URL("../src/", import.meta.url).pathname), { recursive: true }).filter((f) => f.endsWith(".ts") && f !== "controller/hard-press.ts");
     eq(all.filter((f) => /\bpress(Down|Move)\(/.test(src(f))).join(), "app/gestures.ts");
   });
+  it("工具（src/editor/tools/）不直接看指针上的 press / lift：翻译只在 editor/seek-input.ts", () => {
+    const bad = fs.readdirSync(decodeURIComponent(new URL("../src/editor/tools/", import.meta.url).pathname), { recursive: true }).filter((f) => f.endsWith(".ts") && /\bev\??\.(press|lift)\b/.test(src(`editor/tools/${f}`)));
+    eq(bad.join(), "", "工具里直接读了 ev.press / ev.lift");
+  });
   it("判到的重按不进 lastTool（相机动了会重放 lastTool，重按不许递第二遍）", () => {
     const g = src("app/gestures.ts");
     assert(!/lastTool\.press\s*=/.test(g) && !/lastTool\s*=\s*\{[^}]*press/.test(g), "gestures.ts 把 press 存进了 lastTool");

@@ -121,7 +121,7 @@ import { Locomotion } from "./locomotion.ts";
 import { TOOL_CYCLES, chordLabel, keyDocs, modifierChords, resolveKey, toolKeyText, type KeyContext, type KeyEvt, TOOL_KEY_JUMPS } from "../controller/keymap.ts";
 import { stanceOf, penPressOf } from "../controller/stance.ts";
 import { pressPulse } from "./ui/press-pulse.ts";
-import { RAIL_FLYOUT_PRESS_MS, MOD_PEEK_MS } from "../controller/feel.ts";
+import { RAIL_FLYOUT_PRESS_MS, MOD_PEEK_MS, LIFT_GRACE_MS } from "../controller/feel.ts";
 import { type AvatarSpec, AVATAR_DEFAULT, STATURE_MAX, STATURE_MIN, jumpReach, resolveAvatar } from "../player/body.ts";
 import { formatQuantity } from "../editor/units.ts";
 import { TouchControls } from "./touch-controls.ts";
@@ -193,6 +193,9 @@ const PREF = {
 };
 deviceKvSet("ui.menuTab.main", null); deviceKvSet("ui.menuTab.view", null);   // v0.13.73 按设备记过停留页，v0.13.74 改跟文件走（user「不是应该跟文件吗」）：旧键清掉
 let fingerDraws = PREF.get("fingerDraws") === "1";
+/** 抬笔宽限的几档（毫秒；设置里点一下换下一档，按设备记）。0 = 不等。笔的设计稿第三节：防屏幕断触一下，要跟手，别拿跳跃游戏的数。 */
+const LIFT_GRACE_STEPS = [0, 30, 50, 80, 120, 200] as const;
+let liftGraceMs: number = ((g) => (g !== null && (LIFT_GRACE_STEPS as readonly number[]).includes(Number(g)) ? Number(g) : LIFT_GRACE_MS))(PREF.get("liftGraceMs"));
 /** 选中色（视口设置，按设备记）：跟画风 = 线稿 / 剪纸蓝、写实 / 铸铜 / 像素描边红（user 10-29「纸 线稿是蓝 写实和铜和像素是红」）；
  *  1-bit / Tron 的标记色是画风本身的一部分，不被它覆盖。和将删 / 检查撞色的选项自己带让开的颜色（将删在蓝的画风里是红、在红的画风里是橙）。 */
 const ACCENTS: readonly { id: string; label: string; accent: MarkAccent | null; hint?: string }[] = [
@@ -625,7 +628,7 @@ const btnMenu = $<HTMLButtonElement>("btnMenu");
 installContextMenuGuard();   // 右键兜底：哪个界面没自己的右键菜单，就不弹浏览器那份（输入框放行；ui/context-menu-guard.ts，user 10-30）
 // 物品栏底部抽屉 sunset（2026-10-30，user「物品栏和物品栏按钮是不是可以sunset……素材库和层级应该用同一个screen icon。两个太多了」）：组件清单 → 层级窗「资源」页（hierarchy-window.ts）。
 // 抽屉高度变量 --drawer-h 留着（styles.css，现在没人写 = 0；以后的底部抽屉——时间轴——还用这一套让 HUD 往上让）。
-type MenuId = "newOpen" | "importHub" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | `unit:${string}` | `style:${string}` | "guidesClear" | "axesReset" | "grid" | "unit:pick" | "lock" | "unlock" | "encrypt" | "decrypt" | "pwLock" | "pwForget" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
+type MenuId = "newOpen" | "importHub" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "liftGrace" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | `unit:${string}` | `style:${string}` | "guidesClear" | "axesReset" | "grid" | "unit:pick" | "lock" | "unlock" | "encrypt" | "decrypt" | "pwLock" | "pwForget" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("screen:")) {   // 屏幕（T106：和画风分开选；像素下采样 / 行数 / 外观；写实也能套屏）。跟文件走（desk 1.3，T86）
@@ -676,6 +679,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "import": objInput.click(); break;
       case "importGlb": glbImportInput.click(); break;
       case "finger": fingerDraws = !fingerDraws; PREF.set("fingerDraws", fingerDraws ? "1" : "0"); return "keep";
+      case "liftGrace": { const i = (LIFT_GRACE_STEPS as readonly number[]).indexOf(liftGraceMs); liftGraceMs = LIFT_GRACE_STEPS[(i + 1) % LIFT_GRACE_STEPS.length]; PREF.set("liftGraceMs", String(liftGraceMs)); return "keep"; }
       case "debuglog": openDebugLogSheet(); break;
       case "persp": editor.toggleProjection(); return "keep";
       case "xray": editor.setXray(!editor.xray); return "keep";
@@ -737,6 +741,7 @@ function menuRow(id: string): Omit<PopupMenuItem<MainMenuId>, "tab"> | null {
     case "pwLock": return isUnlocked() ? { id: "pwLock", label: "锁定（忘掉口令）", icon: "lock", hint: "之后再开加密的模型要重新输" } : null;
     case "pwForget": { const u = rememberedUntil(); return u != null ? { id: "pwForget", label: "忘记这台设备记着的口令", icon: "unlock", hint: `记到 ${rememberDayText(u)}` } : null; }
     case "finger": return { id: "finger", label: "手指也能画", checked: fingerDraws, ...(gestures.penEverSeen() ? { hint: "已见过笔，手指=相机" } : {}) };
+    case "liftGrace": return { id: "liftGrace", label: `抬笔宽限 ${liftGraceMs} 毫秒`, hint: "点一下换一档；刀这类工具里笔抬起先等这么久，屏幕断触一下不算抬笔" };
     case "factoryReset": return { id: "factoryReset", label: "还原出厂设置…", icon: "trash-can", hint: "两步确认" };
     case "help": return { id: "help", label: "使用手册", icon: "help" };
     case "debuglog": return { id: "debuglog", label: "调试日志", icon: "wrench", hint: "复制给开发者" };
@@ -1242,6 +1247,7 @@ const gestures = attachGestures(canvas, editor, {
   latched: () => latchedMods,   // 键名芯片锁住的修饰键（iPad 没键盘：Shift / Ctrl / Alt = 开关）
   armable: (pt) => pt === "mouse" || pt === "pen" || editor.tool === "move" || editor.tool === "rotate",   // 笔也点两下（B23）；手指只在移动 / 旋转（#23）
   // 重按（笔的设计稿第七节第 2 步）：只有用重按的工具（stance.ts PEN_PRESS）笔尖闪一圈 + 黑匣子记一行（调判法的数看它）；别的工具里按重了什么都不发生
+  liftGraceMs: () => (penPressOf(editor.modeId, editor.tool) ? liftGraceMs : 0),   // 抬笔宽限只给用重按的工具（设计稿第三节）
   onHardPress: (hit, cx, cy) => { if (!penPressOf(editor.modeId, editor.tool)) return; pressPulse(cx, cy); note("press", `重按（${hit.how === "down" ? "落笔就重" : "猛升"}，落笔后 ${Math.round(hit.after)} ms 判到）底 ${hit.base.toFixed(2)} → ${hit.p.toFixed(2)}`); },
 });
 // 视图 = 右上角导航 gizmo（Blender / Unity 式；user 2026-10-21「视图之类的能不能参考unity blender editor」）。视图弹层退役；透视 / 步行 / 穿墙 / 粗线稿进 ☰。

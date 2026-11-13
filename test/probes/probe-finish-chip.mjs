@@ -1,5 +1,5 @@
 // 多步工具进行中看得见的「收」（白模 W-7，created 2026-11-10 by Claude Opus 5.5；施工单 ai-docs/20261110-whitebox-batch1.md 第三节 W-7）。用笔的指针事件——
-// 刀（网格体盒子里）：① 一个点都没定 = 没有「收刀」② 定了起点 = 有 ③ 切了一刀 = 还在、实心、排在「取消」前面 → 点它 = 刀收了、切出来的面还在、提示行空
+// 刀（网格体盒子里；笔恒报 0.5 = 不报压感，点一下 = 下点，v0.19.96）：① 一个点都没定 = 没有「收刀」② 定了起点 = 有 ③ 切了一刀 = 还在、实心、排在「取消」前面 → 点它 = 刀收了、切出来的面还在、提示行空
 // 画线（硬表面）：④ 起点之前没有「收笔」⑤ 画了一段 = 有 → 点它 = 线还在、不再拖着橡皮筋
 // 手指：⑥ 见过笔之后（等过防手掌的 600 ms），手指轻点（通用的取消）仍能收刀（W-3 留下的那条）
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-finish-chip.mjs [url]
@@ -35,15 +35,15 @@ await page.evaluate(async () => {
 });
 await page.evaluate(async () => { const { penTap, px, P } = window.__fc; await penTap(px(P(0.5, 0.5, 1.6))); });   // 先碰一下笔（空处）：芯片按笔的样子画
 r.knifeBefore = await chip();
-await page.evaluate(async () => { const { penSlide, px, P } = window.__fc; await penSlide(px(P(1, 0.5, 0.5)), px(P(1, 0, 0.5))); });   // 起点：右侧面中间滑到竖边
+await page.evaluate(async () => { const { penTap, px, P } = window.__fc; await penTap(px(P(1, 0, 0.5))); });   // 起点：笔点竖边（这支笔恒 0.5 = 不报压感：点一下 = 下点；v0.19.96 起滑过去不下点）
 r.knifeStarted = { chip: await chip(), active: await page.evaluate(() => window.__fc.e.isGestureActive()) };
 const f0 = await page.evaluate(() => window.__fc.faces());
-await page.evaluate(async () => { const { penSlide, px, P } = window.__fc; await penSlide(px(P(1, 0.6, 0.6)), px(P(1, 0.75, 1))); });   // 切一刀到上边
+await page.evaluate(async () => { const { penTap, px, P } = window.__fc; await penTap(px(P(1, 0.75, 1))); });   // 切一刀到上边
 r.knifeCut = { chip: await chip(), df: (await page.evaluate(() => window.__fc.faces())) - f0, active: await page.evaluate(() => window.__fc.e.isGestureActive()) };
 if (await page.locator('.mfd-slot[data-slot="finish"] .mfd-chip').count()) await page.click('.mfd-slot[data-slot="finish"] .mfd-chip'); await page.waitForTimeout(100);
 r.knifeFinished = { active: await page.evaluate(() => window.__fc.e.isGestureActive()), df: (await page.evaluate(() => window.__fc.faces())) - f0, hint: await page.evaluate(() => globalThis.__catsup.hud.status()), chip: await chip() };
 // ⑥ 手指：笔定了起点，等过防手掌，手指轻点空处 = 收刀
-await page.evaluate(async () => { const { penSlide, px, P } = window.__fc; await penSlide(px(P(1, 0.5, 0.5)), px(P(1, 1, 0.5))); });
+await page.evaluate(async () => { const { penTap, px, P } = window.__fc; await penTap(px(P(1, 1, 0.5))); });
 r.fingerBefore = await page.evaluate(() => window.__fc.e.isGestureActive());
 await page.waitForTimeout(700);
 await page.evaluate(async () => { const { fingerTap } = window.__fc; await fingerTap({ x: 40, y: 700 }); });

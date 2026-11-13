@@ -90,6 +90,7 @@ export const MENU_ROWS: readonly MenuRow[] = [
   // 「模型」页撤了（user 10-30「这一栏里面几乎所有的东西都不应跟出现在这里吧。前三个是修复，整理好，然后材质是同居的属性，然后清空模型归右键，而且可能就是全选删除，
   // 我们这里不需要清空画布快捷键」）：软化 / 焊接 / 拍平 → 修复面板；材质 → 油漆桶（再点一下 / 工具条色块）；清空 → 空白处右键「全选」再删
   { id: "finger", tab: "settings" },
+  { id: "liftGrace", tab: "settings" },     // 抬笔宽限（毫秒，点一下换一档；用重按的工具里报压感的笔抬起先等这么久：笔的设计稿第三节）
   { id: "lefthand", tab: "settings", section: "VR" },   // 支持 VR 的设备才出（视图窗口只管画风以后挪来，user 10-30）
   { id: "pwLock", tab: "settings", section: "口令" },     // 锁定（忘掉口令）；解锁着才出
   { id: "pwForget", tab: "settings", section: "口令" },   // 忘记这台设备记着的口令（X 到期）；记着才出

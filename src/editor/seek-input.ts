@@ -22,7 +22,8 @@ export class SeekInput {
   /** 按着没松（这一下的找位置还在走）。 */
   private downAt: { x: number; y: number } | null = null;
   private moved = false;
-  constructor(private readonly tool: SeekVerbs) {}
+  private readonly tool: SeekVerbs;
+  constructor(tool: SeekVerbs) { this.tool = tool; }
   pressing(): boolean { return this.downAt !== null; }
   down(ctx: ToolCtx, ev: ToolPointer): void {
     this.downAt = { x: ev.x, y: ev.y }; this.moved = false;

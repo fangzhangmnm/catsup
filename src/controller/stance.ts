@@ -189,9 +189,10 @@ export function stanceOf(mode: ModeId, tool: Tool): Stance | undefined { return 
  * 笔用哪种按法（笔的设计稿 ai-docs/20261113-freeform-pen-grammar.md 第三节那张表）：seek = 要先找位置的（轻按 / 悬空 = 找位置，重按 = 下点：刀的每个点、环切点哪条边……）；
  * grab = 重按起、重按或抬笔落定（移动 / 缩 / 转 / 挤出 / 插入 / 倒角，第七节第 6 步）；不在表里 = 轻按就算点击（选东西、按钮、拖柄、橡皮、笔刷、画画的一笔）。
  * 判到重按时笔尖闪一圈只给表里的工具（不在表里的工具里按重了什么都不发生，不该闪）。重按怎么判在 hard-press.ts，工具自己不读压力。
- * 现在是空的：第七节第 3 步刀第一个进来（2026-11-13 Claude Opus 5.5）。
+ * 进表的工具，输入翻成「找位置 / 下点 / 抬笔」在 editor/seek-input.ts；报压感的笔抬起先等抬笔宽限（feel.ts LIFT_GRACE_MS，设置里能改）。
+ * 刀第一个进来（第七节第 3 步，2026-11-13 Claude Opus 5.5）。
  */
 export type PenPress = "seek" | "grab";
-export const PEN_PRESS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, PenPress>>>>> = {};
+export const PEN_PRESS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, PenPress>>>>> = { freeform: { knife: "seek" } };
 export function penPressOf(mode: ModeId, tool: Tool): PenPress | null { return PEN_PRESS[mode]?.[tool] ?? null; }
 export function deviceOf(pointerType: string): Device { return pointerType === "mouse" ? "mouse" : pointerType === "pen" ? "pen" : "finger"; }
