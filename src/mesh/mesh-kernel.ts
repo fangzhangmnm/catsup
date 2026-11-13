@@ -183,12 +183,18 @@ export class MeshKernel {
   }
   removeEdge(e: number): void {
     if (!this.hasE(e)) return;
+    this.dropEdge(e); this.eFree.sort((a, b) => b - a);
+    this.touch(true);
+  }
+  /** 删边不排空位表（一批删完调用方排一次：合并点那几段里中途不分配边，排一次和每次都排结果一样）。 */
+  private dropEdge(e: number): void {
     if (this.eFaces(e).length) throw new Error(`removeEdge: edge ${e} still belongs to a face`);
     this.vUnlink(this.edgeA[e], 2 * e); this.vUnlink(this.edgeB[e], 2 * e + 1);
     this.edgeKey.delete(this.keyOf(this.edgeA[e], this.edgeB[e]));
-    this.eAlive[e] = 0; this.edgeFlags[e] = 0; this.eFree.push(e); this.eFree.sort((a, b) => b - a);
-    this.changes.e(e); this.touch(true);
+    this.eAlive[e] = 0; this.edgeFlags[e] = 0; this.eFree.push(e);
+    this.changes.e(e);
   }
+  private dropEdges(es: Iterable<number>): void { let n = 0; for (const e of es) if (this.hasE(e)) { this.dropEdge(e); n++; } if (n) { this.eFree.sort((a, b) => b - a); this.touch(true); } }
   removeVertex(v: number): void {
     if (!this.hasV(v)) return;
     if (this.vEdges(v).length) throw new Error(`removeVertex: vertex ${v} still has edges`);
@@ -337,14 +343,13 @@ export class MeshKernel {
     const plan = planMerge(this, groups);
     const vals = mergeCornerValues(this.cornerCols, plan.faces, plan.weight);
     for (const p of plan.faces) this.unlinkRing(p.f);   // ① 受影响的面从边上摘下来（摘的时候按角上记着的边号，不按端点查）
-    for (const e of plan.collapsed) this.removeEdge(e);   // ② 边：两头合并到一起的、并掉的删（现在都不挂面了）；留下的改端点、并标记
-    for (const ep of plan.edges) for (const e of ep.drop) this.removeEdge(e);
+    this.dropEdges([...plan.collapsed, ...plan.edges.flatMap((ep) => ep.drop)]);   // ② 边：两头合并到一起的、并掉的删（现在都不挂面了）；留下的改端点、并标记
     for (const ep of plan.edges) {
       const e = ep.keep;
       for (const end of [this.edgeA[e], this.edgeB[e]]) { const to = plan.rep.get(end); if (to !== undefined && to !== end) this.relinkEdgeEnd(e, end, to); }   // 并掉的都删过了：中途换出来的那一对点上不会已经有边
       if (this.edgeFlags[e] !== ep.flags) { this.edgeFlags[e] = ep.flags; this.changes.e(e); }
     }
-    for (const v of plan.gone) this.removeVertex(v);   // ③ 被合并掉的点（它的边上面都处理掉了）
+    this.removeVertices(plan.gone);   // ③ 被合并掉的点（它的边上面都处理掉了；一批删、空位表排一次）
     const touched: number[] = [], spurs: [number, number][] = [];
     plan.faces.forEach((p, pi) => {   // ④ 面：编号从小到大
       if (p.main < 0) {   // 塌了（剪出来的刺照样留成线）
@@ -376,12 +381,16 @@ export class MeshKernel {
       });
     });
     for (const [a, b] of spurs) { const e = this.edgeOf(a, b); if (e >= 0 && !this.eFHead[e] && !(this.edgeFlags[e] & F_WIRE)) { this.edgeFlags[e] |= F_WIRE; this.changes.e(e); } }   // ⑤ 刺 = 不挂面的线（刺尖的点不删）；那条边还挂着别的面就不用打
-    for (const ep of plan.edges) { const e = ep.keep; if (this.hasE(e) && !this.eFHead[e] && !(this.edgeFlags[e] & F_WIRE)) this.removeEdge(e); }   // ⑥ 塌掉的面留下的、不挂面又不是线的边
+    this.dropEdges(plan.edges.map((ep) => ep.keep).filter((e) => this.hasE(e) && !this.eFHead[e] && !(this.edgeFlags[e] & F_WIRE)));   // ⑥ 塌掉的面留下的、不挂面又不是线的边
     const seen = new Set<number>();   // ⑦ 重叠：同一圈点（同向或反向）留编号最小的
     for (const f of touched.sort((a, b) => a - b)) {
       if (!this.hasF(f) || seen.has(f)) continue;
-      const ring = this.faceVerts(f), key = ringKey(ring), same: number[] = [];
-      for (const e of this.vEdges(ring[0])) for (const g of this.eFaces(e)) if (!same.includes(g) && this.faceLen[g] === ring.length && ringKey(this.faceVerts(g)) === key) same.push(g);
+      const ring = this.faceVerts(f), key = ringKey(ring), same: number[] = [f], has = new Set(ring);
+      for (const e of this.vEdges(ring[0])) for (const g of this.eFaces(e)) {   // 先看角数和点都对得上（便宜），再比一圈
+        if (same.includes(g) || this.faceLen[g] !== ring.length) continue;
+        const gv = this.faceVerts(g);
+        if (gv.every((x) => has.has(x)) && ringKey(gv) === key) same.push(g);
+      }
       same.sort((a, b) => a - b);
       for (const g of same) seen.add(g);
       for (const g of same.slice(1)) this.removeFaceReported(g, "overlap", same[0]);

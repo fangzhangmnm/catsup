@@ -1170,3 +1170,40 @@ startPaint：表里加一行（fit = density / size）→ 内核 addColumn(uv, k
 - 验证：邻接对拍（加一列「有没有值」+ 每步照收尾的做法清掉对不上的面）和 v0.19.80 的内核逐位相同；文件对拍、内存对拍、探针见施工记录。
 - 这一刀顺手修的两处悄悄失效（没发出去过）：渲染那边 `stream-provider paintOf` 和画画工作台的拾取以前强转着拿内核问，改成经 `uvAt` / `uvMesh`；守卫 ⑦ 钉住。
 - **还随整个模型涨的点**：没有新的。
+
+## 追记 2026-11-13 夜（属性地基轮第二步 = 合并点原子，v0.19.82，Claude Opus 5.5；统筹审过）：合并点一条共用流程，报告多一栏「没了的面」
+
+规程 = `ai-docs/20261112-attribute-protocol.md` 第七¾节第二稿 + 第 7½ 节。**取代**上面网格体「并点」那几处说的 `mergeVerts` 手搓（挤角挑一个照抄、重叠按点集删、几条边并成一条留幸存点那条的标记、重复点去重丢半边环、都不报告）。
+
+```
+谁走这条：ops/merge.ts mergeVerts（右键「合并」到中心 / 到第一个点；镜像落到中缝 = 先把第一个点挪到落点、再合并到第一个点）
+          ops/cleanup.ts removeDoubles（去重点：所有组一次交进去）
+  → MeshKernel.mergePoints(groups)     groups = [{ verts, to: "first" | { weights } }]，同一个点在两组里 = 抛
+      规划 mesh/merge-points.ts planMerge（只读内核）：
+        点：每组剩第一个点；位置 = 第一个点 / 按权重（等权先加后除；加的先后按点的编号，和组的先后无关）
+        受影响的面和边 = 组里的点挂着的边、这些边挂着的面（编号从小到大）
+        面：挤角（相邻合并到同一个点 = 一个角，记它由原环哪几个角挤成）→ 不同的点不到 3 = 塌了
+            → 同一个点出现两次 = 剪圈（≥ 3 角成面；原来的编号给角最多的、一样多给环上靠前的；每圈从原环最靠前的角起；2 角 = 刺）
+        边：两头合并成同一个点 = 删；按合并后的那对点分桶，桶里编号最小的留下，标记按 EDGE_FLAG_RULES 并
+      角上的数 columns.ts mergeCornerValues（一伙角一起走，见规程第 3 条；离散的列取权重最大的角）
+      改拓扑（内核）：① 摘环 ② 删塌掉 / 并掉的边（一批，空位表排一次）+ 留下的边 relinkEdgeEnd 换端点、写并好的标记
+                    ③ 删被合并掉的点（removeVertices 一批）④ 写面：主圈原地重写、别的圈 addFace（来历 copy）、塌了的进报告 collapsed
+                    ⑤ 刺打裸线位 ⑥ 删不挂面又不是线的边 ⑦ 同一圈点（同向或反向）的面留编号最小的、别的 removeFaceReported(overlap, with) ⑧ 挪点
+  报告：takeReport() → { odd, gone }；gone = 列表（原因 GoneWhy = collapsed / overlap / seam-wall、with、没了之前的样子），跟着 swapWith 换、clone 不带
+        强行对称删夹层面（mirror.ts removeSeamWalls）也走 removeFaceReported(seam-wall)
+
+边标记怎么并 = 「标记 → 规则名」纯数据（mesh/merge-points.ts EDGE_FLAG_RULES；规则名同 ColumnDef.merge；合并的代码只调 columns.ts mergeScalar）：
+  棱 / 平滑 / 不画线 / 隐藏 = defaultIfMixed（都有才留）；接缝 / 裸线 = firstNonDefault（有一个就留）。并边（JOIN 表）同一套，守卫钉住两张一致。
+  行为改动：隐藏以前「有一条就留」→ 看得见的赢（统筹 11-13，和硬表面 layers.ts 第④条一致）。边上的位住 mesh/edge-bits.ts（内核转出）。
+
+每一步的收尾（editor/paint-upkeep.ts upkeepAfter）：
+  一开始每个网格体 takeReport 一次；收尾自己补进同一步的每一条（补位置 / 对称化）提交完再拿一次（编辑器里它们自己的收尾先拿到就是空的，不数两遍）
+  → 原有的 ①②③④ 照旧 → 最后按原因说没了的面：「合并之后有 N 张面塌掉了、被去掉」「有 N 张面和别的面完全重叠、被去掉」
+     「强行对称去掉了 N 张躺在镜像面上的夹层面」+「（其中 M 张上有画）」（M = 面上的排法代号 ≥ 0 的张数，0 不接）
+  UPKEEP_OPS（meshLayoutPaint / meshSymmetrize）自己提交时也走收尾，只说没了的面（人点「强行对称：开」的话接在它那句提示后面）
+```
+
+- 碰多少东西：受影响的面 / 边（组里的点挂着的）+ 每张面每列一次取值；重叠只在碰过的面的第一个点周围找（先比角数和点、再比一圈）。不随模型其余部分涨。
+- 实测（一次性脚本，同一台机器同一次，v0.19.81 → 这一版）：在 1 万 / 16 万面的平面网格上合并一条边 0.17 / 0.16 → 0.29 / 0.37 ms 一次（多出来的是记每张受影响面的样子、算一伙角）；去重点 10201 组（4 万面）1.7 → 1.6 s（大头在 removeDoubles 自己按格子分组那段，没动）。第一版逐个 removeVertex / removeEdge 每次都排空位表 = 一万组时 3.0 s，改成一批删、排一次。
+- 验证：5622 次随机合并和 v0.19.81 逐次对拍、邻接金样 21 条链找第一次分岔，逐类清单 = 施工单十八页末；18 条哈希重冻（统筹放行）。
+- **还随整个模型涨的点**：没有新的（removeDoubles 的分组本来就随点数涨）。

@@ -82,28 +82,30 @@ const CASES: [string, number][] = Object.keys(BASES).flatMap((b) => [1, 2, 3].ma
 const hashOf = (b: string, s: number): string => createHash("sha256").update(dump(chain(b, s, 25).k)).digest("hex").slice(0, 32);
 
 /** 改之前（main 74c71f1，2026-11-10）算出来的。 */
+// 2026-11-13 重冻 18 条（属性地基轮第二步 = 合并点原子，Claude Opus 5.5；统筹看过逐类清单放行）：并点改成内核的合并点原子——一伙角一起走（columns 三条第一次分岔在角上的值）、
+//   只换一头的边保号保标记（之后分到的编号挪了：16 条第一次分岔只差编号）、刺留成线、环上重复点剪圈、重叠进报告、等权相加按点编号固定先后。逐类清单 = 施工单十八页末「属性地基轮第二步」。
 const GOLDEN: Record<string, string> = {
   "box#1": "17cf2d4fce83bc7f7e559c223cf947e3",
-  "box#2": "f8f1d7911b0f14fc7bf519c6310d3d2f",
-  "box#3": "417b78d10444c6b419d34836d3df300b",
-  "torus8#1": "f315883211a77615e931c20523324bee",
-  "torus8#2": "64c93e744e06fa1c3a0ccf97560500e8",
-  "torus8#3": "b72bac6d9c17f7149ab6d8959003a735",
-  "openGrid#1": "57d7b6b8469adec4be20d71877769d76",
-  "openGrid#2": "2d1248d5b09d8af316b3730dc15beb4f",
-  "openGrid#3": "a7aaf05b7031e1e2de63e74547fe7d30",
+  "box#2": "e6576d004214306d93e1f1c8866ab868",
+  "box#3": "dfc45eaf0ff7ad3146befa80b440d611",
+  "torus8#1": "4deeacf035a73a49945981cabdbf8571",
+  "torus8#2": "591daecac32cda12b343d4eaecd5364e",
+  "torus8#3": "ab09a1b9e5485992bb1bac41ea8e09cc",
+  "openGrid#1": "a695c9231d903aae67529063726649e4",
+  "openGrid#2": "0873b7d71b3f881ab5522f983bcd0b81",
+  "openGrid#3": "10f5d2b1775b03f0f77cf2aa6174a24e",
   "fin#1": "a54e44b10039c84772025eb5ff12bf86",
-  "fin#2": "ad3048ed9c1c75e9b953d778d8fe7123",
+  "fin#2": "f7aaaa769a98961ea8e51555f428d1bd",
   "fin#3": "bd4aedc99c672816f829af955bdbbc72",
-  "loose#1": "95e38bc804befcf6cb2208c53a6ad1b8",
-  "loose#2": "272910f02bb4d2cd8fe1c841e20339b3",
-  "loose#3": "70da37094bb50f932a50cf27eece9db5",
-  "mirrorBox#1": "0747dfbd094203cc737629cde5b523f6",
-  "mirrorBox#2": "19a10e145974bbf5c404feaffed1147d",
-  "mirrorBox#3": "f37342740cd496e64d753ab0378c801f",
-  "columns#1": "10491e8969a5c9821601fe4a0591b335",
-  "columns#2": "45e947cb4a479fc8e85573541b6ef0cc",
-  "columns#3": "c067f758eccc4c8556777509bc84fba7",
+  "loose#1": "84e16ccae1fb10d1ec95451d81208dc4",
+  "loose#2": "fe6662a8c222b5544f592b7abcc96c0d",
+  "loose#3": "1b3a00cbb5f4017601749e7985c97a32",
+  "mirrorBox#1": "d09c22b643d02fcfa3eb71ee159f4ffa",
+  "mirrorBox#2": "77da84158ccd0718b728e2741d6b3600",
+  "mirrorBox#3": "ca51f70424a3afd288905f01c4d604c4",
+  "columns#1": "2edfbd3bc83950ce61fe34fcea9588be",
+  "columns#2": "84fa2dd7c9fb025614ddc12db077d2d4",
+  "columns#3": "72039dcf81053a6e224e214340b35995",
 };
 
 describe("网格体邻接：随机操作链的结果和改之前逐位相同（W-11 的样本）", () => {
