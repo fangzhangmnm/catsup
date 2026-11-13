@@ -1251,9 +1251,11 @@ viewMenuBtn.type = "button"; viewMenuBtn.dataset.opensWindow = ""; viewMenuBtn.c
 // 参考窗钮（user 10-30「视图设置就是视图设置，然后参考窗按钮放在视图设置旁边」）：点一下开 / 关，开着 = 亮（跟着窗口的 open 走，窗口自己的 × 关了也灭）
 const refBtn = document.createElement("button"); refBtn.type = "button"; refBtn.dataset.opensWindow = ""; refBtn.className = "gizmo-btn gizmo-ref"; refBtn.title = "参考窗：参考图 · 文字 · 视频（开着时 Ctrl+V 直接贴进来）"; refBtn.innerHTML = iconHtml("picture-in-picture");
 viewMenuBtn.before(refBtn);   // 视图钮左边（user 10-30「参考窗按钮放在视图按钮左边」）
-// 画布小窗钮（施工单十六第二节；版图文档 2026-11-11 追记）：参考窗钮左边；这个文件里有画才露（看数据不分工作台）；开着 = 亮
-const canvasBtn = document.createElement("button"); canvasBtn.type = "button"; canvasBtn.dataset.opensWindow = ""; canvasBtn.className = "gizmo-btn gizmo-canvas"; canvasBtn.title = "画布小窗：这个物件的画铺在画布上的样子（只看）"; canvasBtn.innerHTML = iconHtml("image");
-refBtn.before(canvasBtn);
+// 画布小窗钮（施工单十六第二节；版图文档 2026-11-11 追记）：这个文件里有画才露（看数据不分工作台）；开着 = 亮。
+// 2026-11-13 user「画布小窗应该放在最上面就是菜单 云保存 hierarchy objectproperty workflow那一层……我是想放在右边」：从右上参考窗钮旁边搬到左上那一排、工作台下拉的右边
+//   （有画才露，放在末尾 = 出现 / 消失时下拉框不挪），和层级 / 物件那几颗开窗的钮一样的方钮。
+const canvasBtn = document.createElement("button"); canvasBtn.type = "button"; canvasBtn.dataset.opensWindow = ""; canvasBtn.className = "tb-btn gizmo-canvas"; canvasBtn.title = "画布小窗：这个物件的画铺在画布上的样子（只看）"; canvasBtn.innerHTML = iconHtml("image");
+$("modeSelect").after(canvasBtn);   // 工作台下拉的右边（user 11-13）
 // eslint-disable-next-line no-var
 var canvasWin: CanvasWindow | null = null;   // var：每帧的准备 / 渲染的 viewExtras 比它先写
 canvasBtn.addEventListener("click", () => { mountCanvasWin().toggle(canvasBtn); syncUi(); });
