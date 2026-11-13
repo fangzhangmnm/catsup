@@ -17,7 +17,7 @@ export function duplicateGeometry(k: MeshKernel, sel: MeshSel): { verts: number[
   for (const v of sel.verts ?? []) if (k.hasV(v)) vs.add(v);
   const map = new Map<number, number>();
   for (const v of [...vs].sort((a, b) => a - b)) map.set(v, k.addVertex(k.pt(v)));
-  const copies = new Map<string, EdgeShape>();   // 复制出来的边 = 原来那条的一份（边上的列全照抄；统筹 11-13：以前一律不带）
+  const copies = new Map<number, EdgeShape>();   // 复制出来的边 = 原来那条的一份（边上的列全照抄；统筹 11-13：以前一律不带）
   for (const f of faces) { const r = k.faceVerts(f); for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; copies.set(pairKey(map.get(a)!, map.get(b)!), k.edgeShape(k.edgeOf(a, b))); } }
   for (const e of edges) copies.set(pairKey(map.get(k.edgeA[e])!, map.get(k.edgeB[e])!), k.edgeShape(e));
   const nf = faces.map((f) => { const r = k.faceVerts(f), ring = r.map((v) => map.get(v)!); declareRingEdges(k, ring, fromShapes(copies, "copy")); return k.addFace(ring, { kind: "copy", of: k.shapeOf(f), corners: r.map((_, i) => i) }); });   // 复制 = 是它的一份（角一一对应）

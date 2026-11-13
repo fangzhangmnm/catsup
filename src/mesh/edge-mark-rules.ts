@@ -10,9 +10,10 @@
 //   表里写了 piece / copy / joined = 这个例子里一定有带着值的新元素；写了 grown / fresh = 一定有缺省值的新元素；没写的那一类一个都不许有；没动的元素值不变。
 //   「新元素」= 编号新的，或者编号没变但两头 / 环变了的（改了环的面是它自己的一份）。
 // 守卫 test/edge-mark-rules.test.ts：src/mesh/ops/ 每个文件在这里有一行；每个导出的函数不是在 ops 里就是在 helpers 里；操作里不许按位手抄标记。
+// ops 文件夹以外也造元素的地方在 ELSEWHERE（键 = src 下的路径）：镜像 / 对称化（mesh/mirror.ts，整个文件的导出都要表态）、并物件（editor/ops.ts appendMesh，只管列出来的这一个）。
 
-/** 新元素的来历种类（columns.ts EdgeOrigin / FaceOrigin 的 kind）。 */
-export type Birth = "piece" | "copy" | "joined" | "grown" | "fresh";
+/** 新元素的来历种类（columns.ts EdgeOrigin / FaceOrigin 的 kind）；given = 凭空来的、但带着调用的人给的值（并物件把整张面 / 整条边连同每一列搬过来）——算带值的那一类。 */
+export type Birth = "piece" | "copy" | "joined" | "grown" | "fresh" | "given";
 /** 一个操作在典型例子里造出来的新边、新面各是哪几种来历。 */
 export interface OpBirths { readonly edges: readonly Birth[]; readonly faces: readonly Birth[] }
 /** 一个文件：一句话说清楚 + 改元素的函数各自的来历 + 不造元素的函数（纯算、查询、只挪点不算——只挪点的照样进 ops，来历写空，测试看它不改值）。 */
@@ -53,4 +54,18 @@ export const OPS: Readonly<Record<string, OpsRow>> = {
     ops: { splitEdge: B(["piece"], ["copy"]), splitFace: B(["grown"], ["piece"]), knife: B(["piece", "grown"], ["piece"]) } },
   "subdivide.ts": { say: "细分：被劈的边两半 = 一块；读 sharp_edge 当折痕；面里新长出来的边 = 新长；细出来的面 = 原面的一块",
     ops: { catmullClark: B(["piece", "grown"], ["piece"]), subdivide: B(["piece", "grown"], ["piece"]) }, helpers: ["looseBits"] },
+};
+
+/**
+ * ops 文件夹以外造元素的地方（统筹 11-13 深夜：探针列和守卫的名单扩到这几处）。allExports = 这个文件每个导出的函数都要在 ops 或 helpers 里；
+ * 否则只核列出来的函数还在、还导出着。走剪贴板 / 文件的（editor/transfer.ts、mesh/mesh-doc.ts）现在不盖：等用户自己加的列进文件时一起。
+ */
+export const ELSEWHERE: Readonly<Record<string, OpsRow & { readonly allExports: boolean }>> = {
+  "mesh/mirror.ts": { allExports: true,
+    say: "镜像：沿镜像面切开 = 跨面的边劈成两半（一块）、面里切出来的新边（新长）、两半面（一块）；对称化 = 切开 + 这一边的面、边镜过去（一份，裸线位照抄）；去掉夹在镜像面上的面、对称对齐（只挪点）不造元素",
+    ops: { bisectPlane: B(["piece", "grown"], ["piece"]), symmetrize: B(["piece", "copy", "grown"], ["piece", "copy"]), removeSeamWalls: NONE, snapToSymmetry: NONE },
+    helpers: ["mirrorPairs", "mirrorMoves", "sideOfChange", "sideOfMoved", "sideOfElements", "pickSide", "forceSide", "withMirrorCounterparts", "mirrorTwins", "isSymmetric", "straddlingFaces", "trySymmetrize"] },
+  "editor/ops.ts": { allExports: false,
+    say: "并物件（炸开 / 合并进一份网格体）：源的面、边连同每一列（材质槽号、排法代号换成这边的号，别的列原样）整张搬过来 = 凭空来的、带着给的值；不挂面的线带裸线位",
+    ops: { appendMesh: B(["given"], ["given"]) } },
 };

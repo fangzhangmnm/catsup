@@ -3,10 +3,14 @@
 //    没动的元素值不变；做完自检干净。「新元素」= 编号新的，或编号没变但两头 / 环（点的集合）变了的。
 //    探针列不是保留名（谁都不认识它的名字）：操作要是按名字手抄标记、或者造了空元素回头补，这里会露出来（该带值的成了 0，或者不该有 0 的冒出 0）。
 // 守卫：表里每个函数在 RUN 里有一个例子（新加一个操作 = 表里一行 + 这里一个例子），RUN 里没有表里不认识的。
+// 快慢补丁（统筹 11-13 深夜）起也跑 ops 文件夹以外造元素的地方（ELSEWHERE：镜像 / 对称化、并物件）；并物件 = 源的列原样带过来（given = 带值）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { FRESH, type ColumnDef } from "../src/mesh/columns.ts";
-import { OPS, type Birth } from "../src/mesh/edge-mark-rules.ts";
+import { ELSEWHERE, OPS, type Birth, type OpsRow } from "../src/mesh/edge-mark-rules.ts";
+import * as Mir from "../src/mesh/mirror.ts";
+import { appendMesh } from "../src/editor/ops.ts";
+import type { MeshBody } from "../src/scene/scene.ts";
 import * as Ops from "../src/mesh/ops/index.ts";
 import { translation } from "../src/scene/xform.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
@@ -26,6 +30,19 @@ const twoQuads = (): { k: MeshKernel; shared: number } => {
   return { k, shared: k.edgeOf(v[1], v[4]) };
 };
 const boundaryEdge = (k: MeshKernel): number => k.edges().find((e) => k.eFaces(e).length === 1)!;
+/** 两个盒子中间夹一堵 x = 0 的墙（墙的每条边挂三张面 = 对称化留下的夹层面那种）。 */
+const walled = (): MeshKernel => {
+  const k = new MeshKernel(), v = new Map<string, number>(), V = (x: number, y: number, z: number): number => { const key = `${x},${y},${z}`; let i = v.get(key); if (i === undefined) { i = k.addVertex(P(x, y, z)); v.set(key, i); } return i; };
+  for (const [x0, x1] of [[-1, 0], [0, 1]]) {
+    k.addFace([V(x0, 0, 0), V(x0, 1, 0), V(x1, 1, 0), V(x1, 0, 0)], FRESH); k.addFace([V(x0, 0, 1), V(x1, 0, 1), V(x1, 1, 1), V(x0, 1, 1)], FRESH);
+    k.addFace([V(x0, 0, 0), V(x1, 0, 0), V(x1, 0, 1), V(x0, 0, 1)], FRESH); k.addFace([V(x0, 1, 0), V(x0, 1, 1), V(x1, 1, 1), V(x1, 1, 0)], FRESH);
+  }
+  k.addFace([V(-1, 0, 0), V(-1, 0, 1), V(-1, 1, 1), V(-1, 1, 0)], FRESH); k.addFace([V(1, 0, 0), V(1, 1, 0), V(1, 1, 1), V(1, 0, 1)], FRESH);
+  k.addFace([V(0, 0, 0), V(0, 1, 0), V(0, 1, 1), V(0, 0, 1)], FRESH);   // 墙
+  return k;
+};
+/** 一份网格体（并物件用）：材质槽、排法速查表都空着。 */
+const bodyOf = (k: MeshKernel): MeshBody => ({ kind: "mesh", kernel: k, materialSlots: [], uvSetSlots: [] });
 
 /** 每个操作：一个起手的样子（探针列在它之后才加、全设好）+ 做这个操作。 */
 interface Case { readonly start: () => MeshKernel; readonly run: (k: MeshKernel) => void }
@@ -68,11 +85,22 @@ const RUN: Record<string, Case> = {
   "split.ts:knife": C(box, (k) => { const t = top(k), es = k.fEdges(t); Ops.knife(k, t, [{ e: es[0], t: 0.5 }, { e: es[2], t: 0.5 }]); }),
   "subdivide.ts:catmullClark": C(box, (k) => { Ops.catmullClark(k); }),
   "subdivide.ts:subdivide": C(box, (k) => { Ops.subdivide(k, 1); }),
+  // ops 文件夹以外（ELSEWHERE）
+  "mesh/mirror.ts:bisectPlane": C(() => { const k = new MeshKernel(); Ops.addBox(k, P(-0.5, 0, 0), P(0.5, 1, 1)); return k; }, (k) => { Mir.bisectPlane(k, 0); }),
+  "mesh/mirror.ts:symmetrize": C(() => { const k = new MeshKernel(); Ops.addBox(k, P(-0.3, 0, 0), P(0.7, 1, 1)); return k; }, (k) => { Mir.symmetrize(k, 0, 1); }),
+  "mesh/mirror.ts:removeSeamWalls": C(walled, (k) => { eq(Mir.removeSeamWalls(k, 0), 1, "夹层面去掉一张"); }),
+  "mesh/mirror.ts:snapToSymmetry": C(() => { const k = new MeshKernel(); Ops.addBox(k, P(-0.5, 0, 0), P(0.5, 1, 1)); const v = k.verts().find((x) => k.pt(x).x === 0.5)!; k.setPos(v, { ...k.pt(v), x: 0.503 }); return k; }, (k) => { Mir.snapToSymmetry(k, k.verts(), 0, 0.01); }),
+  "editor/ops.ts:appendMesh": C(box, (k) => {
+    const src = box(); src.addColumn(PE); src.addColumn(PF);   // 源也带着这两列（全 1 / 全 7）：并过来的面和边要原样带着
+    for (const e of src.edges()) src.setEdgeValue(e, PE.id, 1);
+    for (const f of src.faces()) src.setFaceValue(f, PF.id, 7);
+    appendMesh(bodyOf(k), bodyOf(src), translation(P(3, 0, 0)));
+  }),
 };
 
 const ekey = (k: MeshKernel, e: number): string => { const a = k.edgeA[e], b = k.edgeB[e]; return a < b ? `${a},${b}` : `${b},${a}`; };
 const fkey = (k: MeshKernel, f: number): string => [...k.faceVerts(f)].sort((a, b) => a - b).join(",");
-const INHERIT: readonly Birth[] = ["piece", "copy", "joined"], DEFAULT: readonly Birth[] = ["grown", "fresh"];
+const INHERIT: readonly Birth[] = ["piece", "copy", "joined", "given"], DEFAULT: readonly Birth[] = ["grown", "fresh"];
 const tally = (k: MeshKernel, before: Map<number, string>, keyOf: (k: MeshKernel, x: number) => string, xs: readonly number[], read: (x: number) => number | null, carried: number) => {
   let inherited = 0, defaulted = 0; const oldChanged: number[] = [], odd: string[] = [];
   for (const x of xs) {
@@ -83,13 +111,16 @@ const tally = (k: MeshKernel, before: Map<number, string>, keyOf: (k: MeshKernel
   return { inherited, defaulted, oldChanged, odd };
 };
 
+/** 表的全部行：ops 文件夹（键 = 文件名）+ 别处（键 = src 下的路径）。 */
+const ROWS: readonly (readonly [string, OpsRow])[] = [...Object.entries(OPS), ...Object.entries(ELSEWHERE)];
+
 describe("探针列：照 OPS 表逐个操作看来历（一份 / 一块 / 并成带值，新长 / 凭空来的是缺省值）", () => {
-  it("守卫：表里每个函数在这里有一个例子，这里没有表里不认识的", () => {
-    const listed = Object.entries(OPS).flatMap(([file, row]) => Object.keys(row.ops).map((fn) => `${file}:${fn}`)).sort();
+  it("守卫：表里每个函数（ops 文件夹 + ELSEWHERE）在这里有一个例子，这里没有表里不认识的", () => {
+    const listed = ROWS.flatMap(([file, row]) => Object.keys(row.ops).map((fn) => `${file}:${fn}`)).sort();
     eq(listed.filter((x) => !RUN[x]).join(", "), "", "表里新加了操作 = 这里加一个例子");
     eq(Object.keys(RUN).filter((x) => !listed.includes(x)).sort().join(", "), "", "这里的例子表里没有");
   });
-  for (const [file, row] of Object.entries(OPS)) for (const [fn, births] of Object.entries(row.ops)) {
+  for (const [file, row] of ROWS) for (const [fn, births] of Object.entries(row.ops)) {
     it(`${file} ${fn}：新边 [${births.edges.join(" ") || "无"}]、新面 [${births.faces.join(" ") || "无"}]`, () => {
       const c = RUN[`${file}:${fn}`]; assert(!!c, "没有例子");
       const k = c.start(); k.addColumn(PE); k.addColumn(PF);

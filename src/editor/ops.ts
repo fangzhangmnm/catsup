@@ -1029,7 +1029,7 @@ export function describeOp(op: Op): string {
 }
 
 /** 把一份网格体的几何经变换 X 并进另一份（材质槽重映射、手标跟着走、裸线带上）。合并物体 / 炸开网格体共用。created 2026-10-28 by Claude Opus 5.5 */
-function appendMesh(tb: MeshBody, sb: MeshBody, X: Xform): void {
+export function appendMesh(tb: MeshBody, sb: MeshBody, X: Xform): void {
   const sk = sb.kernel, tk = tb.kernel, map = new Map<number, number>();
   const back = new Map<number, number>(), nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = tk.addVertex(applyPt(X, sk.pt(v))); map.set(v, x); back.set(x, v); } return x; };
   const slot = (m: number): number => { if (m < 0) return -1; const id = sb.materialSlots[m]; if (id === undefined) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };

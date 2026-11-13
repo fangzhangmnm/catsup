@@ -33,7 +33,7 @@ export function extrudeFaces(k: MeshKernel, fs: readonly number[], inheritMarks 
     }
   }
   // 区域里每条边的旧样子（面改指向新点以后，内部边会被删、帽子那圈是新边 = 原来那条的一份：边上的列全照抄；inheritMarks = false 的内插不抄 = 新长）
-  const capOf = new Map<string, EdgeShape>();
+  const capOf = new Map<number, EdgeShape>();
   if (inheritMarks) for (const f of [...region].sort((a, b) => a - b)) {
     const r = k.faceVerts(f);
     for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; capOf.set(pairKey(newVerts.get(a)!, newVerts.get(b)!), k.edgeShape(k.edgeOf(a, b))); }

@@ -2,6 +2,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel, type FaceOrigin } from "../src/mesh/mesh-kernel.ts";
+import { FreeIds } from "../src/mesh/free-ids.ts";
 import { SOFT, edgeMark, setEdgeMark } from "../src/mesh/reserved-columns.ts";
 import { addBox, addPolygon, deleteFaces, dissolveVertex, extrudeFaces, joinFaces, knife, mergeVerts, splitEdge, splitFace, translateVerts, flipFaces, loopCut, limitedDissolve, removeDoubles } from "../src/mesh/ops/index.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
@@ -194,3 +195,17 @@ describe(title, () => {
 }
 kernelSuite("mesh 内核：不变量与算子", () => new MeshKernel());
 kernelSuite("mesh 内核：带三列再跑一遍（角上一列盖全部、角上一列盖一半、面上一列整数；测试 E）", () => new ColMesh());
+
+describe("空出来的编号表（mesh/free-ids.ts 小顶堆，快慢补丁）", () => {
+  it("随机放回 / 取：取到的序列和老做法（从大到小排好、取最后一个）逐个一样；克隆之后两边各走各的", () => {
+    let seed = 11; const rnd = (): number => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const h = FreeIds.empty(), ref: number[] = [], used = new Set<number>(), got: number[] = [], want: number[] = [];
+    for (let i = 0; i < 20000; i++) {
+      if (rnd() < 0.55) { let x: number; do x = Math.floor(rnd() * 5000); while (used.has(x)); used.add(x); h.push(x); ref.push(x); ref.sort((a, b) => b - a); }
+      else if (ref.length) { const a = h.pop()!, b = ref.pop()!; got.push(a); want.push(b); used.delete(a); }
+      eq(h.length, ref.length);
+    }
+    eq(got.join(), want.join(), "取到的编号逐个一样"); assert(got.length > 5000, `取了 ${got.length} 次`);
+    const c = h.clone(); c.pop(); eq(h.length, c.length + 1, "克隆之后各走各的"); eq(h.sorted().join(), [...ref].reverse().join(), "按集合比");
+  });
+});

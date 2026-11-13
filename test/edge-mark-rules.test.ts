@@ -8,7 +8,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 const { readFileSync, readdirSync } = (await import("node:fs" as string)) as { readFileSync(p: string, enc: string): string; readdirSync(p: string): string[] };
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { FRESH } from "../src/mesh/columns.ts";
-import { OPS } from "../src/mesh/edge-mark-rules.ts";
+import { ELSEWHERE, OPS } from "../src/mesh/edge-mark-rules.ts";
 import { HIDE_EDGE, RESERVED_EDGE, SHARP_EDGE, SMOOTH, SOFT, UV_SEAM, edgeMark, setEdgeMark } from "../src/mesh/reserved-columns.ts";
 import type { ColumnDef } from "../src/mesh/columns.ts";
 import { addBox, duplicateGeometry } from "../src/mesh/ops/index.ts";
@@ -45,6 +45,18 @@ describe("边标记跟着走的规矩（edge-mark-rules.ts + reserved-columns.ts
     }
     eq(missing.join(", "), "", "新导出一个函数 = 在表里说它造什么（ops）或者它不造东西（helpers）");
     eq(stray.join(", "), "", "表里的函数文件里没有了");
+  });
+  it("ops 文件夹以外造元素的地方（ELSEWHERE：镜像 / 对称化、并物件）：整个文件都要表态的，每个导出的函数在 ops 或 helpers 里；只管列出来的，那几个函数还在、还导出着（快慢补丁）", () => {
+    const missing: string[] = [], stray: string[] = [];
+    for (const [path, row] of Object.entries(ELSEWHERE)) {
+      const exported = [...code(readFileSync(`src/${path}`, "utf8")).matchAll(/^export function (\w+)/gm)].map((m) => m[1]);
+      const listed = [...Object.keys(row.ops), ...(row.helpers ?? [])];
+      if (row.allExports) for (const fn of exported) if (!listed.includes(fn)) missing.push(`${path}:${fn}`);
+      for (const fn of listed) if (!exported.includes(fn)) stray.push(`${path}:${fn}`);
+    }
+    eq(missing.join(", "), "", "镜像那个文件新导出一个函数 = 在表里说它造什么或者不造");
+    eq(stray.join(", "), "", "表里的函数文件里没有了（或者没导出）");
+    assert(Object.keys(ELSEWHERE).includes("mesh/mirror.ts") && ELSEWHERE["editor/ops.ts"]?.ops.appendMesh !== undefined, "镜像、并物件在名单里");
   });
   it("三条老数组退役了：内核上没有 faceMat / faceFlags / edgeFlags；带下标读这三个名字只在文件门口（src/format/、mesh/mesh-doc.ts：那是文件载荷 MeshDoc 的字段）", () => {
     const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));

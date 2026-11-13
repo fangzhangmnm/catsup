@@ -208,7 +208,7 @@ export function bevelEdges(k: MeshKernel, edges: readonly number[], width: numbe
 
   // ---- 不倒的边换成新边（一头滑到切点）= 原来那条的一份：先记旧样子，改环之前带着来历造好；然后改面的环 ----
   const touchedFaces = new Set<number>(); for (const v of vs) for (const c of fans.get(v)!) touchedFaces.add(c.f);
-  const carried = new Map<string, EdgeShape>(), seen = new Set<number>();
+  const carried = new Map<number, EdgeShape>(), seen = new Set<number>();
   for (const v of vs) for (const e of k.vEdges(v)) {
     if (isB(e) || seen.has(e)) continue; seen.add(e);
     const a = k.edgeA[e], b = k.edgeB[e], a2 = fans.has(a) ? sv(a, e) : a, b2 = fans.has(b) ? sv(b, e) : b;
@@ -287,7 +287,7 @@ export function bevelVerts(k: MeshKernel, verts: readonly number[], width: numbe
     const key = `${v}|${e}`;
     if (!cut.has(key)) cut.set(key, k.addVertex(add3(k.pt(v), scale3(normalize3(sub3(k.pt(other(e, v)), k.pt(v))), w))));
   }
-  const carried = new Map<string, EdgeShape>();   // 原来那条边 (a, b) 现在是 (a 那头的切点或 a, b 那头的切点或 b) = 它的一份：先记旧样子
+  const carried = new Map<number, EdgeShape>();   // 原来那条边 (a, b) 现在是 (a 那头的切点或 a, b 那头的切点或 b) = 它的一份：先记旧样子
   for (const v of vs) for (const e of k.vEdges(v)) {
     const a = k.edgeA[e], b = k.edgeB[e], a2 = fans.has(a) ? cut.get(`${a}|${e}`)! : a, b2 = fans.has(b) ? cut.get(`${b}|${e}`)! : b;
     if (!carried.has(pairKey(a2, b2))) carried.set(pairKey(a2, b2), k.edgeShape(e));

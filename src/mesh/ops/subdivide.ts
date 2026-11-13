@@ -78,7 +78,7 @@ export function catmullClark(m: MeshKernel): number {
   for (const e of edges) ne.set(e, m.addVertex(ep.get(e)!));
   for (const f of faces) nf.set(f, m.addVertex(fp.get(f)!));
   const id = ([k, x]: ["v" | "e" | "f", number]): number => (k === "v" ? nv : k === "e" ? ne : nf).get(x)!;
-  const halves = new Map<string, EdgeShape>();
+  const halves = new Map<number, EdgeShape>();
   for (const [e, sh] of edgeShapes) { const c = ne.get(e)!; halves.set(pairKey(nv.get(sh.a)!, c), sh); halves.set(pairKey(c, nv.get(sh.b)!), sh); }
   for (const q of quads) { const ring = q.ring.map(id); declareRingEdges(m, ring, fromShapes(halves, "piece")); m.addFace(ring, originOf(q)); }   // 一块：面上的列（材质、隐藏）照抄原面；原来的边的两半先带着来历造好（边上的列全照抄）
   return quads.length;

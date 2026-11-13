@@ -333,7 +333,7 @@ export function symmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol = 
   const twin = new Map<number, number>();
   const tw = (v: number): number => { if (s(v) === 0) return v; let t = twin.get(v); if (t === undefined) { t = m.addVertex(mirrorPt(m.pt(v), axis)); twin.set(v, t); } return t; };
   let added = 0;
-  const mirrored = new Map<string, EdgeShape>();   // 镜过去的一对点 → 源边的旧样子（镜过去的边 = 它的一份，边上的列全照抄）
+  const mirrored = new Map<number, EdgeShape>();   // 镜过去的一对点 → 源边的旧样子（镜过去的边 = 它的一份，边上的列全照抄）
   for (const f of src) {
     const r = m.faceVerts(f), mr = r.map(tw).reverse();
     const wired: [number, number][] = [];   // 源边带着裸线位（以前是线、后来挂上了面）：镜过去的那条也带（结构位跟着一份走；以前整个字节照抄）
