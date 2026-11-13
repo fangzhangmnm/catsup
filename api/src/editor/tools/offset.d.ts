@@ -4,6 +4,7 @@ import type { ScaleGeom } from "../scale-ref.ts";
 export declare class OffsetTool implements ToolHandler {
     readonly tool: "offset";
     readonly grammar: "steps";
+    private zeroSay;
     private face;
     private plane;
     private inward;
