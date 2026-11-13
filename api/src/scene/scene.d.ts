@@ -5,7 +5,7 @@ import type { BodyKind } from "./body-kind.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { MirrorSetting } from "../mesh/mirror.ts";
 import type { KernelView } from "./kernel-view.ts";
-import { type CarriedJson, type Channels, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc, type TiledPaintRef } from "../format/document.ts";
+import { type CarriedJson, type Channels, type UvSetDoc, type ColorMap, type LayerDoc, type ShelfDoc, type TextureDoc, type TiledPaintRef } from "../format/document.ts";
 import { type Guid } from "../format/guid.ts";
 import type { Stamp } from "../format/migrate/index.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
@@ -63,24 +63,18 @@ export interface BrepBody {
 /** 网格身体（Blender 式三角网最小形，user 2026-10-24 命名 `mesh` / 「网格」；契约 §2）：定义坐标；默认剔背面；材质槽同 brep 语义。 */
 /** 2026-10-27：身体 = 可编辑的 mesh 内核（src/mesh/；单池、单面、顶点 id 寻址）；文件里的载荷见 format/scene-doc.ts（M3 前仍是三角汤）。 */
 /**
- * 一套贴图坐标（贴图主线 1-3b）：和内核里同一个 GUID、每角两个数的那一列是一对（以这张表为准：内核里每角两个数的列不一定都是贴图坐标）。
+ * 一套排法（施工单十八：从网格体身上搬到场景这一层，文件里是顶层扩展 CATSUP_uvsets 1.0 的一行；created 1-3b，moved 2026-11-13 by Claude Opus 5.5）。
+ * 网格体内核里同一个 GUID、种类是 uv 的那一列 = 这套排法上每个角的贴图坐标；哪个物件的面在这套排法上有位置 = 那张面在这一列上有值。排法不属于哪个物件。
  * width / height = 画布的格数（整数）；pxPerM = 铺的时候用的密度（每米几格）。条目不可变（改 = 换一个对象）；表的先后没有意思。
  * 只经 startPaint（加）和 meshLayoutPaint（换高）两条指令改（守卫 test/paint-start-guard.test.ts）。
  */
-export interface UvSetRow {
-    readonly guid: Guid;
-    readonly name: string;
-    readonly width: number;
-    readonly height: number;
-    readonly pxPerM: number;
-    /** 按一格多大开的 = "density"（加面放不下时画布长大）；缺 = 按总大小开的（画布不自己变大；施工单十六第四节，文件里 CATSUP_mesh 2.1）。 */
-    readonly fit?: "density";
-}
+export type UvSetRow = UvSetDoc;
+/** 这套排法会不会自动给新面找地方 / 自己长大：fit 认得、行里没有带着不认识的 freed（形状不对的 freed 当不认识的键带回，施工单十八 3.1）。 */
+export declare const uvSetAutoPlaces: (r: UvSetRow) => boolean;
 export interface MeshBody {
     readonly kind: "mesh";
     kernel: MeshKernel;
-    materialSlots: number[]; /** 有哪几套贴图坐标（GUID → 一行；1-3b）。撤销跟着骨架快照走（浅拷）。 */
-    uvSets: Map<Guid, UvSetRow>;
+    materialSlots: number[];
 }
 export type Body = BrepBody | MeshBody;
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
@@ -121,6 +115,8 @@ export declare class Scene {
     nextLayer: number;
     /** 贴图表（CATSUP_textures；2026-11-10 贴图主线 1-0½）：GUID → 一行。条目不可变（改 = 换一个对象）；撤销的快照浅拷这张表。只经 addTexture 加、只经 op purgeTextures 删。 */
     readonly textures: Map<Guid, TextureDoc>;
+    /** 排法表（施工单十八：场景这一层，不属于哪个物件；GUID → 一行）。撤销跟着骨架快照走（条目不可变，浅拷）。 */
+    readonly uvSets: Map<Guid, UvSetRow>;
     /** 文件里的贴图表是更新版写的（major 比本版新）：本版读不出里面有什么、原字节存盘带回。不是 null = 不许加贴图、不许清理（存盘时新加的会和带回的那张表打架）。 */
     texturesFrozen: Stamp | null;
     /** 素材架（CATSUP_shelf；计划书 §2.8 / §15）。条目只存引用（GUID）；架上的算活着（resources.ts liveDefs）。 */
@@ -146,7 +142,8 @@ export declare class Scene {
     /** 贴图表加一行（同一个 GUID = 换掉那一行：粘贴「更新」走这里）。 */
     addTexture(t: TextureDoc): void;
     /**
-     * 这张面走不走画（贴图主线 1-3b；全仓问这个）：面的材质过 paintIn 不是空、画的 definition 就是这张面所在的定义、这个定义的 uvSets 里有那一套 → 那张画和那一套；
+     * 这张面走不走画（贴图主线 1-3b；全仓问这个）：面的材质过 paintIn 不是空、画挂的排法在场景的排法表里、这个网格体有那一列 → 那张画和那一套（施工单十八：不再看「画属于哪个物件」）；
+     * 有没有位置另问（这张面在那一列上有没有值）；
      * 差一样都按普通材质（底色）算 = null。网格体才有画（硬表面 = null）。
      */
     facePaint(defId: DefId, slot: number | undefined): {

@@ -64,7 +64,7 @@ export declare function nearestOnPoly(r: ArrayLike<number>, px: number, py: numb
 export declare function distToPoly(r: ArrayLike<number>, px: number, py: number): number;
 /** 点到三角形的距离（在里面 / 边上 = 0）。 */
 export declare const distToTri: (t: ArrayLike<number>, px: number, py: number) => number;
-/** 取样点偏移的量化：1/SAMPLE_Q 格（1-4c）。 */
+/** 取样点偏移的量化：1/SAMPLE_Q 格（1-4c）。和贴图坐标的量化是同一个数（施工单十八第四节：收成一个常量，从网格体的列模块来）。 */
 export declare const SAMPLE_Q = 1024;
 /** 取样点离格子中心最多几格（每格的表里偏移是 16 位、加 32768 存：−32768 … 32767 份）。取样点离中心不超过间隔的一半，所以 gap 最多 MAX_GAP。 */
 export declare const MAX_GAP = 63;

@@ -3,13 +3,23 @@ import type { Pt3 } from "../kernel/geom.ts";
 export interface CornerColumn {
     readonly guid: string;
     readonly arity: number;
+    readonly kind: string;
+    readonly extra?: unknown;
     data: Float32Array;
 }
 /** 一列的样子（搬到别的内核时按它补列）。 */
+/** kind = 这一列是什么：「uv」= 贴图坐标（arity 2；GUID = 场景排法表里那一行的号；单位 = 格，值一律是 1/UV_Q 格的整数倍）；别的种类原样带着走（施工单十八 3.2）。 */
 export interface ColumnDef {
     readonly guid: string;
     readonly arity: number;
+    readonly kind: string; /** 文件里这一列不认识的键（不透明，内核不看；读写文件的门口原样带回）。 */
+    readonly extra?: unknown;
 }
+/** 贴图坐标的量化：1/UV_Q 格（施工单十八第四节：凡是产出贴图坐标的地方，最后一步量化到它；存成整数再读回来逐位相同）。
+ *  和归属表取样点的量化（texel-table.ts SAMPLE_Q）是同一个数：两边都从这里来。 */
+export declare const UV_Q = 1024;
+/** 一个贴图坐标量化到 1/UV_Q 格（四舍五入；不往整格上凑）。 */
+export declare const quantizeUv: (x: number) => number;
 /** 面的旧样子。没有列的内核：ring / pts / vals 都是 null（只记材质，几乎不花时间）。 */
 export interface FaceShape {
     readonly mat: number;

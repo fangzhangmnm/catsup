@@ -1,5 +1,5 @@
 import type { Op } from "./ops.ts";
-import type { Scene } from "../scene/scene.ts";
+import { type Scene } from "../scene/scene.ts";
 export type PaintOutcome = null | {
     readonly rejected: string;
 } | {
@@ -18,8 +18,8 @@ type MeshLayoutPaint = Extract<Op, {
 export declare const OTHER_DEF_PAINT = "\u8FD9\u5F20\u753B\u662F\u522B\u7684\u7269\u4EF6\u7684\uFF1A\u753B\u53EA\u80FD\u6362\u5230\u5B83\u81EA\u5DF1\u90A3\u4E2A\u7269\u4EF6\u7684\u9762\u4E0A";
 export declare function applyMeshPaintFaces(s: Scene, op: MeshPaintFaces): PaintOutcome;
 /**
- * 开始画（一步撤销）：uvSets 加一行 + 内核加同 GUID 的一列 → 用 1-3a 的铺法给这些面铺上（没给密度 = 1024 见方里找放得下的最大密度，记进这一行）
- * → 贴图表加一行（分层的、没有字节、value = 颜色、layout 指着这个定义和这一套）→ 材质表加一个（颜色那一槽指着它）→ 这些面换成它（paintMeshFaces）。
+ * 开始画（一步撤销）：场景的排法表加一行 + 内核加同 GUID、种类 uv 的一列 → 用 1-3a 的铺法给这些面铺上（没给密度 = 1024 见方里找放得下的最大密度，记进这一行）
+ * → 贴图表加一行（分层的、没有字节、value = 颜色、layout = { uvSet }：挂在这套排法上；施工单十八 3.3）→ 材质表加一个（颜色那一槽指着它）→ 这些面换成它（paintMeshFaces）。
  * 拒绝（什么都不改）：不是网格体；一张活着的面都没有；三个 GUID 里有已经存在的；铺不下（1-3a 的原因）。
  */
 export declare function applyStartPaint(s: Scene, op: StartPaint): PaintOutcome;

@@ -28,6 +28,7 @@ export interface MeshSnapshot {
     readonly columns?: readonly {
         readonly guid: string;
         readonly arity: number;
+        readonly kind: string;
         readonly faces: readonly (readonly number[] | null)[];
     }[];
 }
@@ -114,6 +115,8 @@ export declare class MeshKernel {
     /** 别的内核的列在这边补上（整张面搬过来之前；原有的面在补上的列上全没值）。 */
     ensureColumns(defs: readonly ColumnDef[]): void;
     columnDefs(): ColumnDef[];
+    /** 有没有这一列（施工单十八：面走不走画 = 材质指着的画挂的排法、这个网格体有那一列）。 */
+    hasColumn(guid: string): boolean;
     /** 面的旧样子（改之前记）：没有列 = 只记材质。 */
     shapeOf(f: number): FaceShape;
     /** 这张面在这一列上各角的值（角数 × arity，拷一份）；没值 / 没这一列 = null。 */
