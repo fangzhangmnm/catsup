@@ -124,4 +124,11 @@ describe("边标记跟着走的规矩（edge-mark-rules.ts + reserved-columns.ts
     const copied = ringEdges(k, d.faces[0]).map((e) => marks(k, e)).filter(Boolean).sort();
     eq(copied.join(","), "sharp_edge,uv_seam", "复制出来的那张面的边带着接缝和棱");
   });
+  it("复制选中的边（不带面）：复制出来的是裸线、带着原来的标记、自检干净（3c 以前留下不挂面又不是线的边）", () => {
+    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));
+    const [e0, e1] = k.edges(); mark(k, e0, UV_SEAM, SHARP_EDGE);
+    const d = duplicateGeometry(k, { edges: [e0, e1] }); eq(k.check().join("\n"), "");
+    eq(d.edges.length, 2); for (const x of d.edges) { eq(k.eFaces(x).length, 0); assert(k.isWire(x), "是裸线"); }
+    eq(marks(k, d.edges[0]), "sharp_edge+uv_seam");
+  });
 });

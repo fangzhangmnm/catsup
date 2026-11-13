@@ -1230,3 +1230,29 @@ startPaint：表里加一行（fit = density / size）→ 内核 addColumn(uv, k
 - 碰多少东西：每张新面每列一个值；读材质 / 隐藏多一次按名字找列（≤ 几列），热路径拿列对象。不随模型其余部分涨。
 - 验证：640 份文件对拍（v0.19.82 → 3a、v0.19.83 → 3b）字节 / 内存（含每张面的材质、隐藏）/ 提示全一样；邻接金样、细分金样不变；逐操作对拍见施工单十八页末。
 - **还随整个模型涨的点**：没有新的。
+
+## 追记 2026-11-13 深夜（属性地基轮第三步 3c = v0.19.85，Claude Opus 5.5）：边上的五个标记成了带保留名的列，来历在建边那一刻申报
+
+规程 = `ai-docs/20261112-attribute-protocol.md` 第九½节（含末尾「文件里不认识的标记位」那条裁定）。
+
+```
+3c 边上的五列（mesh/reserved-columns.ts，核心不认名字）：
+  sharp_edge / smooth / soft / hide_edge = 布尔、都有才留（defaultIfMixed）；uv_seam = 布尔、有一条就留（firstNonDefault）
+  裸线位不是列：内核自己的结构位（edgeWire；isWire / setWire）
+  有才有：第一次写「有」才建这一列；读没有的列 = 没有（edgeMark）
+建边时申报来历（不在事后补写）：
+  一份 piece   劈边 / 环切 / 细分的两半（split.ts、subdivide.ts：先建好两半再改面）
+  照抄 copy    挤出的帽、倒角时挨着的边换成的新边、复制（Shift+D）、镜像（ops/ring-edges.ts declareRingEdges：按环的顺序先把缺的边建好）
+  并成 joined  溶解二度点（join.ts：先建边再改面）；那对点之间已经有边 = MeshKernel.absorbIntoEdge(那条, 被并的几条)——合并点同一个入口
+  新长 grown   ensureEdge、面里切出来的、侧墙、补洞 / 桥接
+操作本意按名字写（不是继承）：倒角圆角中间标平滑（markEdges smooth）、手标指令、硬表面转过来（kinds.ts）、导入（tri-soup.ts）、读文件 / 粘贴（unpackEdgeByte）
+  裸线位按拓扑定：没有面 = 线（劈边、溶解、删面留边、复制选中的边、基本体的圈）；劈边和镜像照旧连带原来的裸线位
+文件 / 剪贴板门口（mesh/mesh-doc.ts、editor/transfer.ts）：形状不变——存 = packEdgeByte 把五列 + 裸线位打回那个字节，只列不是 0 的边
+  读 = 读的门口（format/mesh-payload.ts → mesh-doc.ts dropUnknownMarks）先去掉这一版不认识的位（面 2–128、边 64 / 128），记 notes.unknownMarks
+       （打开时说一句「有 N 张面、M 条边带着这一版不认识的标记……保存之后不再保留」；算会丢的 = 第一次存盘要人点头；导入素材那条路也说）
+       → unpackEdgeByte 拆回列；真坏了（环越界、表长对不上）照旧抛
+```
+
+- 碰多少东西：每条新边每列一个值；读一个标记多一次按名字找列（≤ 七列）。不随模型其余部分涨。
+- 验证：640 份文件对拍（v0.19.84 → 3c）字节 / 内存（含每条边打包回的字节）/ 提示全一样；邻接金样、细分金样不变；逐操作对拍见施工单十八页末。
+- **还随整个模型涨的点**：没有新的。

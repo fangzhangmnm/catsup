@@ -21,7 +21,7 @@ export function duplicateGeometry(k: MeshKernel, sel: MeshSel): { verts: number[
   for (const f of faces) { const r = k.faceVerts(f); for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; copies.set(pairKey(map.get(a)!, map.get(b)!), k.edgeShape(k.edgeOf(a, b))); } }
   for (const e of edges) copies.set(pairKey(map.get(k.edgeA[e])!, map.get(k.edgeB[e])!), k.edgeShape(e));
   const nf = faces.map((f) => { const r = k.faceVerts(f), ring = r.map((v) => map.get(v)!); declareRingEdges(k, ring, fromShapes(copies, "copy")); return k.addFace(ring, { kind: "copy", of: k.shapeOf(f), corners: r.map((_, i) => i) }); });   // 复制 = 是它的一份（角一一对应）
-  const ne = edges.map((e) => { const a = map.get(k.edgeA[e])!, b = map.get(k.edgeB[e])!, have = k.edgeOf(a, b); if (have >= 0) return have; const x = k.addEdge(a, b, { kind: "copy", of: k.edgeShape(e) }); if (k.isWire(e)) k.setWire(x, true); return x; });   // 选中的边：已经随面造了的就是它；裸线照抄线
+  const ne = edges.map((e) => { const a = map.get(k.edgeA[e])!, b = map.get(k.edgeB[e])!, have = k.edgeOf(a, b); if (have >= 0) return have; const x = k.addEdge(a, b, { kind: "copy", of: k.edgeShape(e) }); k.setWire(x, true); return x; });   // 选中的边：已经随面造了的就是它；单独复制出来的不挂面 = 裸线（结构位按拓扑定，和劈边、溶解一样；3c 以前这里留下不挂面又不是线的边，自检不过）
   return { verts: [...map.values()], edges: ne, faces: nf };
 }
 
