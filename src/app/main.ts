@@ -46,7 +46,7 @@ import { flippedValue, onSecond, secondModeOf } from "../controller/second-mode.
 import { mountSoftSlider, stepRadius, type SoftSlider } from "./soft-slider.ts";
 import { mountLeftDial } from "./left-dial.ts";
 import { mountSelGrowBar, type SelGrowBar } from "./sel-grow-bar.ts";
-import { RAIL_FIXED_FLYOUTS, RAIL_FIXED_FOLD, MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
+import { RAIL_FIXED_FLYOUTS, RAIL_FIXED_FOLD, MENU_ROWS, MENU_TABS, VIEW_UNIT_ROWS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
 import { MACHINES, openMachineWindow, refreshMachineBoard, type Machine } from "./machine-window.ts";
 import { boardAsDrawer, closeBoard } from "./ui/command-board.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
@@ -702,7 +702,7 @@ function menuPick(id: MenuId): void | "keep" {
 // 图库 → 新建 / 打开 → 导入 → 保存 / 导出 → 锁上（演示锁）；CatsUp 没有的改名 / 加密 / 回到打开时版本不出现。版图 = ai-docs/20261024-ui-layout.md
 // ☰ 的页签和每页放哪几行 = 放置表 src/controller/placement.ts（MENU_TABS / MENU_ROWS）；这里只管每行长什么样（字 / 图标 / 动态的勾和数字）
 type MainMenuId = MenuId | GridMenuId | RefMenuId;
-/** 开 / 关 ☰；tab = 直接停在那一页（吸附钮长按的「单位设置…」跳进来）。 */
+/** 开 / 关 ☰；tab = 直接停在那一页。（吸附钮长按的「单位设置…」11-13 起去右上渲染窗的「单位」页。） */
 function openMainMenu(tab?: string): void {
   const opts = {
     anchor: btnMenu, tabs: MENU_TABS, tabKey: "main", ...(tab ? { tab } : {}),
@@ -1010,7 +1010,7 @@ function snapMenuItems(): { id: GridMenuId | "gridSettings"; label: string; chec
   // 栅格面（user 10-30「栅格面要不要也放到这里」→「do it 以及不显示选项也有对吧」）：画立面时要来回切，和吸附长度一样是手上的；☰ 单位页照留一份
   const g = editor.grid, planes = [...GRID_PLANES.map((p, i) => ({ id: `plane:${p.id}` as GridMenuId, label: p.label, checked: g.shown && g.plane === p.id, ...(i === 0 ? { sectionBefore: "栅格面", ...(sub.length ? { separatorBefore: true } : {}) } : {}) })),
     { id: "plane:off" as GridMenuId, label: "关（不显示网格）", checked: !g.shown, hint: "吸附照旧" }];
-  return [...sub, ...planes, { id: "gridSettings", label: "单位设置…", separatorBefore: true, hint: "☰ · 单位" }];   // 锁的几项搬到右上角锁的三行（白模 W-6，2026-11-10）
+  return [...sub, ...planes, { id: "gridSettings", label: "单位设置…", separatorBefore: true, hint: "渲染窗 · 单位" }];   // 锁的几项搬到右上角锁的三行（白模 W-6，2026-11-10）
 }
 const isGridId = (id: string): id is GridMenuId => /^(sys|snap|plane):/.test(id) || id === "on" || id === "off";
 function onGridPick(id: GridMenuId): "keep" | void {
@@ -1353,6 +1353,7 @@ function onRefPick(id: RefMenuId): "keep" {
  *  参考窗（屏幕上的参考图 / 文字 / 视频）不在这里了：user 10-30「视图设置就是视图设置，然后参考窗按钮放在视图设置旁边」→ 视图钮旁边自己一颗钮。 */
 const VIEW_MENU_TABS = [
   { id: "render", label: "渲染" },
+  { id: "units", label: "单位" },   // 2026-11-13 从 ☰ 搬回来当第二页（user「单位还是移动到右边的和渲染窗口合租成分页」）；行 = placement.ts VIEW_UNIT_ROWS
 ] as const;   // 「单位」页 10-30 搬进 ☰（user「单位跟着glb文件走……现在就把单位搬到菜单里面」「文件是文件设置，preference，手感，视图就是eye candy」）   // user 10-30「所以暂时没有显示tab，只有渲染，然后以后渲染tab会很胖很对选项，只管画风」：透视 / X 光撤（「外面能按」）、全部显示去右键菜单、VR 左手持笔去 ☰ 设置、进入 VR 在上方正中那颗钮   // 「相机」页撤了（user 10-30「相机tab也不要了，步行在验证工具栏里面」）：步行 = 验证左柱第一格、穿墙 = 走着双击空格、VR 两行挪到「显示」页最下面
 type ViewTab = (typeof VIEW_MENU_TABS)[number]["id"];
 /** 视图菜单的内容（常驻浮窗里画；user 10-29「我建议是视图 物体 都做成可以常驻的浮窗吧，只有主菜单是菜单型的」）。 */
@@ -1364,8 +1365,9 @@ function viewMenuSpec(): MenuSpec<MenuId | GridMenuId | RefMenuId> {
       { id: "style:pick" as MenuId, label: "风格", tab: "render", choices: PRESET_IDS.map((s) => ({ id: `style:${s}` as MenuId, label: PRESETS[s].name, checked: editor.renderer3.getPreset() === s, hint: PRESETS[s].brief })) },
       { id: "screen:pick" as MenuId, label: "屏幕", tab: "render", choices: [{ id: "screen:auto" as MenuId, label: "跟画风", checked: editor.renderer3.getScreen() === null, hint: "画风自己的默认" }, ...SCREEN_IDS.map((s) => ({ id: `screen:${s}` as MenuId, label: SCREENS[s].name, checked: editor.renderer3.getScreen() === s, hint: SCREENS[s].brief }))] },   // 屏幕一刀的用户面（T106）   // Tron 纪元：预设 = 数据（minccino/preset/）
       { id: "accent:pick" as MenuId, label: "选中色", tab: "render", choices: ACCENTS.map((a) => ({ id: `accent:${a.id}` as MenuId, label: a.label, checked: editor.renderer3.getAccent() === a.accent, ...(a.hint ? { hint: a.hint } : {}) })) },
+      ...VIEW_UNIT_ROWS.flatMap((r) => { const it = menuRow(r.id); return it ? [{ ...it, tab: "units", ...(r.section ? { sectionBefore: r.section } : {}) } as PopupMenuItem<MenuId | GridMenuId | RefMenuId>] : []; }),   // 单位页 = ☰ 那四行原样（11-13 搬家）
     ],
-    onPick: (id: MenuId | GridMenuId | RefMenuId): void | "keep" => { const r = menuPick(id as MenuId); syncUi(); return r; },
+    onPick: (id: MenuId | GridMenuId | RefMenuId): void | "keep" => { if (isRefId(id)) return onRefPick(id); if (isGridId(id)) { onGridPick(id); syncUi(); return "keep"; } const r = menuPick(id as MenuId); syncUi(); return r; },   // 单位页的行和 ☰ 那时一样分给 onRefPick / onGridPick
   };
 }
 // 雕刻笔刷浮窗（user 10-30「然后雕刻笔刷的浮窗就可以做一下啦」）：四把笔刷 + 力度；半径在左栏那根竖滑条（和软选择共用，不重复放）。
@@ -1465,7 +1467,7 @@ function openMachineBoard(m: Machine, anchor: HTMLElement): void {
   });
 }
 snapBtnRef = snapBtn;
-const openSnapMenu = (): void => { togglePopupMenu<GridMenuId | "gridSettings">({ anchor: snapBtn, align: "end", items: snapMenuItems, onPick: (id) => { if (id === "gridSettings") { openMainMenu("units"); return; } return onGridPick(id); } }); };
+const openSnapMenu = (): void => { togglePopupMenu<GridMenuId | "gridSettings">({ anchor: snapBtn, align: "end", items: snapMenuItems, onPick: (id) => { if (id === "gridSettings") { openViewMenu("units"); return; } return onGridPick(id); } }); };
 let snapPress: { t: number; fired: boolean } | null = null;
 snapBtn.addEventListener("pointerdown", () => { const press = { t: window.setTimeout(() => { press.fired = true; openSnapMenu(); }, 450), fired: false }; snapPress = press; });
 const snapPressEnd = (): void => { if (snapPress) window.clearTimeout(snapPress.t); };

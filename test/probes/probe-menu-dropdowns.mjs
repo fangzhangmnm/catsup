@@ -10,18 +10,18 @@ await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForT
 const w = (ms) => page.waitForTimeout(ms);
 const W = '.float-win[data-win="view"]';   // 视图 = 常驻浮窗（v0.17.54）
 const val = (id) => page.evaluate(([W, id]) => document.querySelector(`${W} [data-menu-id="${id}"] .menu-value`)?.textContent ?? null, [W, id]);
-const M = '.popup-menu:not(.choice-layer)';   // ☰
+const M = W;   // 单位页 2026-11-13 从 ☰ 搬回视图浮窗当第二页（user「单位还是移动到右边的和渲染窗口合租成分页」）
 const state = () => page.evaluate((W) => ({ win: !!document.querySelector(`${W}:not([hidden])`), menu: !!document.querySelector('.popup-menu:not(.choice-layer)'), layer: document.querySelectorAll(".choice-layer").length, g: globalThis.__catsup.editor.grid, screen: globalThis.__catsup.editor.renderer3.getScreen() }), W);
 const res = {};
 await page.click(".gizmo-menu"); await w(150);
 res.tabs = await page.evaluate((W) => [...document.querySelectorAll(`${W} .menu-tab`)].map((t) => t.textContent).join(","), W);
-// 视图窗只剩一页、没页签条（10-30 单位搬进 ☰）
+// 视图窗两页「渲染 | 单位」（11-13 单位搬回来）
 res.renderRows = await page.evaluate((W) => [...document.querySelectorAll(`${W} .menu-item`)].map((x) => x.dataset.menuId).join(","), W);   // 只管画风：风格 / 屏幕 / 选中色（user 10-30）
 await page.click(`${W} [data-menu-id="screen:pick"]`); await w(100);
 res.lwOpen = await state();
 await page.click('.choice-layer [data-choice-id="screen:pixel2"]'); await w(100);
 res.lwAfter = { ...(await state()), val: await val("screen:pick") };
-await page.click("#btnMenu"); await w(120); await page.click(`${M} [data-menu-tab="units"]`); await w(80);
+await page.click(`${W} [data-menu-tab="units"]`); await w(80);
 const sysRow = await page.evaluate((M) => document.querySelector(`${M} [data-menu-id^="sys:"]`)?.dataset.menuId, M);
 await page.click(`${M} [data-menu-id="${sysRow}"]`); await w(80);
 await page.click(`${M} [data-menu-id="${sysRow}"]`); await w(80);   // 再点同一行 = 收起
@@ -37,13 +37,13 @@ await page.click(`${M} [data-menu-id="plane:off"]`); await w(80);
 await page.keyboard.press("Escape"); await w(60);
 res.esc1 = await state();
 console.log(JSON.stringify(res));
-const ok = res.tabs === "" && res.renderRows === "style:pick,screen:pick,accent:pick"
+const ok = res.tabs === "渲染,单位" && res.renderRows === "style:pick,screen:pick,accent:pick"
   && res.lwOpen.win && res.lwOpen.layer === 1
   && res.lwAfter.screen === "pixel2" && res.lwAfter.win && res.lwAfter.layer === 0 && res.lwAfter.val === "像素 ×2"
-  && res.toggle.layer === 0 && res.toggle.menu
+  && res.toggle.layer === 0 && res.toggle.win
   && res.dnd.g.system === "dnd" && res.dnd.sys === "D&D" && res.dnd.snap === "1 ft"
   && res.off.g.shown === false && res.off.val === "关"
-  && res.esc1.menu && res.esc1.layer === 0
+  && res.esc1.win && res.esc1.layer === 0
   && !errs.length;
 if (errs.length) console.log(errs);
 console.log(ok ? "PROBE OK" : "PROBE FAIL");

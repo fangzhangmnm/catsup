@@ -14,12 +14,12 @@ const clickAt = async (p) => { const q = await px(p); await page.mouse.move(box.
 const hoverTo = async (p) => { const q = await px(p); await page.mouse.move(box.x + q.x, box.y + q.y, { steps: 5 }); await page.waitForTimeout(120); };
 const tip = () => page.evaluate(() => { const t = document.getElementById("tip"); return t.hidden ? "" : t.innerHTML; });
 const refs = () => page.evaluate(() => [...globalThis.__catsup.editor.scaleRefs].join("|"));
-const M = ".popup-menu:not(.choice-layer)";
-const refPage = async () => { if (!(await page.evaluate((M) => !!document.querySelector(M), M))) { await page.click("#btnMenu"); await page.waitForTimeout(120); } await page.click(`${M} [data-menu-tab="units"]`); await page.waitForTimeout(80); };
+const M = '.float-win[data-win="view"]';   // 尺度参考在「单位」页：11-13 从 ☰ 搬回视图浮窗当第二页
+const refPage = async () => { if (!(await page.evaluate((M) => !!document.querySelector(`${M}:not([hidden])`), M))) { await page.evaluate(() => document.querySelector(".gizmo-menu").click()); await page.waitForTimeout(120); } await page.click(`${M} [data-menu-tab="units"]`); await page.waitForTimeout(80); };
 const pageInfo = () => page.evaluate((M) => { const m = document.querySelector(M); return m ? { pick: m.querySelector('[data-menu-id="ref:pick"]')?.textContent ?? "", notesBtn: m.querySelector('[data-menu-id="ref:notes"]')?.textContent ?? "", sections: [...m.querySelectorAll(".menu-section-label")].map((n) => n.textContent).join("|"), max: m.querySelector('[data-menu-id="refmax:3"] .menu-value')?.textContent ?? "" } : null; }, M);
 /** 点「适用范围与出处…」→ 弹出的那张说明（全量、静态）的正文，读完关掉。 */
 const notesSheet = async () => { await page.click(`${M} [data-menu-id="ref:notes"]`); await page.waitForTimeout(150); const t = await page.evaluate(() => document.getElementById("sheetMessage")?.textContent ?? ""); await page.click("#sheetConfirm"); await page.waitForTimeout(120); return t; };   // 只有「知道了」一颗钮（没有取消 = Esc 不收）
-const closeWins = async () => { await page.evaluate(() => document.querySelectorAll(".float-win:not([hidden]) .float-close").forEach((b) => b.click())); if (await page.evaluate((M) => !!document.querySelector(M), M)) { await page.keyboard.press("Escape"); await page.waitForTimeout(60); } };   // v0.17.54：视图是常驻浮窗，Esc 不收它；画之前关掉，别挡着画布
+const closeWins = async () => { await page.evaluate(() => document.querySelectorAll(".float-win:not([hidden]) .float-close").forEach((b) => b.click())); if (await page.evaluate(() => !!document.querySelector(".popup-menu:not(.choice-layer)"))) { await page.keyboard.press("Escape"); await page.waitForTimeout(60); } };   // v0.17.54：视图是常驻浮窗，Esc 不收它；画之前关掉，别挡着画布
 const drawUp = async () => { await closeWins(); await page.evaluate(() => globalThis.__catsup.hud.pick("line")); await clickAt({ x: 0, y: 0, z: 0 }); await page.keyboard.press("ArrowUp"); await hoverTo({ x: 0, y: 0, z: 0.914 }); await hoverTo({ x: 0, y: 0, z: 0.914 }); };
 const names = (h) => (h.match(/<span style="opacity/g) ?? []).length;
 const res = { loaded: await page.evaluate(() => globalThis.__catsup.editor.scaleLadderLoaded), refs0: await refs() };
