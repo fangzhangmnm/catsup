@@ -35,7 +35,8 @@ export const READ_NOTE_SAY: { readonly [K in keyof Required<FormatReadNotes>]: S
   },
   paintUnplaced: (v) => v.map((x) => `「${x.def.name || x.def.guid}」有 ${x.faces} 张画了的面在贴图坐标「${x.uvSet.name || x.uvSet.guid.slice(0, 8)}」上没有位置，先按材质的底色显示`),
   uvSetRowsDropped: (v) => (v.length ? [`排法表里有 ${v.length} 行这一版读不了（${[...new Set(v.map((x) => UV_ROW_WHY[x.why]))].join("、")}），那几套按没有处理：挂在上面的画按底色显示；再存盘会去掉这几行`] : []),
-  oldPaintFormat: (v) => (v.paints ? [`这份文件里有 ${v.paints} 张旧存法的画，这一版读不了，按底色显示；保存之后它们在面上的位置不再保留`] : v.meshes ? [`这份文件里有 ${v.meshes} 个物件带着旧存法的贴图坐标，这一版读不了；保存之后不再保留`] : []),
+  oldPaintFormat: (v) => [`这份文件里有 ${v} 张旧存法的画，这一版读不了，按底色显示`],
+  oldUvColumns: (v) => [`有 ${v} 个物件上记着画在面上的位置（旧存法），这一版读不了；保存之后不再保留`],
   orphanPaintTextures: (v) => [`有 ${v} 张画找不到它铺的那一套贴图坐标，先留着当没人用的（资源页能清）`],
 };
 /** 故意不说的键（每一个写明为什么）。守卫只放过这几个「有值也不说」。 */
@@ -56,7 +57,8 @@ export const LOSSY_NOTES: { readonly [K in keyof Required<FormatReadNotes>]: boo
   uvDropped: true,               // 「再存盘会把这些坏的部分去掉」
   paintUnplaced: false,
   uvSetRowsDropped: true,        // 「再存盘会去掉这几行」
-  oldPaintFormat: true,          // 「保存之后它们在面上的位置不再保留」（施工单十八第五节；统筹 11-13 定的字的意思）
+  oldPaintFormat: false,         // 贴图行原样带回，存了不丢
+  oldUvColumns: true,            // 「保存之后不再保留」（施工单十八第五节；统筹 11-13 定的字的意思：要有保存的后果）
   orphanPaintTextures: false,
 };
 /** 这次读入记下的、会丢东西的那几种说的话（没有 = 空）。 */

@@ -44,6 +44,7 @@ export const EXPENSIVE_FILE_READERS = {   // 耗时 = 2026-11-10 并行全套量
   "cloud-gate.test.ts": ["src/", "vendor-pkgs/"],   // 0.6 s；扫整个 src/
   "textures-table.test.ts": ["src/", "test/fixtures/"],   // 0.6 s；扫整个 src/ + 冻结样本
   "format.test.ts": ["test/fixtures/", "scripts/freeze-format-fixtures.mjs"],   // 2.2 s；经 test/fixtures/format/fixtures.mjs 读冻结样本（.glb 不在 import 图里）
+  "uv-format.test.ts": ["test/fixtures/"],   // 1.4 s（2026-11-13 量）；读老目录里冻着的带画样本（施工单十八第五节）
 };
 /** 读文件的测试：直接用 fs，或者经工具模块读 test/fixtures/ 下的样本（样本文件不在 import 图里）。 */
 const isFileReader = (src) => /\b(readFileSync|readdirSync|statSync|existsSync|readFile)\b|fixtures/.test(src);

@@ -186,9 +186,11 @@ export interface FormatReadNotes { /** 文件里写了身份、但重复或不�
   orphanPaintTextures?: number;
   /** 排法表（CATSUP_uvsets）里这一版读不了的行：不认（挂在上面的画按底色、指着它的列按没有）；再存盘会去掉。 */
   uvSetRowsDropped?: { guid: string | null; name: string; why: UvRowWhy }[];
-  /** 旧存法的画（施工单十八第五节：不做迁移）：paints = 贴图行的 layout 还是以前的 { definition, uvSet }；meshes = 网格体载荷里还带着以前的 uvSets 键（不带回）。
-   *  这一版读不了、按底色显示；保存之后它们在面上的位置不再保留。 */
-  oldPaintFormat?: { paints: number; meshes: number } }
+  /** 旧存法的画（施工单十八第五节：不做迁移）：贴图行的 layout 还是以前的 { definition, uvSet }（几张）。这一版不当画、按底色显示；行原样带回，存了不丢。 */
+  oldPaintFormat?: number;
+  /** 网格体载荷里还带着以前的 uvSets 键（几个网格体）：画在面上的位置，旧存法。读的门口不带回 = 保存之后不再保留（算会丢的）。
+   *  和上一条分开记：存过一次再打开，网格体上已经没有它了，这时只剩上一条、再存什么都不丢。 */
+  oldUvColumns?: number }
 /** 排法表的一行读不了的原因。 */
 export type UvRowWhy = "not-a-list" | "not-an-object" | "bad-guid" | "bad-size" | "bad-density" | "bad-fit" | "duplicate-guid";
 /** 角上的列坏了的一处（施工单十八：为什么 = 整个 columns 不是列表 / 这一列的身份号、种类、角上的数那一段不对 / 几列同一个身份号 / uv 列的号在排法表里没有 / 面的角一半有数一半没有、不是有限数、落在画布外面）。 */

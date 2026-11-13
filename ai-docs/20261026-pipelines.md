@@ -1101,3 +1101,30 @@ layoutFaces(style = patches)：patchesOf（种子按面积、一样大看面心�
 
 ## 追记 2026-11-13（v0.19.79，Claude Opus 5.5；施工单十八第 0 刀）：一颗笔尖下同一块的面不设上限
 - 薄层着色器（`paint/space-layer.ts`）外圈「这块多边形挂的每张面」从「常数 8 + break」改成按这一块的面数循环（GLSL ES 3.00 允许变量上界）；`MAX_FACES` 退役（CPU 那边超过 8 张就报错的那句删了）。花费照旧随这一块挂的面数涨。复制 = 合用之后一排复制出来的东西会超过 8，施工单十八要的。探针 `probe-space-gpu` 第二段：64 张面共用一块，真显卡 = 软件版。
+
+## 追记 2026-11-13（施工单十八第 1 刀，Claude Opus 5.5；合之前 diff 发统筹）：排法表搬到场景这一层、网格体上是角上的列
+
+```
+内存：Scene.uvSets（排法的 GUID → 一行 { name, width, height, pxPerM, fit, freed?, extra? }）；cloneSkeleton / clone 都拷这张表（撤销的 scene 记录跟着翻宽高）
+      网格体身上不再有 uvSets；位置 = 内核里 kind = "uv" 的列（arity 2，值是 1/1024 格的整数倍；内核自检 M7½ 查）
+走画（Scene.facePaint）：面的材质 → paintIn → layout = { uvSet } → 表里有这一行 ∧ 这个网格体有这一列 → 走画；有没有位置 = 这张面在那一列上有没有值。不再看「画属于哪个物件」
+paintPlaceOf(画)：有那一列的定义里号最小的那个（画板宽高、补面、小窗、笔的目标都从这里拿；第 2 刀改成按排法看所有定义）
+startPaint：表里加一行（fit = density / size）→ 内核 addColumn(uv, kind "uv") → 每张面 setFaceValues（铺法 layout.ts 最后一步 quantizeUv）→ 贴图行 layout = { uvSet } → 材质 → 换材质
+补面（meshLayoutPaint）：读 s.uvSets 那一行；fit 不认识 / 行里有不认识的 freed = 这套排法什么都不自动动（uvSetAutoPlaces）
+存：documentFromScene → doc.uvSets = 表 + 每个网格体 columns = 内核所有列（按 kind；写的门口查：uv 列在表里没有那一行 = 内部出错、抛）
+    → encodeMeshItem：有列 = 盖 CATSUP_mesh 3.0 + columns[{ guid, kind, arity, data: bufferView int32（uv = ×1024，没有 = −2³¹）, …行里不认识的键 }]；没有 = 照旧 1.2（逐字节和以前一样）
+    → 顶层 CATSUP_uvsets 1.0 { list }（表空 = 不写，extensionsUsed 也不列）；贴图表的拍子按内容盖：有挂在排法上的画 1.3 / 有平铺的画 1.2 / 别的 1.1
+读：CATSUP_uvsets 比这一版新 = 拒开；readUvSetRows：坏的一行、同号的几行不认，记 uvSetRowsDropped
+    → decodeMeshItem → readColumns（整列不认 / 整面没有，记 uvDropped）；以前的 uvSets 键（2.x）= 不带回、记 oldUvColumns（门口只这一处；没有「2.x 按老的算」）
+    → paintReadChecks：uv 列在表里没有那一行 → 这一列不认；角落在画布外 → 这张面在这一列上写成没有；画挂的排法不在表里 → 孤儿；
+      贴图行还是以前的 { definition, uvSet } → 这一版不当画、原样带回、记 oldPaintFormat；走画的面没位置 → 记一笔
+    → sceneFromDocument：表进 Scene.uvSets、列原样进内核（读进来的已经是整格的 1/1024）
+    → 提示：oldPaintFormat「这份文件里有 N 张旧存法的画，这一版读不了，按底色显示」（不丢：贴图行原样带回）
+           oldUvColumns「有 M 个物件上记着画在面上的位置（旧存法），这一版读不了；保存之后不再保留」（算会丢：第一次存盘前要点头）
+           存过一次再打开：只剩前一句、不用点头
+身份层：新条目种类 UVSET（entry-kinds.ts uvSetRef；粘贴不覆盖目标的行）；贴图 / 定义的引用里加上它；比内容按列（entry-canon.ts）
+```
+
+- 碰多少东西：存 / 读随「角数 × 列数」涨（一遍扫，和 1-2½ 一样），排法表随行数；不随画板大小涨。量化是铺法输出和取样各一步乘除，不加遍数。
+- 拿旧版本真代码读新文件（`scripts/old-reader-check.mjs`，默认读者加了 v0.19.79 = 2d62e36a；判「带不带贴图坐标」改成看排法表 / uv 列，「认不认识」改成和这一版的网格体大版本比）：三个旧读者都过——v0.19.79：带画 105 份全部拒开（格式太新，报 CATSUP_mesh 3 > 2）、不带的 116 份打开再存逐字节一样（换种子 400 份：205 / 216 同样）。
+- **还随整个模型涨的点**：没有新的。

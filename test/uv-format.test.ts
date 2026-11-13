@@ -2,7 +2,7 @@
 // 画的 layout = { uvSet } = CATSUP_textures 1.3；不做迁移）。created 2026-11-11 / rewritten 2026-11-13 by Claude Opus 5.5
 // ① 往返和拍子：三节的形状（统筹要看的第 ① 处）、uv 列存 1/1024 格的整数、不带列照旧 1.2、fit / freed / 不认识的键原样带回、太新拒开。
 // ② 附属数据坏了模型照开：坏的部分按「没有」处理、记进 readNotes、打开之后说出来；读进来自检全过。
-// ③ 旧存法的画（第五节）：老目录里冻着的带画样本读得开、模型不变、画按底色、说一句（保存之后它们在面上的位置不再保留）、存了再开稳定、新写的文件里没有老写法。
+// ③ 旧存法的画（第五节）：老目录里冻着的带画样本读得开、模型不变、画按底色、说两句（几张旧存法的画按底色；几个物件上的旧位置保存之后不再保留，只有后一句算会丢）、存了再开稳定且只剩前一句、新写的文件里没有老写法。
 // ④ 比内容（粘贴对账）跟着面转。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { writeCatsup, readCatsup, documentFromScene, sceneFromDocument } from "../src/format/index.ts";
@@ -190,14 +190,14 @@ describe("旧存法的画（施工单十八第五节：不做迁移）", () => {
   const OLD = ["uvPainted.glb", "uvTwoSets.glb", "uvDensityFit.glb", "uvPaintedComposite.glb", "uvPaintedTall.glb"];
   const meshAt = 7;   // 签名里 CATSUP_mesh 那一位（migrate/index.ts CATSUP_EXTENSION_ORDER）
   const oldDirs = listCorpusDirs().filter((v: string) => v.split("-")[meshAt]?.startsWith("2.") && OLD.some((f) => listFixtures(v).includes(f)));   // 网格体还是 2.x 写的那几个目录
-  it("老目录里冻着的带画样本：打得开、说一句（保存之后它们在面上的位置不再保留，算会丢的）、画按底色（没有 uv 列、贴图行原样带着、不当画）", () => {
+  it("老目录里冻着的带画样本：打得开、说两句（旧存法的画按底色；物件上的旧位置保存之后不再保留 = 算会丢的）、画按底色（没有 uv 列、贴图行原样带着、不当画）", () => {
     assert(oldDirs.length >= 4, `老目录 ${oldDirs.length} 个`);
     for (const v of oldDirs) for (const f of OLD.filter((x) => listFixtures(v).includes(x))) {
-      const doc = readCatsup(readFixture(v, f)), n = doc.readNotes?.oldPaintFormat;
-      assert(n && n.paints >= 1 && n.meshes >= 1, `${v}/${f}：${JSON.stringify(n)}`);
+      const doc = readCatsup(readFixture(v, f)), n = doc.readNotes;
+      assert((n?.oldPaintFormat ?? 0) >= 1 && (n?.oldUvColumns ?? 0) >= 1, `${v}/${f}：${JSON.stringify(n)}`);
       const say = formatNotesSay(doc.readNotes!).join("\n");
-      assert(/这份文件里有 \d+ 张旧存法的画，这一版读不了，按底色显示；保存之后它们在面上的位置不再保留/.test(say), `${v}/${f}：${say}`);
-      assert(lossySay(doc.readNotes).some((t) => t.includes("旧存法的画")), "算会丢的（第一次存盘前要点头）");
+      assert(/这份文件里有 \d+ 张旧存法的画，这一版读不了，按底色显示/.test(say) && /有 \d+ 个物件上记着画在面上的位置（旧存法），这一版读不了；保存之后不再保留/.test(say), `${v}/${f}：${say}`);
+      eq(lossySay(doc.readNotes).join("|"), `有 ${n!.oldUvColumns} 个物件上记着画在面上的位置（旧存法），这一版读不了；保存之后不再保留`, "会丢的只有物件上的旧位置（第一次存盘前要点头）");
       const s = sceneFromDocument(doc);
       eq(s.uvSets.size, 0); eq(placed(s), 0, "没有 uv 列");
       assert([...s.textures.values()].some((t) => t.content.kind === "layered") && !s.materials.some((m) => paintIn(s.textures, m)), "贴图行原样带着、不当画");
@@ -209,7 +209,9 @@ describe("旧存法的画（施工单十八第五节：不做迁移）", () => {
     const bytes = writeCatsup(documentFromScene(s, "t")), g = decodeGlb(bytes) as unknown as Glb, md = meshItem(g);
     eq(`${md.version}.${md.minor}`, "1.2"); assert(!("uvSets" in md) && !("columns" in md) && !g.json.extensions.CATSUP_uvsets, "没有以前的写法");
     const doc2 = readCatsup(bytes);
-    eq(doc2.readNotes?.oldPaintFormat?.meshes ?? 0, 0, "再开：网格体上没有老写法了");
+    eq(doc2.readNotes?.oldUvColumns ?? 0, 0, "再开：网格体上没有老写法了");
+    assert((doc2.readNotes?.oldPaintFormat ?? 0) >= 1, "旧存法的画还在（贴图行原样带着），照样说一句");
+    eq(lossySay(doc2.readNotes).length, 0, "再存什么都不丢 = 不用再点头");
     assert(same(writeCatsup(documentFromScene(sceneFromDocument(doc2), "t")), bytes), "再存逐字节不变");
   });
 });

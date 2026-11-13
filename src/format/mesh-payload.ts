@@ -8,7 +8,7 @@
 //   kind = uv（贴图坐标）：arity 必须 2、GUID = 顶层排法表 CATSUP_uvsets 里那一行的号、data = 每角两个 32 位有符号整数（小端、和 loopVert 同序），单位 1/1024 格，
 //   没有值 = 两个 −2147483648。别的 kind（这一版一种都不造）：GUID 是这一列自己的号、data = 每角 arity 个 32 位浮点、NaN = 没有值；当普通的一列带着走完每一步建模、
 //   kind 和别的键原样写回。只有带列的网格体盖 3.0；不带的照旧盖 1.2，字节和以前一样。
-//   以前的 uvSets 键（2.x）现行格式里没有：读的门口不带回、记一笔（notes.oldPaintFormat.meshes），没有「2.x 按老的算」。
+//   以前的 uvSets 键（2.x）现行格式里没有：读的门口不带回、记一笔（notes.oldUvColumns），没有「2.x 按老的算」。
 //   两条规矩：① 以后跟着角走的数据一律做成新的一列，不许塞进列的行里当别的键（旧版本改了网格它就过时了）；② 换编码、或者哪个种类受不了线性继承 = 大版本。
 // 没有 faceStart 键 = 0.14 的三角汤最小形（migrate/mesh.ts 读成每三角一面）。created 2026-10-27 by Claude Fable 5.1
 import type { ColumnDoc, MeshDoc } from "./document.ts";
@@ -75,7 +75,7 @@ export function decodeMeshItem(raw: Record<string, unknown>, sliceOf: (bv: numbe
   if (d.positions.length % 3 !== 0) fail(`${where} mesh positions length ${d.positions.length} is not a multiple of 3`);
   if (d.faceLen.length !== nF || d.faceMat.length !== nF || d.faceFlags.length !== nF) fail(`${where} mesh face tables disagree (${nF} faces)`);
   if (d.edgePairs.length !== d.edgeFlags.length * 2) fail(`${where} mesh edgePairs / edgeFlags disagree`);
-  if (mj.uvSets !== undefined) { const o = (notes.oldPaintFormat ??= { paints: 0, meshes: 0 }); o.meshes++; }   // 以前的写法（2.x）：现行格式里没有这个键 = 不带回、记一笔（施工单十八第五节；读的门口只这一处）
+  if (mj.uvSets !== undefined) notes.oldUvColumns = (notes.oldUvColumns ?? 0) + 1;   // 以前的写法（2.x）：现行格式里没有这个键 = 不带回、记一笔（施工单十八第五节；读的门口只这一处）
   if (mj.columns !== undefined && owner) readColumns(mj.columns, d, sliceOf, notes, owner);
   return d;
 }

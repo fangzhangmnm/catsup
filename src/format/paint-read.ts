@@ -40,7 +40,7 @@ export function paintReadChecks(definitions: readonly DefinitionDoc[], materials
   }
   // ③ 画挂的排法不在表里；④ 旧存法的画
   for (const t of textures) {
-    if (isOldPaintRow(t)) { const o = (notes.oldPaintFormat ??= { paints: 0, meshes: 0 }); o.paints++; continue; }
+    if (isOldPaintRow(t)) { notes.oldPaintFormat = (notes.oldPaintFormat ?? 0) + 1; continue; }
     const p = paintIn(table, { channels: { [COLOR_CHANNEL]: [t.guid] } });   // 这张贴图要是画：它挂在哪套排法上（layout 只经 paintIn 读）
     if (p && !rows.has(p.uvSet)) notes.orphanPaintTextures = (notes.orphanPaintTextures ?? 0) + 1;
   }
