@@ -8,6 +8,7 @@
 //   （这样自由高度正好是 H），读推拉算出来的高度；同一个 H 在适应窗口和缩小 8 倍两种视图下结果要一样（和缩放无关）。
 //   H = 0.4 / 1.6 / 2.4 / 2.6 格 → 0 / 2 / 2 / 3 格；0 的时候提示「不到半格」、不长东西；非 0 的时候预演那一行带「整数长度」；
 //   适应窗口那一种真松手，量面抬了多高（= 吸附长度的整数倍，拖出 2 毫米这种小高度拉得出来）；按住 Shift = 不取整。
+//   最后一格（统筹 11-13）：整格开着、压在别处不在格上的端点上松手 = 和端点齐平（指着具体的东西 = 它优先）。
 // 用法：python3 -m http.server 8765 后 node test/probes/probe-pp-snap.mjs [url]
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -57,6 +58,31 @@ for (const [snap, w, name] of [[0.01, 0.04, "吸附 1 厘米、4 厘米的面"],
   }
   const sh = await run({ snap, w, H: 1.6 * snap, release: true, shift: true });
   check(Math.abs(cells(sh.h, snap) - 1.6) < 0.01 && !/整数长度/.test(sh.hint), "按住 Shift = 不取整（1.6 格就是 1.6 格）", JSON.stringify({ h: cells(sh.h, snap), hint: sh.hint.slice(0, 60) }));
+}
+
+// 指着具体的东西 = 它优先（统筹 11-12 原则；11-13 要求钉住落定那一下）：整格开着、光标压在别处一个不在格上的端点（高 2.37 格）上松手 = 面抬到和端点齐平，不取整
+{
+  const r = await page.evaluate(async () => {
+    const C = globalThis.__catsup, e = C.editor, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const c = document.getElementById("board"), R = c.getBoundingClientRect();
+    const fire = (t, q, b) => c.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: R.left + q.x, clientY: R.top + q.y, pointerId: 11, pointerType: "mouse", isPrimary: true, button: 0, buttons: b }));
+    e.setTool("select"); e.selectAll(); e.deleteSelection(); await sleep(20);
+    const s0 = 0.01, w = 0.04, tip = P(0.1, 0.02, 0.0237);
+    e.setGrid({ on: true, snap: s0 });
+    e.commitOp({ op: "addEdges", at: e.activePool(), segs: [[P(0, 0), P(w, 0)], [P(w, 0), P(w, w)], [P(w, w), P(0, w)], [P(0, w), P(0, 0)], [P(0.1, 0.02, 0), tip]] });
+    e.deselectAll(); e.cam.setView("iso"); e.zoomExtents(); e.draw(); await sleep(30);
+    const q0 = e.cam.project(P(w / 2, w / 2, 0), e.vp()), qT = e.cam.project(tip, e.vp()), qFar = { x: q0.x, y: q0.y - 40 };
+    e.setTool("pp"); await sleep(10);
+    fire("pointermove", q0, 0); fire("pointerdown", q0, 1); await sleep(10);
+    for (let k = 1; k <= 5; k++) { fire("pointermove", { x: q0.x, y: q0.y + (qFar.y - q0.y) * k / 5 }, 1); await sleep(8); }
+    for (let k = 1; k <= 6; k++) { fire("pointermove", { x: qFar.x + (qT.x - qFar.x) * k / 6, y: qFar.y + (qT.y - qFar.y) * k / 6 }, 1); await sleep(8); }
+    await sleep(40);
+    const h = e.mode.handlers.pp.h, kind = e.snapInfo?.kind ?? null;
+    fire("pointerup", qT, 0); await sleep(60);
+    const top = Math.max(...e.sceneRef.brep(e.sceneRef.root).kernel.toBrep().vertices.filter((p) => p.x < 0.05).map((p) => p.z));
+    return { h, kind, top };
+  });
+  check(Math.abs(r.h - 0.0237) < 1e-9 && Math.abs(r.top - 0.0237) < 1e-9, "整格开着、压在不在格上的端点（2.37 格）上松手 = 面抬到和端点齐平（不取整成 2 / 3 格）", JSON.stringify(r));
 }
 
 await browser.close();

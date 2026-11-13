@@ -28,10 +28,10 @@ describe("工具提示从键表生成（keymap.ts toolKeyText）", () => {
       }
     }
   });
-  it("钉住的例子：自由建模的删除没有 E（E = 挤出起手）；挤出 = P · E 起手；移动 = M · G 起手；缩放只有 S 起手；硬表面橡皮 = E、焊边橡皮 = 再按 E", () => {
+  it("钉住的例子：自由建模的删除没有 E（E = 挤出起手）；挤出 = P · E 起手；移动 = M · G 起手；缩放只有 S 起手；硬表面橡皮 / 焊边橡皮没有键（工具栏上拿）", () => {
     const ff = (t: Parameters<typeof toolKeyText>[1]) => toolKeyText("freeform", t, (x) => modes[1].tools.includes(x));
     assert(!/\bE\b/.test(ff("erase")), `自由建模删除：${ff("erase")}`);
     eq(ff("pp"), "P · E 键盘起手"); eq(ff("move"), "M · G 键盘起手"); eq(ff("scale"), "S 键盘起手");
-    eq(toolKeyText("geometry", "erase"), "E"); eq(toolKeyText("geometry", "weldErase"), "再按 E");   // X 让给轴键 / 删除小菜单（锁的一轮第三步） eq(toolKeyText("geometry", "move"), "M");
+    eq(toolKeyText("geometry", "erase"), ""); eq(toolKeyText("geometry", "weldErase"), "");   // 硬表面橡皮不占键（E = 推拉、X = 轴键 / 删除小菜单；锁的一轮第三步）：在工具栏「橡皮格」里拿 eq(toolKeyText("geometry", "move"), "M");
   });
 });

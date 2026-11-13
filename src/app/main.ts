@@ -1657,9 +1657,9 @@ function takeTool(t: Tool, among?: readonly ModeId[], how?: "borrow"): void {
   editor.setTool(t, how);
 }
 function toolKey(key: string, t: Tool): void {
-  const cyc = KEY_CYCLES[key];
+  const cyc = KEY_CYCLES[key];   // 轮换只在这个键这次拿的工具也在那一组里时转（硬表面 E = 推拉以后，拿着橡皮按 E 是拿推拉、不是换下一种橡皮）
   const how = (x: Tool): "borrow" | undefined => (keyBorrows(editor.modeId, x) ? "borrow" : undefined);   // 自由建模里快捷键拿起的 = 借（controller/tool-borrow.ts；回「选」的 Space / Tab 除外）
-  if (cyc && cyc.includes(editor.tool)) { const next = cyc[(cyc.indexOf(editor.tool) + 1) % cyc.length]; if (editor.modeTools().includes(next)) { editor.setTool(next, how(next)); return; } }
+  if (cyc && cyc.includes(editor.tool) && cyc.includes(t)) { const next = cyc[(cyc.indexOf(editor.tool) + 1) % cyc.length]; if (editor.modeTools().includes(next)) { editor.setTool(next, how(next)); return; } }
   if (key === "a" && editor.tool === "arc") { const modes: string[] = ARC_MODES.map((m) => m.id), cur = editor.config.get("arc", "mode") as string; const nx = modes[(modes.indexOf(cur) + 1) % modes.length]; editor.config.set("arc", "mode", nx); hintEl.textContent = `弧：${ARC_MODES.find((m) => m.id === nx)?.label ?? nx}（再按 A 换下一种）`; syncUi(); return; }
   takeTool(t, TOOL_KEY_JUMPS[editor.modeId] ?? [], how(t));   // 不在这个工作台：只按跳转表明着跨（画画不在表里）；跳不了 = setTool 拒收、说这把工具在哪
 }

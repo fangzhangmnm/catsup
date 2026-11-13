@@ -25,8 +25,9 @@ describe("键表：什么时候按 X 是什么意思", () => {
     }
     eq(act(ctx({ mode: "freeform", tool: "select" }), K("KeyT")), "tool.key:t:tape", "动作外 T 照旧是卷尺");
   });
-  it("硬表面：动作外 X = 删除小菜单（橡皮只剩 E；锁的一轮第三步）；动作里 X / Y / Z / N / T（加 Shift）= 轴键；G = 建组件；L = 选连着的一块、Shift+L = 拿掉（Blender；user 11-13 批，画线只剩 K）", () => {
-    eq(act(ctx({}), K("KeyX")), "delete.menu"); eq(act(ctx({}), K("KeyE")), "tool.key:e:erase");
+  it("硬表面：动作外 X = 删除小菜单、E = 推拉（橡皮不占键、在工具栏上拿；锁的一轮第三步）；动作里 X / Y / Z / N / T（加 Shift）= 轴键；G = 建组件；L = 选连着的一块、Shift+L = 拿掉（Blender；user 11-13 批，画线只剩 K）", () => {
+    eq(act(ctx({}), K("KeyX")), "delete.menu"); eq(act(ctx({}), K("KeyE")), "tool.key:e:pp", "硬表面 E = 推拉（统筹 11-13）"); eq(act(ctx({}), K("KeyP")), "tool.key:p:pp", "P 这一步还留着");
+    eq(act(ctx({ mode: "freeform", tool: "select" }), K("KeyE")), "modal:pp", "自由建模 E = 挤出起手，不跟着变"); eq(act(ctx({ mode: "verify" }), K("KeyE")), "tool.key:e:erase", "验证 E 不跟着变"); eq(act(ctx({ mode: "paint" as never }), K("KeyE")), "tool.key:e:erase", "画画 E 不跟着变");
     for (const tool of ["line", "move", "rect", "circle", "tape"] as const) for (const k of ["x", "y", "z", "n", "t"]) {
       eq(act(ctx({ tool, gesture: true }), K(`Key${k.toUpperCase()}`)), `axis.press:${k}`, `硬表面 ${tool} 手势中 ${k}`);
       eq(act(ctx({ tool, gesture: true }), K(`Key${k.toUpperCase()}`, k, { shift: true })), `axis.press:${k}:shift`, `硬表面 ${tool} 手势中 Shift+${k}`);

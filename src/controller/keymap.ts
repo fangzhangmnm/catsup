@@ -60,6 +60,9 @@ const TAKEN_BY_WALK = new Set<Chord>(["space", "e", "s", "q", "a", "t"]);
 export const GLOBAL: Layer = {
   id: "global",
   bindings: [
+    // 硬表面 E = 推拉（统筹 11-13 并进锁的一轮第三步：X 让给轴键之后两个键一次拿干净，橡皮不占键、在工具栏「橡皮格」里拿 / 换三种）。只在硬表面：
+    // 排在通用工具键前面（同一层先匹配先赢，同 K 的写法）；自由建模的 E（挤出起手）在上面一层、画画 / 验证 / 表面走下面通用那条，都不受影响。P 这一步还留着当推拉。
+    B("e", "tool.key:e:pp", "工具：pp（硬表面里 E = 推拉；橡皮在工具栏上拿）", (c) => c.mode === "geometry" && !c.walking),
     ...TOOL_KEYS.map(([k, t]) => B(k, `tool.key:${k}:${t}`, `工具：${t}`, (c) => !(c.walking && TAKEN_BY_WALK.has(k)))),
     // K：自由建模 = 切割；硬表面 = 画线（画线本来就能切开面；user 10-29「brep里面K也是线，先这样弄一下，之后可以好好理」）
     B("k", "tool.key:k:line", "工具：line（硬表面里 K 也是画线）", (c) => c.mode === "geometry"), B("k", "tool.key:k:knife", "工具：knife"),
@@ -317,7 +320,7 @@ export function muscleConflicts(): Map<Chord, Map<string, string[]>> {
 // user 10-29 拍：这六个「保持现状」（两个工作台各留各的；账本 UX71）。新冲出来的照旧 = 守卫红、再拍。
 export const KNOWN_CONFLICTS: Readonly<Record<Chord, string>> = {
   a: "硬表面 = 弧 · 自由建模 = 全选（Blender）",
-  e: "硬表面 = 橡皮 · 自由建模 = 挤出（Blender）",
+  e: "硬表面 = 推拉 · 自由建模 = 挤出起手（同一个动词）· 验证 / 表面 = 橡皮（锁的一轮第三步：硬表面 E 换成推拉、橡皮不占键）",
   f: "硬表面 = 偏移 · 自由建模 = 造面（Blender F；user 11-13 重做小屋子卡在 F，统筹插队单：硬表面的 F 不动、插入留 I）",
   g: "硬表面 = 建组件（SketchUp）· 自由建模 = 抓起来移动（Blender）",
   k: "硬表面 = 画线 · 自由建模 = 切割（user 10-29「brep里面K也是线，先这样弄一下，之后可以好好理」：画线本来就能切开面，算同一个「切」的手感）",

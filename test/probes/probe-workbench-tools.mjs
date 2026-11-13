@@ -56,7 +56,7 @@ const aL = await press("c");
 check(aL.mode === "geometry" && aL.tool === "circle" && /换到了「硬表面建模」工作台/.test(aL.hint), `表面里按 C：→ ${aL.mode}、手上 ${aL.tool}、提示「${aL.hint}」`, JSON.stringify(aL));
 await press("Escape"); await S(() => globalThis.__catsup.editor.setTool("select"));
 const aE = await press("e");
-check(aE.mode === "geometry" && aE.tool === "erase", "硬表面里按 E：本工作台的橡皮，不跳", JSON.stringify(aE));
+check(aE.mode === "geometry" && aE.tool === "pp", "硬表面里按 E：推拉（统筹 11-13：橡皮不占键、在工具栏上拿），不跳", JSON.stringify(aE));
 await S(() => globalThis.__catsup.editor.setTool("select"));
 
 // ---------- B 自由建模（网格体）----------
