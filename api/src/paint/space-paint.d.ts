@@ -22,8 +22,8 @@ export interface SpacePaintDeps {
         readonly pixels: Uint8Array | Uint8ClampedArray;
     };
     readonly camera: () => SpaceCamera;
-    /** 一笔落层之后（内核封的那几步在画板登记处攒着）：交给三维的撤销栈当一步（1-8a；label = 画一笔 / 擦一笔）。不给 = 不进三维的栈（测试）。 */
-    readonly commitStep?: (erase: boolean) => void;
+    /** 一笔落层之后（内核封的那几步在画板登记处攒着）：交给三维的撤销栈当一步（1-8a；label = 画一笔 / 擦一笔 / 油漆桶）。不给 = 不进三维的栈（测试）。 */
+    readonly commitStep?: (kind: "stroke" | "erase" | "fill") => void;
     /** 这一笔开不了（建这一笔的表时出错，比如画布上的格子超过这一版的上限）：这一笔已经取消、零痕迹；告诉宿主为什么（1-7：不许每帧在「准备」里抛）。 */
     readonly failed?: (err: unknown) => void;
 }

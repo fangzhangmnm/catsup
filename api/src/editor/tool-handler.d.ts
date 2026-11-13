@@ -40,7 +40,7 @@ export interface ToolSample {
 /** 底座递给工具的全部能力（窄接口 = 测试面：给假 ctx 喂事件序列，断言 commitOp 收到的 op）。 */
 /** 画画工作台交给宿主的一下（ToolCtx.paint）：哪把工具、哪个阶段、画布本地 CSS px。 */
 export interface PaintPointer {
-    readonly tool: "paintPen" | "paintEraser" | "eyedrop";
+    readonly tool: "paintPen" | "paintEraser" | "eyedrop" | "paintBucket";
     readonly phase: "hover" | "down" | "move" | "up" | "cancel" | "pick";
     readonly x: number;
     readonly y: number;

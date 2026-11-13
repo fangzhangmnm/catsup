@@ -521,7 +521,7 @@ export declare const TOOL_OPTIONS: {
         readonly size: {
             readonly kind: "number";
             readonly label: "大小";
-            readonly def: 12;
+            readonly def: 6 | 8 | 24 | 50;
             readonly min: 1;
             readonly max: 400;
             readonly step: 1;
@@ -542,7 +542,7 @@ export declare const TOOL_OPTIONS: {
         readonly hardness: {
             readonly kind: "number";
             readonly label: "硬度";
-            readonly def: 0.8;
+            readonly def: 0.9 | 0.5 | 0.75 | 0.8;
             readonly min: 0;
             readonly max: 1;
             readonly step: 0.05;
@@ -553,7 +553,7 @@ export declare const TOOL_OPTIONS: {
         readonly size: {
             readonly kind: "number";
             readonly label: "大小";
-            readonly def: 24;
+            readonly def: 6 | 8 | 24 | 50;
             readonly min: 1;
             readonly max: 400;
             readonly step: 1;
@@ -574,7 +574,7 @@ export declare const TOOL_OPTIONS: {
         readonly hardness: {
             readonly kind: "number";
             readonly label: "硬度";
-            readonly def: 0.8;
+            readonly def: 0.9 | 0.5 | 0.75 | 0.8;
             readonly min: 0;
             readonly max: 1;
             readonly step: 0.05;

@@ -7,11 +7,11 @@ import { type Guid } from "./guid.ts";
 export type BakeMode = "wysiwyg" | "engine";
 export interface DocumentSettings {
     displayUnit?: string;
-    gridStep: number;
-    snapIncrement: number;
+    gridStep?: number;
+    snapIncrement?: number;
     /** 单位制（3.4，2026-10-30；可选键）：metric / imperial / dnd = 显示单位 + 网格进位 + 吸附档一起（editor/grid-settings.ts）。缺 = 按老键猜。 */
     unitSystem?: UnitSystem;
-    absoluteGrid: boolean;
+    absoluteGrid?: boolean;
     /** 网格面（0.13.14；可选键，缺省 xy）：yz / xz = 立面网格。 */
     gridPlane?: "xy" | "yz" | "xz";
     /** 3.4：网格和三色轴不画（栅格面「关」；缺 = 画）。只管画，吸附照旧归 absoluteGrid。 */
@@ -21,7 +21,7 @@ export interface DocumentSettings {
     scaleRefs?: string[];
     /** v0.13.52–56 单选时写的旧键（只读不写）："none" = 不显示、别的 = 一个选单 id。 */
     scaleRef?: string;
-    gridSubdiv: number;
+    gridSubdiv?: number;
 }
 /** 带尺寸的图不许没尺寸、不许空（贴图导入、贴图表的「原图」都过它；契约 ai-docs/20261024-object-model-contract.md §3：**每张图必须带长度尺度**，user 2026-10-24）。 */
 export declare const assertSizedImage: (img: {
@@ -397,5 +397,9 @@ export interface ShelfDoc {
 }
 export declare const emptyShelf: () => ShelfDoc;
 export declare const shelfIsEmpty: (s: ShelfDoc) => boolean;
+/**
+ * 新文档的 settings = 写盘门口给公制、吸附 0.2 m、吸附关着写出来的那一份（统筹 11-13：新文档生下来就是现在的形状——单位制写明、吸附长度是主的；
+ * 以前是 3.3 的老形状 { 格距 1、细分 5 }，新文档进读的门口要靠「按老键猜」才成了公制）。键的先后 = 门口写的先后。守卫 test/unit-systems.test.ts 钉住和门口一致。
+ */
 export declare const DEFAULT_SETTINGS: DocumentSettings;
 export declare function newDocument(brep: BrepSnapshot, name?: string): CatsupDocument;

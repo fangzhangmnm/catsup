@@ -10,6 +10,9 @@ export declare const PAINT_STEP_LABELS: {
     readonly erase: {
         readonly title: "擦一笔";
     };
+    readonly fill: {
+        readonly title: "油漆桶";
+    };
 };
 export declare function opLabel(op: Op): StepLabel;
 export declare function labelText(l: StepLabel | undefined): string;

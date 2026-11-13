@@ -70,6 +70,16 @@ export declare const SAMPLE_Q = 1024;
 export declare const MAX_GAP = 63;
 /** 建表。gap = 铺的时候块之间留的格数（没人要的界线 = 它的一半；最多 MAX_GAP，超了 = 抛）。 */
 export declare function buildTexelTable(width: number, height: number, faces: readonly PaintFace[], gap?: number): TexelTable;
+/**
+ * 每块画布多边形有哪些格（归属表 owner 的另一种排法，油漆桶用；2026-11-13 Claude Opus 5.5，统筹「按『哪块多边形有哪些格』记一次、表变了再重算」）：
+ * runs[p] = 这块的行段 [x, y, 长度, x, y, 长度…]（按行、行内从左到右），cells[p] = 格数。和 owner 逐格相同（守卫 test/paint-bucket.test.ts）。
+ * 记一次 = 扫整张 owner 一遍（2048² 四百万格，十来毫秒）；缓存在表对象上（WeakMap），表重建了（准备过期重建 = 新对象）自然重算，不另记版本号。
+ */
+export interface PolyRuns {
+    readonly runs: readonly Int32Array[];
+    readonly cells: readonly number[];
+}
+export declare function polyRunsOf(t: TexelTable): PolyRuns;
 /** 一格的取样点离格子中心的偏移（②，量化过的）：以 1/SAMPLE_Q 格为单位的两个整数。中心在它那块多边形里（含边上）= [0, 0]；在外面 = 多边形上离中心最近的那一点，四舍五入到份。没人要的格子 = null。 */
 export declare function sampleOffset(t: TexelTable, x: number, y: number): [number, number] | null;
 /** 一格的取样点（②）：中心 + 量化过的偏移。中心在多边形里 = 中心；在外面 = 离多边形上最近那一点不到 1/2048 格（每个轴）。没人要的格子 = null。 */

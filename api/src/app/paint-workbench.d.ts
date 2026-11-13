@@ -28,6 +28,8 @@ export declare const tiledOnlyInWindow: (name: string) => string;
 export declare class PaintWorkbench {
     private readonly d;
     private stroke;
+    /** 油漆桶正在按着的那一下（画的是哪张画、上一次经过哪张面）。 */
+    private fill;
     /** 这一笔的时钟和压感（施工单二十 1a；规矩在 controller/stroke-clock.ts：一笔里只用一种钟、压感只信笔的）。 */
     private clock;
     private lastPen;
@@ -55,6 +57,10 @@ export declare class PaintWorkbench {
     /** 屏幕上这一点打到当前物件的哪张面、那张面走哪张画、落在哪一格。 */
     private aim;
     private begin;
+    /** 油漆桶的一下：按下 = 过门、开、填光标下那张面；拖 = 进了新的面就填；松手 = 落层一步；取消 = 零痕迹。 */
+    private bucket;
+    /** 填这张面（它那块画布多边形）；填不了说为什么。 */
+    private fillFace;
     /** 吸管：取那一处的颜色，取完回到上一把笔。 */
     private eyedrop;
 }
