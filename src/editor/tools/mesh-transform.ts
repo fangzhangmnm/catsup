@@ -37,7 +37,8 @@ const ROT_STEP = Math.PI / 12, SCALE_STEP = 0.1;
 // 悬停不高亮（user 10-27「自由建模模式不要悬浮高亮」）：自由建模的工具都不写 hover。
 export class MeshTransformTool implements ToolHandler {
   readonly grammar = "steps" as const;
-  readonly lock = "axis" as const;
+  /** 吃不吃锁：沿法线不吃（每个点沿自己的方向走，算法里本来就不读锁；以前也挂着 axis = 右上角给它出锁的钮、按了没用。锁的一轮第三步，探针 probe-lock-last 按这个字段列工具）。 */
+  get lock(): "axis" | undefined { return this.kind === "normal" ? undefined : "axis"; }
   readonly tool: "move" | "rotate" | "scale" | "shrink" | "transform";
   private readonly kind: MeshXformKind;
   /** 这一下做的是哪种（变换工具按抓的把手定：箭头 / 中心 = 挪、环 = 转、方块 / 平面块 = 缩；别的工具 = 自己那种）。 */

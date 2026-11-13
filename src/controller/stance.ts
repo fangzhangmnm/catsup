@@ -147,7 +147,7 @@ const FREEFORM: Partial<Record<Tool, Stance>> = {
   move: S({ ...FREEFORM_XFORM, direction: "viewPlane", shift: "吸附：反过来（点 > 边 > 面）", ctrl: "—", alt: "—" }),   // 底 = SNAP_BASE：鼠标关、触屏跟锁钮；芯片只印「吸附」
   rotate: S({ ...FREEFORM_XFORM, direction: "viewAxis", shift: "15° 一档：反过来", ctrl: "—", alt: "—" }),
   scale: S({ ...FREEFORM_XFORM, direction: "uniform", shift: "0.1 一档：反过来", ctrl: "—", alt: "—" }),
-  shrink: S({ ...FREEFORM_XFORM, direction: "normal", shift: "—", ctrl: "—", alt: "（Alt+S / Alt+W = 这把工具）" }),
+  shrink: S({ ...FREEFORM_XFORM, direction: "normal", shift: "—", ctrl: "—", alt: "（Alt+S / Alt+W = 这把工具）", lock: null }),   // 沿法线不吃锁（每个点沿自己的方向；锁的一轮第三步）
   pp: S({ ...FREEFORM_XFORM, grab: "face", direction: "normal", shift: "吸附：反过来（点 > 边 > 面）", ctrl: "—", alt: "—" }),   // 面默认沿法向；边 / 点默认屏幕平面（Blender 手感，user 10-28 晚）；另一种拖法 = 手柄中心（v0.17.59，gizmo 设计稿 §3：Shift 只管吸附）
   transform: S({ ...FREEFORM_XFORM, direction: "viewPlane", shift: "吸附 / 15° / 0.1 一档：反过来（看抓的哪个把手）", ctrl: "—", alt: "—" }),   // 变换 = 三家把手一起挂着（v0.17.59，gizmo 设计稿 §6）
   offset: S({ ...FREEFORM_XFORM, grab: "face", direction: "inPlane", shift: "—", ctrl: "（Ctrl+B / Ctrl+Shift+B 键盘 = 倒角 / 倒点）", alt: "—", lock: null }),   // 面 = 插入、边 = 倒角、点 = 倒点
