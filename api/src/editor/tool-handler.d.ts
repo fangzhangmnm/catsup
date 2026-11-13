@@ -234,6 +234,12 @@ export interface ToolCtx {
     } | null): void;
     /** 这一下点到的东西在选区里吗（点中已选的面 / 它的边 / 点都算）。 */
     hitInSelection(hit: HitResult3): boolean;
+    /** 这条参考线 / 参考点、这个子物体（键 = Classified 的 key，空组件也是）选着吗：和 hitInSelection 一起回答「点中的是不是已经选着的」。 */
+    isSelected(x: {
+        guide: number;
+    } | {
+        pool: string;
+    }): boolean;
     /** 屏幕矩形里的边 / 面（全局 id）。 */
     marqueePick(area: ScreenArea): {
         verts: Iterable<number>;
