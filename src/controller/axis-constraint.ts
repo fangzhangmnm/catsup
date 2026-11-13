@@ -78,16 +78,25 @@ export function axisConstraint(s: AxisState): AxisConstraint {
   return { kind: "free" };
 }
 
-const KEY_NAME: Readonly<Record<AxisKey, string>> = { x: "X", y: "Y", z: "Z", n: "法线", t: "边的方向" };
-const PLANE_NAME: Readonly<Record<AxisKey, string>> = { x: "YZ 面", y: "XZ 面", z: "XY 面", n: "光标下那张面", t: "垂直于那条边的面" };
-/** 给人看的：亮哪几个键（带不带 Shift，按先后）、一句话（提示行）。 */
-export function axisDescribe(s: AxisState): { readonly keys: readonly { key: AxisKey; shift: boolean }[]; readonly say: string } {
+const KEY_NAME: Readonly<Record<AxisKey, string>> = { x: "X", y: "Y", z: "Z", n: "按 N 时那张面的法线", t: "按 T 时那条边" };   // N / T 的面和边是按键那一刻定住的（之后光标会挪走；统筹 11-13 改字）
+const PLANE_NAME: Readonly<Record<AxisKey, string>> = { x: "YZ 面", y: "XZ 面", z: "XY 面", n: "按 N 时那张面", t: "垂直于按 T 时那条边的面" };
+const AXIS_KEYS: readonly ("x" | "y" | "z")[] = ["x", "y", "z"];
+/** 中文和字母之间补一个空格（「在XY 面里」→「在 XY 面里」）。 */
+const spaced = (t: string): string => t.replace(/([\u4e00-\u9fff）])([A-Z])/g, "$1 $2").replace(/([A-Z])([\u4e00-\u9fff])/g, "$1 $2");
+/** 这条线和坐标架哪根轴平行（给了坐标架就按方向判；没给 = 两条 Shift 都是 X / Y / Z 键时就是剩下那根）。 */
+function axisOfLine(d: Vec3, shifts: readonly Entry[], axes?: { readonly x: Vec3; readonly y: Vec3; readonly z: Vec3 }): "x" | "y" | "z" | null {
+  if (axes) return AXIS_KEYS.find((k) => parallel(d, axes[k])) ?? null;
+  const ks = shifts.map((x) => x.key);
+  return ks.every((k) => k === "x" || k === "y" || k === "z") && ks[0] !== ks[1] ? (AXIS_KEYS.find((k) => !ks.includes(k)) ?? null) : null;
+}
+/** 给人看的：亮哪几个键（带不带 Shift，按先后）、一句话（提示行）。axes = 现在的坐标架（交线和某根轴平行时直接说「沿 Z」）。 */
+export function axisDescribe(s: AxisState, axes?: { readonly x: Vec3; readonly y: Vec3; readonly z: Vec3 }): { readonly keys: readonly { key: AxisKey; shift: boolean }[]; readonly say: string } {
   const es = open(s).entries, shifts = es.filter((x) => x.shift), singles = es.filter((x) => !x.shift);
   const keys = es.map((x) => ({ key: x.key, shift: x.shift }));
   let say = "";
-  if (shifts.length === 2) say = `沿${PLANE_NAME[shifts[0].key]}和${PLANE_NAME[shifts[1].key]}的交线`;
-  else if (shifts.length === 1) say = singles.length ? `在${PLANE_NAME[shifts[0].key]}里，沿 ${KEY_NAME[singles[singles.length - 1].key]}（投到面里）` : `只在${PLANE_NAME[shifts[0].key]}里`;
-  else if (singles.length === 2) say = `在 ${KEY_NAME[singles[0].key]} 和 ${KEY_NAME[singles[1].key]} 撑出的面里，一条边沿 ${KEY_NAME[singles[0].key]}`;
-  else if (singles.length === 1) say = `沿 ${KEY_NAME[singles[0].key]}`;
-  return { keys, say };
+  if (shifts.length === 2) { const ax = axisOfLine(cross(shifts[0].dir, shifts[1].dir), shifts, axes); say = ax ? `沿 ${KEY_NAME[ax]}` : `沿${PLANE_NAME[shifts[0].key]}和${PLANE_NAME[shifts[1].key]}的交线`; }
+  else if (shifts.length === 1) say = singles.length ? `在${PLANE_NAME[shifts[0].key]}里，沿${KEY_NAME[singles[singles.length - 1].key]}（投到面里）` : `只在${PLANE_NAME[shifts[0].key]}里`;
+  else if (singles.length === 2) say = `在${KEY_NAME[singles[0].key]}和${KEY_NAME[singles[1].key]}撑出的面里，一条边沿${KEY_NAME[singles[0].key]}`;
+  else if (singles.length === 1) say = `沿${KEY_NAME[singles[0].key]}`;
+  return { keys, say: spaced(say) };
 }
