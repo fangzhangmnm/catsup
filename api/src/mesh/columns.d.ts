@@ -109,9 +109,8 @@ export type EdgeOrigin = {
     readonly values?: ReadonlyMap<string, number>;
 };
 export declare const GROWN_EDGE: EdgeOrigin;
-/** 面的旧样子。没有列的内核：ring / pts / corner / face 都是 null（只记材质，几乎不花时间）。 */
+/** 面的旧样子。没有列的内核：ring / pts / corner / face 都是 null（几乎不花时间；材质、隐藏都是列，3b 起不另记）。 */
 export interface FaceShape {
-    readonly mat: number;
     readonly ring: readonly number[] | null;
     /** 环上各点当时的位置（x y z × 角）。 */
     readonly pts: Float64Array | null;

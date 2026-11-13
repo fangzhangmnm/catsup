@@ -4,7 +4,7 @@ import { type Side } from "../kernel/flood.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { ToolPointer } from "./editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "./tool-handler.ts";
-import { type MeshKernel } from "../mesh/mesh-kernel.ts";
+import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 export declare const SURFACE_TIERS: readonly [{
     readonly id: "smooth";
     readonly label: "平滑组";

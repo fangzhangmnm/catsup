@@ -1,4 +1,4 @@
-import { type MeshKernel } from "../../../mesh/mesh-kernel.ts";
+import type { MeshKernel } from "../../../mesh/mesh-kernel.ts";
 export interface MergeReversedPlan {
     /** 要删的面（每对一张，升序）。 */
     remove: number[];

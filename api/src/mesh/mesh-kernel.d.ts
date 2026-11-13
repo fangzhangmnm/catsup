@@ -14,15 +14,12 @@ export interface SmoothDefault {
 }
 /** 新建的网格体的默认平滑：全是棱（只看手标）。老文件缺这一项怎么办归读的门口（format/migrate/mesh.ts smoothDefaultOf；2026-11-12 起内核不认「老文件」）。 */
 export declare const SMOOTH_DEFAULT_NEW: SmoothDefault;
-/** 面标记：隐藏（user 10-27「show and hide faces」）。边自己另有一位隐藏（F_HIDDEN），读的人按那一位单独判，不从面推（规程第九½节：边的隐藏这一列留着）。 */
-export declare const FF_HIDDEN = 1;
 export interface MeshSnapshot {
-    readonly version: 2;
+    readonly version: 3;
     readonly minor: 0;
     readonly patch: 0;
     readonly positions: number[];
     readonly faces: number[][];
-    readonly faceMat: number[];
     readonly edges: [number, number, number][];
     /** 角上的列（有才有这个键）：声明 + 每张面一项 = 角数 × 每角几个数。 */
     readonly corner?: readonly {
@@ -48,8 +45,6 @@ export declare class MeshKernel {
     faceStart: Int32Array<ArrayBuffer>;
     faceLen: Int32Array<ArrayBuffer>;
     fAlive: Uint8Array<ArrayBuffer>;
-    faceMat: Int32Array<ArrayBuffer>;
-    faceFlags: Uint8Array<ArrayBuffer>;
     private fCount;
     private fFree;
     loopVert: Int32Array<ArrayBuffer>;
@@ -108,7 +103,7 @@ export declare class MeshKernel {
     faceNormal(f: number): Pt3;
     addVertex(p: Pt3): number;
     /** 加一张面（顶点环）；相邻顶点对没有边的自动补边。环 < 3 个不同顶点 / 有重复 / 顶点不活 → 抛（人话）。origin = 这张面从哪来（必填：角上的数怎么来，columns.ts）。 */
-    addFace(ring: readonly number[], mat: number, origin: FaceOrigin): number;
+    addFace(ring: readonly number[], origin: FaceOrigin): number;
     /** 删面；它独占的边（没别的面、不是裸线）一起删；孤立的顶点留着（Blender 同款：删面留点线，要删干净用 ops 的 deleteFaces(onlyFaces=false)）。 */
     removeFace(f: number): void;
     /**
@@ -210,11 +205,8 @@ export declare class MeshKernel {
     isWire(e: number): boolean;
     setWire(e: number, on: boolean): void;
     setEdgeFlags(e: number, flags: number): void;
-    setFaceMat(f: number, slot: number): void;
-    setFaceFlags(f: number, mask: number, on: boolean): void;
     /** 换默认平滑：每条边的「平滑吗 / 画线吗」都可能变 → 所有边和面都记进改动日志（渲染按日志增量重建）。 */
     setSmoothDefault(sd: SmoothDefault): void;
-    isFaceHidden(f: number): boolean;
     hasFlag(e: number, mask: number): boolean;
     private keyOf;
     private touch;
