@@ -18,7 +18,7 @@ import { P, laidOut, targetOf } from "./paint-space-kit.ts";
 const DENSITY = 8;   // 一米八格
 function rig() {
   const m = new MeshKernel(), v = [P(0, 0, 0), P(6, 0, 0), P(6, 3, 0), P(0, 3, 0)].map((p) => m.addVertex(p));
-  const f = m.addFace(v, -1, FRESH), uv = laidOut(m, "uv", [f], { density: DENSITY }), g = buildTargetGeo(targetOf(m, uv));
+  const f = m.addFace(v, FRESH), uv = laidOut(m, "uv", [f], { density: DENSITY }), g = buildTargetGeo(targetOf(m, uv));
   // 世界 → 贴图坐标（平的面、铺法是相似变换：拿面上第一个三角形的公式倒过来）
   const F = g.table.faces.get(f)!.tris[0].formula, a = F.du, b = F.dv, det = a.x * b.y - a.y * b.x;
   const toUv = (x: number, y: number): [number, number] => { const dx = x - F.o.x, dy = y - F.o.y; return [(dx * b.y - dy * b.x) / det, (a.x * dy - a.y * dx) / det]; };

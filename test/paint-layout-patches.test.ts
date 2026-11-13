@@ -13,14 +13,14 @@ const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 function hills(n: number, size: number, h: (x: number, y: number) => number): MeshKernel {
   const m = new MeshKernel(), id: number[][] = [];
   for (let i = 0; i <= n; i++) { id.push([]); for (let j = 0; j <= n; j++) { const x = -size / 2 + (size * i) / n, y = -size / 2 + (size * j) / n; id[i].push(m.addVertex(P(x, y, h(x, y)))); } }
-  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) m.addFace([id[i][j], id[i + 1][j], id[i + 1][j + 1], id[i][j + 1]], -1, FRESH);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) m.addFace([id[i][j], id[i + 1][j], id[i + 1][j + 1], id[i][j + 1]], FRESH);
   return m;
 }
 /** 螺旋坡道：绕 z 轴两圈、慢慢往上的一条环带（每一格朝向都差不多朝上 → 都想进同一片，压平后第二圈会叠在第一圈上）。 */
 function spiral(steps = 48, turns = 2): MeshKernel {
   const m = new MeshKernel(), inner: number[] = [], outer: number[] = [];
   for (let i = 0; i <= steps; i++) { const a = (2 * Math.PI * turns * i) / steps, z = 0.02 * i; inner.push(m.addVertex(P(Math.cos(a), Math.sin(a), z))); outer.push(m.addVertex(P(2 * Math.cos(a), 2 * Math.sin(a), z))); }
-  for (let i = 0; i < steps; i++) m.addFace([inner[i], outer[i], outer[i + 1], inner[i + 1]], -1, FRESH);
+  for (let i = 0; i < steps; i++) m.addFace([inner[i], outer[i], outer[i + 1], inner[i + 1]], FRESH);
   return m;
 }
 /** 点在多边形里面（严格：压在边上不算）。 */
@@ -115,7 +115,7 @@ describe("开始画的铺法：按朝向连成片（施工单十五）", () => {
     for (const [f, v] of r1.values) eq([...r2.values.get(f)!].join(","), [...v].join(","), `面 ${f}`);
     // 倒着建：第 k 张面 = 原来的第 n−1−k 张
     const n = fs.length, m2 = new MeshKernel(), vmap = new Map<number, number>();
-    for (const f of [...fs].reverse()) m2.addFace(m.faceVerts(f).map((v) => { let w = vmap.get(v); if (w === undefined) { w = m2.addVertex(m.pt(v)); vmap.set(v, w); } return w; }), -1, FRESH);
+    for (const f of [...fs].reverse()) m2.addFace(m.faceVerts(f).map((v) => { let w = vmap.get(v); if (w === undefined) { w = m2.addVertex(m.pt(v)); vmap.set(v, w); } return w; }), FRESH);
     const back = (g: number): number => fs[n - 1 - m2.faces().indexOf(g)];
     const sets2 = patchesOf(m2, m2.faces()).map((u) => u.faces.map(back).sort((a, b) => a - b).join(",")).sort().join(" | ");
     eq(sets2, setsOf(m, fs), "片一样");
@@ -126,7 +126,7 @@ describe("开始画的铺法：按朝向连成片（施工单十五）", () => {
 function slantStrip(n: number, s: number, H: number): MeshKernel {
   const m = new MeshKernel(), lo: number[] = [], hi: number[] = [];
   for (let i = 0; i <= n; i++) { lo.push(m.addVertex(P(i, 0, 0))); hi.push(m.addVertex(P(i + s, H, 0))); }
-  for (let i = 0; i < n; i++) m.addFace([lo[i], lo[i + 1], hi[i + 1], hi[i]], -1, FRESH);
+  for (let i = 0; i < n; i++) m.addFace([lo[i], lo[i + 1], hi[i + 1], hi[i]], FRESH);
   return m;
 }
 /** 一片（铺好以后）：面压平后的面积 ÷ 坐标的包围盒面积。 */

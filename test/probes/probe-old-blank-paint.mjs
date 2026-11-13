@@ -28,7 +28,7 @@ const open1 = await S(async (arr) => {
   await C.session.openLocalBytes(Uint8Array.from(arr), "v0.19.60-unpainted.catsup", null);
   const Sc = C.editor.sceneRef, old = [...Sc.textures.values()].find((t) => t.content.kind === "layered");
   let painted = 0;
-  for (const d of Sc.defs.values()) if (d.body.kind === "mesh") { const k = d.body.kernel; for (const f of k.faces()) if (Sc.facePaint(d.id, k.faceMat[f] >= 0 ? k.faceMat[f] : undefined)) painted++; }
+  for (const d of Sc.defs.values()) if (d.body.kind === "mesh") { const k = d.body.kernel; for (const f of k.faces()) if (Sc.facePaint(d.id, (k.column("material_index")?.data[f] ?? -1) >= 0 ? (k.column("material_index")?.data[f] ?? -1) : undefined)) painted++; }
   return { old: old?.guid ?? null, layout: old?.layout ?? null, painted, uvSets: Sc.uvSets.size, body: document.body.innerText };
 }, FIXTURE);
 check(typeof open1.old === "string" && open1.layout && "definition" in open1.layout, "那一行贴图原样带着（layout 还是以前的 { definition, uvSet }）", JSON.stringify(open1.layout));

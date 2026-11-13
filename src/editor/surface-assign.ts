@@ -5,6 +5,7 @@
 // 宿主只给 apply(faces) 与 sample(face)（涂材质 / 设碰撞 / 指派贴图…）；模块管：三档 ↔ 单 / 双 / 三击、选项档 = 下限、按住拖 = 刮涂、
 // 有面选区且点在选区里 = 直接 apply 到选区、吸色子模式（Ctrl / Alt 临时、条上钮锁定）。到锐角 floodfill 过边条件 = 软边 ∨ 二面角 ≤ 阈值。
 // created 2026-10-24 by Claude Fable 5.1
+import { faceHidden } from "../mesh/reserved-columns.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import type { FaceEvent, FaceId } from "../kernel/kernel.ts";
 import { type Side, floodFaces, floodSides, gates } from "../kernel/flood.ts";
@@ -12,7 +13,7 @@ import { applyNormal, applyPt } from "../scene/xform.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { ToolPointer } from "./editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "./tool-handler.ts";
-import { type MeshKernel, FF_HIDDEN } from "../mesh/mesh-kernel.ts";
+import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { edgeSmooth } from "../mesh/edge-smooth.ts";
 
 export const SURFACE_TIERS = [
@@ -64,7 +65,7 @@ export function meshFacesForAssign(m: MeshKernel, seed: number, tier: SurfaceTie
     const f = out[i];
     for (const e of m.fEdges(f)) {
       if (e < 0) continue;
-      for (const g of m.eFaces(e)) if (!seen.has(g) && !(m.faceFlags[g] & FF_HIDDEN) && crosses(e, f, g)) { seen.add(g); out.push(g); }
+      for (const g of m.eFaces(e)) if (!seen.has(g) && !faceHidden(m, g) && crosses(e, f, g)) { seen.add(g); out.push(g); }
     }
   }
   return out.sort((a, b) => a - b);

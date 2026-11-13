@@ -1,6 +1,7 @@
 // scene/paint.ts —— 画在场景这一层的问法（贴图主线 1-3b，施工单 ai-docs/20261110-paint-workorders-8.md）。created 2026-11-10 by Claude Opus 5.5
 // 哪些面走画（Scene.facePaint 是那一个问法，这里是它的批量用法）、规矩自检、哪些走画的面还没有位置、「带着画的面现在还搬不了」那个唯一的拒绝判断。
 // 不认识编辑器、不改场景：改场景的只有三条指令（editor/paint-ops.ts）。
+import { faceMaterial } from "../mesh/reserved-columns.ts";
 import type { DefId, Material, MeshBody, Scene, UvSetRow } from "./scene.ts";
 import { paintIn, tiledPaintIn, UV_CANVAS_EPS, type TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
@@ -18,7 +19,7 @@ export const PAINT_CANT_MOVE = "这些面上有画：带着画的面现在还不
 export function paintUvOf(s: Scene, def: DefId, f: number): Guid | null {
   const b = s.defs.get(def)?.body;
   if (!b || b.kind !== "mesh" || !hasUv(b) || !b.kernel.hasF(f)) return null;
-  return s.facePaint(def, b.kernel.faceMat[f])?.uvSet.guid ?? null;
+  return s.facePaint(def, faceMaterial(b.kernel, f))?.uvSet.guid ?? null;
 }
 
 /**

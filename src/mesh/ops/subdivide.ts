@@ -48,12 +48,12 @@ export function catmullClark(m: MeshKernel): number {
     vp.set(v, mul(add(add(Q, mul(R, 2)), mul(P, n - 3)), 1 / n));
   }
   // ---- 读：新的面（老 id 记着，写的时候换成新 id）和要搬的边标记 ----
-  const quads: { ring: ["v" | "e" | "f", number][]; mat: number; f: number; i: number }[] = [];
+  const quads: { ring: ["v" | "e" | "f", number][]; f: number; i: number }[] = [];
   for (const f of faces) {
     const r = m.faceVerts(f), n = r.length;
     for (let i = 0; i < n; i++) {
       const prev = r[(i - 1 + n) % n], cur = r[i], next = r[(i + 1) % n];
-      quads.push({ ring: [["v", cur], ["e", m.edgeOf(cur, next)], ["f", f], ["e", m.edgeOf(prev, cur)]], mat: m.faceMat[f], f, i });
+      quads.push({ ring: [["v", cur], ["e", m.edgeOf(cur, next)], ["f", f], ["e", m.edgeOf(prev, cur)]], f, i });
     }
   }
   // 角上的数（贴图主线 1-2，Fable 裁定 ①）：每个四边形 = 原面 f 的一块；取样处 = [原来第 i 个角照抄, 这条边两端**原位置**的中点, 原面各角原位置的平均, 另一条边的中点]
@@ -78,7 +78,7 @@ export function catmullClark(m: MeshKernel): number {
   for (const e of edges) ne.set(e, m.addVertex(ep.get(e)!));
   for (const f of faces) nf.set(f, m.addVertex(fp.get(f)!));
   const id = ([k, x]: ["v" | "e" | "f", number]): number => (k === "v" ? nv : k === "e" ? ne : nf).get(x)!;
-  for (const q of quads) m.addFace(q.ring.map(id), q.mat, originOf(q));
+  for (const q of quads) m.addFace(q.ring.map(id), originOf(q));   // 一块：面上的列（材质、隐藏）照抄原面
   for (const h of halves) for (const [x, y] of [[nv.get(h.a)!, ne.get(h.e)!], [ne.get(h.e)!, nv.get(h.b)!]]) { const k = m.edgeOf(x, y); if (k >= 0) m.setEdgeFlags(k, h.fl & ~F_WIRE); }
   return quads.length;
 }

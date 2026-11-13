@@ -11,7 +11,7 @@ const maxFacesOnEdge = (k: MeshKernel): number => Math.max(0, ...k.edges().map((
 describe("非流形 / 重复面护栏", () => {
   it("环切从被 3 张面共用的边起手 = 空结果，不抛；从裸线起手也是", () => {
     const k = new MeshKernel(), a = k.addVertex(P(0, 0)), b = k.addVertex(P(1, 0));
-    for (let i = 0; i < 3; i++) { const t = (2 * Math.PI * i) / 3, c = k.addVertex(P(1, Math.cos(t), Math.sin(t))), d = k.addVertex(P(0, Math.cos(t), Math.sin(t))); k.addFace([a, b, c, d], -1, FRESH); }   // 一条边三片鳍
+    for (let i = 0; i < 3; i++) { const t = (2 * Math.PI * i) / 3, c = k.addVertex(P(1, Math.cos(t), Math.sin(t))), d = k.addVertex(P(0, Math.cos(t), Math.sin(t))); k.addFace([a, b, c, d], FRESH); }   // 一条边三片鳍
     const e = k.edgeOf(a, b);
     eq(k.eFaces(e).length, 3);
     let r: ReturnType<typeof loopCut> | null = null, err: unknown = null;
@@ -22,7 +22,7 @@ describe("非流形 / 重复面护栏", () => {
   });
   it("并点把两张四边形并成同一个点集（一张枕头）= 只留一张；每条边最多 2 张面；自检干净", () => {
     const k = new MeshKernel(), a = k.addVertex(P(0, 0)), b = k.addVertex(P(1, 0)), c = k.addVertex(P(1, 1)), d = k.addVertex(P(0, 1)), e = k.addVertex(P(1.01, 0, 0.5));
-    k.addFace([a, b, c, d], -1, FRESH); k.addFace([a, d, c, e], -1, FRESH);   // 第二张差一个点（e 挨着 b）
+    k.addFace([a, b, c, d], FRESH); k.addFace([a, d, c, e], FRESH);   // 第二张差一个点（e 挨着 b）
     eq(k.faceCount(), 2);
     mergeVerts(k, [b, e], "first");
     eq(k.faceCount(), 1, "并完该剩一张");
@@ -31,9 +31,9 @@ describe("非流形 / 重复面护栏", () => {
   });
   it("原来就有的重复面（和这次并点无关）不碰", () => {
     const k = new MeshKernel(), a = k.addVertex(P(0, 0)), b = k.addVertex(P(1, 0)), c = k.addVertex(P(1, 1)), d = k.addVertex(P(0, 1));
-    k.addFace([a, b, c, d], -1, FRESH); k.addFace([a, d, c, b], -1, FRESH);   // 背靠背两张（用户自己的）
+    k.addFace([a, b, c, d], FRESH); k.addFace([a, d, c, b], FRESH);   // 背靠背两张（用户自己的）
     const x = k.addVertex(P(5, 0)), y = k.addVertex(P(6, 0)), z = k.addVertex(P(6, 1)), w = k.addVertex(P(5, 1)), q = k.addVertex(P(5.5, 1.2));
-    k.addFace([x, y, z, w], -1, FRESH); k.addFace([w, z, q], -1, FRESH);
+    k.addFace([x, y, z, w], FRESH); k.addFace([w, z, q], FRESH);
     mergeVerts(k, [z, q], "center");   // 离得远的另一块并点
     eq(k.faceCount(), 3, "背靠背那两张该还在（另一块的三角塌了）");
   });

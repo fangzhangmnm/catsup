@@ -1,11 +1,12 @@
 // golden 场景（格式测试与冻结样本共用；改这里 = 改语料，须同步重冻结并说明）。created 2026-09-20 by Claude Fable 5.1
+import { faceHidden, setFaceHidden, setFaceMaterial } from "../src/mesh/reserved-columns.ts";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { circleSegmentsOnPlane, rectSegments } from "../src/editor/tools.ts";
 import { Scene } from "../src/scene/scene.ts";
 import { brepToMesh } from "../src/scene/kinds.ts";
 import { BUILTIN_BACK_SLOT } from "../src/scene/builtin-materials.ts";
-import { F_SOFT, F_SMOOTH, FF_HIDDEN } from "../src/mesh/mesh-kernel.ts";
+import { F_SOFT, F_SMOOTH } from "../src/mesh/mesh-kernel.ts";
 import { applyOp, faceKey, edgeKey } from "../src/editor/ops.ts";
 import { GROUND } from "../src/editor/pick.ts";
 import { translation } from "../src/scene/xform.ts";
@@ -181,7 +182,7 @@ export function sceneMeshed(): Scene {
   const d = s.mintDef("网格盒", sceneBox(1, 1));
   oneSided(s, d.id);
   const body = brepToMesh(s.brep(d.id)), m = body.kernel;
-  m.setEdgeFlags(m.edgeOf(0, 1), F_SOFT | F_SMOOTH); m.setFaceFlags(m.faces()[1], FF_HIDDEN, true); m.setFaceMat(m.faces()[2], 0); body.materialSlots = [0];
+  m.setEdgeFlags(m.edgeOf(0, 1), F_SOFT | F_SMOOTH); setFaceHidden(m, m.faces()[1], true); setFaceMaterial(m, m.faces()[2], 0); body.materialSlots = [0];
   d.body = body;
   s.mintInstance(s.root, null, d.id, translation({ x: 3, y: 0, z: 0 }));
   return s;
@@ -333,7 +334,7 @@ export function sceneFingerprint(s: Scene): string {
       const { corner, face, ...geo } = raw, other = <T extends { def: { id: string } }>(xs: readonly T[] | undefined): T[] => (xs ?? []).filter((x) => !UV_COLUMN_IDS.has(x.def.id));
       const snap = { ...geo, ...(other(corner).length ? { corner: other(corner) } : {}), ...(other(face).length ? { face: other(face) } : {}), ...(sl.length ? { uvSets: sl.map((g) => rows.get(g)?.name ?? "?").sort(), uv: m.faces().map((f) => { const g = uvSetOfFace(m, sl, f); return g ? `${rows.get(g)?.name ?? "?"}:${Array.from(uvAt(m, sl, f, g)!).map(String).join(",")}` : null; }) } : {}) };   // 速查表的先后、代号的号不进指纹（存盘时按排法 GUID 的字典序换号；先后不是语义）
       const uv = [...rows.values()].map((u) => `${u.name} ${u.width}x${u.height}@${u.pxPerM}`).sort().join(" | ");
-      parts.push(`def ${label(d.id)} kind=mesh slots=${d.body.materialSlots.join(",")}${uv ? ` uvSets=${uv}` : ""}: ${JSON.stringify(snap)} faceFlags=${m.faces().map((f) => m.faceFlags[f]).join(",")}`); for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`); continue; }
+      parts.push(`def ${label(d.id)} kind=mesh slots=${d.body.materialSlots.join(",")}${uv ? ` uvSets=${uv}` : ""}: ${JSON.stringify(snap)} faceFlags=${m.faces().map((f) => (faceHidden(m, f) ? 1 : 0)).join(",")}`); for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`); continue; }
     const b = s.brep(d.id);
     parts.push(`def ${label(d.id)} slots=${b.materialSlots.join(",")}: ${fingerprint(b.kernel)} mats=${b.kernel.faces().map((f) => `${b.kernel.faceMaterialOf(f.id) ?? -1}/${b.kernel.faceMaterialOf(f.id, 1) ?? -1}`).sort().join(",")}${guidesFp(b.guides)}${b.drawFrame ? ` drawFrame=${f3(b.drawFrame.origin)}|${f3(b.drawFrame.x)}|${f3(b.drawFrame.y)}|${f3(b.drawFrame.z)}` : ""}`);
     for (const g of b.groups.values()) parts.push(`  group parent=${g.parent} axes=${[g.axes.origin.x, g.axes.origin.y, g.axes.origin.z].join(",")}: ${fingerprint(g.kernel)}${guidesFp(g.guides)}`);

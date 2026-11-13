@@ -47,7 +47,7 @@ export const RAW = { tau: 1, deadzone: 0 };
 export function gridMesh(n: number, size: number, h: (x: number, y: number) => number = () => 0, o: Pt3 = P(0, 0, 0)): MeshKernel {
   const m = new MeshKernel(), id: number[][] = [];
   for (let i = 0; i <= n; i++) { id.push([]); for (let j = 0; j <= n; j++) { const x = o.x - size / 2 + (size * i) / n, y = o.y - size / 2 + (size * j) / n; id[i].push(m.addVertex(P(x, y, o.z + h(x, y)))); } }
-  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) m.addFace([id[i][j], id[i + 1][j], id[i + 1][j + 1], id[i][j + 1]], -1, FRESH);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) m.addFace([id[i][j], id[i + 1][j], id[i + 1][j + 1], id[i][j + 1]], FRESH);
   return m;
 }
 
@@ -60,7 +60,7 @@ export function boxMesh(n: number, size = 1): MeshKernel {
   for (const [ax, a, b] of sides) for (const at of [0, n]) for (let p = 0; p < n; p++) for (let q = 0; q < n; q++) {
     const c = (u: number, v: number): number => { const t = [0, 0, 0]; t[ax] = at; t[a] = u; t[b] = v; return vid(t[0], t[1], t[2]); };
     const quad = [c(p, q), c(p + 1, q), c(p + 1, q + 1), c(p, q + 1)];
-    m.addFace(at === n ? quad : quad.reverse(), -1, FRESH);
+    m.addFace(at === n ? quad : quad.reverse(), FRESH);
   }
   return m;
 }

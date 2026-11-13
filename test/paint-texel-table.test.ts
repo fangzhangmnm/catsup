@@ -17,11 +17,11 @@ const dist3 = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z -
 function painted(seed: number, density = 40): { k: MeshKernel; t: TexelTable; twisted: number } {
   const k = new MeshKernel(), r = rng(seed);
   addBox(k, P(0, 0, 0), P(0.6 + 0.4 * r(), 0.5, 0.8));
-  const pent = k.addFace([0, 1, 2, 3, 4].map((i) => k.addVertex(P(3 + 0.5 * Math.cos((2 * Math.PI * i) / 5), 0.5 * Math.sin((2 * Math.PI * i) / 5), 0))), -1, FRESH);
+  const pent = k.addFace([0, 1, 2, 3, 4].map((i) => k.addVertex(P(3 + 0.5 * Math.cos((2 * Math.PI * i) / 5), 0.5 * Math.sin((2 * Math.PI * i) / 5), 0))), FRESH);
   extrudeFaces(k, [pent]);
   for (const v of k.faceVerts(pent)) { const p = k.pt(v); k.setPos(v, { ...p, z: p.z + 0.7 }); }
-  for (let i = 0; i < 3; i++) k.addFace([P(6 + i, 0, 0), P(6.4 + i, 0.1 * r(), 0.3), P(6.1 + i, 0.6, 0.1)].map((p) => k.addVertex(p)), -1, FRESH);
-  const twisted = k.addFace([P(10, 0, 0), P(11, 0, 0.2), P(11, 0.8, 0), P(10, 0.8, 0.25)].map((p) => k.addVertex(p)), -1, FRESH);
+  for (let i = 0; i < 3; i++) k.addFace([P(6 + i, 0, 0), P(6.4 + i, 0.1 * r(), 0.3), P(6.1 + i, 0.6, 0.1)].map((p) => k.addVertex(p)), FRESH);
+  const twisted = k.addFace([P(10, 0, 0), P(11, 0, 0.2), P(11, 0.8, 0), P(10, 0.8, 0.25)].map((p) => k.addVertex(p)), FRESH);
   const lay = layoutFaces(k, k.faces(), { density });
   if (!lay.ok) throw new Error(lay.reason);
   for (const [f, v] of lay.values) placeOn(k, f, UV, [...v]);

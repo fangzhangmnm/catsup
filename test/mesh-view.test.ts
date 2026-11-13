@@ -1,11 +1,12 @@
 // mesh 显示视图 + 网格体进场景（M2，2026-10-27 Claude Fable 5.1；user「不要monkey patch。基础打扎实」）：
 // 契约 scene/kernel-view.ts 由 mesh/mesh-view.ts 真做（记录 = 内核事实、平面 = 环的绕向、自己的改动日志）；WorldView 给 mesh 池开槽；渲染缓存 pool-mesh 对它全量 + 增量；
 // brep → mesh 出多边形面（封闭壳朝外、带洞的面三角化且内部边软 + 平滑）；三角汤往返；clone / castDefinition op。
+import { faceHidden, faceMaterial, setFaceHidden, setFaceMaterial } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { FRESH } from "../src/mesh/columns.ts";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
-import { MeshKernel, F_SOFT, F_SMOOTH, FF_HIDDEN } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel, F_SOFT, F_SMOOTH } from "../src/mesh/mesh-kernel.ts";
 import { addBox, flipFaces, recalcNormals } from "../src/mesh/ops/index.ts";
 import { meshViewOf } from "../src/mesh/mesh-view.ts";
 import { meshFromTriangles, meshToTriangles } from "../src/mesh/tri-soup.ts";
@@ -48,8 +49,8 @@ describe("mesh 显示视图（契约 kernel-view.ts）", () => {
     const e = m.edges()[0];
     m.setFlags(e, F_SOFT, true); assert(v.isSoft(e) && v.soft.has(e) && v.edgeLayers.layer("soft").has(e));
     m.setFlags(e, F_SMOOTH, true); assert(v.isSmooth(e) && v.edgeLayers.layer("smooth").has(e));
-    m.setFaceFlags(faces[0], FF_HIDDEN, true); assert(v.isFaceHidden(faces[0]) && !v.isFaceHidden(faces[1]));
-    m.setFaceMat(faces[1], 3); eq(v.faceMaterialOf(faces[1], 0), 3); eq(v.faceMaterialOf(faces[1], 1), undefined, "单面：背面没有材质");
+    setFaceHidden(m, faces[0], true); assert(v.isFaceHidden(faces[0]) && !v.isFaceHidden(faces[1]));
+    setFaceMaterial(m, faces[1], 3); eq(v.faceMaterialOf(faces[1], 0), 3); eq(v.faceMaterialOf(faces[1], 1), undefined, "单面：背面没有材质");
     eq(v.faceMaterialOf(faces[2], 0), undefined);
   });
 });
@@ -66,7 +67,7 @@ describe("网格体进场景", () => {
     const xs = meshFaces.flatMap((f) => f.outer.vids.map((id) => wv.graph.pt(id).x));
     assert(Math.min(...xs) >= 10 - 1e-9, "网格体的点经实例变换（x ≥ 10）");
     eq(wv.faceMaterial(meshFaces[0].id), null);
-    d.body.kernel.setFaceFlags(d.body.kernel.faces()[0], FF_HIDDEN, true);
+    setFaceHidden(d.body.kernel, d.body.kernel.faces()[0], true);
     eq([...new WorldView(s, ROOT_CONTEXT).slotFaces(1)].length, 5, "隐藏的面不进推断世界");
   });
   it("castDefinition op：brep 定义 → mesh；clone 深拷贝内核；pointsOfDef 读得到网格体的点", () => {
@@ -118,18 +119,18 @@ describe("brep → mesh", () => {
     eq(recalcNormals(m).flipped, 0);
     // 开口片：种子面的朝向不动，邻面跟它一致
     const open = new MeshKernel(); const a = open.addVertex({ x: 0, y: 0, z: 0 }), b = open.addVertex({ x: 1, y: 0, z: 0 }), c = open.addVertex({ x: 1, y: 1, z: 0 }), d2 = open.addVertex({ x: 0, y: 1, z: 0 }), e2 = open.addVertex({ x: 2, y: 0, z: 0 }), f2 = open.addVertex({ x: 2, y: 1, z: 0 });
-    open.addFace([a, b, c, d2], -1, FRESH); open.addFace([c, f2, e2, b], -1, FRESH);   // 第二张顺时针：和第一张同向走 b→c = 不一致
+    open.addFace([a, b, c, d2], FRESH); open.addFace([c, f2, e2, b], FRESH);   // 第二张顺时针：和第一张同向走 b→c = 不一致
     eq(recalcNormals(open).flipped, 1);
     assert(open.faceNormal(open.faces()[0]).z > 0 && open.faceNormal(open.faces()[1]).z > 0);
   });
   it("三角汤往返：盒子 → 12 个三角形 → 12 张三角面；材质槽保留；退化三角形计数", () => {
     const { m, faces } = unitBox();
-    m.setFaceMat(faces[0], 2);
+    setFaceMaterial(m, faces[0], 2);
     const soup = meshToTriangles(m);
     eq(soup.indices.length, 36); eq(soup.positions.length, 24);
     const back = meshFromTriangles(soup);
     eq(back.skipped, 0); eq(back.kernel.faceCount(), 12);
-    eq(back.kernel.faces().filter((f) => back.kernel.faceMat[f] === 2).length, 2);
+    eq(back.kernel.faces().filter((f) => faceMaterial(back.kernel, f) === 2).length, 2);
     eq(meshFromTriangles({ positions: new Float32Array([0, 0, 0, 1, 0, 0]), indices: new Uint32Array([0, 1, 1, 0, 0, 5]) }).skipped, 2);
   });
 });

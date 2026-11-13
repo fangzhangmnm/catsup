@@ -1,12 +1,13 @@
 // CATSUP_mesh 1.0.0 多边形载荷（M3，2026-10-27 Claude Fable 5.1）：往返逐字；文件里的形状（拍子 / 键 / 定义表 6.4 / 本体 TRIANGLES 给别的查看器）；
 // 0.14 三角汤最小形照开（每三角一面）；拍子纪律（major 新拒开、minor 新提示一次）；坏环拒开说清。
+import { faceHidden, faceMaterial } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { writeCatsup, readCatsup, documentFromScene, sceneFromDocument, formatTag } from "../src/format/index.ts";
 import { decodeGlb, encodeGlb } from "../src/format/glb.ts";
 import { FormatTooNewError } from "../src/format/migrate/index.ts";
 import { kernelFromMeshDoc, meshDocFromKernel } from "../src/mesh/mesh-doc.ts";
 import { addBox } from "../src/mesh/ops/index.ts";
-import { F_SHARP, F_SOFT, F_SMOOTH, FF_HIDDEN, MeshKernel } from "../src/mesh/mesh-kernel.ts";
+import { F_SHARP, F_SOFT, F_SMOOTH, MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { sceneMeshed, sceneFingerprint } from "./format-scenes.ts";
 
 type AnyJson = Record<string, any>;   // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -23,8 +24,8 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     eq(m.faceCount(), 6); eq(m.edgeCount(), 12); eq(m.vertexCount(), 8);
     assert(m.faces().every((f) => m.faceVerts(f).length === 4), "四边形没变三角形");
     assert(m.edges().some((e) => (m.edgeFlags[e] & (F_SOFT | F_SMOOTH)) === (F_SOFT | F_SMOOTH)), "软 + 平滑边在");
-    eq(m.faces().filter((f) => m.faceFlags[f] & FF_HIDDEN).length, 1, "隐藏面在");
-    eq(m.faces().filter((f) => m.faceMat[f] === 0).length, 1, "材质槽在");
+    eq(m.faces().filter((f) => faceHidden(m, f)).length, 1, "隐藏面在");
+    eq(m.faces().filter((f) => faceMaterial(m, f) === 0).length, 1, "材质槽在");
     eq(back.mesh(d.id).materialSlots.join(","), "0");
     eq(m.check().length, 0);
   });

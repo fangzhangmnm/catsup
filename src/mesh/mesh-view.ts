@@ -10,7 +10,8 @@ import type { Ring } from "../kernel/facefind.ts";
 import type { Curve } from "../kernel/curves.ts";
 import type { ChangeLog } from "../kernel/change-log.ts";
 import { COPLANAR_TOL_DEFAULT, planeBasis, projectToPlane } from "../kernel/geom.ts";
-import { MeshKernel, F_HIDDEN, F_SEAM, FF_HIDDEN } from "./mesh-kernel.ts";
+import { MeshKernel, F_HIDDEN, F_SEAM } from "./mesh-kernel.ts";
+import { faceHidden, faceMaterial } from "./reserved-columns.ts";
 import { edgeSmooth, edgeSoft } from "./edge-smooth.ts";
 
 interface Tables { rev: number; verts: Map<VertexId, Vertex>; edges: Map<EdgeId, Edge>; faces: Map<FaceId, Face>; planes: Map<FaceId, PlaneRec>; soft: Set<EdgeId>; smooth: Set<EdgeId>; hidden: Set<EdgeId>; }
@@ -78,11 +79,11 @@ export class MeshView implements KernelView {
   isFold(): boolean { return false; }
   isEdgeHidden(id: EdgeId): boolean { return this.mesh.hasFlag(id, F_HIDDEN); }
   isSeam(id: EdgeId): boolean { return this.mesh.hasFlag(id, F_SEAM); }
-  isFaceHidden(id: FaceId): boolean { return this.mesh.hasF(id) && (this.mesh.faceFlags[id] & FF_HIDDEN) !== 0; }
+  isFaceHidden(id: FaceId): boolean { return faceHidden(this.mesh, id); }   // 保留名 hide_poly
   /** 单面：背面没有材质（渲染剔掉背面，user 10-27「enforce backface culling」）。 */
   faceMaterialOf(id: FaceId, side: 0 | 1 = 0): number | undefined {
     if (side === 1 || !this.mesh.hasF(id)) return undefined;
-    const s = this.mesh.faceMat[id];
+    const s = faceMaterial(this.mesh, id);   // 保留名 material_index
     return s >= 0 ? s : undefined;
   }
 }

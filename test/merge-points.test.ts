@@ -1,6 +1,7 @@
 // 合并点这个原子（属性地基轮第二步；规程 ai-docs/20261112-attribute-protocol.md 第七¾节第二稿 + 第 8 条验收）。created 2026-11-13 by Claude Opus 5.5
 // 内核 MeshKernel.mergePoints（规划 mesh/merge-points.ts、角上的数 columns.ts mergeCornerValues）+ 两个新口（relinkEdgeEnd / removeFaceReported）+ 收尾说的话（editor/paint-upkeep.ts goneNotes）。
 // 列名是测试自己起的（引擎只比数值，不认意思）；最后一条用真的贴图坐标走 scene/uv.ts。
+import { faceMaterial, givenFaceValues } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel, F_HIDDEN, F_SEAM, F_SHARP, F_SMOOTH, F_SOFT, F_WIRE, type GoneFace } from "../src/mesh/mesh-kernel.ts";
 import { FRESH, type ColumnDef } from "../src/mesh/columns.ts";
@@ -26,7 +27,7 @@ function grid(w: number, h: number, uvOf: (faceCenterX: number, p: Pt3) => [numb
   const v = (i: number, j: number): number => j * (w + 1) + i;
   for (let j = 0; j <= h; j++) for (let i = 0; i <= w; i++) k.addVertex(P(i, j));
   for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
-    const f = k.addFace([v(i, j), v(i + 1, j), v(i + 1, j + 1), v(i, j + 1)], -1, FRESH);
+    const f = k.addFace([v(i, j), v(i + 1, j), v(i + 1, j + 1), v(i, j + 1)], FRESH);
     k.setCornerValues(f, UV, k.facePts(f).flatMap((p) => uvOf(i + 0.5, p))); k.setFaceValue(f, CODE, 7);
   }
   return { k, v };
@@ -70,11 +71,11 @@ describe("合并点：一伙角一起走（第 3 条）", () => {
   it("有步长的列：混出来的值取整到步长", () => {
     const k = new MeshKernel(); k.addColumn({ ...UVD, quantum: 4 });
     const ids = [P(0, 0), P(1, 0), P(1, 1), P(0, 1)].map((p) => k.addVertex(p));
-    const f = k.addFace(ids, -1, FRESH); k.setCornerValues(f, UV, [0, 0, 1, 0, 1, 1, 0, 1]);
+    const f = k.addFace(ids, FRESH); k.setCornerValues(f, UV, [0, 0, 1, 0, 1, 1, 0, 1]);
     mergeVerts(k, [ids[0], ids[1]], "center");   // 0 和 1 的中点 = 0.5 → 步长 1/4 上正好；再来一次不是格点的
     const k2 = new MeshKernel(); k2.addColumn({ ...UVD, quantum: 4 });
     const ids2 = [P(0, 0), P(1, 0), P(1, 1), P(0, 1)].map((p) => k2.addVertex(p));
-    const f2 = k2.addFace(ids2, -1, FRESH); k2.setCornerValues(f2, UV, [0, 0, 0.3, 0, 1, 1, 0, 1]);
+    const f2 = k2.addFace(ids2, FRESH); k2.setCornerValues(f2, UV, [0, 0, 0.3, 0, 1, 1, 0, 1]);
     mergeVerts(k2, [ids2[0], ids2[1]], "center");
     const u = k.cornerValues(f, UV)![0], u2 = k2.cornerValues(f2, UV)![0];
     eq(u, 0.5); eq(u2, Math.round(0.15 * 4) / 4, "0.15 → 0.25");
@@ -85,7 +86,7 @@ describe("合并点：环和面（第 4、5 条）", () => {
   const poly = (n: number): { k: MeshKernel; ids: number[]; f: number } => {
     const k = new MeshKernel(); k.addColumn(UVD); k.addColumn(CODED);
     const ids = Array.from({ length: n }, (_, i) => k.addVertex(P(Math.cos((2 * Math.PI * i) / n), Math.sin((2 * Math.PI * i) / n))));
-    const f = k.addFace(ids, 3, FRESH); k.setCornerValues(f, UV, ids.flatMap((_, i) => [i, 10 * i])); k.setFaceValue(f, CODE, 5);
+    const f = k.addFace(ids, { kind: "fresh", face: givenFaceValues(k, { material: 3 }) }); k.setCornerValues(f, UV, ids.flatMap((_, i) => [i, 10 * i])); k.setFaceValue(f, CODE, 5);
     return { k, ids, f };
   };
   it("环上同一个点出现两次：剪成两张面（原来的编号给环上靠前那圈），面上的列、材质照抄，角照抄", () => {
@@ -95,7 +96,7 @@ describe("合并点：环和面（第 4、5 条）", () => {
     eq(k.faceVerts(f).join(), [ids[0], ids[1], ids[2]].join(), "原来的编号 = 从原来第一个角起的那圈");
     const g = fs.find((x) => x !== f)!;
     eq(k.faceVerts(g).join(), [ids[0], ids[4], ids[5]].join());
-    for (const x of fs) { eq(k.faceValue(x, CODE), 5); eq(k.faceMat[x], 3); }
+    for (const x of fs) { eq(k.faceValue(x, CODE), 5); eq(faceMaterial(k, x), 3); }
     eq(Array.from(k.cornerValues(g, UV)!).join(), [3, 30, 4, 40, 5, 50].join(), "剪下来那圈的角照抄（被合并掉的点的角 = 它自己原来的值：两伙不相邻，各留各的）");
     eq(k.takeReport().gone.length, 0, "剪圈不报告（没丢东西）");
   });
@@ -116,7 +117,7 @@ describe("合并点：环和面（第 4、5 条）", () => {
   });
   it("合并出同一圈点（反向）的两张面：留编号小的，别的删、进报告（overlap，with = 留下的那张）", () => {
     const k = new MeshKernel(); k.addColumn(UVD); const v = [P(0, 0), P(1, 0), P(1, 1), P(0, 1)].map((p) => k.addVertex(p));   // 有列才记没了之前的环（没有列的内核只记材质）
-    const a = k.addFace([v[0], v[1], v[2]], -1, FRESH), b = k.addFace([v[0], v[2], v[3]], -1, FRESH);
+    const a = k.addFace([v[0], v[1], v[2]], FRESH), b = k.addFace([v[0], v[2], v[3]], FRESH);
     mergeVerts(k, [v[1], v[3]], "first"); clean(k, "合并");
     eq(k.faces().join(), String(a));
     const r = k.takeReport(); eq(r.gone.length, 1); eq(r.gone[0].why, "overlap"); eq(r.gone[0].with, a); eq(r.gone[0].shape.ring!.join(), [v[0], v[2], v[1]].join(), "没了之前的样子 = 合并之后、删之前（环已经换成合并后的点，和留下的那张是同一圈）");
@@ -124,7 +125,7 @@ describe("合并点：环和面（第 4、5 条）", () => {
   });
   it("点集一样、环不一样的两张面：两张都留着（不是重叠）", () => {
     const k = new MeshKernel(); const v = [P(0, 0), P(1, 0), P(1, 1), P(0, 1), P(0.5, 2)].map((p) => k.addVertex(p));
-    const a = k.addFace([v[0], v[1], v[2], v[3]], -1, FRESH), b = k.addFace([v[0], v[2], v[1], v[4]], -1, FRESH);
+    const a = k.addFace([v[0], v[1], v[2], v[3]], FRESH), b = k.addFace([v[0], v[2], v[1], v[4]], FRESH);
     mergeVerts(k, [v[3], v[4]], "first");
     eq(k.faces().join(), [a, b].join(), "两张都在"); eq(k.takeReport().gone.length, 0);
   });
@@ -134,7 +135,7 @@ describe("合并点：边（第 2 条）", () => {
   /** 两张三角挂在点 0 上；合并 1 和 3 → 边 0–1 和 0–3 落到同一对点上。 */
   const run = (fa: number, fb: number): { flags: number; keep: number; kept: number } => {
     const k = new MeshKernel(); const v = [P(0, 0), P(1, 0), P(1, 1), P(1, -0.1), P(1, -1)].map((p) => k.addVertex(p));
-    k.addFace([v[0], v[1], v[2]], -1, FRESH); k.addFace([v[0], v[4], v[3]], -1, FRESH);
+    k.addFace([v[0], v[1], v[2]], FRESH); k.addFace([v[0], v[4], v[3]], FRESH);
     const e01 = k.edgeOf(v[0], v[1]), e03 = k.edgeOf(v[0], v[3]);
     k.setEdgeFlags(e01, fa); k.setEdgeFlags(e03, fb);
     mergeVerts(k, [v[1], v[3]], "first"); clean(k, "合并");
@@ -220,7 +221,7 @@ describe("内核的两个新口", () => {
 });
 
 describe("收尾说的话（editor/paint-upkeep.ts goneNotes）", () => {
-  const g = (why: GoneFace["why"], painted: boolean): GoneFace => ({ why, shape: { mat: -1, ring: [0, 1, 2], pts: null, corner: null, face: new Map([[UV_SET_COL.id, painted ? 0 : -1]]) } });
+  const g = (why: GoneFace["why"], painted: boolean): GoneFace => ({ why, shape: { ring: [0, 1, 2], pts: null, corner: null, face: new Map([[UV_SET_COL.id, painted ? 0 : -1]]) } });
   it("每种原因一句；有画的数出来，没有就不带括号；按第一次出现的先后", () => {
     eq(goneNotes([]).join("；"), "");
     eq(goneNotes([g("collapsed", true), g("collapsed", false), g("overlap", false)]).join("；"), "合并之后有 2 张面塌掉了、被去掉（其中 1 张上有画）；有 1 张面和别的面完全重叠、被去掉");

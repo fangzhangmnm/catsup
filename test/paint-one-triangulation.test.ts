@@ -16,13 +16,13 @@ const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 const rng = (seed: number): (() => number) => { let s = seed >>> 0 || 1; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; };
 const CASES: Record<string, () => MeshKernel> = {
   box: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(2, 1, 1)); return k; },
-  twistedQuads: () => { const k = new MeshKernel(), n = 4, v = (i: number, j: number): number => i * (n + 1) + j, r = rng(3); for (let i = 0; i <= n; i++) for (let j = 0; j <= n; j++) k.addVertex(P(i, j, (i + j) % 2 ? 0.3 * r() : -0.3 * r())); for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) k.addFace([v(i, j), v(i + 1, j), v(i + 1, j + 1), v(i, j + 1)], -1, FRESH); return k; },
-  concave: () => { const k = new MeshKernel(), vs = [P(0, 0, 0), P(3, 0, 0), P(3, 1, 0), P(1, 1, 0), P(1, 3, 0), P(0, 3, 0)].map((p) => k.addVertex(p)); k.addFace(vs, -1, FRESH); const ws = [P(0, 0, 1), P(2, 0, 1), P(1, 0.3, 1.2), P(2, 2, 1), P(0, 2, 1)].map((p) => k.addVertex(p)); k.addFace(ws, -1, FRESH); return k; },
-  pentagons: () => { const k = new MeshKernel(); for (let c = 0; c < 3; c++) { const vs = [0, 1, 2, 3, 4].map((i) => k.addVertex(P(c * 3 + Math.cos((2 * Math.PI * i) / 5), Math.sin((2 * Math.PI * i) / 5), 0.2 * c * Math.sin(i)))); k.addFace(c % 2 ? [...vs].reverse() : vs, -1, FRESH); } return k; },
+  twistedQuads: () => { const k = new MeshKernel(), n = 4, v = (i: number, j: number): number => i * (n + 1) + j, r = rng(3); for (let i = 0; i <= n; i++) for (let j = 0; j <= n; j++) k.addVertex(P(i, j, (i + j) % 2 ? 0.3 * r() : -0.3 * r())); for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) k.addFace([v(i, j), v(i + 1, j), v(i + 1, j + 1), v(i, j + 1)], FRESH); return k; },
+  concave: () => { const k = new MeshKernel(), vs = [P(0, 0, 0), P(3, 0, 0), P(3, 1, 0), P(1, 1, 0), P(1, 3, 0), P(0, 3, 0)].map((p) => k.addVertex(p)); k.addFace(vs, FRESH); const ws = [P(0, 0, 1), P(2, 0, 1), P(1, 0.3, 1.2), P(2, 2, 1), P(0, 2, 1)].map((p) => k.addVertex(p)); k.addFace(ws, FRESH); return k; },
+  pentagons: () => { const k = new MeshKernel(); for (let c = 0; c < 3; c++) { const vs = [0, 1, 2, 3, 4].map((i) => k.addVertex(P(c * 3 + Math.cos((2 * Math.PI * i) / 5), Math.sin((2 * Math.PI * i) / 5), 0.2 * c * Math.sin(i)))); k.addFace(c % 2 ? [...vs].reverse() : vs, FRESH); } return k; },
   jitteredTorus: () => {
     const N = 10, k = new MeshKernel(), id = (i: number, j: number): number => ((i + N) % N) * N + ((j + N) % N), r = rng(9);
     for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) { const u = (2 * Math.PI * i) / N, v = (2 * Math.PI * j) / N; k.addVertex(P((3 + Math.cos(v)) * Math.cos(u) + 0.05 * r(), (3 + Math.cos(v)) * Math.sin(u), Math.sin(v))); }
-    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) k.addFace([id(i, j), id(i + 1, j), id(i + 1, j + 1), id(i, j + 1)], -1, FRESH);
+    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) k.addFace([id(i, j), id(i + 1, j), id(i + 1, j + 1), id(i, j + 1)], FRESH);
     return k;
   },
 };

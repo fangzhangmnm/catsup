@@ -29,14 +29,11 @@ export type SmoothDefaultMode = "angle" | "smooth" | "hard";
 export interface SmoothDefault { readonly mode: SmoothDefaultMode; readonly deg: number }
 /** 新建的网格体的默认平滑：全是棱（只看手标）。老文件缺这一项怎么办归读的门口（format/migrate/mesh.ts smoothDefaultOf；2026-11-12 起内核不认「老文件」）。 */
 export const SMOOTH_DEFAULT_NEW: SmoothDefault = { mode: "hard", deg: 30 };
-/** 面标记：隐藏（user 10-27「show and hide faces」）。边自己另有一位隐藏（F_HIDDEN），读的人按那一位单独判，不从面推（规程第九½节：边的隐藏这一列留着）。 */
-export const FF_HIDDEN = 1;
 
 export interface MeshSnapshot {
-  readonly version: 2; readonly minor: 0; readonly patch: 0;   // 2（施工单十八第 1½ 刀）：列换成 corner / face 两种、每角都有数。只是内核自己的快照（测试、对拍），不落盘
+  readonly version: 3; readonly minor: 0; readonly patch: 0;   // 3（属性地基轮 3b）：材质、面的隐藏不再是单独的字段，是面上的列（有才有）。2（施工单十八第 1½ 刀）：列换成 corner / face 两种、每角都有数。只是内核自己的快照（测试、对拍），不落盘
   readonly positions: number[];          // x y z × 顶点（紧凑、重编）
   readonly faces: number[][];            // 每面顶点下标环
-  readonly faceMat: number[];            // 每面材质槽（-1 = 默认）
   readonly edges: [number, number, number][];   // 带标记的边：[a, b, flags]（没标记的边不存，读回时由面推）
   /** 角上的列（有才有这个键）：声明 + 每张面一项 = 角数 × 每角几个数。 */
   readonly corner?: readonly { readonly def: ColumnDef; readonly faces: readonly (readonly number[])[] }[];
@@ -61,7 +58,7 @@ export class MeshKernel {
   // 顶点
   pos = new Float64Array(0); vAlive = new Uint8Array(0); private vCount = 0; private vFree: number[] = [];
   // 面：loopVert[faceStart[f] .. +faceLen[f])
-  faceStart = new Int32Array(0); faceLen = new Int32Array(0); fAlive = new Uint8Array(0); faceMat = new Int32Array(0); faceFlags = new Uint8Array(0); private fCount = 0; private fFree: number[] = [];
+  faceStart = new Int32Array(0); faceLen = new Int32Array(0); fAlive = new Uint8Array(0); private fCount = 0; private fFree: number[] = [];
   loopVert = new Int32Array(0); private loopCount = 0;
   // 边
   edgeA = new Int32Array(0); edgeB = new Int32Array(0); eAlive = new Uint8Array(0); edgeFlags = new Uint8Array(0); private eCount = 0; private eFree: number[] = [];
@@ -140,13 +137,13 @@ export class MeshKernel {
     this.changes.v(v); this.touch(true); return v;
   }
   /** 加一张面（顶点环）；相邻顶点对没有边的自动补边。环 < 3 个不同顶点 / 有重复 / 顶点不活 → 抛（人话）。origin = 这张面从哪来（必填：角上的数怎么来，columns.ts）。 */
-  addFace(ring: readonly number[], mat: number, origin: FaceOrigin): number {
+  addFace(ring: readonly number[], origin: FaceOrigin): number {
     const distinct = new Set(ring);
     if (ring.length < 3 || distinct.size !== ring.length) throw new Error(`addFace: ring must have ≥ 3 distinct vertices (got ${ring.length}, ${distinct.size} distinct)`);
     for (const v of ring) if (!this.hasV(v)) throw new Error(`addFace: vertex ${v} is not alive`);
     const f = this.fFree.length ? this.fFree.pop()! : this.fCount++;
-    this.faceStart = grow(this.faceStart, this.fCount); this.faceLen = grow(this.faceLen, this.fCount); this.fAlive = grow(this.fAlive, this.fCount); this.faceMat = grow(this.faceMat, this.fCount); this.faceFlags = grow(this.faceFlags, this.fCount);
-    this.faceStart[f] = this.loopCount; this.faceLen[f] = ring.length; this.fAlive[f] = 1; this.faceMat[f] = mat; this.faceFlags[f] = 0; this.changes.f(f);
+    this.faceStart = grow(this.faceStart, this.fCount); this.faceLen = grow(this.faceLen, this.fCount); this.fAlive = grow(this.fAlive, this.fCount);
+    this.faceStart[f] = this.loopCount; this.faceLen[f] = ring.length; this.fAlive[f] = 1; this.changes.f(f);
     for (const c of this.faceCols) c.data = growCol(c.data, this.fCount, c.def.fill);
     this.writeRing(f, ring, origin);
     for (let i = 0; i < ring.length; i++) this.ensureEdge(ring[i], ring[(i + 1) % ring.length]);
@@ -323,11 +320,11 @@ export class MeshKernel {
   /** 面的旧样子（改之前记）：没有列 = 只记材质。 */
   shapeOf(f: number): FaceShape {
     const odd = this.odd.get(f);
-    if (!this.cornerCols.length && !this.faceCols.length) return { mat: this.faceMat[f], ring: null, pts: null, corner: null, face: null, ...(odd ? { odd } : {}) };
+    if (!this.cornerCols.length && !this.faceCols.length) return { ring: null, pts: null, corner: null, face: null, ...(odd ? { odd } : {}) };
     const ring = this.faceVerts(f), pts = new Float64Array(3 * ring.length);
     for (let i = 0; i < ring.length; i++) { const v = ring[i]; pts[3 * i] = this.pos[3 * v]; pts[3 * i + 1] = this.pos[3 * v + 1]; pts[3 * i + 2] = this.pos[3 * v + 2]; }
     const c = this.columnsOf(f);
-    return { mat: this.faceMat[f], ring, pts, corner: c.corner, face: c.face, ...(odd ? { odd } : {}) };
+    return { ring, pts, corner: c.corner, face: c.face, ...(odd ? { odd } : {}) };
   }
   /** 这张面在一列角上的列上各角的值（角数 × arity，拷一份）；没有这一列 / 面不在 = null。 */
   cornerValues(f: number, id: string): Float32Array | null {
@@ -446,11 +443,10 @@ export class MeshKernel {
         for (const loop of p.loops) if (loop.length === 2) spurs.push([p.corners[loop[0]].v, p.corners[loop[1]].v]);
         return;
       }
-      const flags = this.faceFlags[p.f];
       const put = (loop: readonly number[], f: number | null): number => {
         const ring = loop.map((c) => p.corners[c].v), origin: FaceOrigin = { kind: "copy", of: p.shape, corners: loop.map((c) => p.corners[c].src[0]) };
         let g: number;
-        if (f === null) { g = this.addFace(ring, p.shape.mat, origin); this.faceFlags[g] = flags; }
+        if (f === null) g = this.addFace(ring, origin);   // 剪出来的别的圈 = 原面的一份（面上的列照抄，材质、隐藏都在里面）
         else {
           g = f; this.faceStart[g] = this.loopCount; this.faceLen[g] = ring.length;
           this.writeRing(g, ring, origin);
@@ -494,8 +490,6 @@ export class MeshKernel {
   isWire(e: number): boolean { return this.hasE(e) && (this.edgeFlags[e] & F_WIRE) !== 0; }
   setWire(e: number, on: boolean): void { if (!this.hasE(e)) return; this.edgeFlags[e] = on ? this.edgeFlags[e] | F_WIRE : this.edgeFlags[e] & ~F_WIRE; this.changes.e(e); this.rev = ++meshRevClock; }
   setEdgeFlags(e: number, flags: number): void { if (!this.hasE(e)) return; this.edgeFlags[e] = flags; this.changes.e(e); this.rev = ++meshRevClock; }
-  setFaceMat(f: number, slot: number): void { if (!this.hasF(f)) return; this.faceMat[f] = slot; this.changes.f(f); this.rev = ++meshRevClock; }
-  setFaceFlags(f: number, mask: number, on: boolean): void { if (!this.hasF(f)) return; this.faceFlags[f] = on ? this.faceFlags[f] | mask : this.faceFlags[f] & ~mask; this.changes.f(f); this.rev = ++meshRevClock; }
   /** 换默认平滑：每条边的「平滑吗 / 画线吗」都可能变 → 所有边和面都记进改动日志（渲染按日志增量重建）。 */
   setSmoothDefault(sd: SmoothDefault): void {
     if (sd.mode === this.smoothDefault.mode && sd.deg === this.smoothDefault.deg) return;
@@ -504,7 +498,6 @@ export class MeshKernel {
     for (let f = 0; f < this.fCount; f++) if (this.fAlive[f]) this.changes.f(f);
     this.rev = ++meshRevClock;
   }
-  isFaceHidden(f: number): boolean { return this.hasF(f) && (this.faceFlags[f] & FF_HIDDEN) !== 0; }
   hasFlag(e: number, mask: number): boolean { return this.hasE(e) && (this.edgeFlags[e] & mask) !== 0; }
 
   private keyOf(a: number, b: number): number { return a < b ? a * 67108864 + b : b * 67108864 + a; }
@@ -580,10 +573,10 @@ export class MeshKernel {
   clone(): MeshKernel {
     const m = new MeshKernel();
     m.pos = this.pos.slice(); m.vAlive = this.vAlive.slice(); m.vCount = this.vCount; m.vFree = [...this.vFree];
-    m.faceStart = this.faceStart.slice(); m.faceLen = this.faceLen.slice(); m.fAlive = this.fAlive.slice(); m.faceMat = this.faceMat.slice(); m.fCount = this.fCount; m.fFree = [...this.fFree];
+    m.faceStart = this.faceStart.slice(); m.faceLen = this.faceLen.slice(); m.fAlive = this.fAlive.slice(); m.fCount = this.fCount; m.fFree = [...this.fFree];
     m.loopVert = this.loopVert.slice(); m.loopCount = this.loopCount;
     m.edgeA = this.edgeA.slice(); m.edgeB = this.edgeB.slice(); m.eAlive = this.eAlive.slice(); m.edgeFlags = this.edgeFlags.slice(); m.eCount = this.eCount; m.eFree = [...this.eFree];
-    m.edgeKey = new Map(this.edgeKey); m.rev = this.rev; m.faceFlags = this.faceFlags.slice(); m.smoothDefault = this.smoothDefault;
+    m.edgeKey = new Map(this.edgeKey); m.rev = this.rev; m.smoothDefault = this.smoothDefault;
     m.changes = this.changes.fork();   // 族谱：渲染缓存从原件切到副本只重建差的
     m.cornerCols = this.cornerCols.map((c) => ({ ...c, data: c.data.slice() })); m.faceCols = this.faceCols.map((c) => ({ ...c, data: c.data.slice() })); m.edgeCols = this.edgeCols.map((c) => ({ ...c, data: c.data.slice() }));   // 「对不上」的标记不带过去（新的一本）
     m.vHead = this.vHead.slice(); m.eNext = this.eNext.slice(); m.eFHead = this.eFHead.slice(); m.lNext = this.lNext.slice(); m.lEdge = this.lEdge.slice(); m.lFace = this.lFace.slice();   // 邻接跟着拷（W-11）
@@ -595,7 +588,7 @@ export class MeshKernel {
    */
   swapWith(o: MeshKernel): void {
     [this.pos, o.pos] = [o.pos, this.pos]; [this.vAlive, o.vAlive] = [o.vAlive, this.vAlive]; [this.vCount, o.vCount] = [o.vCount, this.vCount]; [this.vFree, o.vFree] = [o.vFree, this.vFree];
-    [this.faceStart, o.faceStart] = [o.faceStart, this.faceStart]; [this.faceLen, o.faceLen] = [o.faceLen, this.faceLen]; [this.fAlive, o.fAlive] = [o.fAlive, this.fAlive]; [this.faceMat, o.faceMat] = [o.faceMat, this.faceMat]; [this.faceFlags, o.faceFlags] = [o.faceFlags, this.faceFlags]; [this.fCount, o.fCount] = [o.fCount, this.fCount]; [this.fFree, o.fFree] = [o.fFree, this.fFree];
+    [this.faceStart, o.faceStart] = [o.faceStart, this.faceStart]; [this.faceLen, o.faceLen] = [o.faceLen, this.faceLen]; [this.fAlive, o.fAlive] = [o.fAlive, this.fAlive]; [this.fCount, o.fCount] = [o.fCount, this.fCount]; [this.fFree, o.fFree] = [o.fFree, this.fFree];
     [this.loopVert, o.loopVert] = [o.loopVert, this.loopVert]; [this.loopCount, o.loopCount] = [o.loopCount, this.loopCount];
     [this.edgeA, o.edgeA] = [o.edgeA, this.edgeA]; [this.edgeB, o.edgeB] = [o.edgeB, this.edgeB]; [this.eAlive, o.eAlive] = [o.eAlive, this.eAlive]; [this.edgeFlags, o.edgeFlags] = [o.edgeFlags, this.edgeFlags]; [this.eCount, o.eCount] = [o.eCount, this.eCount]; [this.eFree, o.eFree] = [o.eFree, this.eFree];
     [this.edgeKey, o.edgeKey] = [o.edgeKey, this.edgeKey]; [this.vHead, o.vHead] = [o.vHead, this.vHead]; [this.eNext, o.eNext] = [o.eNext, this.eNext]; [this.eFHead, o.eFHead] = [o.eFHead, this.eFHead]; [this.lNext, o.lNext] = [o.lNext, this.lNext]; [this.lEdge, o.lEdge] = [o.lEdge, this.lEdge]; [this.lFace, o.lFace] = [o.lFace, this.lFace]; [this.triCache, o.triCache] = [o.triCache, this.triCache];
@@ -606,14 +599,14 @@ export class MeshKernel {
   toSnapshot(): MeshSnapshot {
     const map = new Int32Array(this.vCount).fill(-1); const positions: number[] = []; let n = 0;
     for (let v = 0; v < this.vCount; v++) if (this.vAlive[v]) { map[v] = n++; positions.push(this.pos[3 * v], this.pos[3 * v + 1], this.pos[3 * v + 2]); }
-    const faces: number[][] = [], faceMat: number[] = [], live: number[] = [];
-    for (let f = 0; f < this.fCount; f++) if (this.fAlive[f]) { faces.push(this.faceVerts(f).map((v) => map[v])); faceMat.push(this.faceMat[f]); live.push(f); }
+    const faces: number[][] = [], live: number[] = [];
+    for (let f = 0; f < this.fCount; f++) if (this.fAlive[f]) { faces.push(this.faceVerts(f).map((v) => map[v])); live.push(f); }
     const edges: [number, number, number][] = [];
     for (let e = 0; e < this.eCount; e++) if (this.eAlive[e] && this.edgeFlags[e]) edges.push([map[this.edgeA[e]], map[this.edgeB[e]], this.edgeFlags[e]]);
     const corner = this.cornerCols.map((c) => ({ def: c.def, faces: live.map((f) => Array.from(this.cornerValues(f, c.id)!)) }));
     const face = this.faceCols.map((c) => ({ def: c.def, values: live.map((f) => c.data[f]) }));
     const liveE = this.edges(), edge = this.edgeCols.map((c) => ({ def: c.def, values: liveE.map((e) => [map[this.edgeA[e]], map[this.edgeB[e]], c.data[e]] as const) }));
-    return { version: 2, minor: 0, patch: 0, positions, faces, faceMat, edges, ...(corner.length ? { corner } : {}), ...(face.length ? { face } : {}), ...(edge.length ? { edge } : {}) };
+    return { version: 3, minor: 0, patch: 0, positions, faces, edges, ...(corner.length ? { corner } : {}), ...(face.length ? { face } : {}), ...(edge.length ? { edge } : {}) };
   }
   static fromSnapshot(s: MeshSnapshot): MeshKernel {
     const m = new MeshKernel();
@@ -626,7 +619,7 @@ export class MeshKernel {
       for (const c of s.edge) for (const [a, b, v] of c.values) { const k = a < b ? `${a},${b}` : `${b},${a}`; (vals.get(k) ?? vals.set(k, new Map()).get(k)!).set(c.def.id, v); }
       for (const [k, values] of vals) { const [a, b] = k.split(",").map(Number); m.addEdge(a, b, { kind: "fresh", values }); }
     }
-    s.faces.forEach((r, i) => { m.addFace(r, s.faceMat[i] ?? -1, { kind: "fresh", corner: new Map((s.corner ?? []).map((c) => [c.def.id, Float32Array.from(c.faces[i])])), face: new Map((s.face ?? []).map((c) => [c.def.id, c.values[i]])) }); });   // 快照装载 = 凭空来的、直接给值
+    s.faces.forEach((r, i) => { m.addFace(r, { kind: "fresh", corner: new Map((s.corner ?? []).map((c) => [c.def.id, Float32Array.from(c.faces[i])])), face: new Map((s.face ?? []).map((c) => [c.def.id, c.values[i]])) }); });   // 快照装载 = 凭空来的、直接给值
     for (const [a, b, fl] of s.edges) { const e = m.ensureEdge(a, b); m.edgeFlags[e] = fl; }
     m.rev = ++meshRevClock;
     return m;

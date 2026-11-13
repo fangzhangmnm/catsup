@@ -1,6 +1,7 @@
 // 油漆桶认网格体的面（白模 W-12，2026-11-11 Claude Opus 5.5）：网格体的三档灌法（surface-assign.ts meshFacesForAssign）。界面那一半 = 探针 probe-mesh-bucket。
+import { setFaceHidden } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq } from "./runner.mjs";
-import { MeshKernel, FF_HIDDEN } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox, addPrimitive } from "../src/mesh/ops/index.ts";
 import { meshFacesForAssign } from "../src/editor/surface-assign.ts";
 
@@ -20,7 +21,7 @@ describe("油漆桶在网格体上的三档（W-12）", () => {
     const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1));
     const fs = m.faces();
     eq(meshFacesForAssign(m, fs[0], "smooth", 30).join(), String(fs[0]), "盒子的棱都是 90°：一张");
-    for (const f of fs.slice(1)) m.setFaceFlags(f, FF_HIDDEN, true);
+    for (const f of fs.slice(1)) setFaceHidden(m, f, true);
     eq(meshFacesForAssign(m, fs[0], "connected", 0).join(), String(fs[0]), "别的面都藏了：只剩自己");
     eq(meshFacesForAssign(m, 9999, "connected", 0).length, 0, "不在的面 = 空");
   });

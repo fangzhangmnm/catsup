@@ -7,6 +7,7 @@
 // 为什么按坐标寻址：单机重放靠 id 计数器逐字一致也成立，但联机各 peer 的 id 历史不同——线协议上只有几何本身是共识。
 // 解析失败（目标已不在）→ 抛 OpTargetError：单机 = 这批不落地（History 回滚）；联机 = 上层政策，这里不裁。
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
+import { MATERIAL_INDEX, faceHidden, faceMaterial, givenFaceValues } from "../mesh/reserved-columns.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
 import { uniqueCopy } from "../format/scene-store.ts";
 import { COLOR_CHANNEL, COLOR_VALUE, assertSizedImage, paintIn, type ShelfItem, type TextureDoc } from "../format/document.ts";
@@ -845,7 +846,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
         if (op.mesh) {
           const tb = s.mesh(ref.def), tk = tb.kernel, slot = (code: number): number => { const id = docMat(code); if (id < 0) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
           const vs = op.mesh.verts.map((q) => tk.addVertex(q));
-          for (const f of op.mesh.faces) tk.addFace(f.ring.map((i) => vs[i]), slot(f.mat), FRESH);   // 经过剪贴板：故意不带角上的数（统筹 11-11 定，1-2½）——带过去 = 贴出来的面和原来那张悄悄共用画布上同一块；「副本共用一块还是另占一块」归 1-3d 一次定（网格体里的「复制面」现在是照抄角上的数）
+          for (const f of op.mesh.faces) tk.addFace(f.ring.map((i) => vs[i]), { kind: "fresh", face: givenFaceValues(tk, { material: slot(f.mat) }) });   // 经过剪贴板：故意不带角上的数（统筹 11-11 定，1-2½）——带过去 = 贴出来的面和原来那张悄悄共用画布上同一块；「副本共用一块还是另占一块」归 1-3d 一次定（网格体里的「复制面」现在是照抄角上的数）
           for (const e of op.mesh.edges) { const id = tk.ensureEdge(vs[e.a], vs[e.b]); tk.setEdgeFlags(id, e.flags); }
         }
         for (const i of op.instances ?? []) mintPasted(s, ref.def, null, i, merged);
@@ -870,7 +871,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       refusePaintMove(s, { def: op.def, faces });
       const nk = new MeshKernel(), map = new Map<number, number>(), nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = nk.addVertex(k.pt(v)); map.set(v, x); } return x; };
       nk.ensureColumns(k.columnDefs());   // 整张面原样搬到新内核：列按 id 对上、面上和角上的数跟着搬（新物件带同一张速查表，贴图坐标的代号原样有效）
-      for (const f of faces) { const v = k.columnsOf(f); nk.addFace(k.faceVerts(f).map(nv), k.faceMat[f], { kind: "fresh", corner: v.corner, face: v.face }); }
+      for (const f of faces) { const v = k.columnsOf(f); nk.addFace(k.faceVerts(f).map(nv), { kind: "fresh", corner: v.corner, face: v.face }); }   // 面上的列（材质、隐藏）原样搬：新物件的槽表照抄
       for (const f of faces) for (const e of k.fEdges(f)) { const e2 = nk.edgeOf(map.get(k.edgeA[e])!, map.get(k.edgeB[e])!); if (e2 >= 0) nk.edgeFlags[e2] = k.edgeFlags[e]; }   // 手标（棱 / 平滑）跟着走
       nk.setSmoothDefault(k.smoothDefault);
       deleteSelection(k, { faces }, false);
@@ -1034,7 +1035,7 @@ function appendMesh(tb: MeshBody, sb: MeshBody, X: Xform): void {
   const slot = (m: number): number => { if (m < 0) return -1; const id = sb.materialSlots[m]; if (id === undefined) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
   const uvCode = mergeUvSlots(tb.uvSetSlots, sb.uvSetSlots);   // 贴图坐标的速查表：和材质槽同一处并进来、搬过来的面重新对号（施工单十八 3.2½ 第 6 条）
   tk.ensureColumns(sk.columnDefs());   // 整张面原样搬到另一个内核：对方有、这边没有的列补上（原有的面填那一列的 fill），面上和角上的数跟着搬
-  for (const f of sk.faces()) { const v = sk.columnsOf(f); remapUvCode(v.face, uvCode); tk.addFace(sk.faceVerts(f).map(nv), slot(sk.faceMat[f]), { kind: "fresh", corner: v.corner, face: v.face }); }
+  for (const f of sk.faces()) { const v = sk.columnsOf(f); remapUvCode(v.face, uvCode); const mi = v.face.get(MATERIAL_INDEX.id); if (mi !== undefined) v.face.set(MATERIAL_INDEX.id, slot(mi)); tk.addFace(sk.faceVerts(f).map(nv), { kind: "fresh", corner: v.corner, face: v.face }); }   // 材质槽号按这边的槽表换号（规程第六节：跨物件搬，换号由调用方做）
   for (const e of sk.edges()) {
     if (sk.eFaces(e).length === 0) { tk.ensureEdge(nv(sk.edgeA[e]), nv(sk.edgeB[e])); continue; }
     const e2 = tk.edgeOf(map.get(sk.edgeA[e])!, map.get(sk.edgeB[e])!); if (e2 >= 0) tk.edgeFlags[e2] = sk.edgeFlags[e];

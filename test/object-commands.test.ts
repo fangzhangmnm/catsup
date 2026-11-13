@@ -1,4 +1,5 @@
 // 物件族（object.*）：转成网格体 / 转回 SU 体 + 导入直接成网格体（2026-10-27 Claude Fable 5.1；user「导入直接成 mesh」「explicit转换……诚实披露」）。
+import { setFaceHidden } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { FRESH } from "../src/mesh/columns.ts";
 import { Scene } from "../src/scene/scene.ts";
@@ -60,13 +61,13 @@ describe("物件族：转成网格体 / 转回 SU 体", () => {
     eq(k.faces().length, 6); eq(k.edges().length, 12); eq(k.soft.size, 0, "共面的对角线并掉了，不留软边");
     const m = new MeshKernel(), { verts, faces } = addBox(m, P(0, 0, 0), P(1, 1, 1));
     m.setPos(verts[0], P(-0.3, -0.3, 0.25));   // 一个角抬起来：三张面不平了
-    m.setFaceFlags(faces[1], 1, true);         // 隐藏一张
+    setFaceHidden(m, faces[1], true);         // 隐藏一张
     const b = meshToBrep({ kind: "mesh", kernel: m, materialSlots: [], uvSetSlots: [] }, 20);
     assert(b.kernel.faces().length > 5 && b.kernel.soft.size > 0, `不平的面折成平面块：${b.kernel.faces().length} 张、软边 ${b.kernel.soft.size}`);
     const t0 = performance.now();
     const big = new MeshKernel(), N = 100, ids: number[][] = [];
     for (let i = 0; i <= N; i++) { ids.push([]); for (let j = 0; j <= N; j++) ids[i].push(big.addVertex(P(i, j, Math.sin(i * 0.3) * Math.cos(j * 0.3)))); }
-    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) big.addFace([ids[i][j], ids[i + 1][j], ids[i + 1][j + 1], ids[i][j + 1]], -1, FRESH);
+    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) big.addFace([ids[i][j], ids[i + 1][j], ids[i + 1][j + 1], ids[i][j + 1]], FRESH);
     const t1 = performance.now();
     const bb = meshToBrep({ kind: "mesh", kernel: big, materialSlots: [], uvSetSlots: [] }, 20);
     const ms = performance.now() - t1;
@@ -100,11 +101,11 @@ describe("物件族：转成网格体 / 转回 SU 体", () => {
     const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1)); m.setSmoothDefault({ mode: "angle", deg: 20 });
     eq(nSmooth(m), 0);
     const soup = boxSoup(), t = new MeshKernel(), vs = soup.positions.map((p) => t.addVertex(p));
-    for (let i = 0; i < soup.tris.length; i += 3) t.addFace([vs[soup.tris[i]], vs[soup.tris[i + 1]], vs[soup.tris[i + 2]]], -1, FRESH);
+    for (let i = 0; i < soup.tris.length; i += 3) t.addFace([vs[soup.tris[i]], vs[soup.tris[i + 1]], vs[soup.tris[i + 2]]], FRESH);
     t.setSmoothDefault({ mode: "angle", deg: 20 });
     eq(nSmooth(t), 6);
     const w = new MeshKernel(), a = w.addVertex(P(0, 0, 0)), b = w.addVertex(P(1, 0, 0)), c = w.addVertex(P(1, 1, 0)), d = w.addVertex(P(0, 1, 0));
-    w.addFace([a, b, c], -1, FRESH); w.addFace([a, d, c], -1, FRESH);   // 第二张反向绕（法向朝 −z）：共面仍平滑
+    w.addFace([a, b, c], FRESH); w.addFace([a, d, c], FRESH);   // 第二张反向绕（法向朝 −z）：共面仍平滑
     w.setSmoothDefault({ mode: "angle", deg: 20 });
     eq(nSmooth(w), 1);
   });

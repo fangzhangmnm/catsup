@@ -19,7 +19,7 @@ const allOk = (xs: string[]): string => (xs.every((x) => x === "ok") ? "ok" : xs
 function torus(n = 12, k = 8): MeshKernel {
   const m = new MeshKernel(), id: number[][] = [];
   for (let i = 0; i < n; i++) { id.push([]); for (let j = 0; j < k; j++) { const a = (2 * Math.PI * i) / n, b = (2 * Math.PI * j) / k, r = 2 + 0.6 * Math.cos(b); id[i].push(m.addVertex(P(r * Math.cos(a), r * Math.sin(a), 0.6 * Math.sin(b)))); } }
-  for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) m.addFace([id[i][j], id[(i + 1) % n][j], id[(i + 1) % n][(j + 1) % k], id[i][(j + 1) % k]], -1, GROWN);
+  for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) m.addFace([id[i][j], id[(i + 1) % n][j], id[(i + 1) % n][(j + 1) % k], id[i][(j + 1) % k]], GROWN);
   return m;
 }
 
@@ -84,7 +84,7 @@ describe("自动标接缝（auto-seams.ts）", () => {
   });
   it("非流形的边（三张面共一条边）一定切", () => {
     const m = new MeshKernel(), a = m.addVertex(P(0, 0, 0)), b = m.addVertex(P(1, 0, 0));
-    for (const q of [P(0.5, 1, 0), P(0.5, -1, 0), P(0.5, 0, 1)]) m.addFace([a, b, m.addVertex(q)], -1, GROWN);
+    for (const q of [P(0.5, 1, 0), P(0.5, -1, 0), P(0.5, 0, 1)]) m.addFace([a, b, m.addVertex(q)], GROWN);
     const e = m.edgeOf(a, b), r = autoSeams(m, null, { angleDeg: 179 });
     eq(r.why.nonManifold, 1); assert(r.add.includes(e)); eq(r.charts, 3);
     eq(allOk(applyAndCheck(m, r.add)), "ok");

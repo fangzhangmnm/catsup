@@ -87,7 +87,7 @@ check(!!w?.open && await S(() => document.querySelector(".gizmo-canvas").classLi
 console.log("\n② 线和格数");
 const truth = await S((def) => {   // 和小窗无关的查法：哪张画上有哪几张面、每张面在画布上的面积
   const e = globalThis.__catsup.editor, Sc = e.sceneRef, k = Sc.mesh(def).kernel, out = {};
-  for (const f of k.faces()) { const p = Sc.facePaint(def, k.faceMat[f]); if (!p) continue; const v = globalThis.__catsup.paint.uv.at(def, f, p.uvSet.guid); let a = 0; const n = v.length / 2; for (let i = 0; i < n; i++) { const j = (i + 1) % n; a += v[2 * i] * v[2 * j + 1] - v[2 * j] * v[2 * i + 1]; } (out[p.textureDoc.guid] ??= { faces: [], area: 0, w: p.uvSet.width, h: p.uvSet.height }).faces.push(f); out[p.textureDoc.guid].area += Math.abs(a) / 2; }
+  for (const f of k.faces()) { const p = Sc.facePaint(def, (k.column("material_index")?.data[f] ?? -1)); if (!p) continue; const v = globalThis.__catsup.paint.uv.at(def, f, p.uvSet.guid); let a = 0; const n = v.length / 2; for (let i = 0; i < n; i++) { const j = (i + 1) % n; a += v[2 * i] * v[2 * j + 1] - v[2 * j] * v[2 * i + 1]; } (out[p.textureDoc.guid] ??= { faces: [], area: 0, w: p.uvSet.width, h: p.uvSet.height }).faces.push(f); out[p.textureDoc.guid].area += Math.abs(a) / 2; }
   return out;
 }, setup.def);
 const t0 = truth[w.tex];
@@ -112,7 +112,7 @@ check(w.tex === otherTex, "再从「…」里换回来");
 
 console.log("\n④ 小窗里点 = 三维里选中；悬停 = 三维那边亮、底下一行写它是谁（不画画的工具：画画工作台里笔落在画布上 = 画，施工单二十一第 2 刀，那边由 probe-canvas-paint 管）");
 await S(() => { globalThis.__catsup.pickWorkbench("freeform"); globalThis.__catsup.editor.setTool("select"); }); await frames(2);
-const centerOf = (f) => S(([def, f]) => { const e = globalThis.__catsup.editor, Sc = e.sceneRef, k = Sc.mesh(def).kernel, p = Sc.facePaint(def, k.faceMat[f]), v = globalThis.__catsup.paint.uv.at(def, f, p.uvSet.guid); let x = 0, y = 0; const n = v.length / 2; for (let i = 0; i < n; i++) { x += v[2 * i]; y += v[2 * i + 1]; } return globalThis.__catsup.canvasWin().probe().screenOf(x / n, y / n); }, [setup.def, f]);
+const centerOf = (f) => S(([def, f]) => { const e = globalThis.__catsup.editor, Sc = e.sceneRef, k = Sc.mesh(def).kernel, p = Sc.facePaint(def, (k.column("material_index")?.data[f] ?? -1)), v = globalThis.__catsup.paint.uv.at(def, f, p.uvSet.guid); let x = 0, y = 0; const n = v.length / 2; for (let i = 0; i < n; i++) { x += v[2 * i]; y += v[2 * i + 1]; } return globalThis.__catsup.canvasWin().probe().screenOf(x / n, y / n); }, [setup.def, f]);
 const fC = truth[otherTex].faces[2], hBefore = await S(() => globalThis.__catsup.editor.history.position());
 const c = await centerOf(fC);
 await page.mouse.move(c.x, c.y); await frames(2);
@@ -160,7 +160,7 @@ await menu("每格归谁");
 const own = await S((t) => {
   const C = globalThis.__catsup, w = C.canvasWin(), p = w.probe(), cv = document.querySelector(".canvas-win-view canvas"), g = cv.getContext("2d"), r = cv.getBoundingClientRect(), dpr = cv.width / r.width;
   const at = (x, y) => { const s = p.screenOf(x, y); const d = g.getImageData(Math.round((s.x - r.left) * dpr), Math.round((s.y - r.top) * dpr), 1, 1).data; return [d[0], d[1], d[2]]; };
-  const e = C.editor, Sc = e.sceneRef, k = Sc.mesh(Sc.defOfContext(e.context)).kernel, f = p.faces[0], pl = Sc.facePaint(Sc.defOfContext(e.context), k.faceMat[f]), v = C.paint.uv.at(Sc.defOfContext(e.context), f, pl.uvSet.guid); let x = 0, y = 0; const n = v.length / 2; for (let i = 0; i < n; i++) { x += v[2 * i]; y += v[2 * i + 1]; }
+  const e = C.editor, Sc = e.sceneRef, k = Sc.mesh(Sc.defOfContext(e.context)).kernel, f = p.faces[0], pl = Sc.facePaint(Sc.defOfContext(e.context), (k.column("material_index")?.data[f] ?? -1)), v = C.paint.uv.at(Sc.defOfContext(e.context), f, pl.uvSet.guid); let x = 0, y = 0; const n = v.length / 2; for (let i = 0; i < n; i++) { x += v[2 * i]; y += v[2 * i + 1]; }
   return { debug: p.debugView, face: at(x / n, y / n), corner: at(p.width - 0.5, p.height - 0.5) };
 }, otherTex);
 const grey = (c) => c[0] === c[1] && c[1] === c[2] && (c[0] === 200 || c[0] === 235);

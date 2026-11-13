@@ -1,4 +1,5 @@
 // mesh/ops/build.ts —— 建：空处建 n 边形、既有顶点填面、一次性几何体（盒子）。created 2026-10-27 by Claude Fable 5.1
+import { givenFaceValues } from "../reserved-columns.ts";
 import type { Pt3 } from "../../kernel/geom.ts";
 import { MeshKernel } from "../mesh-kernel.ts";
 import { FRESH } from "../columns.ts";
@@ -6,10 +7,10 @@ import { FRESH } from "../columns.ts";
 /** 空处建多边形：新点 + 一张面。 */
 export function addPolygon(k: MeshKernel, pts: readonly Pt3[], mat = -1): { face: number; verts: number[] } {
   const verts = pts.map((p) => k.addVertex(p));
-  return { face: k.addFace(verts, mat, FRESH), verts };   // 凭空来的（基本体 / 手工补面）
+  return { face: k.addFace(verts, mat === -1 ? FRESH : { kind: "fresh", face: givenFaceValues(k, { material: mat }) }), verts };   // 凭空来的（基本体 / 手工补面）
 }
 /** 既有顶点围成一张面（填洞）。 */
-export function fillLoop(k: MeshKernel, verts: readonly number[], mat = -1): number { return k.addFace(verts, mat, FRESH); }
+export function fillLoop(k: MeshKernel, verts: readonly number[], mat = -1): number { return k.addFace(verts, mat === -1 ? FRESH : { kind: "fresh", face: givenFaceValues(k, { material: mat }) }); }
 
 /** 盒子（min, max 对角）：8 点 6 面，面朝外。 */
 export function addBox(k: MeshKernel, min: Pt3, max: Pt3, mat = -1): { verts: number[]; faces: number[] } {
@@ -19,5 +20,5 @@ export function addBox(k: MeshKernel, min: Pt3, max: Pt3, mat = -1): { verts: nu
   ];
   const v = c.map((p) => k.addVertex(p));
   const F: number[][] = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]];
-  return { verts: v, faces: F.map((r) => k.addFace(r.map((i) => v[i]), mat, FRESH)) };
+  return { verts: v, faces: F.map((r) => k.addFace(r.map((i) => v[i]), mat === -1 ? FRESH : { kind: "fresh", face: givenFaceValues(k, { material: mat }) })) };
 }

@@ -1,4 +1,5 @@
 // mesh/ops/geometry.ts —— 只改坐标的算子（挪 / 变换；软变换的权重由工具算，这里只收最终坐标）+ 标记。不碰拓扑、不碰邻接。created 2026-10-27 by Claude Fable 5.1
+import { setFaceMaterial as setReservedFaceMaterial } from "../reserved-columns.ts";
 import type { Pt3 } from "../../kernel/geom.ts";
 import { applyPt, type Xform } from "../../scene/xform.ts";
 import { MeshKernel } from "../mesh-kernel.ts";
@@ -24,7 +25,7 @@ export function setEdgeFlags(k: MeshKernel, es: readonly number[], mask: number,
   for (const e of es) k.setFlags(e, mask, on);
 }
 export function setFaceMaterial(k: MeshKernel, fs: readonly number[], slot: number): void {
-  for (const f of fs) k.setFaceMat(f, slot);
+  for (const f of fs) setReservedFaceMaterial(k, f, slot);   // 保留名 material_index（第一次写非 −1 才建这一列）
 }
 /** 翻面：环倒过来（单面网格：朝向 = 环的绕向）。 */
 export function flipFaces(k: MeshKernel, fs: readonly number[]): void {

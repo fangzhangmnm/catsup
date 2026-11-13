@@ -1,5 +1,6 @@
 // 修复「合并重合反向面」（repairs/merge-reversed/plan.ts）。created 2026-11-06 by Claude Opus 5.5
 // 钉的是 user 要的结果：合完环切切得动、平滑跨得过去、封闭的朝外；转换永远不合（user 11-04「修复可以合并，导入导出的时候机械透明」）；材质不同的不并，报数。
+import { givenFaceValues, setFaceHidden } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
@@ -21,8 +22,8 @@ const meshOf = (kernel: Kernel): MeshKernel => brepToMesh({ kind: "brep", kernel
 function strip(layers: 1 | 2, slotB = -1): MeshKernel {
   const k = new MeshKernel();
   for (const [x, y] of [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]]) k.addVertex({ x, y, z: 0 });
-  k.addFace([0, 1, 4, 3], -1, FRESH); k.addFace([1, 2, 5, 4], -1, FRESH);
-  if (layers === 2) { k.addFace([3, 4, 1, 0], slotB, FRESH); k.addFace([4, 5, 2, 1], slotB, FRESH); }
+  k.addFace([0, 1, 4, 3], FRESH); k.addFace([1, 2, 5, 4], FRESH);
+  if (layers === 2) { k.addFace([3, 4, 1, 0], { kind: "fresh", face: givenFaceValues(k, { material: slotB }) }); k.addFace([4, 5, 2, 1], { kind: "fresh", face: givenFaceValues(k, { material: slotB }) }); }
   return k;
 }
 const signedVolume = (k: MeshKernel): number => {
@@ -88,9 +89,9 @@ describe("修复：合并重合反向面", () => {
   it("连着单层的面：跟单层的方向，先写的那张反了也不留", () => {
     const k = new MeshKernel();
     for (const [x, y] of [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]]) k.addVertex({ x, y, z: 0 });
-    k.addFace([0, 3, 4, 1], -1, FRESH);       // 先写的：朝 −z
-    k.addFace([1, 2, 5, 4], -1, FRESH);       // 单层：朝 +z（用户的朝向）
-    k.addFace([4, 3, 0, 1], -1, FRESH);       // 后写的：朝 +z
+    k.addFace([0, 3, 4, 1], FRESH);       // 先写的：朝 −z
+    k.addFace([1, 2, 5, 4], FRESH);       // 单层：朝 +z（用户的朝向）
+    k.addFace([4, 3, 0, 1], FRESH);       // 后写的：朝 +z
     const p = planMergeReversed(k, same);
     eq(p.pairs, 1); eq(p.sheets, 0, "跟了单层的不算猜"); eq(p.remove.join(","), "0", "留朝 +z 的那张");
     apply(k, p.remove);
@@ -106,15 +107,15 @@ describe("修复：合并重合反向面", () => {
   });
 
   it("一张隐藏一张没隐藏的不并；叠了三层的不碰；同向的重复面不碰", () => {
-    const hidden = strip(2); hidden.setFaceFlags(2, 1, true);
+    const hidden = strip(2); setFaceHidden(hidden, 2, true);
     eq(planMergeReversed(hidden, same).pairs, 1); eq(planMergeReversed(hidden, same).skipped, 1);
     const three = new MeshKernel();
     for (const [x, y] of [[0, 0], [1, 0], [1, 1]]) three.addVertex({ x, y, z: 0 });
-    three.addFace([0, 1, 2], -1, FRESH); three.addFace([2, 1, 0], -1, FRESH); three.addFace([0, 1, 2], -1, FRESH);
+    three.addFace([0, 1, 2], FRESH); three.addFace([2, 1, 0], FRESH); three.addFace([0, 1, 2], FRESH);
     eq(planMergeReversed(three, same).pairs, 0); eq(planMergeReversed(three, same).skipped, 1);
     const dup = new MeshKernel();
     for (const [x, y] of [[0, 0], [1, 0], [1, 1]]) dup.addVertex({ x, y, z: 0 });
-    dup.addFace([0, 1, 2], -1, FRESH); dup.addFace([1, 2, 0], -1, FRESH);
+    dup.addFace([0, 1, 2], FRESH); dup.addFace([1, 2, 0], FRESH);
     eq(planMergeReversed(dup, same).pairs, 0); eq(planMergeReversed(dup, same).skipped, 0);
   });
 

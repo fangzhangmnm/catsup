@@ -16,7 +16,7 @@ export function duplicateGeometry(k: MeshKernel, sel: MeshSel): { verts: number[
   for (const v of sel.verts ?? []) if (k.hasV(v)) vs.add(v);
   const map = new Map<number, number>();
   for (const v of [...vs].sort((a, b) => a - b)) map.set(v, k.addVertex(k.pt(v)));
-  const nf = faces.map((f) => { const r = k.faceVerts(f); return k.addFace(r.map((v) => map.get(v)!), k.faceMat[f], { kind: "copy", of: k.shapeOf(f), corners: r.map((_, i) => i) }); });   // 复制 = 是它的一份（角一一对应）
+  const nf = faces.map((f) => { const r = k.faceVerts(f); return k.addFace(r.map((v) => map.get(v)!), { kind: "copy", of: k.shapeOf(f), corners: r.map((_, i) => i) }); });   // 复制 = 是它的一份（角一一对应）
   const ne = edges.map((e) => k.ensureEdge(map.get(k.edgeA[e])!, map.get(k.edgeB[e])!));
   return { verts: [...map.values()], edges: ne, faces: nf };
 }
@@ -61,7 +61,7 @@ function orientAsHole(k: MeshKernel, ring: number[]): number[] {
 export function fillOrBridge(k: MeshKernel, sel: MeshSel): { kind: "fill" | "bridge"; faces: number[] } | string {
   const loops = edgeLoops(k, sel);
   if (typeof loops === "string") return loops;
-  if (loops.length === 1) { const ring = orientAsHole(k, loops[0]); return { kind: "fill", faces: [k.addFace(ring, -1, FRESH)] }; }   // 补洞 = 凭空来的
+  if (loops.length === 1) { const ring = orientAsHole(k, loops[0]); return { kind: "fill", faces: [k.addFace(ring, FRESH)] }; }   // 补洞 = 凭空来的
   if (loops.length !== 2) return `选了 ${loops.length} 圈：补洞要一圈，桥接要两圈`;
   const A = orientAsHole(k, loops[0]), B = [...orientAsHole(k, loops[1])].reverse(), n = A.length;   // 桥上的四边形过 A 的边和 A 补洞同向、过 B 的边和 B 补洞反向
   if (B.length !== n) return `两圈的点数不一样（${n} 和 ${B.length}）：桥接要一样多`;
@@ -69,6 +69,6 @@ export function fillOrBridge(k: MeshKernel, sel: MeshSel): { kind: "fill" | "bri
   let best = 0, bestCost = Infinity;
   for (let o = 0; o < n; o++) { let c = 0; for (let i = 0; i < n; i++) c += d2(k.pt(A[i]), k.pt(B[(i + o) % n])); if (c < bestCost) { bestCost = c; best = o; } }
   const faces: number[] = [];
-  for (let i = 0; i < n; i++) faces.push(k.addFace([A[i], A[(i + 1) % n], B[(i + 1 + best) % n], B[(i + best) % n]], -1, FRESH));   // 桥接 = 凭空来的
+  for (let i = 0; i < n; i++) faces.push(k.addFace([A[i], A[(i + 1) % n], B[(i + 1 + best) % n], B[(i + best) % n]], FRESH));   // 桥接 = 凭空来的
   return { kind: "bridge", faces };
 }

@@ -16,7 +16,7 @@ import type { InkTip } from "../src/paint/tip-truth.ts";
 import { P, boxMesh, gridMesh, laidOut, targetOf } from "./paint-space-kit.ts";
 import { placeOn, uvAtOf, uvOf, slotsOf } from "./uv-kit.ts";
 
-const ngon = (n: number): MeshKernel => { const m = new MeshKernel(); m.addFace(Array.from({ length: n }, (_, i) => m.addVertex(P(Math.cos((2 * Math.PI * i) / n), Math.sin((2 * Math.PI * i) / n), 0))), -1, FRESH); return m; };
+const ngon = (n: number): MeshKernel => { const m = new MeshKernel(); m.addFace(Array.from({ length: n }, (_, i) => m.addVertex(P(Math.cos((2 * Math.PI * i) / n), Math.sin((2 * Math.PI * i) / n), 0))), FRESH); return m; };
 const startTri = (g: TargetGeo, p: { x: number; y: number; z: number }): number => { let b = -1, bd = Infinity; for (let t = 0; t < g.grid.face.length; t++) { const d = sphereTriDist(p.x, p.y, p.z, g.wpos, 9 * t); if (d < bd) { bd = d; b = t; } } return b; };
 const limitSay = (f: () => unknown): string => { try { f(); } catch (e) { if (e instanceof PaintLimitError) return e.say; throw e; } return ""; };
 
@@ -72,7 +72,7 @@ describe("画画路径上的容量上限（1-4c）", () => {
   });
   it("一颗笔尖下同一块画布多边形挂几张面不设上限（施工单十八第 0 刀；以前最多 8）：64 张叠在一起、贴图坐标一样的面，一颗笔尖全罩住 → 画得上、= 标准答案", () => {
     const N = 64, m = new MeshKernel(), q = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)];
-    for (let k = 0; k < N; k++) m.addFace(q.map((p) => m.addVertex(P(p.x, p.y, p.z + k * 1e-4))), -1, FRESH);
+    for (let k = 0; k < N; k++) m.addFace(q.map((p) => m.addVertex(P(p.x, p.y, p.z + k * 1e-4))), FRESH);
     for (const f of m.faces()) placeOn(m, f, "uv", [4, 4, 36, 4, 36, 36, 4, 36]);
     const gpu = new SoftSpaceGpu(), t = { ...targetOf(m, { guid: "uv", width: 40, height: 40, pxPerM: 32 }) }, g = buildTargetGeo(t);
     eq(g.table.polys.length, 1, "64 张面并成同一块"); eq(g.table.polyFaces[0].length, N);

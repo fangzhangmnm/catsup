@@ -79,14 +79,14 @@ describe("边上的列：声明、造边按来历填值（接口要求 a / b）"
     const { k, v } = line(4);
     const e = k.addEdge(v[0], v[1], { kind: "fresh", values: new Map([["flag", 1], ["num", 7]]) });
     k.setWire(e, true); k.removeEdge(e);
-    const f = k.addFace([v[0], v[1], v[2]], -1, FRESH);
+    const f = k.addFace([v[0], v[1], v[2]], FRESH);
     for (const x of k.fEdges(f)) { eq(k.edgeValue(x, "flag"), 0, `边 ${x}`); eq(k.edgeValue(x, "num"), -1); }
     assert(k.fEdges(f).includes(e), "空出来的编号被再用了"); clean(k, "加面");
   });
   it("合并点：几条边并成同一对点 = 并成（先后 = 编号从小到大），每列照自己的规则；只换一头的边值不动", () => {
     const k = new MeshKernel(); k.addColumn(FLAG); k.addColumn(ANY); k.addColumn(NUM);
     const v = [P(0, 0), P(1, 0), P(1, 1), P(1, -0.1), P(1, -1), P(2, 0)].map((p) => k.addVertex(p));
-    k.addFace([v[0], v[1], v[2]], -1, FRESH); k.addFace([v[0], v[4], v[3]], -1, FRESH);
+    k.addFace([v[0], v[1], v[2]], FRESH); k.addFace([v[0], v[4], v[3]], FRESH);
     const e01 = k.edgeOf(v[0], v[1]), e03 = k.edgeOf(v[0], v[3]), e12 = k.edgeOf(v[1], v[2]);
     k.setEdgeValue(e01, "flag", 1); k.setEdgeValue(e01, "num", 4); k.setEdgeValue(e03, "any", 1); k.setEdgeValue(e03, "num", 8); k.setEdgeValue(e12, "flag", 1);
     k.takeReport();
@@ -96,7 +96,7 @@ describe("边上的列：声明、造边按来历填值（接口要求 a / b）"
     const r = k.takeReport().oddEdges.get(kept); assert(r !== undefined, "来源不一样进报告"); eq([...r!.edge.keys()].sort().join(), "any,flag,num");
     eq(k.edgeValue(e12, "flag"), 1, "边 1–2 没动");
     const k2 = new MeshKernel(); k2.addColumn(FLAG); const w = [P(0, 0), P(1, 0), P(2, 0), P(1, 1)].map((p) => k2.addVertex(p));
-    k2.addFace([w[0], w[1], w[3]], -1, FRESH); const e13 = k2.edgeOf(w[1], w[3]); k2.setEdgeValue(e13, "flag", 1); k2.addVertex(P(5, 5));
+    k2.addFace([w[0], w[1], w[3]], FRESH); const e13 = k2.edgeOf(w[1], w[3]); k2.setEdgeValue(e13, "flag", 1); k2.addVertex(P(5, 5));
     mergeVerts(k2, [w[2], w[1]], "first");   // 点 2 只是孤点：合并之后边 1–3 一头都没换，值原样
     eq(k2.edgeValue(e13, "flag"), 1);
   });

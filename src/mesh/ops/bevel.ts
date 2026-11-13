@@ -234,7 +234,7 @@ export function bevelEdges(k: MeshKernel, edges: readonly number[], width: numbe
     for (let j = 0; j < n; j++) {
       const A0 = pa[Math.min(j, pa.length - 1)], A1 = pa[Math.min(j + 1, pa.length - 1)], B0 = pb[Math.min(j, pb.length - 1)], B1 = pb[Math.min(j + 1, pb.length - 1)];
       const ring = dedupeRing([B0, A0, A1, B1]);
-      if (ring.length >= 3 && new Set(ring).size === ring.length) { const f = k.addFace(ring, k.faceMat[f1], GROWN); ids.push(f); out.push(f); }   // 倒角带 = 新长出来的
+      if (ring.length >= 3 && new Set(ring).size === ring.length) { const f = k.addFace(ring, { kind: "grown", neighbor: f1 }); ids.push(f); out.push(f); }   // 倒角带 = 新长出来的（旁边 = 原来挨着的那张面）
     }
     stripOf.set(e, ids);
     if (s > 1) for (let j = 1; j < s && j < pa.length - 1 && j < pb.length - 1; j++) { const le = k.edgeOf(pa[j], pb[j]); if (le >= 0) k.setEdgeFlags(le, (k.edgeFlags[le] & ~HAND_MARKS) | SMOOTH_MARK); }
@@ -257,7 +257,7 @@ export function bevelEdges(k: MeshKernel, edges: readonly number[], width: numbe
       const strip = stripOf.get(bEdges[0])?.[0];
       if (strip !== undefined && k.hasF(strip) && mergeInto(k, strip, ring)) continue;
     }
-    const f = k.addFace(ring, k.faceMat[fan[0].f], GROWN); out.push(f);   // 角上的补片 = 新长出来的
+    const f = k.addFace(ring, { kind: "grown", neighbor: fan[0].f }); out.push(f);   // 角上的补片 = 新长出来的
   }
 
   // ---- 不倒的边的标记搬到换出来的新边；没边的老点删掉 ----
@@ -299,7 +299,7 @@ export function bevelVerts(k: MeshKernel, verts: readonly number[], width: numbe
   const out: number[] = [];
   for (const v of vs) {
     const fan = fans.get(v)!, cyc = dedupeRing(fan.flatMap((c) => corner(v, c.f)));
-    if (cyc.length >= 3) out.push(k.addFace(orientPatch(k, cyc), k.faceMat[fan[0].f], GROWN));   // 倒点的补片 = 新长出来的
+    if (cyc.length >= 3) out.push(k.addFace(orientPatch(k, cyc), { kind: "grown", neighbor: fan[0].f }));   // 倒点的补片 = 新长出来的
   }
   // 标记：原来那条边 (a, b) 现在是 (a 那头的切点或 a, b 那头的切点或 b)
   for (const [e, { a, b, fl }] of carry) {

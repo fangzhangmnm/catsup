@@ -1,6 +1,7 @@
 // tools/mesh-snap.ts —— 自由建模的吸附目标（点 > 线 > 面）。created 2026-10-30 by Claude Opus 5.5（从 tools/mesh-transform.ts 搬出来：挤出也要吸，user 10-30「7也做」= Shift 只管吸附）。
 // 规矩（user 10-27「然后自由建模的吸附就是点（包括原点）-线（包括轴）-面」「shift挪就是开吸附啊，也不一定是点。点>线>面，就是控制吸附开关」）：
 // 吸附开不开 = 工具算（ctx.snapBase() XOR Shift，stance.ts SNAP_BASE）；这里只回答「光标下吸到哪」。
+import { faceHidden } from "../../mesh/reserved-columns.ts";
 import type { Pt3 } from "../../kernel/kernel.ts";
 import type { SnapKind } from "../solver.ts";
 import { add3, cross3, dot3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
@@ -41,7 +42,7 @@ export function meshSnapTarget(ctx: ToolCtx, s: { x: number; y: number }, moving
   let bt = Infinity;
   for (let i = 0; i < faceOfTri.length; i++) {
     const A = tris[3 * i], B = tris[3 * i + 1], C = tris[3 * i + 2];
-    if (moving.has(A) || moving.has(B) || moving.has(C) || m.isFaceHidden(faceOfTri[i])) continue;
+    if (moving.has(A) || moving.has(B) || moving.has(C) || faceHidden(m, faceOfTri[i])) continue;
     const t = rayTri(ray.origin, ray.dir, w(A), w(B), w(C));
     if (t !== null && t < bt) bt = t;
   }

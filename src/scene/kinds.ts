@@ -1,12 +1,13 @@
 // scene/kinds.ts —— kind 登记表（契约 ai-docs/20261024-object-model-contract.md §2 / §5）：每种身体声明可用模式、能 cast 到哪（丢什么）、对齐几何、包围盒。
 // 加 kind = 加一条登记，不改既有的；cast 只在表里有的方向上成功、不做部分转换（user 2026-10-24「每个物体有一个kind，可以换，换了要explicit cast op用户点确认」）。
 // created 2026-10-24 by Claude Fable 5.1 · 2026-10-27 mesh 身体换成可编辑的 mesh 内核（src/mesh/），brep → mesh 出多边形面不出三角汤（edited by Claude Fable 5.1）
+import { faceHidden, faceMaterial, givenFaceValues } from "../mesh/reserved-columns.ts";
 import { cross3, ptKey3, quantize3, sub3, type PlaneParams, type Pt3 } from "../kernel/geom.ts";
 import type { BodyKind } from "./body-kind.ts";
 import type { Body, BrepBody, DefId, MeshBody, Scene } from "./scene.ts";
 import { reachableDefs } from "./resources.ts";
 import { triangulateRings } from "../format/triangulate.ts";
-import { MeshKernel, F_SOFT, F_SMOOTH, F_HIDDEN, F_WIRE, FF_HIDDEN } from "../mesh/mesh-kernel.ts";
+import { MeshKernel, F_SOFT, F_SMOOTH, F_HIDDEN, F_WIRE } from "../mesh/mesh-kernel.ts";
 import { FRESH } from "../mesh/columns.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import { BUILTIN_BACK_SLOT } from "./builtin-materials.ts";
@@ -101,7 +102,7 @@ function addBrepPool(m: MeshKernel, k: Kernel, isBack: (slot: number) => boolean
     const F = k.face(f.id)!, rec = k.planeOf(f.id)!, n = rec.plane.n, hidden = k.isFaceHidden(f.id);
     const sides = ([[1, k.faceMaterialOf(f.id, 0) ?? -1], [-1, k.faceMaterialOf(f.id, 1) ?? -1]] as const).filter(([, slot]) => !isBack(slot));
     if (!sides.length) continue;   // 两侧都是默认背面：这张面没了（brepSideCounts.neither 报数）
-    const add = (ring: number[]): void => { for (const [sgn, slot] of sides) { const r = dot(newell(ring.map((v) => m.pt(v))), n) * sgn < 0 ? [...ring].reverse() : ring; const fid = m.addFace(r, slot, FRESH);   /* 硬表面转网格体 = 凭空来的 */ if (hidden) m.setFaceFlags(fid, FF_HIDDEN, true); } };
+    const add = (ring: number[]): void => { for (const [sgn, slot] of sides) { const r = dot(newell(ring.map((v) => m.pt(v))), n) * sgn < 0 ? [...ring].reverse() : ring; m.addFace(r, { kind: "fresh", face: givenFaceValues(m, { material: slot, hidden }) });   /* 硬表面转网格体 = 凭空来的（材质、隐藏照给） */ } };
     if (!F.holes.length) { add(F.outer.vids.map(vi)); continue; }
     const outer = F.outer.vids, holes = F.holes.map((h) => h.vids), all = [...new Set([...outer, ...holes.flat()])];
     const local = new Map<number, number>(all.map((v, i) => [v, i]));
@@ -153,8 +154,8 @@ function carryMeshSides(kernel: Kernel, m: MeshKernel, tris: ArrayLike<number>, 
   const cornersKey = (pts: readonly Pt3[]): string => pts.map((p) => ptKey3(quantize3(p))).sort().join("|");
   for (let i = 0; i + 2 < tris.length; i += 3) {
     const f = faceOfTri[i / 3];
-    if (m.faceFlags[f] & FF_HIDDEN) continue;
-    const a = m.pt(tris[i]), b = m.pt(tris[i + 1]), c = m.pt(tris[i + 2]), s: Src = { a, b, c, n: cross3(sub3(b, a), sub3(c, a)), slot: m.faceMat[f] };
+    if (faceHidden(m, f)) continue;
+    const a = m.pt(tris[i]), b = m.pt(tris[i + 1]), c = m.pt(tris[i + 2]), s: Src = { a, b, c, n: cross3(sub3(b, a), sub3(c, a)), slot: faceMaterial(m, f) };
     src.push(s);
     const key = cornersKey([a, b, c]), list = byCorners.get(key);
     if (list) list.push(s); else byCorners.set(key, [s]);
@@ -187,7 +188,7 @@ export function meshToBrep(b: MeshBody, softDeg: number): BrepBody {
   const positions = verts.map((v) => m.pt(v));
   const { tris, faceOfTri } = m.triangles();
   const t: number[] = [];
-  for (let i = 0; i < tris.length; i += 3) { if (m.faceFlags[faceOfTri[i / 3]] & FF_HIDDEN) continue; t.push(idx.get(tris[i])!, idx.get(tris[i + 1])!, idx.get(tris[i + 2])!); }
+  for (let i = 0; i < tris.length; i += 3) { if (faceHidden(m, faceOfTri[i / 3])) continue; t.push(idx.get(tris[i])!, idx.get(tris[i + 1])!, idx.get(tris[i + 2])!); }
   const { kernel } = kernelFromTriangles(positions, t, { softDeg });
   const slots = [...b.materialSlots];
   carryMeshSides(kernel, m, tris, faceOfTri, () => { let i = slots.indexOf(BUILTIN_BACK_SLOT); if (i < 0) { i = slots.length; slots.push(BUILTIN_BACK_SLOT); } return i; });

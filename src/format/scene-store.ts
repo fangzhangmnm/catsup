@@ -1,6 +1,7 @@
 // format/scene-store.ts —— 场景 / 纯文档适配身份层（唯一一处「店」的实现 + 落地）。设计书 ai-docs/20261104-identity-layer-design.md §4–§6。created 2026-11-04 by Claude Opus 5.5（ID-4a）
 // · 店的 refsOf / usage 不序列化几何（普查、活死只随定义 / 实例 / 面数涨，不碰 toBrep）；docOf 才序列化。
 // · 店是一次性的视图：建的时候拍下 GUID → 句柄，场景改了（落地之后）要重建。
+import { faceMaterial } from "../mesh/reserved-columns.ts";
 import { KINDS, refKey, type EntryKind, type Ref } from "../identity/kinds.ts";
 import { bundleIndex, closure, type Bundle, type MergePlan } from "../identity/graph.ts";
 import { NO_USAGE, tableStore, type EntryStore, type Usage } from "../identity/store.ts";
@@ -65,7 +66,7 @@ function scan(s: Scene, live: readonly Ref[]): ReadonlyMap<string, Usage> {
     const liveHere = isLive.has(refKey(defRef(d.guid))), b = d.body;
     if (liveHere) for (const i of d.instances.values()) { const t = s.defs.get(i.def); if (!t) continue; const u = row(defRef(t.guid)); u.placed++; if (i.locked) u.locked++; }
     const hit = (slot: number | undefined): void => { if (slot === undefined || slot < 0) return; const m = s.materials[b.materialSlots[slot]]; if (!m) return; const u = row(materialRef(m.guid)); if (liveHere) u.faces++; else u.orphanFaces++; };
-    if (b.kind === "mesh") { for (const f of b.kernel.faces()) hit(b.kernel.faceMat[f]); continue; }
+    if (b.kind === "mesh") { for (const f of b.kernel.faces()) hit(faceMaterial(b.kernel, f)); continue; }
     for (const k of [b.kernel, ...[...b.groups.values()].map((g) => g.kernel)]) for (const f of k.faces()) { hit(k.faceMaterialOf(f.id, 0)); hit(k.faceMaterialOf(f.id, 1)); }
   }
   return out;

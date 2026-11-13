@@ -6,6 +6,11 @@
 import type { CarriedJson, ColumnDoc, MeshDoc } from "../format/document.ts";
 import { MeshKernel, type ColumnDef } from "./mesh-kernel.ts";
 import { FRESH } from "./columns.ts";
+import { faceHidden, faceMaterial, givenFaceValues, RESERVED_FACE } from "./reserved-columns.ts";
+
+/** 文件里面的那个字节（MeshDoc.faceFlags）：第 1 位 = 面上的隐藏（hide_poly）；别的位没有定义。属性地基轮 3b 起内存里是两列，文件的形状不变，门口来回换。 */
+export const FILE_FACE_HIDDEN = 1;
+const RESERVED_FACE_IDS: ReadonlySet<string> = new Set(RESERVED_FACE.map((d) => d.id));
 import { smoothDefaultOf } from "../format/migrate/mesh.ts";
 
 /** 内核 → 载荷：角上的每一列原样带上（没有列 = 不写 columns，和以前逐字节一样）；skip 里的 id 不写。 */
@@ -15,10 +20,10 @@ export function meshDocFromKernel(m: MeshKernel, skip: ReadonlySet<string> = new
   alive.forEach((v, i) => { map.set(v, i); positions[3 * i] = m.pos[3 * v]; positions[3 * i + 1] = m.pos[3 * v + 1]; positions[3 * i + 2] = m.pos[3 * v + 2]; });
   const faces = m.faces(), faceStart = new Int32Array(faces.length), faceLen = new Int32Array(faces.length), faceMat = new Int32Array(faces.length), faceFlags = new Uint8Array(faces.length);
   const loop: number[] = [];
-  faces.forEach((f, i) => { const vs = m.faceVerts(f); faceStart[i] = loop.length; faceLen[i] = vs.length; faceMat[i] = m.faceMat[f]; faceFlags[i] = m.faceFlags[f]; for (const v of vs) loop.push(map.get(v)!); });
+  faces.forEach((f, i) => { const vs = m.faceVerts(f); faceStart[i] = loop.length; faceLen[i] = vs.length; faceMat[i] = faceMaterial(m, f); faceFlags[i] = faceHidden(m, f) ? FILE_FACE_HIDDEN : 0; for (const v of vs) loop.push(map.get(v)!); });
   const pairs: number[] = [], flags: number[] = [];
   for (const e of m.edges()) if (m.edgeFlags[e]) { pairs.push(map.get(m.edgeA[e])!, map.get(m.edgeB[e])!); flags.push(m.edgeFlags[e]); }
-  const defs = m.columnDefs().filter((c) => !skip.has(c.id));
+  const defs = m.columnDefs().filter((c) => !skip.has(c.id) && !RESERVED_FACE_IDS.has(c.id));   // 面上的两个保留名在上面塞进了 faceMat / faceFlags
   const extraFace = defs.find((c) => c.on !== "corner");
   if (extraFace) throw new Error(`meshDocFromKernel: ${extraFace.on} column ${extraFace.id} has no place in the file`);
   const columns: ColumnDoc[] = defs.map((c) => {
@@ -42,11 +47,11 @@ export function kernelFromMeshDoc(d: MeshDoc, where = "mesh"): MeshKernel {
     if (s < 0 || n < 3 || s + n > d.loopVert.length) throw new Error(`${where}: face ${f} loop out of range`);
     const ring = Array.from(d.loopVert.subarray(s, s + n));
     for (const v of ring) if (v < 0 || v >= nV) throw new Error(`${where}: face ${f} references vertex ${v} (have ${nV})`);
-    let fid: number;
-    let origin = FRESH;
-    if (cols.length) origin = { kind: "fresh", corner: new Map(cols.map((c) => [c.guid, c.values.slice(c.arity * s, c.arity * (s + n))])) };   // 读文件 = 凭空来的、直接给值
-    try { fid = m.addFace(ring, d.faceMat[f], origin); } catch (e) { throw new Error(`${where}: face ${f} invalid (${e instanceof Error ? e.message : String(e)})`); }
-    if (d.faceFlags[f]) m.setFaceFlags(fid, d.faceFlags[f], true);
+    if (d.faceFlags[f] & ~FILE_FACE_HIDDEN) throw new Error(`${where}: face ${f} has face flag bits ${d.faceFlags[f]} this version does not understand`);   // 不认识的位：明说读不了，不悄悄丢
+    const face = givenFaceValues(m, { material: d.faceMat[f], hidden: (d.faceFlags[f] & FILE_FACE_HIDDEN) !== 0 });   // 第一次碰到非缺省值才建那一列
+    const corner = cols.length ? new Map(cols.map((c) => [c.guid, c.values.slice(c.arity * s, c.arity * (s + n))])) : null;
+    const origin = corner || face.size ? { kind: "fresh" as const, ...(corner ? { corner } : {}), ...(face.size ? { face } : {}) } : FRESH;   // 读文件 = 凭空来的、直接给值
+    try { m.addFace(ring, origin); } catch (e) { throw new Error(`${where}: face ${f} invalid (${e instanceof Error ? e.message : String(e)})`); }
   }
   if (d.edgeFlags.length * 2 !== d.edgePairs.length) throw new Error(`${where}: edgePairs / edgeFlags disagree`);
   for (let i = 0; i < d.edgeFlags.length; i++) {

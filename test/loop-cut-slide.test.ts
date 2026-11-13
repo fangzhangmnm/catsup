@@ -12,7 +12,7 @@ function tube(n = 6): { k: MeshKernel; start: number } {
     const a = (2 * Math.PI * i) / n, p = (z: number): Pt3 => ({ x: Math.cos(a), y: Math.sin(a), z });
     if (i % 2) { hi.push(k.addVertex(p(1))); lo.push(k.addVertex(p(0))); } else { lo.push(k.addVertex(p(0))); hi.push(k.addVertex(p(1))); }
   }
-  for (let i = 0; i < n; i++) { const j = (i + 1) % n; k.addFace([lo[i], lo[j], hi[j], hi[i]], -1, FRESH); }
+  for (let i = 0; i < n; i++) { const j = (i + 1) % n; k.addFace([lo[i], lo[j], hi[j], hi[i]], FRESH); }
   return { k, start: k.edgeOf(lo[0], hi[0]) };
 }
 const zs = (k: MeshKernel, vs: readonly number[]): number[] => [...new Set(vs.map((v) => Math.round(k.pt(v).z * 1e9) / 1e9))].sort((a, b) => a - b);
@@ -37,7 +37,7 @@ describe("环切：位置沿整圈同一侧（W-8）", () => {
     const a = tube(), b = tube();
     loopCuts(a.k, a.start, 1, 0.3); loopCut(b.k, b.start, 0.3);
     eq(JSON.stringify(a.k.toSnapshot()), JSON.stringify(b.k.toSnapshot()));
-    const k = new MeshKernel(), v = [0, 1, 2].map((i) => k.addVertex({ x: i, y: i * i, z: 0 })); k.addFace(v, -1, FRESH);
+    const k = new MeshKernel(), v = [0, 1, 2].map((i) => k.addVertex({ x: i, y: i * i, z: 0 })); k.addFace(v, FRESH);
     eq(loopCuts(k, k.edges()[0], 3).edges.length, 0);
   });
 });

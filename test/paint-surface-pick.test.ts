@@ -1,6 +1,7 @@
 // 落点（贴图主线 1-3a 第四节，施工单 ai-docs/20261110-paint-workorders-7.md + Fable 11-10 深夜裁定 B）的性质。created 2026-11-10 by Claude Opus 5.5
+import { setFaceHidden } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
-import { MeshKernel, FF_HIDDEN } from "../src/mesh/mesh-kernel.ts";
+import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { FRESH } from "../src/mesh/columns.ts";
 import { addBox, extrudeFaces } from "../src/mesh/ops/index.ts";
 import { layoutFaces } from "../src/paint/layout.ts";
@@ -16,11 +17,11 @@ const rng = (seed: number): (() => number) => { let s = seed >>> 0 || 1; return 
 function painted(seed: number): { k: MeshKernel; t: TexelTable } {
   const k = new MeshKernel(), r = rng(seed);
   addBox(k, P(0, 0, 0), P(0.6 + 0.4 * r(), 0.5, 0.8));
-  const pent = k.addFace([0, 1, 2, 3, 4].map((i) => k.addVertex(P(3 + 0.5 * Math.cos((2 * Math.PI * i) / 5), 0.5 * Math.sin((2 * Math.PI * i) / 5), 0))), -1, FRESH);
+  const pent = k.addFace([0, 1, 2, 3, 4].map((i) => k.addVertex(P(3 + 0.5 * Math.cos((2 * Math.PI * i) / 5), 0.5 * Math.sin((2 * Math.PI * i) / 5), 0))), FRESH);
   extrudeFaces(k, [pent]);
   for (const v of k.faceVerts(pent)) { const p = k.pt(v); k.setPos(v, { ...p, z: p.z + 0.7 }); }
-  for (let i = 0; i < 3; i++) k.addFace([P(6 + i, 0, 0), P(6.4 + i, 0.1 * r(), 0.3), P(6.1 + i, 0.6, 0.1)].map((p) => k.addVertex(p)), -1, FRESH);
-  k.addFace([P(10, 0, 0), P(11, 0, 0.2), P(11, 0.8, 0), P(10, 0.8, 0.25)].map((p) => k.addVertex(p)), -1, FRESH);
+  for (let i = 0; i < 3; i++) k.addFace([P(6 + i, 0, 0), P(6.4 + i, 0.1 * r(), 0.3), P(6.1 + i, 0.6, 0.1)].map((p) => k.addVertex(p)), FRESH);
+  k.addFace([P(10, 0, 0), P(11, 0, 0.2), P(11, 0.8, 0), P(10, 0.8, 0.25)].map((p) => k.addVertex(p)), FRESH);
   const lay = layoutFaces(k, k.faces(), { density: 40 });
   if (!lay.ok) throw new Error(lay.reason);
   for (const [f, v] of lay.values) placeOn(k, f, UV, [...v]);
@@ -70,9 +71,9 @@ describe("落点（1-3a 第四节）", () => {
     const top = k.faces().find((f) => k.facePts(f).every((p) => p.z === 1))!, bottom = k.faces().find((f) => k.facePts(f).every((p) => p.z === 0))!;
     const down = { o: P(0.3, 0.6, 2), d: P(0, 0, -1) };
     eq(pickSurface(uvOf(k), buildTriGrid(uvOf(k)), UV, down.o, down.d)?.face, top, "先打到顶面");
-    k.faceFlags[top] |= FF_HIDDEN;
+    setFaceHidden(k, top, true);
     eq(pickSurface(uvOf(k), buildTriGrid(uvOf(k)), UV, down.o, down.d)?.face, bottom, "顶面藏起来：打穿到底面");
-    const extra = k.addFace([P(5, 0, 0), P(6, 0, 0), P(6, 1, 0), P(5, 1, 0)].map((p) => k.addVertex(p)), -1, FRESH);
+    const extra = k.addFace([P(5, 0, 0), P(6, 0, 0), P(6, 1, 0), P(5, 1, 0)].map((p) => k.addVertex(p)), FRESH);
     const h = pickSurface(uvOf(k), buildTriGrid(uvOf(k)), UV, P(5.5, 0.5, 1), P(0, 0, -1));
     assert(h !== null && h.face === extra && h.inPaint === false, "不在这张画上：照实说");
     eq(pickSurface(uvOf(k), buildTriGrid(uvOf(k)), UV, P(20, 20, 20), P(1, 0, 0)), null, "打空");

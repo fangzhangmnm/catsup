@@ -28,7 +28,7 @@ import { snapHoldTol } from "./snap-hysteresis.ts";
 import { type ForceEnv, forceSideFor, forcesOn, originNeedsAsk } from "./mirror-force.ts";
 import { type UpkeepSnaps, upkeepAfter, upkeepRewrite, upkeepSnapshot } from "./paint-upkeep.ts";   // 每一步做完的收尾 = 强行对称 + 画的位置（1-3b）
 import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, mirrorTwins, withMirrorCounterparts, pickSide, sideLabel, sideOfElements, trySymmetrize } from "../mesh/mirror.ts";
-import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts";
+import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts"; import { faceMaterial } from "../mesh/reserved-columns.ts";   // 保留名 material_index（属性地基轮 3b）
 import { marqueeScreen, areaTest, type ScreenArea } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, type BrepSelection, type SelMode, circleSegmentsOnPlane, emptySelection, mergeSel, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
@@ -2571,7 +2571,7 @@ export class Editor {
   }
   /** 吸色：把这张面这一侧的材质设成油漆桶当前「蘸的」（没材质 = 默认正面；默认背面 = 那一格）。 */
   pickMaterialOf(face: FaceId, side: 0 | 1 = 0): void {
-    const def = this.scene.defOfContext(this.ctx), slot = this.activeKind() === "mesh" ? this.scene.mesh(def).kernel.faceMat[face] : this.kernel.faceMaterialOf(face, side);   // 网格体（W-12）：槽号在 faceMat、只有一侧
+    const def = this.scene.defOfContext(this.ctx), slot = this.activeKind() === "mesh" ? faceMaterial(this.scene.mesh(def).kernel, face) : this.kernel.faceMaterialOf(face, side);   // 网格体（W-12）：槽号在 faceMat、只有一侧
     const m = this.scene.materialOfSlot(def, slot);
     this.setPaint(m ? pickOfMaterial(this.scene, m) : null);
   }

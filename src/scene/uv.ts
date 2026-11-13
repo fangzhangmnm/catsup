@@ -6,6 +6,7 @@
 //   · 角上一列 "uv-at"（UV_AT_COL）：每角两个数，单位 = 格，1/1024 格的整数倍（quantum = 1024：内核插值后取整到这一格）。没有位置的面这里是 0，没有意思。
 // 有没有位置只看代号。内核只报告「哪几列在来源之间对不上」；并出来的面代号或坐标对不上 → 拿掉位置、数出来，在每一步的收尾里（editor/paint-upkeep.ts）。
 // 写位置只有一个口：placeFace。读坐标的那几块（铺法、每格的表、笔的目标、拾取、画布小窗的线、渲染）经 uvMesh 这个视图问，不直接碰那两列（守卫：这两个 id 只许出现在这里）。
+import { faceHidden } from "../mesh/reserved-columns.ts";
 import type { MeshKernel, ColumnDef, FaceReport, GoneFace } from "../mesh/mesh-kernel.ts";
 import type { Guid } from "../format/guid.ts";
 import type { UvDoc } from "../format/document.ts";
@@ -132,7 +133,7 @@ export interface UvMesh {
 export function uvMesh(k: MeshKernel, slots: readonly Guid[]): UvMesh {
   return {
     kernel: k, get rev() { return k.rev; },
-    faces: () => k.faces(), faceVerts: (f) => k.faceVerts(f), facePts: (f) => k.facePts(f), faceNormal: (f) => k.faceNormal(f), pt: (v) => k.pt(v), hasF: (f) => k.hasF(f), isFaceHidden: (f) => k.isFaceHidden(f), faceTriangles: (f) => k.faceTriangles(f),
+    faces: () => k.faces(), faceVerts: (f) => k.faceVerts(f), facePts: (f) => k.facePts(f), faceNormal: (f) => k.faceNormal(f), pt: (v) => k.pt(v), hasF: (f) => k.hasF(f), isFaceHidden: (f) => faceHidden(k, f), faceTriangles: (f) => k.faceTriangles(f),
     uvAt: (f, g) => uvAt(k, slots, f, g), uvBoxes: (g) => uvBoxes(k, slots, g), uvSets: () => slots,
   };
 }

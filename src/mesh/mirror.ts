@@ -2,7 +2,8 @@
 // user：「所以镜像还是用我一开始那个颠覆的思路，就是不是存一半然后推导，而是按照blender的镜像编辑那么做。然后可以选择是镜像编辑，对歪的地方有容差，还是强行删一半保持对称 两种」
 // 「然后可以只对选择区域修复镜像snap吗」。两半都是真几何（不是后处理器）；镜像面 = 网格体自己坐标的 axis = 0 平面；中缝上的点钉在镜像面上；哪边动了哪边说了算。
 // 纯函数（只读 / 改传进来的内核），编辑器在提交和预演两处各调一次（editor.ts mirrorRewrite / mirrorAfter）。
-import { F_HIDDEN, FF_HIDDEN, MeshKernel } from "./mesh-kernel.ts";
+import { F_HIDDEN, MeshKernel } from "./mesh-kernel.ts";
+import { faceMaterial } from "./reserved-columns.ts";
 import { splitEdge, splitFace } from "./ops/split.ts";
 import type { Pt3 } from "../kernel/kernel.ts";
 
@@ -234,7 +235,7 @@ export function isSymmetric(m: MeshKernel, axis: MirrorAxis, tol = MIRROR_TOL): 
     const r = m.faceVerts(f);
     if (r.every((v) => p.get(v) === v)) continue;   // 躺在镜像面上 = 它自己
     const g = byRing.get(ringKey(r.map((v) => p.get(v)!).reverse()));
-    if (g === undefined || m.faceMat[g] !== m.faceMat[f]) return false;
+    if (g === undefined || faceMaterial(m, g) !== faceMaterial(m, f)) return false;
   }
   return true;
 }
@@ -333,8 +334,7 @@ export function symmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol = 
   const flagCopies: [number, number, number][] = [];
   for (const f of src) {
     const r = m.faceVerts(f), mr = r.map(tw).reverse();
-    const nf = m.addFace(mr, m.faceMat[f], { kind: "copy", of: m.shapeOf(f), corners: r.map((_, i) => r.length - 1 - i) }); added++;   // 镜过去的面 = 照抄（对应表倒过来）：两半在画布上是同一块
-    if (m.faceFlags[f] & FF_HIDDEN) m.setFaceFlags(nf, FF_HIDDEN, true);
+    m.addFace(mr, { kind: "copy", of: m.shapeOf(f), corners: r.map((_, i) => r.length - 1 - i) }); added++;   // 镜过去的面 = 照抄（对应表倒过来）：两半在画布上是同一块；面上的列（材质、隐藏）一起照抄
     for (let i = 0; i < r.length; i++) { const e = m.edgeOf(r[i], r[(i + 1) % r.length]); if (e >= 0 && m.edgeFlags[e]) flagCopies.push([tw(r[i]), tw(r[(i + 1) % r.length]), m.edgeFlags[e]]); }
   }
   for (const [a, b, fl] of flagCopies) { const e = m.edgeOf(a, b); if (e >= 0 && a !== b) m.setEdgeFlags(e, fl); }

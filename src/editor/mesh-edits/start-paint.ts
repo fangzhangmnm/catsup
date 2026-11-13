@@ -2,6 +2,7 @@
 // 画画工作台里，当前物件还没有画 → 工作台里一颗明着的钮「开始画」：选中了面 = 这些面，没选 = 这个物件全部的面（已经走画的面跳过）。
 // 新材质的底色：这些面现在是同一个材质 = 它的颜色，不是 = 白模灰（PALETTE.face）。名字自动起（「画」「画 2」…），不问。
 // 走现有的 startPaint 指令（1-3b：开一套贴图坐标 + 一张分层的画 + 一个走画的材质，一步撤销）；新条目的 GUID 写在指令里（家规）。
+import { faceMaterial } from "../../mesh/reserved-columns.ts";
 import type { Command, MeshUnit } from "../commands/command.ts";
 import { mintGuid } from "../../format/guid.ts";
 import { PALETTE } from "../../minccino/palette.ts";
@@ -17,7 +18,7 @@ export const CANVAS_SIZES = [128, 256, 512, 1024, 2048] as const;
 export function facesToStart(s: Scene, u: Pick<MeshUnit, "def" | "sel">): number[] {
   const body = s.def(u.def).body;
   if (body.kind !== "mesh") return [];
-  const k = body.kernel, slots = k.faceMat, painted = (f: number): boolean => s.facePaint(u.def, slots[f]) !== null;
+  const k = body.kernel, painted = (f: number): boolean => s.facePaint(u.def, faceMaterial(k, f)) !== null;
   const picked = u.sel && u.sel.faces.size ? [...u.sel.faces] : body.uvSetSlots.length || k.faces().some(painted) ? [] : k.faces();
   return picked.filter((f) => k.hasF(f) && !painted(f));
 }
@@ -35,7 +36,7 @@ export const startPaint: Command<MeshUnit> = {
   plan(env, u, v) {
     const s = env.scene, faces = facesToStart(s, u);
     if (!faces.length) return { ops: [], count: 0 };
-    const k = s.mesh(u.def).kernel, mats = new Set(faces.map((f) => s.materialOfSlot(u.def, k.faceMat[f]) ?? null));
+    const k = s.mesh(u.def).kernel, mats = new Set(faces.map((f) => s.materialOfSlot(u.def, faceMaterial(k, f)) ?? null));
     const only = mats.size === 1 ? [...mats][0] : null;
     const color: [number, number, number] = only ? [only.color[0], only.color[1], only.color[2]] : FACE_GREY;
     const taken = new Set([...s.textures.values()].map((t) => t.name)), name = ((): string => { if (!taken.has("画")) return "画"; let i = 2; while (taken.has(`画 ${i}`)) i++; return `画 ${i}`; })();
@@ -67,7 +68,7 @@ export function unpaintedSelected(s: Scene, u: Pick<MeshUnit, "def" | "sel">): n
   const body = s.def(u.def).body;
   if (body.kind !== "mesh" || !u.sel || !u.sel.faces.size) return [];
   const k = body.kernel;
-  return [...u.sel.faces].filter((f) => k.hasF(f) && s.facePaint(u.def, k.faceMat[f]) === null).sort((a, b) => a - b);
+  return [...u.sel.faces].filter((f) => k.hasF(f) && s.facePaint(u.def, faceMaterial(k, f)) === null).sort((a, b) => a - b);
 }
 
 /**

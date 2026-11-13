@@ -35,9 +35,9 @@ const res = await page.evaluate(async () => {
   // ② 点顶面：顶面换成红、一步撤销、重做回来
   const pos0 = e.history.position(), t = top();
   await click(P(0.5, 0.5, 1));
-  out.paint = { topRed: m().faceMat[t] === slotOf(red), redCount: m().faces().filter((f) => m().faceMat[f] === slotOf(red)).length, steps: e.history.position() - pos0, hint: hint() };
-  const pu = e.history.position(); key("z"); await sleep(40); out.undo = { topRed: m().faceMat[top()] === slotOf(red), pos: [pu, e.history.position()], hint: hint() };
-  key("y"); await sleep(40); out.redo = { topRed: m().faceMat[top()] === slotOf(red) };
+  out.paint = { topRed: (m().column("material_index")?.data[t] ?? -1) === slotOf(red), redCount: m().faces().filter((f) => (m().column("material_index")?.data[f] ?? -1) === slotOf(red)).length, steps: e.history.position() - pos0, hint: hint() };
+  const pu = e.history.position(); key("z"); await sleep(40); out.undo = { topRed: (m().column("material_index")?.data[top()] ?? -1) === slotOf(red), pos: [pu, e.history.position()], hint: hint() };
+  key("y"); await sleep(40); out.redo = { topRed: (m().column("material_index")?.data[top()] ?? -1) === slotOf(red) };
   // ③ 吸色：蘸的清空，Alt 点顶面 → 蘸回「红」
   e.setPaint(null); await sleep(10);
   e.pickMaterialOf(top()); out.eyedrop = e.paint?.name ?? null;
@@ -47,9 +47,9 @@ const res = await page.evaluate(async () => {
   const endFace = (sx) => m().faces().filter((f) => m().faceVerts(f).every((v) => Math.abs(m().pt(v).x - sx) < 1e-9));
   const posM = e.history.position();
   await click(P(1, 0.5, 0.5));
-  out.mirror = { plusRed: endFace(1).some((f) => m().faceMat[f] === slotOf(red)), minusRed: endFace(-1).some((f) => m().faceMat[f] === slotOf(red)), ops: e.history.position() - posM, hint: hint() };   // 一步里两条指令（涂 + 对称化）：position 数的是指令
+  out.mirror = { plusRed: endFace(1).some((f) => (m().column("material_index")?.data[f] ?? -1) === slotOf(red)), minusRed: endFace(-1).some((f) => (m().column("material_index")?.data[f] ?? -1) === slotOf(red)), ops: e.history.position() - posM, hint: hint() };   // 一步里两条指令（涂 + 对称化）：position 数的是指令
   key("z"); await sleep(40);
-  out.mirrorUndo = { plusRed: endFace(1).some((f) => m().faceMat[f] === slotOf(red)), minusRed: endFace(-1).some((f) => m().faceMat[f] === slotOf(red)) };
+  out.mirrorUndo = { plusRed: endFace(1).some((f) => (m().column("material_index")?.data[f] ?? -1) === slotOf(red)), minusRed: endFace(-1).some((f) => (m().column("material_index")?.data[f] ?? -1) === slotOf(red)) };
   e.commitOp({ op: "setMeshMirror", def, mirror: null });
   // ⑤ 别的物件的画：在另一份网格体上开始画（指令；界面入口是 1-7），拿它的画来涂这个物件 = 拒、说清原因、模型不动
   e.exitContext(); await sleep(20);
@@ -62,9 +62,9 @@ const res = await page.evaluate(async () => {
   const theirs = S().materials.length - 1;
   e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(30);
   e.setMode("surface"); e.setPaint(e.materialPick(S().materials[theirs])); e.setTool("paint"); await sleep(20);
-  const before = JSON.stringify(Array.from(m().faceMat)), posR = e.history.position();
+  const before = JSON.stringify(m().faces().map((f) => m().column("material_index")?.data[f] ?? -1)), posR = e.history.position();
   await click(P(0.5, 0.5, 1));
-  out.other = { unchanged: JSON.stringify(Array.from(m().faceMat)) === before, steps: e.history.position() - posR, hint: hint() };
+  out.other = { unchanged: JSON.stringify(m().faces().map((f) => m().column("material_index")?.data[f] ?? -1)) === before, steps: e.history.position() - posR, hint: hint() };
   return out;
 });
 const ok = res.modes.includes("surface") && res.mode === "surface" && res.paint.topRed && res.paint.redCount === 1 && res.paint.steps === 1 && !res.undo.topRed && res.redo.topRed && res.eyedrop === "红"

@@ -81,14 +81,14 @@ describe("展开（unwrap.ts）", () => {
   it("折过的纸（两张四边形、折 30°，不切）= 能摊平 → 和原来一样大", () => {
     const m = new MeshKernel(), c = Math.cos(Math.PI / 6), s = Math.sin(Math.PI / 6);
     const v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0), P(-c, 1, s), P(-c, 0, s)].map((p) => m.addVertex(p));
-    m.addFace([v[0], v[1], v[2], v[3]], -1, GROWN); m.addFace([v[5], v[0], v[3], v[4]], -1, GROWN);
+    m.addFace([v[0], v[1], v[2], v[3]], GROWN); m.addFace([v[5], v[0], v[3], v[4]], GROWN);
     const [r] = oks(unwrap(m, m.faces(), () => false));
     nearIsometric(r, "折纸"); checkInjective(m, r);
   });
   it("平的带洞圆环（一圈四边形围着一个洞）：补洞以后照样和原来一样大；洞的那一圈不翻", () => {
     const m = new MeshKernel(), N = 16, inner: number[] = [], outer: number[] = [];
     for (let i = 0; i < N; i++) { const a = (2 * Math.PI * i) / N; inner.push(m.addVertex(P(0.5 * Math.cos(a), 0.5 * Math.sin(a), 0))); outer.push(m.addVertex(P(Math.cos(a), Math.sin(a), 0))); }
-    for (let i = 0; i < N; i++) { const j = (i + 1) % N; m.addFace([inner[i], outer[i], outer[j], inner[j]], -1, GROWN); }
+    for (let i = 0; i < N; i++) { const j = (i + 1) % N; m.addFace([inner[i], outer[i], outer[j], inner[j]], GROWN); }
     const [r] = oks(unwrap(m, m.faces(), () => false));
     eq(r.holesFilled, 1); nearIsometric(r, "圆环"); checkInjective(m, r);
   });
@@ -96,7 +96,7 @@ describe("展开（unwrap.ts）", () => {
     const sphere = new MeshKernel(); addPrimitive(sphere, "sphere", F, [0.5, 0.5, 0.5], 12);
     const torus = new MeshKernel(), n = 12, k = 8, id: number[][] = [];
     for (let i = 0; i < n; i++) { id.push([]); for (let j = 0; j < k; j++) { const a = (2 * Math.PI * i) / n, b = (2 * Math.PI * j) / k, rr = 2 + 0.6 * Math.cos(b); id[i].push(torus.addVertex(P(rr * Math.cos(a), rr * Math.sin(a), 0.6 * Math.sin(b)))); } }
-    for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) torus.addFace([id[i][j], id[(i + 1) % n][j], id[(i + 1) % n][(j + 1) % k], id[i][(j + 1) % k]], -1, GROWN);
+    for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) torus.addFace([id[i][j], id[(i + 1) % n][j], id[(i + 1) % n][(j + 1) % k], id[i][(j + 1) % k]], GROWN);
     for (const m of [sphere, torus]) {
       for (const e of autoSeams(m, null, { angleDeg: 89 }).add) m.setFlags(e, F_SEAM, true);
       for (const r of oks(unwrap(m, m.faces(), seamCut(m)))) checkInjective(m, r);
@@ -111,11 +111,11 @@ describe("展开（unwrap.ts）", () => {
   it("退化的三角形（三点共线的面）：照样跑完、报个数、能量是有限的数、不翻", () => {
     const m = new MeshKernel(), g: number[][] = [];
     for (let i = 0; i <= 3; i++) { g.push([]); for (let j = 0; j <= 3; j++) g[i].push(m.addVertex(P(i, j, 0.1 * Math.sin(i + j)))); }
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if (!(i === 1 && j === 1)) m.addFace([g[i][j], g[i + 1][j], g[i + 1][j + 1], g[i][j + 1]], -1, GROWN);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if (!(i === 1 && j === 1)) m.addFace([g[i][j], g[i + 1][j], g[i + 1][j + 1], g[i][j + 1]], GROWN);
     // 中间那格换成两个三角形，其中一个三点共线（中点插在边上）
     const mid = m.addVertex(P(1.5, 1, 0.05 * (Math.sin(2) + Math.sin(3))));   // 正好在 g[1][1]–g[2][1] 的中点
-    m.addFace([g[1][1], mid, g[2][1]], -1, GROWN);
-    m.addFace([g[1][1], g[2][1], g[2][2], g[1][2]], -1, GROWN);
+    m.addFace([g[1][1], mid, g[2][1]], GROWN);
+    m.addFace([g[1][1], g[2][1], g[2][2], g[1][2]], GROWN);
     const rs = unwrap(m, m.faces(), () => false);
     for (const r of rs) if (r.ok) { assert(r.energies.every((e) => Number.isFinite(e)), `能量 ${r.energies}`); checkInjective(m, r); }
     assert(rs.some((r) => r.ok && r.stretch.degenerate >= 1), `报了退化的个数：${rs.map((r) => (r.ok ? r.stretch.degenerate : r.reason)).join(",")}`);
@@ -125,20 +125,20 @@ describe("展开（unwrap.ts）", () => {
     const [s] = unwrap(sphere, sphere.faces(), () => false); eq(s.ok ? "ok" : s.reason, "closed");
     const torus = new MeshKernel(), id: number[][] = [];
     for (let i = 0; i < 8; i++) { id.push([]); for (let j = 0; j < 6; j++) { const a = (2 * Math.PI * i) / 8, b = (2 * Math.PI * j) / 6, rr = 2 + 0.6 * Math.cos(b); id[i].push(torus.addVertex(P(rr * Math.cos(a), rr * Math.sin(a), 0.6 * Math.sin(b)))); } }
-    for (let i = 0; i < 8; i++) for (let j = 0; j < 6; j++) torus.addFace([id[i][j], id[(i + 1) % 8][j], id[(i + 1) % 8][(j + 1) % 6], id[i][(j + 1) % 6]], -1, GROWN);
+    for (let i = 0; i < 8; i++) for (let j = 0; j < 6; j++) torus.addFace([id[i][j], id[(i + 1) % 8][j], id[(i + 1) % 8][(j + 1) % 6], id[i][(j + 1) % 6]], GROWN);
     const [t] = unwrap(torus, torus.faces(), () => false); eq(t.ok ? "ok" : t.reason, "genus");
   });
   it("两条边的切口（片中间一条接缝、两头还连着）：不补洞、当它没切，照样和原来一样大", () => {
     const m = new MeshKernel(), g: number[][] = [];
     for (let i = 0; i <= 3; i++) { g.push([]); for (let j = 0; j <= 3; j++) g[i].push(m.addVertex(P(i, j, 0))); }
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) m.addFace([g[i][j], g[i + 1][j], g[i + 1][j + 1], g[i][j + 1]], -1, GROWN);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) m.addFace([g[i][j], g[i + 1][j], g[i + 1][j + 1], g[i][j + 1]], GROWN);
     m.setFlags(m.edgeOf(g[1][1], g[2][1]), F_SEAM, true);   // 片中间一条边，两头都连着别的面
     const [r] = oks(unwrap(m, m.faces(), seamCut(m)));
     eq(r.slits, 1); eq(r.holesFilled, 0); nearIsometric(r, "切口"); checkInjective(m, r);   // 默认 tol 1e-4 = 5 轮、最多歪 1.2%（1e-5 = 7 轮 0.37%、1e-8 = 13 轮 0.01%）
   });
   it("外圈上有零长度的边（两个点重合、中间夹一张退化的三角形面）：起步不翻（以前两个点摆在圆上同一处 = 起步就翻、不展开），整片照样和原来一样大", () => {
     const m = new MeshKernel(), a0 = m.addVertex(P(0, 0, 0)), a1 = m.addVertex(P(1, 0, 0)), b1 = m.addVertex(P(1, 1, 0)), b0 = m.addVertex(P(0, 1, 0)), b1d = m.addVertex(P(1, 1, 0));
-    m.addFace([a0, a1, b1, b0], -1, GROWN); m.addFace([b0, b1, b1d], -1, GROWN);   // 退化的三角形面：b1d 和 b1 重合，b1 → b1d 是外圈上一条零长度的边
+    m.addFace([a0, a1, b1, b0], GROWN); m.addFace([b0, b1, b1d], GROWN);   // 退化的三角形面：b1d 和 b1 重合，b1 → b1d 是外圈上一条零长度的边
     const [r] = oks(unwrap(m, m.faces(), () => false));
     eq(r.stretch.degenerate, 1); nearIsometric(r, "零长度的边"); checkInjective(m, r);
   });

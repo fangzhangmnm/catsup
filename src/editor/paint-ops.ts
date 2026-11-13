@@ -2,6 +2,7 @@
 // 这里只改场景。拒绝 = 返回原因（ops.ts 抛 OpRejected，进提示行、场景一个字节不变）；目标没了 = 返回 { target }（ops.ts 抛 OpTargetError）。
 // 场景的排法表（施工单十八：从网格体身上搬到场景这一层）只在这里加（startPaint）和换高（meshLayoutPaint）（守卫 test/paint-start-guard.test.ts）。
 // 只 import 类型的 ops.ts（不在运行时互相 import）。
+import { setFaceMaterial } from "../mesh/reserved-columns.ts";
 import type { Op } from "./ops.ts";
 import { uvSetAutoPlaces, type DefId, type Scene } from "../scene/scene.ts";
 import { COLOR_CHANNEL, COLOR_VALUE, paintIn } from "../format/document.ts";
@@ -33,7 +34,7 @@ function paintMeshFaces(s: Scene, def: DefId, faces: readonly number[], material
     if (p && !onUvSet(d.body.uvSetSlots, p.uvSet)) return { rejected: OTHER_DEF_PAINT };   // 这个网格体不在那张画的排法上（施工单十八第 1 刀：判法换成看列，行为照旧——放开是第 3 刀）
   }
   const slot = material === null ? -1 : s.slotFor(def, material);
-  for (const f of faces) k.setFaceMat(f, slot);
+  for (const f of faces) setFaceMaterial(k, f, slot);   // 保留名 material_index
   return null;
 }
 

@@ -1,5 +1,6 @@
 // 「开始画」在数据上做什么 + 改了模型新面自动铺上（贴图主线 1-3b，施工单 ai-docs/20261110-paint-workorders-8.md 第七节 A–G）。created 2026-11-10 by Claude Opus 5.5
 // 指令在真的 History 上提交；收尾（paint-upkeep.ts）照编辑器 commitIn 的顺序接：改写 → 提交前记 → 提交 → 收尾补进同一步。
+import { faceMaterial } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox, loopCuts } from "../src/mesh/ops/index.ts";
@@ -155,7 +156,7 @@ describe("改了模型新面自动铺上（1-3b 测试 B）", () => {
 describe("画布加高（1-3b 测试 C）", () => {
   it("一直加新面（按一格多大开的画，fit = density；施工单十六第四节）：高按 256 的倍数涨、已有的角不变；到上限之后放不下的面没有值、张数对、建模那一步照样做成", () => {
     const N = 24;
-    const r = rig((m) => { for (let i = 0; i < N; i++) { const z = i * 3; m.addFace([P(0, 0, z), P(10, 0, z), P(10, 2, z), P(0, 2, z)].map((p) => m.addVertex(p)), -1, FRESH); } });
+    const r = rig((m) => { for (let i = 0; i < N; i++) { const z = i * 3; m.addFace([P(0, 0, z), P(10, 0, z), P(10, 2, z), P(0, 2, z)].map((p) => m.addVertex(p)), FRESH); } });
     const faces = r.k().faces();
     r.step(startOp(r.def, [faces[0]], { density: 100, fit: "density" }));   // 1000 × 200 一块：画布 1024 × 256（接近正方形、够用的最小宽高）
     const uv = uvOf(r.s, r.def), mat = r.s.materials.length - 1;
@@ -167,7 +168,7 @@ describe("画布加高（1-3b 测试 C）", () => {
       const H = r.s.uvSets.get(uv)!.height;
       eq(H % 256, 0, "高是 256 的倍数"); assert(H <= 4096, "不过上限");
       for (const [ring, v] of vals) eq(valuesOf(r.k(), uv, r.s.mesh(r.def).uvSetSlots).get(ring), v, "已有的角不变");
-      eq(r.k().faceMat[faces[i]], r.s.mesh(r.def).materialSlots.indexOf(mat), "建模那一步（换材质）照样做成");
+      eq(faceMaterial(r.k(), faces[i]), r.s.mesh(r.def).materialSlots.indexOf(mat), "建模那一步（换材质）照样做成");
       if (!uvAt(r.k(), r.s.mesh(r.def).uvSetSlots, faces[i], uv)) { full++; assert(new RegExp(`有 ${full} 张面在画布上放不下`).test(note) || /放不下/.test(note), `提示行：${note}`); }
     }
     assert(full > 0, "加到上限之后真的有放不下的");
@@ -176,7 +177,7 @@ describe("画布加高（1-3b 测试 C）", () => {
   });
   it("按总大小开的画（缺 fit，施工单十六第四节）：画布不自己变大——加面只在现有宽高里找地方，找不到的先没有位置，提示行说这张画定的是多大", () => {
     const N = 6;
-    const r = rig((m) => { for (let i = 0; i < N; i++) { const z = i * 3; m.addFace([P(0, 0, z), P(10, 0, z), P(10, 2, z), P(0, 2, z)].map((p) => m.addVertex(p)), -1, FRESH); } });
+    const r = rig((m) => { for (let i = 0; i < N; i++) { const z = i * 3; m.addFace([P(0, 0, z), P(10, 0, z), P(10, 2, z), P(0, 2, z)].map((p) => m.addVertex(p)), FRESH); } });
     const faces = r.k().faces();
     r.step(startOp(r.def, [faces[0]], { density: 50 }));   // 老入口：给了密度、没给 fit = 按总大小（500 × 100 一块，画布 1024 × 256：一行两块、两行 = 放得下四块）
     const uv = uvOf(r.s, r.def), mat = r.s.materials.length - 1;

@@ -1,5 +1,6 @@
 // 池网格给画的面算的贴图坐标（贴图主线 1-3c）：走画的面进「画」那一组，每个三角顶点的贴图坐标 = 它那个角上存的数 ÷ 画板实际宽高（不翻转），顶点色白；
 // 不走画 / 有角没位置 = 不进那一组（照旧按底色）；画板实际比坐标大（裁定：不砍有内容的行）= 按画板的宽高除。created 2026-11-11 by Claude Opus 5.5
+import { givenFaceValues } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { FRESH } from "../src/mesh/columns.ts";
@@ -13,7 +14,7 @@ const MAT = { guid: "m", name: "画", color: [0.5, 0.5, 0.5] } as unknown as Mat
 /** 两张面：一张走画（角上有数），一张不走（paintOf 给 null）。第一张是拉伸过、四个点不共面的四边形。 */
 function rig(w: number, h: number) {
   const m = new MeshKernel(), P = (x: number, y: number, z: number) => m.addVertex({ x, y, z });
-  const a = m.addFace([P(0, 0, 0), P(3, 0, 0.4), P(2.5, 1.5, 0), P(0, 1, 0.2)], 0, FRESH), b = m.addFace([P(5, 0, 0), P(6, 0, 0), P(6, 1, 0), P(5, 1, 0)], 0, FRESH);
+  const a = m.addFace([P(0, 0, 0), P(3, 0, 0.4), P(2.5, 1.5, 0), P(0, 1, 0.2)], { kind: "fresh", face: givenFaceValues(m, { material: 0 }) }), b = m.addFace([P(5, 0, 0), P(6, 0, 0), P(6, 1, 0), P(5, 1, 0)], { kind: "fresh", face: givenFaceValues(m, { material: 0 }) });
   const vals = [2, 3, 40, 5, 37.5, 20, 4, 16];
   placeOn(m, a, "uv", vals);
   const env: PoolMeshEnv = {

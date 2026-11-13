@@ -5,7 +5,8 @@
 // 留哪张 = 这里唯一要猜的（「猜测归修复工具」，user 11-04）。一对两张方向相反，所以定了方向就定了留哪张，只删不翻，一条 meshDelete 够了：
 //   ① 连着单层的面 = 跟它（那是用户的朝向，不动）；② 整块封闭 = 朝外（有向体积为正，同 mesh/ops/orient.ts）；③ 开口的片 = 照第一张（先写的，同计划书的读回判据），报数，反了用翻转法线。
 // 传播只过「恰好连着两块」的边：T 字边、开口边不过（和 orient.ts 同一个局限，T 字隔开的块各算各的）。
-import { FF_HIDDEN, type MeshKernel } from "../../../mesh/mesh-kernel.ts";
+import { faceHidden, faceMaterial } from "../../../mesh/reserved-columns.ts";
+import type { MeshKernel } from "../../../mesh/mesh-kernel.ts";
 import type { Pt3 } from "../../../kernel/geom.ts";
 
 export interface MergeReversedPlan {
@@ -41,7 +42,7 @@ export function planMergeReversed(k: MeshKernel, materialOf: (slot: number) => n
     if (fs.length > 2) { skipped++; continue; }
     const [a, b] = fs;   // k.faces() 按 id 升序：a = 先写的
     if (!isReversed(k.faceVerts(a), k.faceVerts(b))) continue;   // 同向的重复面不是这条修复管的，一个字节不碰
-    if (materialOf(k.faceMat[a]) !== materialOf(k.faceMat[b]) || (k.faceFlags[a] & FF_HIDDEN) !== (k.faceFlags[b] & FF_HIDDEN)) { skipped++; continue; }
+    if (materialOf(faceMaterial(k, a)) !== materialOf(faceMaterial(k, b)) || faceHidden(k, a) !== faceHidden(k, b)) { skipped++; continue; }
     pairOf.set(a, pairs.length); pairOf.set(b, pairs.length); pairs.push([a, b]);
   }
   const out: MergeReversedPlan = { remove: [], pairs: pairs.length, skipped, shells: 0, sheets: 0 };

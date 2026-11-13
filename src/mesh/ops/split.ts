@@ -28,9 +28,9 @@ export function splitFace(k: MeshKernel, f: number, va: number, vb: number): num
   const ring1: number[] = [], ring2: number[] = [];
   for (let i = ia; ; i = (i + 1) % r.length) { ring1.push(r[i]); if (i === ib) break; }
   for (let i = ib; ; i = (i + 1) % r.length) { ring2.push(r[i]); if (i === ia) break; }
-  const mat = k.faceMat[f], of = k.shapeOf(f);
+  const of = k.shapeOf(f);
   k.setFaceRing(f, ring1, { kind: "piece", of });   // 劈面：两半都是原来那张的一块（角都是原来的角 = 原值）
-  return k.addFace(ring2, mat, { kind: "piece", of });
+  return k.addFace(ring2, { kind: "piece", of });   // 面上的列（材质、隐藏）照抄：藏着的面切开，两半都藏着
 }
 
 /** 刀：面 f 上按顺序一串落点，每个落点 = 已有顶点 { v } 或边上的点 { e, t }；相邻两点之间连边劈面。返回沿刀口的顶点序列。 */

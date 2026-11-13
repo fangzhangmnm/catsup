@@ -62,7 +62,7 @@ describe("镜像（mesh/mirror.ts）", () => {
   it("凹的面也劈得开（user 10-28「凹为什么劈不开，努力一下？」）：开口朝 +x 的「匚」= 镜像面穿过四次 → 劈成三块（背一块、上下两条臂各一块）；对称以后 4 块", () => {
     const m = new MeshKernel();
     const ring = [P(-2, 0, 0), P(2, 0, 0), P(2, 0, 1), P(-1, 0, 1), P(-1, 0, 2), P(2, 0, 2), P(2, 0, 3), P(-2, 0, 3)].map((q) => m.addVertex(q));
-    m.addFace(ring, -1, FRESH);
+    m.addFace(ring, FRESH);
     const r = bisectPlane(m, 0);
     eq(r.cutEdges, 4); eq(r.splitFaces, 1); eq(r.left, 0); eq(m.faceCount(), 3); eq(straddlingFaces(m, 0), 0); eq(m.check().join("\n"), "");
     const s2 = symmetrize(m, 0, 1);
@@ -119,7 +119,7 @@ describe("镜像（mesh/mirror.ts）", () => {
     const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1));
     const r = symmetrize(m, 0, 1);
     eq(r.walls, 1); eq(m.faceCount(), 10); eq(closedConsistent(m), 0); assert(symmetric(m));
-    const p = new MeshKernel(), a = p.addVertex(P(0, 0, 0)), b = p.addVertex(P(0, 1, 0)), c = p.addVertex(P(0, 1, 1)), d = p.addVertex(P(0, 0, 1)); p.addFace([a, b, c, d], -1, FRESH);
+    const p = new MeshKernel(), a = p.addVertex(P(0, 0, 0)), b = p.addVertex(P(0, 1, 0)), c = p.addVertex(P(0, 1, 1)), d = p.addVertex(P(0, 0, 1)); p.addFace([a, b, c, d], FRESH);
     const r2 = symmetrize(p, 0, 1); eq(r2.walls, 0); eq(p.faceCount(), 1);
   });
   it("R2 落在一条中缝边的中间（设计稿 §5.5 边角，2026-10-28 Opus）：先在落点劈开那条边、劈出来的点和这一对并成一个；被拖的角和那条边同在一张面上 = 并完剪掉零面积的刺（mergeVerts）——面不往回折、自检干净、仍对称", () => {

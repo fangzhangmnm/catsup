@@ -1,4 +1,5 @@
 // 空间里的笔：每颗笔尖碰到哪些三角形（贴图主线 1-4a 第三节 + 第六节测试 7–10、12 的连通那一半）。created 2026-11-11 by Claude Opus 5.5
+import { setFaceHidden } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox } from "../src/mesh/ops/index.ts";
@@ -17,9 +18,9 @@ describe("笔尖碰到哪些三角形（1-4a 测试 7：连着的才吃）", () 
   it("两张离得很近但不相连的面：笔画在一张上、球够得着另一张——另一张不在名单里；用一条边连起来——在名单里", () => {
     const build = (bridge: boolean) => {
       const m = new MeshKernel();
-      const a = m.addFace([P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)].map((p) => m.addVertex(p)), -1, FRESH);
-      const top = [P(0, 0, 0.05), P(1, 0, 0.05), P(1, 1, 0.05), P(0, 1, 0.05)].map((p) => m.addVertex(p)), b = m.addFace([top[3], top[2], top[1], top[0]], -1, FRESH);
-      if (bridge) { const ring = m.faceVerts(a), v10 = ring[1], v11 = ring[2]; m.addFace([v10, top[1], top[2], v11], -1, FRESH); }
+      const a = m.addFace([P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)].map((p) => m.addVertex(p)), FRESH);
+      const top = [P(0, 0, 0.05), P(1, 0, 0.05), P(1, 1, 0.05), P(0, 1, 0.05)].map((p) => m.addVertex(p)), b = m.addFace([top[3], top[2], top[1], top[0]], FRESH);
+      if (bridge) { const ring = m.faceVerts(a), v10 = ring[1], v11 = ring[2]; m.addFace([v10, top[1], top[2], v11], FRESH); }
       const g = buildTargetGeo(targetOf(m, laidOut(m)));
       return { g, a, b };
     };
@@ -36,7 +37,7 @@ describe("笔尖碰到哪些三角形（1-4a 测试 8：和笨办法一样）", 
     const r = rng(77);
     for (let trial = 0; trial < 6; trial++) {
       const m = gridMesh(10, 2, (x, y) => 0.3 * Math.sin(2 * x + trial) * Math.cos(1.5 * y)), drop = new Set(m.faces().filter(() => r() < 0.1));
-      for (const f of drop) m.setFaceFlags(f, 1, true);   // 挖几个洞（藏起来的面不在格子里）
+      for (const f of drop) setFaceHidden(m, f, true);   // 挖几个洞（藏起来的面不在格子里）
       const g = buildTargetGeo(targetOf(m, laidOut(m, "uv", m.faces().filter((f) => !drop.has(f)))));
       for (let k = 0; k < 25; k++) {
         const t0 = Math.floor(r() * g.grid.face.length), w = [r(), r(), r()], s = w[0] + w[1] + w[2], o = 9 * t0;
@@ -58,7 +59,7 @@ describe("笔尖碰到哪些三角形（1-4a 测试 8：和笨办法一样）", 
 describe("笔尖碰到哪些三角形（1-4a 测试 9 + 10：镜像和复制挂在同一块下面；拐角）", () => {
   it("两半贴图坐标一样（镜像 / 复制）：笔尖压在中缝上，两半的三角形挂在同一块画布多边形下面", () => {
     const m = new MeshKernel(), v = [P(-1, 0, 0), P(0, 0, 0), P(0, 1, 0), P(-1, 1, 0), P(1, 0, 0), P(1, 1, 0)].map((p) => m.addVertex(p));   // 中缝上两个点两半共用
-    const L = m.addFace([v[0], v[1], v[2], v[3]], -1, FRESH), R = m.addFace([v[4], v[5], v[2], v[1]], -1, FRESH);
+    const L = m.addFace([v[0], v[1], v[2], v[3]], FRESH), R = m.addFace([v[4], v[5], v[2], v[1]], FRESH);
     const uv = laidOut(m, "uv", [L]);
     { const lv = uvAtOf(m, L, "uv")!, at = (i: number) => [lv[2 * i], lv[2 * i + 1]]; placeOn(m, R, "uv", [...at(0), ...at(3), ...at(2), ...at(1)]); }   // 镜过去的面 = 照抄（对应表倒过来：R 的环 4·5·2·1 ↔ L 的 0·3·2·1）
     const g = buildTargetGeo(targetOf(m, uv));
@@ -78,12 +79,12 @@ describe("笔尖碰到哪些三角形（1-4a 测试 9 + 10：镜像和复制挂�
 describe("笔尖碰到哪些三角形（1-4a 测试 12：藏起来的面不过、不走画的面过但不吃）", () => {
   const chain = () => {
     const m = new MeshKernel(), v = [P(0, 0, 0), P(0.1, 0, 0), P(0.2, 0, 0), P(0.3, 0, 0), P(0, 1, 0), P(0.1, 1, 0), P(0.2, 1, 0), P(0.3, 1, 0)].map((p) => m.addVertex(p));
-    const A = m.addFace([v[0], v[1], v[5], v[4]], -1, FRESH), mid = m.addFace([v[1], v[2], v[6], v[5]], -1, FRESH), B = m.addFace([v[2], v[3], v[7], v[6]], -1, FRESH);
+    const A = m.addFace([v[0], v[1], v[5], v[4]], FRESH), mid = m.addFace([v[1], v[2], v[6], v[5]], FRESH), B = m.addFace([v[2], v[3], v[7], v[6]], FRESH);
     return { m, A, mid, B };
   };
   const tip = { x: 0.05, y: 0.5, z: 0, r: 0.3 };
   it("中间那张藏起来：不从它过（B 不在名单里），它自己也不在", () => {
-    const { m, A, mid, B } = chain(); m.setFaceFlags(mid, 1, true);
+    const { m, A, mid, B } = chain(); setFaceHidden(m, mid, true);
     const g = buildTargetGeo(targetOf(m, laidOut(m, "uv", [A, B]))), fs = facesIn(g, tipReach([g], tip, [{ ti: 0, tri: triAt(g, P(0.05, 0.5, 0)) }]));
     assert(fs.includes(A) && !fs.includes(B) && !fs.includes(mid), `只有 A（${fs}）`);
   });

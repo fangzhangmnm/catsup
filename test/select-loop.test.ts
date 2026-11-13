@@ -10,7 +10,7 @@ import { edgeLoop } from "../src/mesh/select-loop.ts";
 function grid(x0: number, x1: number): { m: MeshKernel; id: number[][] } {
   const m = new MeshKernel(), id: number[][] = [];
   for (let i = 0; i <= x1 - x0; i++) { id.push([]); for (let j = 0; j <= 3; j++) id[i].push(m.addVertex({ x: x0 + i, y: j, z: 0 })); }
-  for (let i = 0; i < x1 - x0; i++) for (let j = 0; j < 3; j++) m.addFace([id[i][j], id[i + 1][j], id[i + 1][j + 1], id[i][j + 1]], -1, FRESH);
+  for (let i = 0; i < x1 - x0; i++) for (let j = 0; j < 3; j++) m.addFace([id[i][j], id[i + 1][j], id[i + 1][j + 1], id[i][j + 1]], FRESH);
   return { m, id };
 }
 const MIR = { mirror: { axis: 0 as const, tol: 0.001 } };

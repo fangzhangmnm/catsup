@@ -416,7 +416,7 @@ await page.waitForFunction(() => [...document.querySelectorAll("#sheetChoices .s
 const rows15 = await sheetRows();
 check(!rows15[0].disabled && /放不下时画布会变大/.test(rows15[0].note), `按一格多大开的画：「${rows15[0].label}」点得了（${rows15[0].note}）`);
 await page.locator("#sheetChoices .sheet-row").first().click(); await frames(2);
-const add12 = await S(([d, side]) => { const C = globalThis.__catsup, S0 = C.editor.sceneRef, k = S0.mesh(d).kernel, uv = [...S0.uvSets.keys()].find((g) => S0.mesh(d).uvSetSlots.includes(g)); return { sheet: !document.getElementById("sheet").hidden, painted: side.every((f) => S0.facePaint(d, k.faceMat[f]) !== null && !!C.paint.uv.at(d, f, uv)), paints: [...S0.textures.values()].filter((t) => t.content.kind === "layered").length }; }, [d15, side15]);
+const add12 = await S(([d, side]) => { const C = globalThis.__catsup, S0 = C.editor.sceneRef, k = S0.mesh(d).kernel, uv = [...S0.uvSets.keys()].find((g) => S0.mesh(d).uvSetSlots.includes(g)); return { sheet: !document.getElementById("sheet").hidden, painted: side.every((f) => S0.facePaint(d, (k.column("material_index")?.data[f] ?? -1)) !== null && !!C.paint.uv.at(d, f, uv)), paints: [...S0.textures.values()].filter((t) => t.content.kind === "layered").length }; }, [d15, side15]);
 check(!add12.sheet && add12.painted && add12.paints === paints15, "点了：不出面板，那两张面进了这个物件那张画（有坐标），没多出一张画", JSON.stringify(add12));
 void top12;
 

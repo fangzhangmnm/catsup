@@ -3,6 +3,7 @@
 // **内容那半**（池网格本体 pool-mesh、同一帧同一内核只同步一次、两代没人用的释放、材质槽签名）搬到这里，render3 只剩「块 → 显卡 → 槽节点」。
 // 画面一个像素不变：块直接包池网格的大数组（零拷贝）、属性名 / 颜色烤法原样；颜色按调色板在这里算（刀 c 起不再问后端 = 反向依赖退役），粗线 / 像素线由编辑器告知——
 // 那是样式，过渡期还烤在顶点色里，材质模块 / 叠加层落地后从这里退役。
+import { faceMaterial } from "../mesh/reserved-columns.ts";
 import type { Chunk, ChunkAttr, LiveImage, MaterialRef, Placement, StreamFrame, StreamProvider, StreamQuery, TextureRef, Vec3 } from "../minccino/index.ts";
 import { PALETTE, hexToLinear } from "../minccino/index.ts";
 import { PoolMesh, type PoolMeshEnv } from "./pool-mesh.ts";
@@ -207,8 +208,8 @@ export class EditorStreamProvider implements StreamProvider {
   private paintOf(scene: Scene, defId: number, k: KernelView, fid: number, m: Material): { values: ArrayLike<number>; w: number; h: number; key: string } | null {
     const mk = (k as { mesh?: MeshKernel }).mesh, body = scene.def(defId).body;
     if (!mk || body.kind !== "mesh") return null;
-    const fp = scene.facePaint(defId, mk.faceMat[fid]);
-    if (!fp || scene.materialOfSlot(defId, mk.faceMat[fid]) !== m) return null;
+    const fp = scene.facePaint(defId, faceMaterial(mk, fid));
+    if (!fp || scene.materialOfSlot(defId, faceMaterial(mk, fid)) !== m) return null;
     const bd = this.paint?.board(fp.textureDoc.guid);
     if (!bd) return null;
     const v = uvAt(mk, body.uvSetSlots, fid, fp.uvSet.guid);   // 施工单十八第 1½ 刀：贴图坐标只经 scene/uv.ts 问（预演的影子内核 + 场景里那张速查表）

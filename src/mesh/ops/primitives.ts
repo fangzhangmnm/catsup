@@ -15,7 +15,7 @@ export function addPrimitive(k: MeshKernel, kind: PrimitiveKind, f: PrimitiveFra
   const at = (a: number, b: number, c: number): Pt3 => ({ x: f.o.x + f.x.x * a + f.y.x * b + f.z.x * c, y: f.o.y + f.x.y * a + f.y.y * b + f.z.y * c, z: f.o.z + f.x.z * a + f.y.z * b + f.z.z * c });
   const verts: number[] = [], faces: number[] = [];
   const V = (a: number, b: number, c: number): number => { const v = k.addVertex(at(a, b, c)); verts.push(v); return v; };
-  const F = (ring: number[]): void => { faces.push(k.addFace(ring, -1, FRESH)); };   // 基本体 = 凭空来的
+  const F = (ring: number[]): void => { faces.push(k.addFace(ring, FRESH)); };   // 基本体 = 凭空来的
   const n = Math.max(3, Math.round(segments));
   const [s0, s1, s2] = size, edges: number[] = [];
   const W = (ring: number[]): void => { for (let i = 0; i < ring.length; i++) { const e = k.ensureEdge(ring[i], ring[(i + 1) % ring.length]); k.setEdgeFlags(e, k.edgeFlags[e] | F_WIRE); edges.push(e); } };

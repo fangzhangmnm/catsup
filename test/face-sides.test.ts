@@ -1,5 +1,6 @@
 // 单面 / 双面第四版（ID-2b，计划书 ai-docs/20261104-identity-foundation-plan.md §2.9 / §9）：内置默认背面、新面两侧、翻面、按侧出面、两种身体互转、修复工具、导出说明行的数。
 // created 2026-11-04 by Claude Opus 5.5
+import { faceMaterial } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel, type Pt3 } from "../src/kernel/kernel.ts";
 import { backSideOf } from "../src/kernel/face-sides.ts";
@@ -333,7 +334,7 @@ describe("转网格体 / 转回硬表面（§2.9 / §9.2-F）", () => {
     eq(m.faceCount(), 5 - 1 + 2, "4 张一层 + 顶面两层 − 墙没了");
     eq(m.vertexCount(), 8, "共用点");
     eq(JSON.stringify(brepSideCounts(b)), JSON.stringify({ both: 1, differ: 1, neither: 1 }));
-    assert(m.faces().every((f) => m.faceMat[f] === -1 || b.materialSlots[m.faceMat[f]] !== BUILTIN_BACK_SLOT), "网格面不引用默认背面");
+    assert(m.faces().every((f) => faceMaterial(m, f) === -1 || b.materialSlots[faceMaterial(m, f)] !== BUILTIN_BACK_SLOT), "网格面不引用默认背面");
   });
   it("brep → mesh → brep：两侧材质保住；单层回来另一侧 = 默认背面；老白模两层回来还是两侧默认正面", () => {
     const s = sceneSided(), k0 = K(s), body = s.brep(s.root), back0 = backOf(s);

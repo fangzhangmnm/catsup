@@ -1,10 +1,11 @@
 // 强行对称的定理（计划书 `ai-docs/20261109-audit-fixes-plan.md` §3；created 2026-11-09 by Claude Opus 5.5）。
 // 第 0 层（v0.18.41）钉「绝不删空」；第 4 / 5 层（v0.18.45）钉 isSymmetric 的真值表、对称化带裸线 / 孤点 / 隐藏、随机步每步对称。原来写的是：强行对称自己绝不把模型删空（「看不出动的是哪边、默认 + 那半」碰上「+ 那半是空的」= 11-09 真 app 里 6 张面 → 0）。
 // 对称检查是独立写的（不调 isSymmetric：它本身就是要审的对象）：纯按位置比点 / 面 / 边（不认编号），照定理的条文。后面几层的断言接着往这个文件里加。
+import { faceHidden, faceMaterial, setFaceHidden } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { F_HIDDEN, F_SOFT, FF_HIDDEN } from "../src/mesh/mesh-kernel.ts";
+import { F_HIDDEN, F_SOFT } from "../src/mesh/mesh-kernel.ts";
 import { addBox, deleteFaces, extrudeAndOffset, flipFaces, insetFaces, loopCut, moveVerts, setEdgeFlags, setFaceMaterial } from "../src/mesh/ops/index.ts";
 import { type MirrorAxis, forceSide, isSymmetric, pickSide, symmetrize } from "../src/mesh/mirror.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
@@ -30,7 +31,7 @@ function asymmetries(m: MeshKernel, a: MirrorAxis): string[] {
   if (out.length) return out;
   /** 一圈位置转到字典序最小的那个起点（同一个环不管从哪个点起写，结果一样）。 */
   const ring = (ks: readonly string[]): string => { let best: string | null = null; for (let i = 0; i < ks.length; i++) { const t = [...ks.slice(i), ...ks.slice(0, i)].join("|"); if (best === null || t < best) best = t; } return best ?? ""; };
-  const faceKey = (f: number, mirrored: boolean): string => { const r = m.faceVerts(f); return `${ring(mirrored ? r.map(there).reverse() : r.map(here))}#${m.faceMat[f]}`; };
+  const faceKey = (f: number, mirrored: boolean): string => { const r = m.faceVerts(f); return `${ring(mirrored ? r.map(there).reverse() : r.map(here))}#${faceMaterial(m, f)}`; };
   const faces = new Map<string, number>();
   for (const f of m.faces()) bump(faces, faceKey(f, false));
   for (const f of m.faces()) {
@@ -73,7 +74,7 @@ describe("强行对称第 0 层：空的那半不当准（mesh/mirror.ts pickSid
   it("两半什么都没有 = null（这一步不对称化）：空模型；只有一张躺在镜像面上的面。只有一条在 −X 的裸线 = 按 −X（v0.18.45 起对称化也镜裸线；v0.18.41 那版这里是 null）", () => {
     eq(pickSide(new MeshKernel(), 0, 1), null);
     const flat = new MeshKernel(), q = [P(0, 0, 0), P(0, 1, 0), P(0, 1, 1), P(0, 0, 1)].map((p) => flat.addVertex(p));
-    flat.addFace(q, -1, FRESH); eq(pickSide(flat, 0, 1), null); eq(pickSide(flat, 0, -1), null);
+    flat.addFace(q, FRESH); eq(pickSide(flat, 0, 1), null); eq(pickSide(flat, 0, -1), null);
     const wire = new MeshKernel(); wire.ensureEdge(wire.addVertex(P(-2, 0, 0)), wire.addVertex(P(-1, 0, 0)));
     eq(pickSide(wire, 0, 1), -1);
     symmetrize(wire, 0, -1); eq(asymmetries(wire, 0).join("；"), ""); eq(wire.edges().length, 2, "镜过去一条");
@@ -117,8 +118,8 @@ describe("强行对称第 4 层：isSymmetric 照定理说真话（mesh/mirror.t
   const cases: [string, () => MeshKernel, boolean][] = [
     ["中缝切开的盒子", halved, true],
     ["没切开的对称盒子（跨过镜像面的面镜过去是它自己）", () => box(-1, 1), true],
-    ["多一张整张躺在镜像面上的面（对应它自己）", () => { const m = halved(), q = [P(0, 2, 2), P(0, 3, 2), P(0, 3, 3), P(0, 2, 3)].map((p) => m.addVertex(p)); m.addFace(q, -1, FRESH); return m; }, true],
-    ["一边藏了一张面（隐藏是看法，不算）", () => { const m = halved(); m.setFaceFlags(leftFace(m), FF_HIDDEN, true); return m; }, true],
+    ["多一张整张躺在镜像面上的面（对应它自己）", () => { const m = halved(), q = [P(0, 2, 2), P(0, 3, 2), P(0, 3, 3), P(0, 2, 3)].map((p) => m.addVertex(p)); m.addFace(q, FRESH); return m; }, true],
+    ["一边藏了一张面（隐藏是看法，不算）", () => { const m = halved(); setFaceHidden(m, leftFace(m), true); return m; }, true],
     ["挖掉左边一张面（11-09 审查：左 4 右 5）", () => { const m = halved(); deleteFaces(m, [leftFace(m)], true); return m; }, false],
     ["翻了左边一张面", () => { const m = halved(); flipFaces(m, [leftFace(m)]); return m; }, false],
     ["左边一张面换了材质槽", () => { const m = halved(); setFaceMaterial(m, [leftFace(m)], 2); return m; }, false],
@@ -138,11 +139,11 @@ describe("强行对称第 5 层：对称化带上裸线 / 孤点 / 隐藏；选�
     const m = halved();
     m.ensureEdge(m.addVertex(P(2, 0, 0)), m.addVertex(P(3, 0, 0))); m.addVertex(P(2, 2, 2));
     const rf = m.faces().find((f) => m.faceVerts(f).every((v) => m.pt(v).x >= -1e-9) && m.faceVerts(f).some((v) => m.pt(v).x > 0.5))!;
-    m.setFaceFlags(rf, FF_HIDDEN, true);
+    setFaceHidden(m, rf, true);
     const r = symmetrize(m, 0, 1);
     eq(r.wires, 1); eq(r.points, 1);
     eq(asymmetries(m, 0).join("；"), ""); assert(isSymmetric(m, 0), "对称化之后 isSymmetric 必须为真（不然每一步都重建）");
-    eq(m.faces().filter((f) => m.isFaceHidden(f)).length, 2, "藏着的那张，镜过去也藏着");
+    eq(m.faces().filter((f) => faceHidden(m, f)).length, 2, "藏着的那张，镜过去也藏着");
   });
   it("一条跨过镜像面的裸线：先在镜像面上切开，留下的那半镜过去", () => {
     const m = halved(); m.ensureEdge(m.addVertex(P(-0.5, 3, 0)), m.addVertex(P(1.5, 3, 0)));

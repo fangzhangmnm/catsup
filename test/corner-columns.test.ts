@@ -3,6 +3,7 @@
 // A 切不动画（随机：劈边 / 劈面 / 刀 / 环切 / 内缩；细分另比取样处）· B 照抄 · C 新面填缺省值 · D 并面（三种取法）· 离散的列 · 跟旁边 · 声明 · 标记跟着来历传 ·
 // F 撤销 · 并点取谁 · 整张面搬到别的内核 · 守卫（凭空来的白名单、取值只有一份）。
 // 测试 E（现有逐算子检查带两列再跑）在 test/mesh-kernel.test.ts 末尾。
+import { faceMaterial } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 const { readdirSync, readFileSync, statSync } = (await import("node:fs" as string)) as { readdirSync(p: string): string[]; readFileSync(p: string, enc: string): string; statSync(p: string): { isDirectory(): boolean } };
 const join = (...p: string[]): string => p.join("/");
@@ -167,7 +168,7 @@ describe("列：D 并面（三种取法）", () => {
   function twoQuads(f: (p: Pt3) => number[], g: ((p: Pt3) => number[]) | null, ca = 0, cb = 0, merge: ColumnDef["merge"] | null = null): { k: MeshKernel; e: number } {
     const k = new MeshKernel(); k.addColumn(merge ? { ...UVD, merge } : UVD); k.addColumn(merge ? { ...CODED, merge } : CODED);
     const v = [P(0, 0, 0), P(1, 0, 0), P(2, 0, 0), P(0, 1, 0), P(1, 1, 0), P(2, 1, 0)].map((p) => k.addVertex(p));
-    const a = k.addFace([v[0], v[1], v[4], v[3]], -1, FRESH), b = k.addFace([v[1], v[2], v[5], v[4]], -1, FRESH);
+    const a = k.addFace([v[0], v[1], v[4], v[3]], FRESH), b = k.addFace([v[1], v[2], v[5], v[4]], FRESH);
     k.setCornerValues(a, UV, k.facePts(a).flatMap(f)); k.setFaceValue(a, CODE, ca);
     if (g) k.setCornerValues(b, UV, k.facePts(b).flatMap(g));
     k.setFaceValue(b, CODE, cb);
@@ -225,7 +226,7 @@ describe("列：离散的列、跟旁边、声明", () => {
   it("离散的角上的列：「之间」取权重最大的那个旧角（逐位照抄、不混）；连续的照常插值", () => {
     const D: ColumnDef = { id: "d", on: "corner", type: { floats: 1 }, continuous: false, fill: 0, merge: "first" };
     const k = new MeshKernel(); k.addColumn(D); k.addColumn(UVD);
-    const v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)].map((p) => k.addVertex(p)), f = k.addFace(v, -1, FRESH);
+    const v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)].map((p) => k.addVertex(p)), f = k.addFace(v, FRESH);
     k.setCornerValues(f, "d", [10, 20, 30, 40]); k.setCornerValues(f, UV, k.facePts(f).flatMap((p) => [p.x, p.y]));
     const m = k.addVertex(P(0.25, 0, 0)), sh = k.shapeOf(f);
     k.setFaceRing(f, [v[0], m, v[1], v[2], v[3]], { kind: "piece", of: sh });
@@ -237,12 +238,12 @@ describe("列：离散的列、跟旁边、声明", () => {
     const N: ColumnDef = { id: "n", on: "face", type: "int", continuous: false, fill: -1, followNeighbor: true, merge: "first" };
     const k = new MeshKernel(); k.addColumn(N); k.addColumn(CODED);
     const v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0), P(2, 0, 0), P(2, 1, 0)].map((p) => k.addVertex(p));
-    const a = k.addFace([v[0], v[1], v[2], v[3]], -1, FRESH); k.setFaceValue(a, "n", 5); k.setFaceValue(a, CODE, 2);
-    const b = k.addFace([v[1], v[4], v[5], v[2]], -1, { kind: "grown", neighbor: a });
+    const a = k.addFace([v[0], v[1], v[2], v[3]], FRESH); k.setFaceValue(a, "n", 5); k.setFaceValue(a, CODE, 2);
+    const b = k.addFace([v[1], v[4], v[5], v[2]], { kind: "grown", neighbor: a });
     eq(k.faceValue(b, "n"), 5, "跟旁边的列照抄"); eq(k.faceValue(b, CODE), -1, "没声明跟旁边的列 = 缺省值");
     deleteFacesOne(k, b);
-    const c = k.addFace([v[1], v[4], v[5], v[2]], -1, { kind: "grown" }); eq(k.faceValue(c, "n"), -1, "不带 neighbor = 缺省值");
-    let threw = false; try { k.addFace([v[4], v[5], k.addVertex(P(3, 0, 0))], -1, { kind: "grown", neighbor: 999 }); } catch (e) { threw = /not a live face/.test(String(e)); }
+    const c = k.addFace([v[1], v[4], v[5], v[2]], { kind: "grown" }); eq(k.faceValue(c, "n"), -1, "不带 neighbor = 缺省值");
+    let threw = false; try { k.addFace([v[4], v[5], k.addVertex(P(3, 0, 0))], { kind: "grown", neighbor: 999 }); } catch (e) { threw = /not a live face/.test(String(e)); }
     assert(threw, "neighbor 不是活面要抛");
   });
   it("声明：这一刀做不了的组合抛「还没做」；同一个 id 声明一样 = 不动，不一样 = 抛", () => {
@@ -271,7 +272,7 @@ describe("列：离散的列、跟旁边、声明", () => {
   it("「对不上」的标记跟着来历传：并成对不上的面在同一步里又被切开，两块都带着标记", () => {
     const k = new MeshKernel(); k.addColumn(UVD); k.addColumn(CODED);
     const v = [P(0, 0, 0), P(1, 0, 0), P(2, 0, 0), P(0, 1, 0), P(1, 1, 0), P(2, 1, 0)].map((p) => k.addVertex(p));
-    const a = k.addFace([v[0], v[1], v[4], v[3]], -1, FRESH), b = k.addFace([v[1], v[2], v[5], v[4]], -1, FRESH);
+    const a = k.addFace([v[0], v[1], v[4], v[3]], FRESH), b = k.addFace([v[1], v[2], v[5], v[4]], FRESH);
     k.setCornerValues(a, UV, k.facePts(a).flatMap((p) => [p.x, p.y])); k.setCornerValues(b, UV, k.facePts(b).flatMap((p) => [p.x + 1, p.y]));
     k.setFaceValue(a, CODE, 0); k.setFaceValue(b, CODE, 0); k.takeReport();
     const f = joinFaces(k, k.edgeOf(v[1], v[4])), ring = k.faceVerts(f);
@@ -309,7 +310,7 @@ describe("角上的列：F 撤销 / 确定性 · 并点取谁 · 搬到别的内
     addBox(t, P(5, 5, 5), P(6, 6, 6));
     const f = k.faces()[3], map = new Map<number, number>(), nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = t.addVertex(k.pt(v)); map.set(v, x); } return x; };
     t.ensureColumns(k.columnDefs());
-    const nf = t.addFace(k.faceVerts(f).map(nv), k.faceMat[f], { kind: "fresh", ...k.columnsOf(f) });
+    const nf = t.addFace(k.faceVerts(f).map(nv), { kind: "fresh", ...k.columnsOf(f) });
     eq([...t.cornerValues(nf, UV)!].map(bits).join(), [...k.cornerValues(f, UV)!].map(bits).join()); eq(t.faceValue(nf, CODE), 0);
     for (const g of t.faces()) if (g !== nf) { assert(isFill(t, g), "原有的面在补上的列上填缺省值"); eq(t.faceValue(g, CODE), -1); }
     clean(t, "搬过去");
@@ -330,6 +331,7 @@ describe("角上的列：守卫", () => {
     const hits: string[] = [];
     for (const f of files) {
       if (!f.startsWith(join("src", "mesh")) || f === join("src", "mesh", "columns.ts")) continue;
+      if (f === join("src", "mesh", "reserved-columns.ts")) continue;   // 保留名那一层（3b）：拿列对象读 / 写面上的值（隐藏、材质），不碰角上的数、不取样
       for (const line of readFileSync(f, "utf8").split("\n")) if (/\bsampleAt\b|closestOnTriangle|writeCorners\(|barycentric|\.columns\[[^\]]*\]\.data|\bc\.data\[/.test(line) && !(f === join("src", "mesh", "mesh-kernel.ts") && /writeCorners\(|c\.data\[/.test(line))) hits.push(`${f}: ${line.trim().slice(0, 70)}`);
     }
     eq(hits.length, 0, hits.join(" | "));
@@ -341,7 +343,7 @@ describe("角上的列：规矩按构造成立（Fable 审 1-2 加的两处）",
   function quad(): { k: MeshKernel; f: number; v: number[]; m: number } {
     const k = new MeshKernel(); k.addColumn(UVD);
     const v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)].map((p) => k.addVertex(p));
-    const f = k.addFace(v, -1, FRESH); k.setCornerValues(f, UV, k.facePts(f).flatMap((p) => [p.x, p.y]));
+    const f = k.addFace(v, FRESH); k.setCornerValues(f, UV, k.facePts(f).flatMap((p) => [p.x, p.y]));
     return { k, f, v, m: k.addVertex(P(0.5, 0, 0)) };
   }
   it("copy 的对应表里有 −1 / 不在旧环里的角号 → 抛（调用的地方写错了）", () => {

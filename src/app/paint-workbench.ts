@@ -10,6 +10,7 @@
 //   画画的准备（1-4c space-prep.ts：整份几何 + 每格的表）每帧对一次：这个物件上热的画都要现成；过期了（在工作台里撤销到建模那几步 = 网格体修改号变了）
 //   这一帧就重建，不等落笔。落笔撞上「还没重建完」= 这一笔不开始、提示行说一句（和「这张画还在打开」同一个口）。出了画画工作台 = 全放。
 // · 不用不多做事：不进画画工作台就什么都不做（不建画板、不起内核）。
+import { faceMaterial } from "../mesh/reserved-columns.ts";
 import { strokeKindOpts, type BrushKind } from "../paint/brush-kinds.ts";
 import { resolvedBrushOf, strokeSmoothOf } from "../paint/brush-records.ts";
 import { StrokeClock } from "../controller/stroke-clock.ts";
@@ -141,9 +142,9 @@ export class PaintWorkbench {
     const m = uvMesh(k, body.uvSetSlots), anyUv = body.uvSetSlots[0] ?? "";
     const hit = pickSurface(m, this.grid(m), anyUv, o, dir);
     if (!hit) return null;
-    const fp = S.facePaint(def, k.faceMat[hit.face]);
+    const fp = S.facePaint(def, faceMaterial(k, hit.face));
     if (!fp) {
-      const m = S.materialOfSlot(def, k.faceMat[hit.face]), tp = m ? S.tiledPaintOf(m) : null;
+      const m = S.materialOfSlot(def, faceMaterial(k, hit.face)), tp = m ? S.tiledPaintOf(m) : null;
       if (tp) return { why: tiledOnlyInWindow(tp.textureDoc.name || m!.name) };   // 平铺的画（施工单二十一第 3 刀第二节第 6 条）：不画、说原因
       if (!body.uvSetSlots.length) return { why: NOT_STARTED, start: true };
       return { face: hit.face, color: m ? [m.color[0], m.color[1], m.color[2]] : [0.84, 0.84, 0.84] };

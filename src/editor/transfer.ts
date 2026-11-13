@@ -14,6 +14,7 @@
 //   · closure = 实例用到的定义（递归）+ 层（文件形状）；它们槽表里的材质也在 materials 表里（按 GUID 查，不走编号）
 // 纯函数：extract（从场景抠）· accept（目标接不接；不接 = 要转种类）· castPayload（用户点了「转」才做的转换，和物体设置窗同一套 castBody）· localize（世界 → 目标容器本地）。
 // 这一贴怎么搬（比内容、更新 / 断开、查环、提示行）= editor/paste-plan.ts；真正写进场景的是 ops.ts 的 `paste` 指令（吃本地坐标的载荷，面上的编号经对照表换成目标定义的槽号）。
+import { faceMaterial, givenFaceValues } from "../mesh/reserved-columns.ts";
 import type { Pt3 } from "../kernel/geom.ts";
 import { Kernel, type BrepSnapshot } from "../kernel/kernel.ts";
 import { MeshKernel, F_WIRE } from "../mesh/mesh-kernel.ts";
@@ -118,7 +119,7 @@ export function extract(s: Scene, ctx: EditContext, sel: { faces: Iterable<numbe
     const k = s.mesh(at.def).kernel, slots = s.mesh(at.def).materialSlots, faces = [...sel.faces].filter((f) => k.hasF(f)).sort((a, b) => a - b);
     const map = new Map<number, number>(), verts: Pt3[] = [];
     const nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = verts.length; map.set(v, x); verts.push(applyPt(X, k.pt(v))); } return x; };
-    const outFaces = faces.map((f) => ({ ring: k.faceVerts(f).map(nv), mat: k.faceMat[f] >= 0 ? codeOf(slots[k.faceMat[f]] ?? -1) : -1 }));
+    const outFaces = faces.map((f) => ({ ring: k.faceVerts(f).map(nv), mat: faceMaterial(k, f) >= 0 ? codeOf(slots[faceMaterial(k, f)] ?? -1) : -1 }));
     const eSet = new Set<number>();
     for (const f of faces) for (const e of k.fEdges(f)) if (e >= 0) eSet.add(e);
     for (const e of sel.edges) if (k.hasE(e)) eSet.add(e);   // 选中的裸线 / 别的边也带着（没有面的在目标里成裸线）
@@ -164,7 +165,7 @@ export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
       if (body.kind !== "mesh") continue;
       const k = body.kernel, base = verts.length, vmap = new Map<number, number>();
       for (const v of k.verts()) { vmap.set(v, verts.length); verts.push(k.pt(v)); }
-      for (const f of k.faces()) faces.push({ ring: k.faceVerts(f).map((v) => vmap.get(v)!), mat: k.faceMat[f] });   // 槽号就是对照表的编号
+      for (const f of k.faces()) faces.push({ ring: k.faceVerts(f).map((v) => vmap.get(v)!), mat: faceMaterial(k, f) });   // 槽号就是对照表的编号
       for (const e of k.edges()) edges.push({ a: vmap.get(k.edgeA[e])!, b: vmap.get(k.edgeB[e])!, flags: k.edgeFlags[e] });
       void base;
     }
@@ -174,7 +175,7 @@ export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
   }
   if (!p.mesh) return p;
   const k = new MeshKernel(), vs = p.mesh.verts.map((q) => k.addVertex(q));
-  for (const f of p.mesh.faces) k.addFace(f.ring.map((i) => vs[i]), f.mat, FRESH);   // 经过剪贴板：故意不带角上的数（统筹 11-11 定，1-2½）——这里是转成硬表面再贴，硬表面本来就没有角上的数
+  for (const f of p.mesh.faces) k.addFace(f.ring.map((i) => vs[i]), { kind: "fresh", face: givenFaceValues(k, { material: f.mat }) });   // 经过剪贴板：故意不带角上的数（统筹 11-11 定，1-2½）——这里是转成硬表面再贴，硬表面本来就没有角上的数
   for (const e of p.mesh.edges) { const id = k.ensureEdge(vs[e.a], vs[e.b]); k.setEdgeFlags(id, e.flags); }
   const body = castBody({ kind: "mesh", kernel: k, materialSlots: slots(), uvSetSlots: [] }, "brep");
   const brep = body.kind === "brep" ? body.kernel.toBrep() : undefined;

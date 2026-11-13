@@ -15,7 +15,7 @@ import { cloneUv, placeOn, uvAtOf } from "./uv-kit.ts";
 describe("标准答案（1-4a 测试 9：镜像的两半每一格只算一次、取最近的）", () => {
   it("两半贴图坐标一样、笔尖压在中缝上：每一格 = 两半各自算的里面浓的那个（距离取近的）", () => {
     const m = new MeshKernel(), v = [P(-1, 0, 0), P(0, 0, 0), P(0, 1, 0), P(-1, 1, 0), P(1, 0, 0), P(1, 1, 0)].map((p) => m.addVertex(p));
-    const L = m.addFace([v[0], v[1], v[2], v[3]], -1, FRESH), R = m.addFace([v[4], v[5], v[2], v[1]], -1, FRESH), uv = laidOut(m, "uv", [L], { density: 60 });
+    const L = m.addFace([v[0], v[1], v[2], v[3]], FRESH), R = m.addFace([v[4], v[5], v[2], v[1]], FRESH), uv = laidOut(m, "uv", [L], { density: 60 });
     { const lv = uvAtOf(m, L, "uv")!, at = (i: number) => [lv[2 * i], lv[2 * i + 1]]; placeOn(m, R, "uv", [...at(0), ...at(3), ...at(2), ...at(1)]); }
     const g = buildTargetGeo(targetOf(m, uv)), tip = { x: 0.1, y: 0.5, z: 0, r: 0.4, alpha: 0.8 };
     const trisOf = (f: number) => Array.from({ length: g.grid.face.length }, (_, t) => t).filter((t) => g.grid.face[t] === f);
@@ -119,7 +119,7 @@ describe("标准答案（1-4a 测试 11：铺法换掉，结果不变）", () =>
 describe("标准答案（1-4a 审后补：块边上多归的格子）", () => {
   it("一笔沿着 90° 折缝画（两张面各成一块）：中心在块外面的格子 = 块边上离格子中心最近的那一点按定义直接算的值（只差取样点量化的那一点，1-4c）", () => {
     const m = new MeshKernel(), v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0), P(1, 0, -1), P(1, 1, -1)].map((p) => m.addVertex(p));
-    const A = m.addFace([v[0], v[1], v[2], v[3]], -1, FRESH), B = m.addFace([v[2], v[1], v[4], v[5]], -1, FRESH);
+    const A = m.addFace([v[0], v[1], v[2], v[3]], FRESH), B = m.addFace([v[2], v[1], v[4], v[5]], FRESH);
     const uv = laidOut(m, "uv", m.faces(), { density: 40 }), g = buildTargetGeo(targetOf(m, uv)), t = g.table, hardness = 0.3;
     eq(t.polys.length, 2, "折角两边各成一块");
     // 这张面上：画布坐标 → 世界（面是平的、铺法是仿射的：拿面上三个角解出来，不经过格子表）

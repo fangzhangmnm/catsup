@@ -19,9 +19,9 @@ function planarMesh(seed: number): { k: MeshKernel; rects: number[]; degenerate:
   const k = new MeshKernel(), r = rng(seed);
   addBox(k, P(0, 0, 0), P(0.5, 0.25, 0.75));
   const rects: number[] = [];
-  for (let i = 0; i < 4; i++) { const R = rotor(r), w = (5 + Math.floor(r() * 20)) / 40, h = (3 + Math.floor(r() * 10)) / 40; rects.push(k.addFace([P(0, 0, 0), P(w, 0, 0), P(w, h, 0), P(0, h, 0)].map((p) => k.addVertex(R(p))), -1, FRESH)); }
-  for (let i = 0; i < 4; i++) { const R = rotor(r), n = 3 + Math.floor(r() * 5); k.addFace(Array.from({ length: n }, (_, j) => { const a = (2 * Math.PI * j) / n, rr = 0.2 + 0.1 * r() * (j % 2 ? 0.3 : 1); return k.addVertex(R(P(rr * Math.cos(a), rr * Math.sin(a), 0))); }), -1, FRESH); }
-  const degenerate = k.addFace([P(9, 9, 9), P(9.5, 9, 9), P(10, 9, 9)].map((p) => k.addVertex(p)), -1, FRESH);
+  for (let i = 0; i < 4; i++) { const R = rotor(r), w = (5 + Math.floor(r() * 20)) / 40, h = (3 + Math.floor(r() * 10)) / 40; rects.push(k.addFace([P(0, 0, 0), P(w, 0, 0), P(w, h, 0), P(0, h, 0)].map((p) => k.addVertex(R(p))), FRESH)); }
+  for (let i = 0; i < 4; i++) { const R = rotor(r), n = 3 + Math.floor(r() * 5); k.addFace(Array.from({ length: n }, (_, j) => { const a = (2 * Math.PI * j) / n, rr = 0.2 + 0.1 * r() * (j % 2 ? 0.3 : 1); return k.addVertex(R(P(rr * Math.cos(a), rr * Math.sin(a), 0))); }), FRESH); }
+  const degenerate = k.addFace([P(9, 9, 9), P(9.5, 9, 9), P(10, 9, 9)].map((p) => k.addVertex(p)), FRESH);
   return { k, rects, degenerate };
 }
 const isPlanar = (k: MeshKernel, f: number): boolean => { const n = k.faceNormal(f), ps = k.facePts(f), d = n.x * ps[0].x + n.y * ps[0].y + n.z * ps[0].z; return ps.every((p) => Math.abs(n.x * p.x + n.y * p.y + n.z * p.z - d) < 1e-9); };
@@ -86,7 +86,7 @@ describe("铺法（1-3a 第二节）", () => {
     const { k } = planarMesh(2), r = layoutFaces(k, k.faces(), { density: 30 });
     assert(r.ok, "铺得下"); if (!r.ok) return;
     eq(r.width, 1024); eq(r.height % 256, 0); assert(r.blocks.every((b) => b.y + b.h + 4 <= r.height) && r.height - 256 < Math.max(...r.blocks.map((b) => b.y + b.h + 4)), "高是最小的 256 的倍数");
-    const wide = new MeshKernel(); wide.addFace([P(0, 0, 0), P(30, 0, 0), P(30, 1, 0), P(0, 1, 0)].map((p) => wide.addVertex(p)), -1, FRESH);
+    const wide = new MeshKernel(); wide.addFace([P(0, 0, 0), P(30, 0, 0), P(30, 1, 0), P(0, 1, 0)].map((p) => wide.addVertex(p)), FRESH);
     const w = layoutFaces(wide, wide.faces(), { density: 50 });
     assert(w.ok, "宽的也铺得下"); if (!w.ok) return;
     eq(w.width, 1536, "1500 格宽 + 两边间隔 → 1536");
@@ -105,7 +105,7 @@ describe("铺法（1-3a 第二节）", () => {
     eq(r1.height % 256, 0); assert(r1.height >= r0.height, "只会加高");
     eq(blocksOk([...r0.blocks, ...r1.blocks], r1.width, r1.height, 4), "");
     // 放不下：补一张 6 米见方的面（每米 60 格 = 360 格，比哪儿空着的都大）→ 在最下面接着放、画布往下加高
-    const big = k.addFace([P(20, 0, 0), P(26, 0, 0), P(26, 6, 0), P(20, 6, 0)].map((p) => k.addVertex(p)), -1, FRESH);
+    const big = k.addFace([P(20, 0, 0), P(26, 0, 0), P(26, 6, 0), P(20, 6, 0)].map((p) => k.addVertex(p)), FRESH);
     const H0 = 256 * Math.ceil((Math.max(...r0.blocks.map((b) => b.y + b.h)) + 4) / 256);
     const tight = layoutAppend(uvOf(k), "uv", first, [big], { width: r0.width, height: H0 }, 60);
     assert(tight.ok, "加高后补得上"); if (!tight.ok) return;

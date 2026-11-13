@@ -13,7 +13,7 @@
 // · merge = 并成时怎么取：first = 排在最前的来源；firstNonDefault = 第一个不是缺省值的来源；defaultIfMixed = 来源之间不一样就回缺省值。
 //   不管哪一种，来源之间不一样都记进报告（面上的列带各来源的值；角上的列记「对不上」，哪张来源都没有这个点记「取不到」）。
 // · followNeighbor：新长的面（grown 带 neighbor）照抄旁边那张面的值。这一刀只做面上的列（角上的声明了抛「还没做」）。
-// · 面的旧样子（FaceShape）：改一张面之前先记下它现在的样子（环、环上各点当时的位置、每一列的值、材质，以及它身上还没交出去的「对不上」的标记）。内核一列都没有时只记材质。
+// · 面的旧样子（FaceShape）：改一张面之前先记下它现在的样子（环、环上各点当时的位置、每一列的值，以及它身上还没交出去的「对不上」的标记）。内核一列都没有时什么都不记。
 // · 五种来历（FaceOrigin）对应规程第四节的七种：原样 = 不申报（面没被动）；一块 = piece（「之间」= piece.from 里写位置）；一份 = copy；并成 = joined；
 //   新长 = grown（可带 neighbor）；给定 = fresh；删除不走这里。**给角上的数取值的代码全仓只有这里一份**（守卫 test/corner-columns.test.ts）：
 //     piece  是它的一块：面上的列 = 原面的值；角上的列：新角正好是原来的角 → 原值；不是 → 在原来那张面「显示时用的那套三角形」（format/triangulate.ts triangulateFace，
@@ -133,9 +133,8 @@ export type EdgeOrigin =
   | { readonly kind: "fresh"; readonly values?: ReadonlyMap<string, number> };
 export const GROWN_EDGE: EdgeOrigin = Object.freeze({ kind: "grown" });
 
-/** 面的旧样子。没有列的内核：ring / pts / corner / face 都是 null（只记材质，几乎不花时间）。 */
+/** 面的旧样子。没有列的内核：ring / pts / corner / face 都是 null（几乎不花时间；材质、隐藏都是列，3b 起不另记）。 */
 export interface FaceShape {
-  readonly mat: number;
   readonly ring: readonly number[] | null;
   /** 环上各点当时的位置（x y z × 角）。 */
   readonly pts: Float64Array | null;

@@ -1,6 +1,7 @@
 // mesh/tri-soup.ts —— 三角汤 ↔ mesh 内核。文件里 kind:"mesh" 的载荷现在还是三角汤（0.14 定的最小形）：M3 换成多边形载荷 CATSUP_mesh 之前的过渡——
 // 三角汤存不住 n 边形（四边形存成两个三角形读回来还是两个三角形）。现在没有任何用户入口能造出 mesh 身体（转换指令 M3 一起来），所以没有用户数据经过这条有损路；
 // M3 落地前不许接 UI。外来 glb 导入（user 10-27「导入直接成 mesh」）以后也走 meshFromTriangles。created 2026-10-27 by Claude Fable 5.1
+import { givenFaceValues, materialColumn } from "./reserved-columns.ts";
 import { F_SHARP, F_SMOOTH, F_SOFT, MeshKernel } from "./mesh-kernel.ts";
 import { FRESH } from "./columns.ts";
 
@@ -16,7 +17,7 @@ export function meshFromTriangles(t: TriSoup): { kernel: MeshKernel; skipped: nu
     const a = t.indices[i], b = t.indices[i + 1], c = t.indices[i + 2];
     if (a === b || b === c || a === c || a >= n || b >= n || c >= n) { skipped++; continue; }
     const mat = t.triMaterial ? t.triMaterial[i / 3] : NO_MAT;
-    m.addFace([a, b, c], mat === NO_MAT ? -1 : mat, FRESH);   // 三角汤导入 = 凭空来的
+    m.addFace([a, b, c], mat === NO_MAT ? FRESH : { kind: "fresh", face: givenFaceValues(m, { material: mat }) });   // 三角汤导入 = 凭空来的
   }
   return { kernel: m, skipped };
 }
@@ -120,7 +121,7 @@ function finishPolys(m: MeshKernel, weld: Int32Array, polys: readonly (readonly 
     for (const i of poly) { if (i < 0 || i >= n) continue; if (corners.length && weld[corners[corners.length - 1]] === weld[i]) continue; corners.push(i); }
     while (corners.length > 1 && weld[corners[0]] === weld[corners[corners.length - 1]]) corners.pop();
     if (corners.length < 3 || new Set(corners.map((i) => weld[i])).size !== corners.length) { report.skipped++; return; }
-    const f = m.addFace(corners.map((i) => weld[i]), -1, FRESH);
+    const f = m.addFace(corners.map((i) => weld[i]), FRESH);
     raw.set(f, corners); report.faces++;
     if (groups) groupOf.set(f, groups[pi] ?? 0);
   });
@@ -171,6 +172,7 @@ export function meshToTriangles(m: MeshKernel): TriSoup {
   const { tris, faceOfTri } = m.triangles();
   const indices = new Uint32Array(tris.length), triMaterial = new Uint16Array(faceOfTri.length);
   for (let i = 0; i < tris.length; i++) indices[i] = map.get(tris[i])!;
-  for (let i = 0; i < faceOfTri.length; i++) { const s = m.faceMat[faceOfTri[i]]; triMaterial[i] = s >= 0 ? s : NO_MAT; }
+  const mats = materialColumn(m);   // 材质槽号这一列（没有 = 全是 −1）
+  for (let i = 0; i < faceOfTri.length; i++) { const s = mats ? mats.data[faceOfTri[i]] : -1; triMaterial[i] = s >= 0 ? s : NO_MAT; }
   return { positions, indices, triMaterial };
 }

@@ -11,7 +11,7 @@ import { sceneBox } from "./format-scenes.ts";
 import { IDENTITY } from "../src/scene/xform.ts";
 
 const P = (x: number, y: number, z: number) => ({ x, y, z });
-const quad = (): MeshKernel => { const k = new MeshKernel(); const v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)].map((p) => k.addVertex(p)); k.addFace(v, -1, FRESH); return k; };
+const quad = (): MeshKernel => { const k = new MeshKernel(); const v = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)].map((p) => k.addVertex(p)); k.addFace(v, FRESH); return k; };
 /** 共用边 (a, b) 在两张面里的走向：一个 a→b、一个 b→a = 法向一致。 */
 const opposite = (k: MeshKernel, f1: number, f2: number, a: number, b: number): boolean => {
   const dir = (f: number): number => { const r = k.faceVerts(f), i = r.indexOf(a); return r[(i + 1) % r.length] === b ? 1 : r[(i - 1 + r.length) % r.length] === b ? -1 : 0; };

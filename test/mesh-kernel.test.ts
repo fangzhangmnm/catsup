@@ -23,7 +23,7 @@ class ColMesh extends MeshKernel {
     this.addColumn({ id: "half", on: "corner", type: { floats: 3 }, continuous: true, fill: 0, merge: "first", kind: "test" });
     this.addColumn({ id: "tag", on: "face", type: "int", continuous: false, fill: -1, merge: "defaultIfMixed", kind: "test" });
   }
-  override addFace(ring: readonly number[], mat: number, origin: FaceOrigin): number {
+  override addFace(ring: readonly number[], origin: FaceOrigin): number {
     if (origin.kind === "fresh" && !origin.corner && !origin.face) {
       const all = new Float32Array(ring.length * 2), half = new Float32Array(ring.length * 3);
       ring.forEach((v, i) => { const p = this.pt(v); all[2 * i] = p.x + 2 * p.y; all[2 * i + 1] = p.z - p.x; half[3 * i] = p.x; half[3 * i + 1] = p.y; half[3 * i + 2] = p.z; });
@@ -31,7 +31,7 @@ class ColMesh extends MeshKernel {
       if (n % 2 === 0) corner.set("half", half);
       origin = { kind: "fresh", corner, face: new Map([["tag", n % 3]]) };
     }
-    return super.addFace(ring, mat, origin);
+    return super.addFace(ring, origin);
   }
 }
 
@@ -168,7 +168,7 @@ describe(title, () => {
   it("环切开口带：两张四边形排成一条、从中间的边出发 → 两头停在边界", () => {
     const k = mk();
     const a = addPolygon(k, [P(0, 0), P(1, 0), P(1, 1), P(0, 1)]).verts;
-    const f2 = k.addFace([a[1], k.addVertex(P(2, 0)), k.addVertex(P(2, 1)), a[2]], -1, FRESH);
+    const f2 = k.addFace([a[1], k.addVertex(P(2, 0)), k.addVertex(P(2, 1)), a[2]], FRESH);
     const r = loopCut(k, k.edgeOf(a[1], a[2]));
     assert(!r.closed); eq(r.newVerts.length, 3); eq(r.edges.length, 2); eq(k.faceCount(), 4); clean(k, "开口环切");
     assert(k.hasF(f2));

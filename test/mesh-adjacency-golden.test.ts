@@ -3,6 +3,7 @@
 // 删面 / 细分 / 强行对称 / 并面 / 消点 / 翻面），每步在副本上做，做不了或 check() 报错就丢掉这一步。做完按**原始编号**记：点（位置按位）/ 边 / 面，
 // **每个点连着的边、每条边挨着的面（含先后）**，再加三个点一张面看之后分到的编号——取 sha256。重冻：FREEZE_ADJ=1 跑这一个文件，把打出来的表贴回 GOLDEN。
 // 主门（Fable 11-10）：check() 里「增量维护的表 = 当场从头重建的表（逐项、含先后）」，随机链每一步都要过——某一步 check() 报的若是这一条，直接算失败（不当成「这一步做不了」悄悄丢掉）。
+import { faceHidden, faceMaterial } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel, F_WIRE } from "../src/mesh/mesh-kernel.ts";
 import { FRESH } from "../src/mesh/columns.ts";
@@ -17,14 +18,14 @@ const rng = (seed: number): (() => number) => { let s = seed >>> 0 || 1; return 
 function torus(N: number): MeshKernel {
   const k = new MeshKernel(), id = (i: number, j: number): number => ((i + N) % N) * N + ((j + N) % N);
   for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) { const u = (2 * Math.PI * i) / N, v = (2 * Math.PI * j) / N; k.addVertex(P((3 + Math.cos(v)) * Math.cos(u), (3 + Math.cos(v)) * Math.sin(u), Math.sin(v))); }
-  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) k.addFace([id(i, j), id(i + 1, j), id(i + 1, j + 1), id(i, j + 1)], -1, FRESH);
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) k.addFace([id(i, j), id(i + 1, j), id(i + 1, j + 1), id(i, j + 1)], FRESH);
   return k;
 }
 const BASES: Record<string, () => MeshKernel> = {
   box: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); return k; },
   torus8: () => torus(8),
-  openGrid: () => { const k = new MeshKernel(), n = 3, v = (i: number, j: number): number => i * (n + 1) + j; for (let i = 0; i <= n; i++) for (let j = 0; j <= n; j++) k.addVertex(P(i, j, 0)); for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) k.addFace([v(i, j), v(i + 1, j), v(i + 1, j + 1), v(i, j + 1)], -1, FRESH); return k; },
-  fin: () => { const k = new MeshKernel(), a = k.addVertex(P(0, 0, 0)), b = k.addVertex(P(0, 0, 1)); for (const [x, y] of [[1, 0], [-1, 0.2], [0.1, 1]]) { const c = k.addVertex(P(x, y, 1)), d = k.addVertex(P(x, y, 0)); k.addFace([a, b, c, d], -1, FRESH); } return k; },
+  openGrid: () => { const k = new MeshKernel(), n = 3, v = (i: number, j: number): number => i * (n + 1) + j; for (let i = 0; i <= n; i++) for (let j = 0; j <= n; j++) k.addVertex(P(i, j, 0)); for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) k.addFace([v(i, j), v(i + 1, j), v(i + 1, j + 1), v(i, j + 1)], FRESH); return k; },
+  fin: () => { const k = new MeshKernel(), a = k.addVertex(P(0, 0, 0)), b = k.addVertex(P(0, 0, 1)); for (const [x, y] of [[1, 0], [-1, 0.2], [0.1, 1]]) { const c = k.addVertex(P(x, y, 1)), d = k.addVertex(P(x, y, 0)); k.addFace([a, b, c, d], FRESH); } return k; },
   loose: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); const a = k.addVertex(P(3, 0, 0)), b = k.addVertex(P(4, 0, 0)); k.setEdgeFlags(k.ensureEdge(a, b), F_WIRE); k.addVertex(P(5, 5, 5)); return k; },
   mirrorBox: () => { const k = new MeshKernel(); addBox(k, P(-1, 0, 0), P(1, 1, 1)); return k; },
   columns: () => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(2, 1, 1)); k.addColumn({ id: "uv", on: "corner", type: { floats: 2 }, continuous: true, fill: 0, merge: "first", kind: "test" }); for (const f of k.faces()) k.setCornerValues(f, "uv", k.facePts(f).flatMap((p) => [p.x + p.z, p.y - p.x])); return k; },
@@ -72,9 +73,9 @@ function dump(k: MeshKernel): string {
   const o: string[] = [];
   for (const v of k.verts()) { const p = k.pt(v); o.push(`v${v}:${bits(p.x)},${bits(p.y)},${bits(p.z)}|${[...k.vEdges(v)].join(",")}`); }
   for (const e of k.edges()) o.push(`e${e}:${k.edgeA[e]}-${k.edgeB[e]}/${k.edgeFlags[e]}|${[...k.eFaces(e)].join(",")}`);
-  for (const f of k.faces()) o.push(`f${f}:${k.faceVerts(f).join(",")}/m${k.faceMat[f]}/x${k.faceFlags[f]}`);
+  for (const f of k.faces()) o.push(`f${f}:${k.faceVerts(f).join(",")}/m${faceMaterial(k, f)}/x${faceHidden(k, f) ? 1 : 0}`);
   for (const c of k.columnDefs()) if (c.on === "corner") for (const f of k.faces()) { const vals = k.faceValue(f, "has") === 1 ? k.cornerValues(f, c.id) : null; o.push(`c${f}:${vals ? [...vals].map(bits).join(",") : "-"}`); }   // 没值 = 「-」（和改之前同一个写法）
-  const nv = [P(9, 9, 9), P(10, 9, 9), P(9, 10, 9)].map((p) => k.addVertex(p)), nf = k.addFace(nv, -1, FRESH);
+  const nv = [P(9, 9, 9), P(10, 9, 9), P(9, 10, 9)].map((p) => k.addVertex(p)), nf = k.addFace(nv, FRESH);
   o.push(`next v ${nv.join(",")} f ${nf} e ${k.fEdges(nf).join(",")}`);
   return o.join("\n");
 }

@@ -48,7 +48,7 @@ export function extrudeFaces(k: MeshKernel, fs: readonly number[], inheritMarks 
   for (const [a, b, m] of marks) { const e = k.edgeOf(newVerts.get(a)!, newVerts.get(b)!); if (e >= 0) k.setEdgeFlags(e, (k.edgeFlags[e] & ~MARKS) | m); }
   // 侧面：顶面绕向 a→b（朝外时从外面看逆时针），侧面 (a, b, b', a') 的右手法向 = (b−a) × (b'−b) 朝外（盒子顶面 y=0 那条边：(1,0,0) × (0,0,1) = (0,−1,0)）
   const sides: number[] = [];
-  for (const [a, b, f, ia, ib] of boundary) sides.push(k.addFace([a, b, newVerts.get(b)!, newVerts.get(a)!], k.faceMat[f], insetTo ? { kind: "piece", of: shapes.get(f)!, from: [ia, ib, insetTo.get(b), insetTo.get(a)] } : GROWN));
+  for (const [a, b, f, ia, ib] of boundary) sides.push(k.addFace([a, b, newVerts.get(b)!, newVerts.get(a)!], insetTo ? { kind: "piece", of: shapes.get(f)!, from: [ia, ib, insetTo.get(b), insetTo.get(a)] } : { kind: "grown", neighbor: f }));   // 侧面 = 新长、旁边是被挤的那张面（跟旁边的列照抄它：材质）
   return { newVerts, sides };
 }
 
@@ -61,16 +61,16 @@ export function extrudeEdges(k: MeshKernel, es: readonly number[]): ExtrudeResul
   if (!edges.length) throw new Error("extrudeEdges: no alive edges");
   const newVerts = new Map<number, number>();
   const dup = (v: number): number => { let n = newVerts.get(v); if (n === undefined) { n = k.addVertex(k.pt(v)); newVerts.set(v, n); } return n; };
-  const plan: { a: number; b: number; mat: number }[] = [];
+  const plan: { a: number; b: number; nb: number }[] = [];
   for (const e of edges) {
-    let a = k.edgeA[e], b = k.edgeB[e], mat = -1;
+    let a = k.edgeA[e], b = k.edgeB[e], nb = -1;
     const fs = [...k.eFaces(e)];
-    if (fs.length === 1) { const r = k.faceVerts(fs[0]), i = r.indexOf(a); if (r[(i + 1) % r.length] === b) [a, b] = [b, a]; mat = k.faceMat[fs[0]]; }
-    plan.push({ a, b, mat });
+    if (fs.length === 1) { const r = k.faceVerts(fs[0]), i = r.indexOf(a); if (r[(i + 1) % r.length] === b) [a, b] = [b, a]; nb = fs[0]; }
+    plan.push({ a, b, nb });
   }
   for (const { a, b } of plan) { dup(a); dup(b); }
   const sides: number[] = [];
-  for (const { a, b, mat } of plan) sides.push(k.addFace([a, b, newVerts.get(b)!, newVerts.get(a)!], mat, GROWN));   // 挤出边长出来的墙 = 新长出来的
+  for (const { a, b, nb } of plan) sides.push(k.addFace([a, b, newVerts.get(b)!, newVerts.get(a)!], nb >= 0 ? { kind: "grown", neighbor: nb } : GROWN));   // 挤出边长出来的墙 = 新长出来的（只挂一张面的边：旁边 = 那张面）
   return { newVerts, sides };
 }
 

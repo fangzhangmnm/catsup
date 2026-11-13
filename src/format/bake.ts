@@ -2,6 +2,7 @@
 // v1：一个 definition → 一个 mesh：TRIANGLES（全部膜，共享顶点，float32 POSITION，无 NORMAL = 加载器自算平面法线）
 // + LINES（全部边）。坐标换轴 Z-up → glTF Y-up：(x,y,z) → (x, z, -y)（与 obj-io 同规则）。created 2026-09-20 by Claude Fable 5.1
 
+import { faceHidden, faceMaterial } from "../mesh/reserved-columns.ts";
 import type { BrepSnapshot } from "../kernel/kernel.ts";
 import { COPLANAR_TOL_DEFAULT, dot3, textureBasis, type Pt3 } from "../kernel/geom.ts";
 import type { MeshDoc } from "./document.ts";
@@ -278,8 +279,8 @@ export function bakeMesh(m: MeshDoc, sink: ViewSink, accessorBase: number, mats?
   interface Group { P: number[]; N: number[]; idx: number[]; key: Map<string, number>; mn: number[]; mx: number[] }
   const groups = new Map<number, Group>();
   for (const f of k.faces()) {
-    if (k.isFaceHidden(f)) continue;   // 隐藏的面不出
-    const ring = k.faceVerts(f), slot = k.faceMat[f], core = slot >= 0 ? mats?.slotToCore(slot) : undefined, gk = core === undefined ? -1 : core;
+    if (faceHidden(k, f)) continue;   // 隐藏的面不出
+    const ring = k.faceVerts(f), slot = faceMaterial(k, f), core = slot >= 0 ? mats?.slotToCore(slot) : undefined, gk = core === undefined ? -1 : core;
     const G = groups.get(gk) ?? groups.set(gk, { P: [], N: [], idx: [], key: new Map(), mn: [Infinity, Infinity, Infinity], mx: [-Infinity, -Infinity, -Infinity] }).get(gk)!;
     const corner = ring.map((v, j) => {
       const nn = fanNormal(view, f, j), q = quantNormal(nn), key = `${v}|${q[0]},${q[1]},${q[2]}`;
@@ -313,7 +314,7 @@ export function bakeMesh(m: MeshDoc, sink: ViewSink, accessorBase: number, mats?
     const fl = k.edgeFlags[e], faces = k.eFaces(e);
     if (fl & F_HIDDEN) continue;
     if (!faces.length) { if (fl & F_WIRE) lines.push(k.edgeA[e], k.edgeB[e]); continue; }
-    if ([...faces].every((f) => k.isFaceHidden(f))) continue;
+    if ([...faces].every((f) => faceHidden(k, f))) continue;
     if (!edgeSoft(k, e)) lines.push(k.edgeA[e], k.edgeB[e]);
   }
   if (lines.length) {

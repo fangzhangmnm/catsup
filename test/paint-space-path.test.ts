@@ -1,4 +1,5 @@
 // 空间里的笔：落成路（贴图主线 1-4a 第二节 + 第六节测试 1–6、12 的路那一半）。created 2026-11-11 by Claude Opus 5.5
+import { setFaceHidden } from "../src/mesh/reserved-columns.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox, addPrimitive } from "../src/mesh/ops/index.ts";
@@ -114,9 +115,9 @@ describe("落成路（1-4a 测试 5 + 12：被挡住的不画；藏起来的面�
     for (const p of ps) assert(!(Math.abs(p.x) < 0.2 * (1 - 0.5 / 6) - 1e-6), `板挡住的地方没有路（x = ${p.x}）`);
   });
   it("藏起来的面不挡（照常画过去）；不走这张画的面挡住（路断开）", () => {
-    const build = () => { const m = gridMesh(10, 4), top = [P(-0.3, -2, 0.5), P(0.3, -2, 0.5), P(0.3, 2, 0.5), P(-0.3, 2, 0.5)].map((p) => m.addVertex(p)); const f = m.addFace(top, -1, FRESH); return { m, f }; };
+    const build = () => { const m = gridMesh(10, 4), top = [P(-0.3, -2, 0.5), P(0.3, -2, 0.5), P(0.3, 2, 0.5), P(-0.3, 2, 0.5)].map((p) => m.addVertex(p)); const f = m.addFace(top, FRESH); return { m, f }; };
     const cam = pinhole(P(0, -0.01, 6), P(0, 0, 0), 45);
-    { const { m, f } = build(); m.setFaceFlags(f, 1, true); const uv = laidOut(m, "uv", m.faces().filter((x) => x !== f)), s = new SpaceStroke([targetOf(m, uv)], cam, brush(), { smooth: RAW });
+    { const { m, f } = build(); setFaceHidden(m, f, true); const uv = laidOut(m, "uv", m.faces().filter((x) => x !== f)), s = new SpaceStroke([targetOf(m, uv)], cam, brush(), { smooth: RAW });
       line(s, cam.project(P(-1.5, 0, 0)), cam.project(P(1.5, 0, 0)), 30);
       eq(pts(s).filter((p) => p.brk).length, 0, "藏起来的面不挡"); }
     { const { m, f } = build(); const uv = laidOut(m), s = new SpaceStroke([targetOf(m, uv, { walks: (x) => x !== f })], cam, brush(), { smooth: RAW });
