@@ -123,14 +123,14 @@ await page.evaluate((h) => { const L = globalThis.__catsup.locomotion; L.sim.sta
 // FPS 里工具键不响应（监工不编辑）；Tab = 原地编辑：上方正中「继续走」、工具照常用
 await page.evaluate(() => globalThis.__catsup.editor.setTool("select"));
 const beforeL = await page.evaluate(() => ({ tool: globalThis.__catsup.editor.tool, phase: globalThis.__catsup.locomotion.walkPhase() }));
-await page.keyboard.press("l"); await page.waitForTimeout(30);
+await page.keyboard.press("k"); await page.waitForTimeout(30);   // v0.19.104 起 L = 选连着的一块，画线只剩 K
 const afterL = await page.evaluate(() => ({ tool: globalThis.__catsup.editor.tool, phase: globalThis.__catsup.locomotion.walkPhase() }));
-check(beforeL.phase === "walk" && afterL.tool === beforeL.tool, `FPS 里按 L 不换工具 ${JSON.stringify({ beforeL, afterL })}`);
+check(beforeL.phase === "walk" && afterL.tool === beforeL.tool, `FPS 里按 K（画线）不换工具 ${JSON.stringify({ beforeL, afterL })}`);
 await page.keyboard.press("Tab"); await page.waitForTimeout(60);
 const editInPlace = await page.evaluate(() => ({ phase: globalThis.__catsup.locomotion.walkPhase(), bar: !document.getElementById("walkBar").hidden, label: document.getElementById("walkBtn").textContent }));
 check(editInPlace.phase === "edit" && editInPlace.bar && editInPlace.label === "继续走", `Tab = 原地编辑、上方「继续走」${JSON.stringify(editInPlace)}`);
 // 原地编辑里工具照常用：画线 hover 有吸附标签（把线画在盒顶角上）
-await page.keyboard.press("l");
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setMode("geometry"); e.setTool("line"); });   // 拿画线 = 以前按 L 走的那条（明着换到硬表面再拿）：v0.19.104 起 L = 选连着的一块；K = 画线只在硬表面工作台，验证工作台里 K 是刀、拿不到——键位缺口已报统筹，等键位施工单
 await page.evaluate(() => { globalThis.__catsup.locomotion.sim.state.pos.x = 2.0; }); await page.waitForTimeout(80);   // 走多远随真实时间浮动（1.85–2.0 m），角点会贴着视口下沿忽进忽出：先把人放到固定位置再找（2026-10-27 Opus）
 const corner = await page.evaluate(() => {
   const e = globalThis.__catsup.editor; const vp = e.vp(); const eye = e.cam.eye(), fwd = e.cam.forward();

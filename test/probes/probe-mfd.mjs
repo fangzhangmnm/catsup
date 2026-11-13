@@ -1,11 +1,11 @@
 // 键名芯片（MFD；账本 UX19；app/mfd.ts + controller/chips.ts；created 2026-10-28 by Claude Opus 5.5；2026-10-28 晚按 user「实时响应按键 / 有context才显示 / ipad不显示键位」改）。
 // ⓪ 开机闲着 = 整排不出 ① 选择工具闲着不出；按住 Shift = Shift 那枚出来并亮、松开收 ② 自由建模移动、有选区闲着 = 不出（锁不在芯片里了，白模 W-6 搬到右上角；修饰键要按住才出）；
 // 按 X 键 = 锁 X、右上角「X」亮；点右上角「Y」= 真锁 Y（和按 Y 键同一条）、Y 亮 X 不亮 ③ 拖着没松 = Shift，没有锁、没有取消（松手就是决定）④ 鼠标下能收起（按住 Shift 让它露出来再点）、收起记住
-// ⑤ 碰过笔：收起钮不见、不印键名；有选区 = 修饰键开关；点「吸附」= 锁住（亮）、真的当 Shift 用；换工具 = 放开。跑法：python3 -m http.server 8765 后 node test/probes/probe-mfd.mjs [截图路径]
+// ⑤ 没按过实体键盘的一页、碰过笔：收起钮不见、不印键名；有选区 = 修饰键开关；点「吸附」= 锁住（亮）、真的当 Shift 用；换工具 = 放开。跑法：python3 -m http.server 8765 后 node test/probes/probe-mfd.mjs [截图路径]
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
+let page = await b.newPage({ viewport: { width: 1000, height: 800 } });
 page.setDefaultTimeout(4000);
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
 await page.goto(process.argv[2]?.startsWith("http") ? process.argv[2] : "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1000);
@@ -26,7 +26,7 @@ r.shiftHeld = await chips();
 await page.keyboard.up("Shift"); await page.waitForTimeout(60);
 r.shiftUp = await chips();
 // ② 自由建模移动
-const center = await page.evaluate(async () => {
+const setupMesh = async () => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((rr) => setTimeout(rr, ms));
   const B = [[0, 0], [1, 0], [1, 1], [0, 1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], 1), P(d[0], d[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); }
   e.addSegments(segs); e.selectAll(); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
@@ -34,7 +34,8 @@ const center = await page.evaluate(async () => {
   e.cam.setView("iso"); e.zoomExtents(); e.draw();
   globalThis.__catsup.hud.pick("move"); e.selectAll(); globalThis.__catsup.hud.pick("move"); await sleep(30);
   return e.cam.angularPx(P(0.5, 0.5, 1), e.vp());
-});
+};   // 盒子 → 网格体 → 进去 → 全选 → 拿移动；返回盒顶中心的屏幕点（⑤ 新开的那一页也用）
+const center = await page.evaluate(setupMesh);
 await page.waitForTimeout(100);
 r.moveIdleSel = await chips();
 await page.keyboard.press("x"); await page.waitForTimeout(80);
@@ -60,7 +61,10 @@ r.pref = await page.evaluate(() => { try { return Object.keys(localStorage).filt
 await page.keyboard.down("Shift"); await page.waitForTimeout(60);
 await page.click(".mfd-toggle"); await page.waitForTimeout(60);
 await page.keyboard.up("Shift"); await page.waitForTimeout(60);
-// ⑤ 笔
+// ⑤ 笔：新开一页、整个过程不碰键盘——「有没有键盘」= 这次打开之后按过实体键盘（keyboard-seen.ts，统筹 11-13 D）；上面那一页按过键，芯片照旧印键名
+page = await b.newPage({ viewport: { width: 1000, height: 800 } }); page.setDefaultTimeout(4000); page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
+await page.goto(process.argv[2]?.startsWith("http") ? process.argv[2] : "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1000);
+await page.evaluate(setupMesh); await page.waitForTimeout(100);
 await fire("pointerdown", 30, 700, "pen"); await fire("pointerup", 30, 700, "pen"); await page.waitForTimeout(100);
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setAxisLock?.(null); e.selectAll(); globalThis.__catsup.hud.pick("move"); }); await page.waitForTimeout(80);
 r.penSel = await chips();
