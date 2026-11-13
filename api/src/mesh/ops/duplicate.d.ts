@@ -34,6 +34,11 @@ export declare function looseFrame(P: readonly Pt3[]): {
     n: Pt3;
 } | null;
 export declare function faceBlocker(k: MeshKernel, ring: readonly number[]): string | null;
+/**
+ * 这一圈正好是孤零零一张面的边（圈上每条边只挂这一张面）= 补洞会在它背面叠一张 → 补洞拒绝。
+ * 只看「同一组点有面」不够：两面的身体转成网格体时每张面背后本来就有一张（「要出几侧就几张面」），删掉一侧再补回来是正当的（那时圈上的边还挂着别的面；paint-invariant2 的盒子就是这样）。
+ */
+export declare function loneFaceRim(k: MeshKernel, loop: readonly number[]): boolean;
 /** 已经有一张面正好是这组点（不看顺序）。补洞和造面共用。 */
 export declare function faceExists(k: MeshKernel, ring: readonly number[]): boolean;
 /** 指令 meshMakeFace 的本体：按点序造一张面（两点 = 一条裸线）。返回新面 / 新边；会坏 = 人话错误（什么都没动）。 */
