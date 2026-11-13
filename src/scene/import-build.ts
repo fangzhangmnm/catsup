@@ -12,7 +12,7 @@ import { type BrepSnapshot, Kernel } from "../kernel/kernel.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import type { MeshDoc } from "../format/document.ts";
 import { meshFromSplitPolygons, meshFromSplitTriangles } from "../mesh/tri-soup.ts";
-import { edgeSmooth } from "../mesh/edge-smooth.ts";
+import { edgeLookOf } from "../mesh/edge-smooth.ts";
 import { kernelFromMeshDoc, meshDocFromKernel } from "../mesh/mesh-doc.ts";
 import { type DefId, type PoolRef, Scene } from "./scene.ts";
 import { type Xform, compose } from "./xform.ts";
@@ -46,7 +46,7 @@ export function castImport(data: ImportScene, softDeg: number): { scene: Importe
     // 焊顶点 + 拼回四边形 + 软硬边看文件法线（没法线 = 按 softDeg 角度，和以前一样）——user 10-29「导入的时候要respect平滑组」
     const { kernel, report: r } = m.polys ? meshFromSplitPolygons({ positions, normals, polys: m.polys, smoothGroups: m.smoothGroups ?? null }, softDeg) : meshFromSplitTriangles({ positions, normals, indices: Uint32Array.from(m.tris) }, softDeg);   // OBJ 多边形原样 / glb 三角拼回四边形
     report.triangles += m.polys ? m.polys.reduce((a, p) => a + p.length - 2, 0) : m.tris.length / 3; report.degenerate += r.skipped; report.quads = (report.quads ?? 0) + r.quads; report.faces = (report.faces ?? 0) + r.faces;
-    report.softened += kernel.edges().filter((e) => edgeSmooth(kernel, e)).length;
+    const look = edgeLookOf(kernel); report.softened += kernel.edges().filter((e) => look.smooth(e)).length;
     return { name: m.name, mesh: meshDocFromKernel(kernel) };
   });
   return { scene: { name: data.name, nodes: data.nodes, roots: data.roots, meshes }, report };

@@ -2,7 +2,7 @@
 // v1：一个 definition → 一个 mesh：TRIANGLES（全部膜，共享顶点，float32 POSITION，无 NORMAL = 加载器自算平面法线）
 // + LINES（全部边）。坐标换轴 Z-up → glTF Y-up：(x,y,z) → (x, z, -y)（与 obj-io 同规则）。created 2026-09-20 by Claude Fable 5.1
 
-import { HIDE_EDGE, edgeMark, faceHidden, faceMaterial } from "../mesh/reserved-columns.ts";
+import { HIDE_EDGE, edgeMarkReader, faceHidden, faceMaterial } from "../mesh/reserved-columns.ts";
 import type { BrepSnapshot } from "../kernel/kernel.ts";
 import { COPLANAR_TOL_DEFAULT, dot3, textureBasis, type Pt3 } from "../kernel/geom.ts";
 import type { MeshDoc } from "./document.ts";
@@ -10,7 +10,7 @@ import { encodeF32, encodeUints, pickUintType } from "./binary.ts";
 import { triangulateFace, triangulateRings } from "./triangulate.ts";
 import { kernelFromMeshDoc } from "../mesh/mesh-doc.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
-import { edgeSoft } from "../mesh/edge-smooth.ts";
+import { edgeLookOf } from "../mesh/edge-smooth.ts";
 import { fanNormal } from "../scene/fan-normal.ts";
 import type { ViewSink } from "./brep-codec.ts";
 
@@ -308,13 +308,13 @@ export function bakeMesh(m: MeshDoc, sink: ViewSink, accessorBase: number, mats?
     primitives.push({ attributes: { POSITION: posAcc, NORMAL: norAcc }, indices: idxAcc, mode: MODE_TRIANGLES, ...(core >= 0 ? { material: core } : {}) });
   }
   // 线：画线的边（不软、不隐藏）——面上的边看面显没显，裸线看自己
-  const lines: number[] = [];
+  const lines: number[] = [], look = edgeLookOf(k), hid = edgeMarkReader(k, HIDE_EDGE);   // 每条边都问：三列一次拿在手里
   for (const e of opts.lines === false ? [] : k.edges()) {
     const faces = k.eFaces(e);
-    if (edgeMark(k, e, HIDE_EDGE)) continue;
+    if (hid(e)) continue;
     if (!faces.length) { if (k.isWire(e)) lines.push(k.edgeA[e], k.edgeB[e]); continue; }
     if ([...faces].every((f) => faceHidden(k, f))) continue;
-    if (!edgeSoft(k, e)) lines.push(k.edgeA[e], k.edgeB[e]);
+    if (!look.soft(e)) lines.push(k.edgeA[e], k.edgeB[e]);
   }
   if (lines.length) {
     const t = pickUintType(Math.max(0, nV - 1)), gl = t === "uint8" ? GL_UNSIGNED_BYTE : t === "uint16" ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT, enc = t === "uint64" ? "uint32" : t;

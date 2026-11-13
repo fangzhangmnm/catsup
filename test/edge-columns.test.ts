@@ -11,6 +11,8 @@ import { mintGuid } from "../src/format/guid.ts";
 import { IDENTITY } from "../src/scene/xform.ts";
 import { UV_AT_COL, UV_SET_COL } from "../src/scene/uv.ts";
 import { sceneBox } from "./format-scenes.ts";
+import { brepAttributeList, meshAttributeList } from "../src/scene/attribute-list.ts";
+import { SHARP_EDGE, setEdgeMark, setFaceHidden } from "../src/mesh/reserved-columns.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
@@ -176,5 +178,25 @@ describe("快照、自检", () => {
     throws(() => k.setEdgeValue(e, "flag", 3), /0 or 1/);
     (k.column("flag")!.data as Uint8Array)[e] = 2;
     assert(k.check().some((x) => /bool column flag = 2/.test(x)), k.check().join("；"));
+  });
+});
+
+describe("属性页要的只读清单（scene/attribute-list.ts，3d）", () => {
+  it("网格体：几何个数 + 每一列一行（名字、挂在哪、类型、个数、字节），和内核的 columnList 一致", () => {
+    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));
+    setEdgeMark(k, k.edges()[0], SHARP_EDGE, true); setFaceHidden(k, k.faces()[0], true);
+    const a = meshAttributeList(k);
+    eq(JSON.stringify(a.geometry), JSON.stringify({ points: 8, edges: 12, faces: 6, corners: 24, wires: 0 }));
+    eq(a.rows.map((r) => `${r.id}/${r.on}/${r.type}/${r.count}/${r.bytes}/${r.sparse}`).join(" "), "hide_poly/face/bool/6/6/false sharp_edge/edge/bool/12/12/false");
+  });
+  it("硬表面体：边层当边上的布尔、面层当面上的整数，只列有值的层；稀疏的 = 个数是有值的几个、大小写不出来", () => {
+    const k = sceneBox(), e0 = k.edges()[0], f0 = k.faces()[0];
+    k.edgeLayers.add("soft", e0.id); k.faceLayers.set("hidden", f0.id, 1);
+    const a = brepAttributeList(k);
+    eq(a.kind, "brep"); eq(a.geometry.points, 8); eq(a.geometry.edges, 12); eq(a.geometry.corners, null);
+    assert(a.geometry.faces >= 6, `面 ${a.geometry.faces}`);
+    const soft = a.rows.find((r) => r.id === "soft"), hid = a.rows.find((r) => r.id === "hidden" && r.on === "face");
+    eq(JSON.stringify(soft), JSON.stringify({ id: "soft", on: "edge", type: "bool", count: 1, bytes: null, sparse: true }));
+    eq(hid?.count, 1); eq(hid?.type, "int");
   });
 });

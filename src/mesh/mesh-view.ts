@@ -11,8 +11,8 @@ import type { Curve } from "../kernel/curves.ts";
 import type { ChangeLog } from "../kernel/change-log.ts";
 import { COPLANAR_TOL_DEFAULT, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { MeshKernel } from "./mesh-kernel.ts";
-import { HIDE_EDGE, UV_SEAM, edgeMark, faceHidden, faceMaterial } from "./reserved-columns.ts";
-import { edgeSmooth, edgeSoft } from "./edge-smooth.ts";
+import { HIDE_EDGE, UV_SEAM, edgeMark, edgeMarkReader, faceHidden, faceMaterial } from "./reserved-columns.ts";
+import { edgeLookOf } from "./edge-smooth.ts";
 
 interface Tables { rev: number; verts: Map<VertexId, Vertex>; edges: Map<EdgeId, Edge>; faces: Map<FaceId, Face>; planes: Map<FaceId, PlaneRec>; soft: Set<EdgeId>; smooth: Set<EdgeId>; hidden: Set<EdgeId>; }
 
@@ -40,13 +40,13 @@ export class MeshView implements KernelView {
   private tables(): Tables {
     if (this.t && this.t.rev === this.mesh.rev) return this.t;
     const m = this.mesh, verts = new Map<VertexId, Vertex>(), edges = new Map<EdgeId, Edge>(), faces = new Map<FaceId, Face>(), planes = new Map<FaceId, PlaneRec>();
-    const soft = new Set<EdgeId>(), smooth = new Set<EdgeId>(), hidden = new Set<EdgeId>();
+    const soft = new Set<EdgeId>(), smooth = new Set<EdgeId>(), hidden = new Set<EdgeId>(), look = edgeLookOf(m), hid = edgeMarkReader(m, HIDE_EDGE);   // 每条边都问：三列一次拿在手里
     for (const v of m.verts()) { const p = m.pt(v); verts.set(v, { id: v, x: p.x, y: p.y, z: p.z, edges: new Set(m.vEdges(v)) }); }
     for (const e of m.edges()) {
       edges.set(e, { id: e, a: m.edgeA[e], b: m.edgeB[e], faceLinks: [...m.eFaces(e)] });
-      if (edgeSoft(m, e)) soft.add(e);   // 有效的软 / 平滑 = 手标 + 默认平滑（mesh/edge-smooth.ts 唯一判定，FM129）
-      if (edgeSmooth(m, e)) smooth.add(e);
-      if (edgeMark(m, e, HIDE_EDGE)) hidden.add(e);
+      if (look.soft(e)) soft.add(e);   // 有效的软 / 平滑 = 手标 + 默认平滑（mesh/edge-smooth.ts 唯一判定，FM129）
+      if (look.smooth(e)) smooth.add(e);
+      if (hid(e)) hidden.add(e);
     }
     for (const f of m.faces()) {
       const vs = m.faceVerts(f), pts = m.facePts(f), n = m.faceNormal(f);

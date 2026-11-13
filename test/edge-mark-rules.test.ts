@@ -13,6 +13,7 @@ import { HIDE_EDGE, RESERVED_EDGE, SHARP_EDGE, SMOOTH, SOFT, UV_SEAM, edgeMark, 
 import type { ColumnDef } from "../src/mesh/columns.ts";
 import { addBox, duplicateGeometry } from "../src/mesh/ops/index.ts";
 import { extrudeFaces } from "../src/mesh/ops/extrude.ts";
+import { declareRingEdges, fromShapes, pairKey } from "../src/mesh/ops/ring-edges.ts";
 import { splitEdge } from "../src/mesh/ops/split.ts";
 import { dissolveVertex } from "../src/mesh/ops/join.ts";
 import { subdivide } from "../src/mesh/ops/subdivide.ts";
@@ -32,6 +33,28 @@ describe("边标记跟着走的规矩（edge-mark-rules.ts + reserved-columns.ts
     const files = readdirSync("src/mesh/ops").filter((f) => f.endsWith(".ts")).sort();
     eq(files.filter((f) => !OPS[f]).join(","), "", "新加的拓扑操作要在 OPS 表里写一行：它给新边申报哪种来历");
     eq(Object.keys(OPS).filter((f) => !files.includes(f)).join(","), "", "OPS 表里的文件没了");
+  });
+  it("src/mesh/ops/ 每个导出的函数不是在 OPS 那一行的 ops 里（改元素的，探针列测试照它跑）就是在 helpers 里（纯算、查询）；表里没有文件里没有的函数（3d）", () => {
+    const missing: string[] = [], stray: string[] = [];
+    for (const f of readdirSync("src/mesh/ops").filter((x) => x.endsWith(".ts"))) {
+      const row = OPS[f]; if (!row) continue;
+      const exported = [...code(readFileSync(`src/mesh/ops/${f}`, "utf8")).matchAll(/^export function (\w+)/gm)].map((m) => m[1]);
+      const listed = [...Object.keys(row.ops), ...(row.helpers ?? [])];
+      for (const fn of exported) if (!listed.includes(fn)) missing.push(`${f}:${fn}`);
+      for (const fn of listed) if (!exported.includes(fn)) stray.push(`${f}:${fn}`);
+    }
+    eq(missing.join(", "), "", "新导出一个函数 = 在表里说它造什么（ops）或者它不造东西（helpers）");
+    eq(stray.join(", "), "", "表里的函数文件里没有了");
+  });
+  it("三条老数组退役了：内核上没有 faceMat / faceFlags / edgeFlags；带下标读这三个名字只在文件门口（src/format/、mesh/mesh-doc.ts：那是文件载荷 MeshDoc 的字段）", () => {
+    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));
+    for (const n of ["faceMat", "faceFlags", "edgeFlags", "setEdgeFlags", "setFaceFlags", "setFaceMat"]) assert(!(n in k), `内核上还有 ${n}`);
+    const hits: string[] = [];
+    const walk = (dir: string): void => { for (const x of readdirSync(dir)) { const p = `${dir}/${x}`; if (!x.includes(".")) { try { walk(p); } catch { /* 不是文件夹 */ } continue; } if (!x.endsWith(".ts")) continue;
+      if (p.startsWith("src/format/") || p === "src/mesh/mesh-doc.ts" || p.startsWith("src/paint/kernel/")) continue;
+      code(readFileSync(p, "utf8")).split("\n").forEach((l, i) => { if (/\.(faceMat|faceFlags|edgeFlags)\[/.test(l)) hits.push(`${p}:${i + 1}`); }); } };
+    walk("src");
+    eq(hits.join(", "), "", "读面的材质 / 隐藏、边的标记走 reserved-columns.ts 的小函数");
   });
   it("拓扑操作不按位手抄标记：src/mesh/ops/ 的代码里不出现边上的标记位、也不碰文件那个字节（packEdgeByte / unpackEdgeByte 只在门口）", () => {
     const bad: string[] = [];
@@ -130,5 +153,17 @@ describe("边标记跟着走的规矩（edge-mark-rules.ts + reserved-columns.ts
     const d = duplicateGeometry(k, { edges: [e0, e1] }); eq(k.check().join("\n"), "");
     eq(d.edges.length, 2); for (const x of d.edges) { eq(k.eFaces(x).length, 0); assert(k.isWire(x), "是裸线"); }
     eq(marks(k, d.edges[0]), "sharp_edge+uv_seam");
+  });
+  it("按环造边碰到已经在的边、又申报了来历：值对得上 = 跳过（两张面共用一条新边）；对不上 = 抛，说清哪一对点、哪一列（3d，统筹 11-13）", () => {
+    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));
+    const src = k.edges()[0]; mark(k, src, UV_SEAM);
+    const shape = k.edgeShape(src), [a, b, c] = [P(3, 0, 0), P(4, 0, 0), P(4, 1, 0)].map((p) => k.addVertex(p));
+    const table = new Map([[pairKey(a, b), shape]]);
+    declareRingEdges(k, [a, b, c], fromShapes(table, "copy"));   // 第一次：照抄造出来，带接缝
+    assert(edgeMark(k, k.edgeOf(a, b), UV_SEAM));
+    declareRingEdges(k, [b, a, c], fromShapes(table, "copy"));   // 第二张面共用这条：值一样 = 跳过
+    const d = k.addVertex(P(5, 0, 0)), e = k.addVertex(P(5, 1, 0)); k.addFace([b, d, e], FRESH);   // 加面顺手造的空边 b–d（新长）
+    let msg = ""; try { declareRingEdges(k, [b, d, e], fromShapes(new Map([[pairKey(b, d), shape]]), "copy")); } catch (x) { msg = String(x); }
+    assert(new RegExp(`edge ${b}-${d} already exists with uv_seam = 0, but the declared origin \\(copy\\) gives 1`).test(msg), msg || "没抛");
   });
 });

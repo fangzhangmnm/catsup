@@ -1,15 +1,25 @@
 // mesh/ops/ring-edges.ts —— 加面 / 改环之前，把环上还没有的边按来历造好（属性地基轮 3c；规程第九½节：一条边的值在它被造出来的那一刻按来历填好，
 // 不许「加面时顺手造一条空边、回头再补标记」）。created 2026-11-13 by Claude Opus 5.5
-// 按环的先后造：和「加面 / 改环时顺手补」分到的编号一模一样（金样逐位对得上）；已经在的边不碰（来历只在造的时候申报，对已经在的边申报 = 内核抛）；
-// originOf 给 null = 新长（全是缺省值）。先造了新长的边、后面又想申报它是一份 = 来不及了：调用的地方得先申报（漏了由探针列那条测试抓）。
-import type { EdgeOrigin, EdgeShape, MeshKernel } from "../mesh-kernel.ts";
-import { GROWN_EDGE } from "../columns.ts";
+// 按环的先后造：和「加面 / 改环时顺手补」分到的编号一模一样（金样逐位对得上）；originOf 给 null = 新长（全是缺省值）。
+// 边已经在：两张面共用一条新边时，第二张面的环碰到的就是第一张刚照同一个来历造好的那条，跳过是对的；但要是那条边是前面加面时顺手造出来的空边、
+// 这里才申报它是一份，跳过 = 悄悄放过一个错。所以（统筹 11-13，规程第九½节末）：已经在、这次又给了来历 = 照这个来历算出该有的值
+// （内核造边同一个函数 columns.ts edgeColumnValues），和它身上的逐列比，不一样 = 抛（哪一对点、哪一列）。没有边上的列时没什么可比。
+import type { EdgeColumn, EdgeOrigin, EdgeShape, MeshKernel } from "../mesh-kernel.ts";
+import { GROWN_EDGE, edgeColumnValues } from "../columns.ts";
 
 export function declareRingEdges(k: MeshKernel, ring: readonly number[], originOf: (a: number, b: number) => EdgeOrigin | null): void {
+  let cols: EdgeColumn[] | null = null;   // 边上的列（第一次碰到已经在的边才取；只读声明，不碰数组）
   for (let i = 0; i < ring.length; i++) {
-    const a = ring[i], b = ring[(i + 1) % ring.length];
-    if (k.edgeOf(a, b) >= 0) continue;
-    k.addEdge(a, b, originOf(a, b) ?? GROWN_EDGE);
+    const a = ring[i], b = ring[(i + 1) % ring.length], have = k.edgeOf(a, b), origin = originOf(a, b);
+    if (have < 0) { k.addEdge(a, b, origin ?? GROWN_EDGE); continue; }
+    if (!origin) continue;
+    cols ??= k.columnDefs().filter((d) => d.on === "edge").map((d) => k.column(d.id) as EdgeColumn);
+    if (!cols.length) continue;
+    const want = edgeColumnValues(cols, origin).values;
+    cols.forEach((c, j) => {
+      const got = k.edgeValue(have, c.id);
+      if (got !== want[j]) throw new Error(`declareRingEdges: edge ${a}-${b} already exists with ${c.id} = ${got}, but the declared origin (${origin.kind}) gives ${want[j]} — it was made before its origin was declared`);
+    });
   }
 }
 /** 一对点的键（不分先后）。 */

@@ -1,33 +1,56 @@
-// mesh/edge-mark-rules.ts —— 每个拓扑操作给新边申报哪种来历（看得见的表；施工单二十二 A 起头，属性地基轮 3c 改成按来历）。created 2026-11-12 by Claude Opus 5.5 · edited 2026-11-13 by Claude Opus 5.5（3c）
-// 3c 起边上的标记（棱 / 平滑 / 不画线 / 接缝 / 隐藏）是属性表里的五列（mesh/reserved-columns.ts），跟着来历走、不再按位手抄：
-//   一份（piece：劈开的两半）/ 照抄（copy：复制、镜像、挤出的帽、倒角时挨着的边换成新边）= 全部列照抄；
-//   并成（joined：溶解二度点、合并点并成同一对点）= 每一列按自己声明的 merge 并（棱、平滑、不画线、隐藏 = 都有才留；接缝 = 有一条就留）；
-//   新长（grown / 不申报）= 全是缺省值。
-//   来历在建边的那一刻申报（addEdge(a, b, origin) / declareRingEdges / absorbIntoEdge），不在事后补写；
+// mesh/edge-mark-rules.ts —— 每个拓扑操作给新的边、新的面申报哪种来历（看得见的表；施工单二十二 A 起头，属性地基轮 3c 改成按来历、3d 改成测试读的数据）。
+// created 2026-11-12 by Claude Opus 5.5 · edited 2026-11-13 by Claude Opus 5.5（3c、3d）
+// 边上的标记、面上的隐藏 / 材质、角上的贴图坐标都是属性表里的列，跟着来历走、不按位手抄：
+//   一块 piece（劈开的、切开的）/ 一份 copy（复制、镜像、挤出的帽、倒角时挨着的边、改了环的面）= 全部列照抄；
+//   并成 joined（溶解二度点、合并点、并面）= 每一列按自己声明的 merge 并；
+//   新长 grown（ensureEdge、面里切出来的、侧墙、倒角带）= 全是缺省值（面上声明了「跟旁边」的列跟旁边那张）；凭空来的 fresh（基本体、建面、补洞 / 桥接）= 调用的人给的值，没给 = 缺省值。
+//   来历在建边 / 建面那一刻申报（addEdge / declareRingEdges / absorbIntoEdge / addFace / setFaceRing），不在事后补写；
 //   操作本意要写的标记（倒角圆角中间标平滑、手标指令、硬表面转过来、导入、读文件）按保留名写（reserved-columns.ts setEdgeMark / edge-smooth.ts markEdges）。
-// 以前的 JOIN / MOVE 两张位表、joinFlags、MOVING_MARKS 退役了（并 = 每列的 merge；搬家 = 一份就是全部列照抄）。
-// 守卫 test/edge-mark-rules.test.ts：src/mesh/ops/ 每个文件在这里有一行；操作里不许按位手抄标记。
+// 这张表是测试的输入（test/probe-columns.test.ts，「探针列」：一列全 1 的边列、一列全 7 的面列，照表逐个操作跑一个典型例子）：
+//   表里写了 piece / copy / joined = 这个例子里一定有带着值的新元素；写了 grown / fresh = 一定有缺省值的新元素；没写的那一类一个都不许有；没动的元素值不变。
+//   「新元素」= 编号新的，或者编号没变但两头 / 环变了的（改了环的面是它自己的一份）。
+// 守卫 test/edge-mark-rules.test.ts：src/mesh/ops/ 每个文件在这里有一行；每个导出的函数不是在 ops 里就是在 helpers 里；操作里不许按位手抄标记。
 
-/**
- * 每个拓扑操作对边怎么申报来历（守卫：src/mesh/ops/ 里每个文件都要在这里有一行）。
- */
-export const OPS: Readonly<Record<string, string>> = {
-  "bevel.ts": "倒角：挨着被倒的边、自己没被倒的边换成新边 = 照抄（copy，先建边再改面）；被倒的边本身变成倒角带，标记不往带上搬（Blender 默认也不搬）；倒角带的新边 = 新长；圆角中间的线按操作本意标成平滑（markEdges smooth）",
-  "build.ts": "建面 / 建几何体：新边 = 新长",
-  "cleanup.ts": "整理：有限溶解里并边走 join.ts（并成）；去重点 = 所有组一次交给内核的合并点原子（见 merge.ts）",
-  "delete.ts": "删：剩下的边不动；溶解二度点走 join.ts（并成）；留下的裸线设结构位（setWire）",
-  "duplicate.ts": "复制（Shift+D）：面上的边和选中的边 = 照抄（copy，裸线位一起抄）；补洞 / 桥接的新边 = 新长",
-  "extrude.ts": "挤出：帽上的边 = 照抄原来那条（copy，全部列，含隐藏）；新长出来的侧边 = 新长；插入（inset）的内圈不照抄 = 新长",
-  "flatten.ts": "压平 / 单轴缩放：只挪点，边不变",
-  "geometry.ts": "挪点 / 变换：只挪点，边不变",
-  "index.ts": "出口：不碰边",
-  "inset.ts": "插入：外圈的边不变，新长出来的内圈和连接边 = 新长",
-  "join.ts": "溶解二度点：两条边并成一条 = 并成（joined，先建边再改面；那对点之间已经有边 = absorbIntoEdge 并进它，它排第一）；并面：被并掉的公共边没了",
-  "loopcut.ts": "环切：被切的边劈成两半（走 split.ts，一份）；切出来的新环 = 新长",
-  "merge.ts": "合到一点 = 内核的合并点原子（MeshKernel.mergePoints，规划在 mesh/merge-points.ts）：只换了一头的边还是那条边、列原样；几条并成同一对点 = absorbIntoEdge（留编号最小的那条、它排第一，每列按 merge 并）；环上剪下来的刺留成裸线",
-  "orient.ts": "法向一致化：只翻面的绕向，边不变",
-  "primitives.ts": "基本体：新边 = 新长；只有边的圆圈 / 方框设结构位（setWire）",
-  "ring-edges.ts": "工具：按面环的顺序先把缺的边建好、各自申报来历（declareRingEdges），给别的操作用",
-  "split.ts": "劈边：两半 = 一份（piece，先建边再改面）；劈面 / 刀在面里切出来的新边 = 新长",
-  "subdivide.ts": "细分：被劈的边两半 = 一份（piece）；读 sharp_edge 当折痕；面里新长出来的边 = 新长",
+/** 新元素的来历种类（columns.ts EdgeOrigin / FaceOrigin 的 kind）。 */
+export type Birth = "piece" | "copy" | "joined" | "grown" | "fresh";
+/** 一个操作在典型例子里造出来的新边、新面各是哪几种来历。 */
+export interface OpBirths { readonly edges: readonly Birth[]; readonly faces: readonly Birth[] }
+/** 一个文件：一句话说清楚 + 改元素的函数各自的来历 + 不造元素的函数（纯算、查询、只挪点不算——只挪点的照样进 ops，来历写空，测试看它不改值）。 */
+export interface OpsRow { readonly say: string; readonly ops: Readonly<Record<string, OpBirths>>; readonly helpers?: readonly string[] }
+const B = (edges: readonly Birth[], faces: readonly Birth[]): OpBirths => ({ edges, faces });
+const NONE = B([], []);
+
+export const OPS: Readonly<Record<string, OpsRow>> = {
+  "bevel.ts": { say: "倒角：挨着被倒的边、自己没被倒的边换成新边 = 照抄（先建边再改面）；被倒的边变成倒角带，带上的边 = 新长（标记不往带上搬，Blender 默认也不搬）；圆角中间的线按操作本意标平滑；倒角带 / 角上的补片 = 新长、跟旁边；挨着的面改了环 = 它自己的一份",
+    ops: { bevelEdges: B(["copy", "grown"], ["copy", "grown"]), bevelVerts: B(["copy", "grown"], ["copy", "grown"]) } },
+  "build.ts": { say: "建面 / 建几何体：新边 = 新长，新面 = 凭空来的（材质由调用的人给）",
+    ops: { addPolygon: B(["grown"], ["fresh"]), fillLoop: B(["grown"], ["fresh"]), addBox: B(["grown"], ["fresh"]) } },
+  "cleanup.ts": { say: "整理：有限溶解 = 溶解二度点（并成）+ 并面（并成）；去重点 = 所有组一次交给内核的合并点原子（见 merge.ts）",
+    ops: { limitedDissolve: B(["joined"], ["copy", "joined"]), removeDoubles: B(["joined"], ["copy"]) } },
+  "delete.ts": { say: "删：剩下的边、面不动；删面留边时没了面的边设裸线位；删选中 + 溶解 = 并面（并成）",
+    ops: { deleteFaces: NONE, deleteEdges: NONE, deleteVerts: NONE, deleteSelection: B([], ["joined"]) } },
+  "duplicate.ts": { say: "复制（Shift+D）：面上的边和选中的边 = 照抄（单独复制出来的边是裸线）、面 = 照抄；补洞 / 桥接：新边 = 新长、新面 = 凭空来的",
+    ops: { duplicateGeometry: B(["copy"], ["copy"]), fillOrBridge: B(["grown"], ["fresh"]) }, helpers: ["edgeLoops"] },
+  "extrude.ts": { say: "挤出面：帽上的边 = 照抄原来那条（全部列，含隐藏）、帽 = 原来那张面换到新点上（它自己的一份）；侧边、侧面 = 新长（侧面跟被挤的那张）。挤出边：墙 = 新长、跟那条边唯一挨着的面；挤出点 = 一条裸线",
+    ops: { extrudeFaces: B(["copy", "grown"], ["copy", "grown"]), extrudeEdges: B(["grown"], ["grown"]), extrudeVerts: B(["grown"], []), extrudeAndOffset: B(["copy", "grown"], ["copy", "grown"]), extrudeAlongNormals: B(["grown"], ["grown"]) },
+    helpers: ["extrudeNormalDirs"] },
+  "flatten.ts": { say: "压平 / 单轴缩放：只算点的新位置，边、面不变", ops: {}, helpers: ["scaleAlong", "bestFitNormal", "flattenMoves"] },
+  "geometry.ts": { say: "挪点 / 变换 / 换材质 / 翻面：只挪点、只改材质那一列、只把环倒过来，不造元素，别的列不动",
+    ops: { moveVerts: NONE, translateVerts: NONE, transformVerts: NONE, setFaceMaterial: NONE, flipFaces: NONE }, helpers: ["selectionVerts"] },
+  "index.ts": { say: "出口：不碰边", ops: {} },
+  "inset.ts": { say: "插入：外圈的边不变，新长出来的内圈和连接边 = 新长（不照抄帽上的标记）；内圈那张面和四周的面都是原面的一块",
+    ops: { insetFaces: B(["grown"], ["piece"]) }, helpers: ["insetRing", "maxInset"] },
+  "join.ts": { say: "溶解二度点：两条边并成一条 = 并成（先建边再改面；那对点之间已经有边 = absorbIntoEdge 并进它，它排第一）、挨着的面改了环 = 它自己的一份；并面：两张面并成一张 = 并成，被并掉的公共边没了",
+    ops: { joinFaces: B([], ["joined"]), dissolveVertex: B(["joined"], ["copy"]) } },
+  "loopcut.ts": { say: "环切：被切的边劈成两半（走 split.ts，一块）；切出来的新环 = 新长；被切的面 = 一块",
+    ops: { loopCut: B(["piece", "grown"], ["piece"]), loopCuts: B(["piece", "grown"], ["piece"]) } },
+  "merge.ts": { say: "合到一点 = 内核的合并点原子（MeshKernel.mergePoints，规划在 mesh/merge-points.ts）：只换了一头的边还是那条边、列原样；几条并成同一对点 = absorbIntoEdge（留编号最小的那条、它排第一，每列按 merge 并）；环上剪下来的刺留成裸线；改了环的面 = 它自己的一份",
+    ops: { mergeVerts: B(["joined"], ["copy"]) } },
+  "orient.ts": { say: "法向一致化：只翻面的绕向，边不变、面的列不动", ops: { recalcNormals: NONE } },
+  "primitives.ts": { say: "基本体：新边 = 新长，新面 = 凭空来的；只有边的圆圈 / 方框设裸线位", ops: { addPrimitive: B(["grown"], ["fresh"]) }, helpers: ["primitiveDims"] },
+  "ring-edges.ts": { say: "工具：按面环的顺序先把缺的边建好、各自申报来历（declareRingEdges），给别的操作用；已经在的边又申报来历 = 核值，对不上抛", ops: {}, helpers: ["declareRingEdges"] },
+  "split.ts": { say: "劈边：两半 = 一块（先建边再改面）、挨着的面改了环 = 它自己的一份；劈面 / 刀：面里切出来的新边 = 新长、两半面 = 一块（刀经过的边劈成两半 = 一块）",
+    ops: { splitEdge: B(["piece"], ["copy"]), splitFace: B(["grown"], ["piece"]), knife: B(["piece", "grown"], ["piece"]) } },
+  "subdivide.ts": { say: "细分：被劈的边两半 = 一块；读 sharp_edge 当折痕；面里新长出来的边 = 新长；细出来的面 = 原面的一块",
+    ops: { catmullClark: B(["piece", "grown"], ["piece"]), subdivide: B(["piece", "grown"], ["piece"]) }, helpers: ["looseBits"] },
 };

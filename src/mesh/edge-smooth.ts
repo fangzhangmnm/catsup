@@ -8,17 +8,28 @@
 //   · 只挨一张面 / 三张以上（边界、非流形）= 棱。面法向 = Newell（MeshKernel.faceNormal，环的绕向）。
 import type { MeshKernel } from "./mesh-kernel.ts";
 import type { ColumnDef } from "./columns.ts";
-import { SHARP_EDGE, SMOOTH, SOFT, UV_SEAM, edgeMark, setEdgeMark } from "./reserved-columns.ts";
+import { SHARP_EDGE, SMOOTH, SOFT, UV_SEAM, edgeMark, edgeMarkReader, setEdgeMark } from "./reserved-columns.ts";
 
-/** 没手标的边按「默认平滑」判。 */
-function autoSmooth(m: MeshKernel, e: number): boolean {
-  const sh = m.smoothDefault;
-  if (sh.mode === "hard") return false;
+/** 没手标的边按「默认平滑」判（any = 全部平滑；cosMin = 按角度的阈值）。单条判和成批判共用这一段。 */
+function autoSmoothAt(m: MeshKernel, any: boolean, cosMin: number, e: number): boolean {
   const fs = m.eFaces(e);
   if (fs.length !== 2 || fs[0] === fs[1]) return false;
-  if (sh.mode === "smooth") return true;
+  if (any) return true;
   const a = m.faceNormal(fs[0]), b = m.faceNormal(fs[1]);
-  return Math.abs(a.x * b.x + a.y * b.y + a.z * b.z) >= Math.cos((sh.deg * Math.PI) / 180) - 1e-12;
+  return Math.abs(a.x * b.x + a.y * b.y + a.z * b.z) >= cosMin;
+}
+const cosMinOf = (deg: number): number => Math.cos((deg * Math.PI) / 180) - 1e-12;
+/** 单条判。 */
+function autoSmooth(m: MeshKernel, e: number): boolean {
+  const sh = m.smoothDefault;
+  return sh.mode !== "hard" && autoSmoothAt(m, sh.mode === "smooth", cosMinOf(sh.deg), e);
+}
+/** 成批判：默认平滑和阈值只取一次。 */
+function autoSmoothOf(m: MeshKernel): (e: number) => boolean {
+  const sh = m.smoothDefault;
+  if (sh.mode === "hard") return () => false;
+  const any = sh.mode === "smooth", cosMin = cosMinOf(sh.deg);
+  return (e) => autoSmoothAt(m, any, cosMin, e);
 }
 /** 这条边两侧明暗连续吗。 */
 export function edgeSmooth(m: MeshKernel, e: number): boolean {
@@ -31,6 +42,18 @@ export function edgeSoft(m: MeshKernel, e: number): boolean {
   if (edgeMark(m, e, SOFT)) return true;
   if (edgeMark(m, e, SHARP_EDGE) || edgeMark(m, e, SMOOTH)) return false;
   return autoSmooth(m, e);
+}
+/**
+ * 成批判（每条边都问的：重建线、导出、转硬表面画线、导入计数、平滑组泛洪）：三列和「默认平滑」一次拿在手里，判法和上面两个逐字一样
+ * （测试 test/mesh-edge-marks.test.ts 逐条边对拍）。只在这一趟用：内核改了要重拿。单条问的照旧用 edgeSmooth / edgeSoft。
+ */
+export interface EdgeLook { smooth(e: number): boolean; soft(e: number): boolean }
+export function edgeLookOf(m: MeshKernel): EdgeLook {
+  const sharp = edgeMarkReader(m, SHARP_EDGE), smooth = edgeMarkReader(m, SMOOTH), soft = edgeMarkReader(m, SOFT), auto = autoSmoothOf(m);
+  return {
+    smooth: (e) => !sharp(e) && (smooth(e) || auto(e)),
+    soft: (e) => soft(e) || (!sharp(e) && !smooth(e) && auto(e)),
+  };
 }
 /** 边上标什么（指令 meshEdgeMarks 的 mark）：手标三档（sharp / smooth / none——none = 清掉手标，不碰接缝）+ 接缝的标 / 清（施工单二十二第 1 刀）。 */
 export type EdgeMark = "sharp" | "smooth" | "none" | "seam" | "unseam";

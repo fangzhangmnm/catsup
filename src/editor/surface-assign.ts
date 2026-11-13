@@ -14,7 +14,7 @@ import type { Tool } from "./tool-ids.ts";
 import type { ToolPointer } from "./editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "./tool-handler.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
-import { edgeSmooth } from "../mesh/edge-smooth.ts";
+import { edgeLookOf } from "../mesh/edge-smooth.ts";
 
 export const SURFACE_TIERS = [
   { id: "smooth", label: "平滑组", hint: "沿软边连通的面 = 一张逻辑面（单击）" },
@@ -53,10 +53,10 @@ export function sideSeen(ctx: ToolCtx, f: FaceId, s: { x: number; y: number }): 
  */
 export function meshFacesForAssign(m: MeshKernel, seed: number, tier: SurfaceTier, sharpDeg: number): number[] {
   if (!m.hasF(seed)) return [];
-  const cosMax = Math.cos((sharpDeg * Math.PI) / 180), out = [seed], seen = new Set([seed]);
+  const cosMax = Math.cos((sharpDeg * Math.PI) / 180), out = [seed], seen = new Set([seed]), look = edgeLookOf(m);   // 泛洪一路问：三列一次拿在手里
   const crosses = (e: number, a: number, b: number): boolean => {
     if (tier === "connected") return true;
-    if (edgeSmooth(m, e)) return true;
+    if (look.smooth(e)) return true;
     if (tier === "smooth") return false;
     const na = m.faceNormal(a), nb = m.faceNormal(b);
     return na.x * nb.x + na.y * nb.y + na.z * nb.z >= cosMax - 1e-12;

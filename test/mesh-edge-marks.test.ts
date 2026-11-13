@@ -7,7 +7,7 @@ import { UV_SEAM, packEdgeByte, setEdgeMark, unpackEdgeByte } from "../src/mesh/
 import { addBox, addPrimitive, extrudeFaces, insetFaces } from "../src/mesh/ops/index.ts";
 import { dissolveVertex } from "../src/mesh/ops/join.ts";
 import { splitEdge } from "../src/mesh/ops/split.ts";
-import { edgeSmooth, edgeSoft } from "../src/mesh/edge-smooth.ts";
+import { edgeLookOf, edgeSmooth, edgeSoft } from "../src/mesh/edge-smooth.ts";
 import { Scene } from "../src/scene/scene.ts";
 import { WorldView } from "../src/scene/world-view.ts";
 import { applyOp } from "../src/editor/ops.ts";
@@ -219,5 +219,14 @@ describe("接缝（施工单二十二 A / B，2026-11-12 Opus）", () => {
     eq(on.seam, true); eq(on.flag, 2, "画接缝：软的接缝也一直画（旗 = 两张面，不加 CONTOUR_ONLY）");
     eq(off.seam, false); eq(off.flag, 2 + CONTOUR_ONLY, "不画接缝：软边照旧只在外轮廓时画");
     eq(buildEdgeRec(v, e1, true), null, "藏起来的接缝不画");
+  });
+  it("成批判（edgeLookOf：三列一次拿在手里）和单条判（edgeSmooth / edgeSoft）逐条边一样：三种默认平滑 × 有没有标记列 × 随机手标（3d，统筹 11-13）", () => {
+    let seed = 5; const rnd = (): number => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (const mode of ["hard", "smooth", "angle"] as const) for (const marked of [false, true]) {
+      const m = new MeshKernel(); addPrimitive(m, "sphere", F, [1, 1, 1], 12); m.setSmoothDefault({ mode, deg: 25 });
+      if (marked) for (const e of m.edges()) { const r = rnd(); if (r < 0.15) unpackEdgeByte(m, e, F_SHARP); else if (r < 0.3) unpackEdgeByte(m, e, F_SOFT | F_SMOOTH); else if (r < 0.4) unpackEdgeByte(m, e, F_SOFT); else if (r < 0.5) unpackEdgeByte(m, e, F_SMOOTH); else if (r < 0.55) unpackEdgeByte(m, e, F_SHARP | F_SOFT); }
+      const look = edgeLookOf(m);
+      for (const e of m.edges()) { eq(look.smooth(e), edgeSmooth(m, e), `${mode} ${marked} 边 ${e} 平滑`); eq(look.soft(e), edgeSoft(m, e), `${mode} ${marked} 边 ${e} 画线`); }
+    }
   });
 });

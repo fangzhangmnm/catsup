@@ -41,10 +41,13 @@ export const READ_NOTE_SAY: { readonly [K in keyof Required<FormatReadNotes>]: S
   // 属性地基轮 3c（统筹 11-13，规程第九½节末）：面 / 边那两个字节里这一版不认识的位 = 不拒开，不读、说一句、不写
   unknownMarks: (v) => (v.faces || v.edges ? [`有${unknownMarksText(v)}，没读进来；保存之后不再保留`] : []),
 };
-/** 「N 张面、M 条边带着这一版不认识的标记（更新版的 CatsUp 写的）」——打开和导入素材两处共用（导入那句在 shelf-actions.ts）。 */
+/**
+ * 「N 张面、M 条边带着这一版不认识的标记」——打开和导入素材两处共用（导入那句在 shelf-actions.ts）。只说事实：不猜是谁写的
+ * （可能是更新版的 CatsUp、别的软件，也可能是文件坏了；统筹 11-13）。
+ */
 export function unknownMarksText(v: { faces: number; edges: number }): string {
   const parts = [v.faces ? `${v.faces} 张面` : "", v.edges ? `${v.edges} 条边` : ""].filter(Boolean).join("、");
-  return ` ${parts}带着这一版不认识的标记（更新版的 CatsUp 写的）`;
+  return ` ${parts}带着这一版不认识的标记`;
 }
 /** 故意不说的键（每一个写明为什么）。守卫只放过这几个「有值也不说」。 */
 export const SILENT_NOTES: Readonly<Partial<Record<keyof FormatReadNotes, string>>> = { newerPatch: "家族纪律：patch 比本版新 = 可无脑降，静默" };
