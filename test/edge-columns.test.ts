@@ -100,6 +100,14 @@ describe("边上的列：声明、造边按来历填值（接口要求 a / b）"
     mergeVerts(k2, [w[2], w[1]], "first");   // 点 2 只是孤点：合并之后边 1–3 一头都没换，值原样
     eq(k2.edgeValue(e13, "flag"), 1);
   });
+  it("名字在整个物体里不重复（规矩，不是巧合）：同一个名字加到另一类上 = 抛；同一类同一份声明再加 = 不动", () => {
+    const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1));
+    k.addColumn({ id: "hidden", on: "face", type: "bool", continuous: false, fill: 0, merge: "defaultIfMixed" });
+    throws(() => k.addColumn({ id: "hidden", on: "edge", type: "bool", continuous: false, fill: 0, merge: "defaultIfMixed" }), /already exists with a different declaration/);
+    throws(() => k.addColumn({ id: "hidden", on: "corner", type: { floats: 1 }, continuous: true, fill: 0, merge: "first" }), /already exists with a different declaration/);
+    k.addColumn({ id: "hidden", on: "face", type: "bool", continuous: false, fill: 0, merge: "defaultIfMixed" });
+    eq(k.columnDefs().filter((d) => d.id === "hidden").length, 1, "只有一列");
+  });
   it("裸线位是结构位（isWire / setWire），不在列清单里", () => {
     const { k, v } = line(2);
     const e = k.addEdge(v[0], v[1], GROWN_EDGE); k.setWire(e, true);

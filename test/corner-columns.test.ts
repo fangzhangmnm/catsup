@@ -321,7 +321,7 @@ describe("角上的列：守卫", () => {
   const files = walk("src");
   /** 「凭空来的」只许出现在这些文件（施工单第二节表最后一行 + 整张面原样搬的两处 + 剪贴板的两处 + 定义它的那一个）。只许变短。 */
   const FRESH_OK = ["src/mesh/columns.ts", "src/mesh/mesh-kernel.ts", "src/mesh/ops/build.ts", "src/mesh/ops/duplicate.ts", "src/mesh/ops/primitives.ts", "src/mesh/tri-soup.ts", "src/mesh/mesh-doc.ts", "src/scene/kinds.ts", "src/editor/ops.ts", "src/editor/transfer.ts"];
-  it(`「凭空来的」只在白名单里（${FRESH_OK.length} 个文件，只许变短）`, () => {
+  it(`「凭空来的」（面的 FRESH / kind: "fresh"、边的 kind: "fresh" 同一条，3a 起）只在白名单里（${FRESH_OK.length} 个文件，只许变短）`, () => {
     assert(FRESH_OK.length <= 10, "白名单只许变短");
     const hits = files.filter((f) => !FRESH_OK.includes(f) && readFileSync(f, "utf8").split("\n").some((l) => !/^\s*import /.test(l) && (/kind:\s*"fresh"/.test(l) || /\bFRESH\b/.test(l))));
     eq(hits.join(" | "), "", "白名单之外用了凭空来的");
