@@ -1133,3 +1133,40 @@ startPaint：表里加一行（fit = density / size）→ 内核 addColumn(uv, k
 - 碰多少东西：存 / 读随「角数 × 通道数」涨（平时一个通道；打包时每张面排一下它在的几套），排法表随行数；不随画板大小涨。量化是铺法输出和取样各一步乘除，不加遍数。
 - 拿旧版本真代码读新文件（`scripts/old-reader-check.mjs`，默认读者加了 v0.19.79 = 2d62e36a；判「带不带贴图坐标」改成看排法表 / uv 列，「认不认识」改成和这一版的网格体大版本比）：三个旧读者都过——v0.19.79：带画 105 份全部拒开（格式太新，报 CATSUP_mesh 3 > 2）、不带的 116 份打开再存逐字节一样（换种子 400 份：205 / 216 同样）。
 - **还随整个模型涨的点**：没有新的。
+
+## 追记 2026-11-13（属性地基轮第一步 = 施工单十八第 1½ 刀，v0.19.81，Claude Opus 5.5；内核那一刀统筹审过）：内核对属性无感、贴图坐标收成两列、文件门口同形
+
+规程 = `ai-docs/20261112-attribute-protocol.md`（第七½节 E 是这一刀的接口）。行为不变；**取代**上面 11-10 追记里「角上的一列数」那张表的「并成 = 整张没值、内核记丢了几张（takeDroppedFaces）」和「插值只有 corner-columns.ts」两句，以及收尾 ① 那一行。
+
+```
+列（mesh/columns.ts，内核只认声明）：ColumnDef { id = 名字, on（这一刀只做 corner / face）, type（角上 floats:n / 面上 int）, continuous, fill, quantum?, followNeighbor?, merge }
+  五种来历照旧（piece / copy / grown〔可带 neighbor〕/ joined / fresh），取值全仓只有 columns.ts writeColumns 一份：
+    piece 不是原角 → 连续的插值（取整到 quantum）、离散的取权重最大的旧角；切不出三角形 = 填 fill、报 missing
+    joined → 按 merge（first / firstNonDefault / defaultIfMixed）取；来源不一致一律进报告（面上的带各来源的值，角上的记 mixed / missing）
+  内核不清空任何东西；报告 takeReport 拿走即清；「对不上」的标记跟着来历传给同一步里的新面
+
+贴图坐标（scene/uv.ts，全仓只有这里知道这两列的意思；守卫 test/paint-start-guard.test.ts ⑦）：
+  网格体的速查表 MeshBody.uvSetSlots（短代号 → 排法 GUID）+ 面上一列「uv-set」（代号，缺省 −1，并成不一致 = 引擎自己回 −1）
+  + 角上一列「uv-at」（每角两个数，格，quantum 1024，缺省 0，并成取最前的）
+  写位置只有 placeFace / unplaceFace；读坐标的那几块（铺法、每格的表、笔的目标、拾取、小窗的线、渲染）经 uvMesh 视图问
+
+每一步的收尾（editor/paint-upkeep.ts）：
+  提交前 upkeepSnapshot：先把每个网格体内核上一步没人取的报告丢掉（规程第六节的寿命）
+  提交后 upkeepAfter ①：一开始就 takeReport（后面补进同一步的指令在影子内核上跑、换回来时报告跟着换）→ uvLosses：
+      代号来源不一致（引擎已给 −1）→ 只数；代号一样但角上坐标 mixed / missing → 判成没有位置
+      → 有要拿掉的：先补一条只拿掉、不铺的 meshLayoutPaint { faces: [], drop }（进同一步，撤销一起撤）
+  ②③④ 照旧（拿掉的面在 ②③ 里当「还没有位置」补位置；和 v0.19.80 内核当场清掉之后的顺序一样）
+
+文件门口（format/）：
+  存：definitionToDoc → meshDocFromKernel（跳过那两列）+ uvDocOf → MeshDoc.uv { sets, faceSet, data }（和文件通道同形）
+      → encodeMeshItem → packUv：sets 按 GUID 字典序换号、坐标 × 1024、没有位置写 −2³¹ → 永远一个通道（一张面一套时和 v0.19.80 逐字节一样）
+  读：readColumns → 第一个 uv 通道 readUvChannel → MeshDoc.uv；后面的通道 = extra-channel（有位置的面数记一笔，算会丢的）
+      → paintReadChecks（排法表没有那一行 = 整套去掉；角落在画布外 = 那张面没有位置；dropUvSets 换号）
+      → sceneFromDocument：kernelFromMeshDoc + applyUvDoc（速查表接上 sets、两列写回）
+  比内容（entry-canon）：把 MeshDoc.uv 展开成「每套一列、每张面有值或 null」，和以前同一个结构（速查表的先后、代号不影响）
+```
+
+- 碰多少东西：每列每面一个取值；收尾里读报告随这一步动过的面涨；存 / 读随角数涨（一个通道）。不随模型其余部分涨。
+- 验证：邻接对拍（加一列「有没有值」+ 每步照收尾的做法清掉对不上的面）和 v0.19.80 的内核逐位相同；文件对拍、内存对拍、探针见施工记录。
+- 这一刀顺手修的两处悄悄失效（没发出去过）：渲染那边 `stream-provider paintOf` 和画画工作台的拾取以前强转着拿内核问，改成经 `uvAt` / `uvMesh`；守卫 ⑦ 钉住。
+- **还随整个模型涨的点**：没有新的。
