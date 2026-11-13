@@ -1,4 +1,4 @@
-export { splitEdge, splitFace, knife } from "./split.ts";
+export { splitEdge, splitFaceAlong, knife, knifeCheck, KnifeRefused, type KnifeStop } from "./split.ts";
 export { joinFaces, dissolveVertex } from "./join.ts";
 export { mergeVerts } from "./merge.ts";
 export { deleteFaces, deleteEdges, deleteVerts, deleteSelection } from "./delete.ts";

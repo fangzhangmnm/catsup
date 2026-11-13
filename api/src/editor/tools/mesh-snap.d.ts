@@ -11,3 +11,9 @@ export declare function meshSnapTarget(ctx: ToolCtx, s: {
     p: Pt3;
     kind: SnapKind;
 } | null;
+/** 射线 × 三角形（Möller–Trumbore）：命中 = 射线参数 t（> 0）+ 重心坐标 u、v（点 = a + (b − a)·u + (c − a)·v）；没中 = null。刀在面里的点用重心坐标换回定义坐标。 */
+export declare function rayTriHit(o: Pt3, d: Pt3, a: Pt3, b: Pt3, c: Pt3): {
+    t: number;
+    u: number;
+    v: number;
+} | null;

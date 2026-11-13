@@ -168,6 +168,7 @@ export interface ViewState {
         a: Pt3;
         b: Pt3;
         valid: boolean;
+        via?: readonly Pt3[];
     } | null;
 }
 /**

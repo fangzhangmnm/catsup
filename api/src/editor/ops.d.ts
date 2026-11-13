@@ -2,7 +2,7 @@ import { type Guid } from "../format/guid.ts";
 import { type TextureDoc } from "../format/document.ts";
 import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
-import { type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
+import { type KnifeStop, type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { type PoolRef, type MeshBody, type Body as SceneBody, type Material, Scene } from "../scene/scene.ts";
@@ -353,12 +353,7 @@ export type Op =
     op: "meshKnife";
     def: number;
     face: number;
-    path: ({
-        v: number;
-    } | {
-        e: number;
-        t: number;
-    })[];
+    path: KnifeStop[];
 }
 /** 环切：从 edge 出发沿四边形带切一圈，每条边在 t 处劈开（缺 = 0.5；从 edge 的 edgeA 那头量，整圈同一侧）。cuts = 圈数（缺 = 1；> 1 = 均分、t 不起作用；W-8）。mesh/ops/loopcut.ts。 */
  | {

@@ -26,6 +26,8 @@ export declare class MeshKnifeTool implements ToolHandler {
     private startW;
     private startKind;
     private hov;
+    /** 在面里拐过的弯（还没切到边的那一段：只是预演，不进撤销；放弃 = 什么都没发生）：哪张面、拐点（定义坐标 / 世界坐标）。第一个面里的点定下是哪张面。 */
+    private bend;
     /** Ctrl+R 预备：下一下点到边上直接环切（Blender Ctrl+R；纪元账本 FM10「也加一个模式按钮」）。 */
     private loopNext;
     armLoop(ctx: ToolCtx): void;
@@ -54,11 +56,13 @@ export declare class MeshKnifeTool implements ToolHandler {
     private seekAt;
     /** 屏幕点 → 过上一个落点、垂直于视线的平面上的点（每帧现算，见 cursorS）。 */
     private onPlane;
-    /** 现在这一下切不切得出来（刀线的颜色）。 */
+    /** 现在这一下切不切得出来（刀线的颜色）：落在环上 = 和提交同一个 knifeCheck；落在面里 = 这张面能接着拐（拐弯的那张 / 挨着起点的）。 */
     private validNow;
+    /** 从起点（经过拐点）到环上这一点的一刀：哪张面、整条路径；切不出 = null（两点之间已经有边）；验不过 = 原因（knifeCheck 那一句）。 */
+    private planTo;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     up(ctx: ToolCtx, ev: ToolPointer): void;
-    /** 下点（seek-input 的口）：在现在的落点标记上下一点——第一个点 = 起点；之后每一点都和上一个点切一刀（= 一步撤销），接着从这一点往下切（面中间、边、点都一样）。 */
+    /** 下点（seek-input 的口）：在现在的落点标记上下一点——第一个点 = 起点；面里的点 = 拐一个弯（第一个定下是哪张面）；环上的点 = 从上一个点（经过拐点）切一刀（= 一步撤销），接着从这一点往下切。 */
     private placeHere;
     /** 抬笔（seek-input 的口；报压感的笔抬起、宽限过了）= 收刀：已经切好的留着、进小窗，还没切到的那一段丢掉（和 Esc、左下「收刀」同一段 endChain）。还没有起点 = 什么都不做。 */
     private liftEnd;
@@ -78,6 +82,8 @@ export declare class MeshKnifeTool implements ToolHandler {
      * 透视下标记跑偏——默认视角 8 像素，一条往里伸的 4 m 长边上 160 像素 / 1.2 m；正交下两者相同）。
      */
     private snapAt;
+    /** 面里的点 = 笔正下方那一点（不吸附，吸附开着也一样；第八节第 4 条）：射线打这张面画出来的三角形，重心坐标换回定义坐标（落在三角形上，离面 0）。 */
+    private faceAt;
     /**
      * 吸附关着的落点：拾取给了边 = 那条边；只给了点 = 这个点连着的边里离笔最近的那条（屏幕上）。边上取笔正下方那一点（不拽到中点）；
      * 离两头不到 KNIFE_END_PX 个屏幕像素 = 就是那一头的点。拾取什么都没给 = null。
