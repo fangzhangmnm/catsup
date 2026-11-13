@@ -75,6 +75,7 @@ export interface ToolPointer {
     /** 事件自己发生的时间（ms，PointerEvent.timeStamp）：抬笔结算按它算停了多久（controller/lift-settle.ts）；画画的一笔按它算时间（施工单二十 1a）。键盘起手 / 程序造的没有。 */
     at?: number;
     pressure?: number;
+    press?: PressHit;
 }
 /** 记账面包屑（调试日志；op 一行一条）。 */
 export type EditorTrace = {
@@ -166,6 +167,7 @@ export { type GridSettings, type GridPlane, type UnitSystem, GRID_PLANES, UNIT_S
 export declare const CIRCLE_SEGMENTS: 24;
 export { fmtLen, fmtDeg } from "./units.ts";
 import { SNAP_LABELS } from "./gesture-consts.ts";
+import type { PressHit } from "../controller/hard-press.ts";
 import { type TypedInput } from "../controller/typed-input.ts";
 export { SNAP_LABELS };
 /** 子池选区项（相对活动上下文的直接子项）。 */

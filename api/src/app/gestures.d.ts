@@ -1,4 +1,5 @@
 import type { Editor } from "../editor/editor.ts";
+import { type PressHit } from "../controller/hard-press.ts";
 export interface GestureOpts {
     /** 输入闸（第二层自检）：这一下能不能进场景。门口没吞到的（程序发的事件、以后别的输入适配器）在这里挡。 */
     admits?(source: "pointer" | "touch" | "wheel"): boolean;
@@ -27,6 +28,8 @@ export interface GestureOpts {
     longPressEnabled?(): boolean;
     /** 「点两下 / 点三下」是否可用（缺省 = 只有鼠标）：#23 移动 / 旋转对笔和手指也开。 */
     armable?(pointerType: string): boolean;
+    /** 笔的工具指针判到一次重按（hard-press.ts）：hit = 点下在哪（画布本地）；clientX / Y = 同一点的 client 坐标（笔尖闪一圈用）。同一下也带在递给编辑器的 ToolPointer.press 上。 */
+    onHardPress?(hit: PressHit, clientX: number, clientY: number): void;
 }
 export declare function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: GestureOpts): {
     dispose(): void;

@@ -64,6 +64,22 @@ export declare const UNLOCK_PX = 28;
 export declare const RELEASE_WINDOW_MS = 150, FINAL_HOLD_MS = 100, MIN_DWELL_MS = 40, HOLD_PX = 4;
 /** 抬笔小滑上限（CSS px @800 高）：停留帧与最后一帧相距超过它 = 不是抖动是挪动，按最后一帧。 */
 export declare const DWELL_SLIP_PX = 24;
+/**
+ * 重按 = 短时间里压力猛地变重。压力 0..1（PointerEvent.pressure），时间 ms（事件时间）。各量独立：
+ * riseMs = 要在多久以内涨够 / riseMin + riseRel × 底 = 要比底高出多少（无量纲，跟着底走）/ startFrac = 点取在涨到这一成之前那一刻 /
+ * downMs = 落笔那一段多长（这一段只看够不够重）/ downHeavy = 落笔那一段到这么重 = 重按 / rearmFrac = 压力退回底到峰的这一成以下才认下一次。
+ * 初值照 Apple Pencil 的常识定（轻轻贴着滑 ≈ 0.1–0.25，用力按 ≈ 0.5 以上），**没在 user 的设备上量过**（2026-11-13 Claude Opus 5.5）；真机不合手改这里。
+ * downHeavy 比 0.5 大：不报压感的笔恒报 0.5，不能让它每次落笔都算重按。
+ */
+export declare const HARD_PRESS: {
+    readonly riseMs: 100;
+    readonly riseMin: 0.12;
+    readonly riseRel: 0.5;
+    readonly startFrac: 0.25;
+    readonly downMs: 100;
+    readonly downHeavy: 0.6;
+    readonly rearmFrac: 0.5;
+};
 export declare const CHARGE_DWELL_MS = 300;
 /** 平面把手（镜像面）：方块半边长 / 把手捕获半径（CSS px）/ 转动一档（度）/ 法线离帧的某根轴这么近就吸正（度）。 */
 export declare const GIZMO_PX = 64, HANDLE_PX = 16, ROT_STEP_DEG = 15, AXIS_SNAP_DEG = 4;
