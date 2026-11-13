@@ -1,6 +1,7 @@
 # 贴图怎么进文件（贴图主线的数据格式，第 4 版：贴图、贴图坐标、槽各管各的；每张面只走它的材质，画是一种材质）
 
 > created 20261110 by Claude Fable 5.2 · as-of 三维 v0.18.47 · 2026-11-10 深夜
+> 2026-11-13 Claude Opus 5.5：第五节的类型块跟上施工单十八第 1 刀（排法表搬到顶层 CATSUP_uvsets、网格体上是 uv 通道、画的 layout = { uvSet }）；后面各节里 CATSUP_mesh 2.0 / uvSets / loopUv 的写法是当时的记录，现行以施工单十八第三节为准。
 > 状态：**提案，等 user 看。** 这是施工方案里的 1-0，是单行道：定了以后要改就得迁移老文件。看过点头之后才开工。
 > 依据：读了 `src/format/` 现在的存盘代码（各子结构的版本表、网格体的载荷、材质怎么写）和渲染器里的语义通道登记表。
 > 读法：第一到第四节给 user 看；第五节起给施工看。
@@ -151,28 +152,34 @@ export interface TextureDoc {
    *  和自由的图同一种铺法；只在画布小窗里画（一格对着模型上很多个地方）。形状没变（1.0 起就允许这个组合，只是以前没有意思）；问它只经 tiledPaintIn（和 colorMapIn、paintIn 三个互斥）。
    *  1.1 的读者（v0.19.60 及以前）：colorMapIn 要原图、paintIn 要 layout，两个都答不是 = 按底色显示，行原样带回（拿 v0.19.60 的真代码验过，scripts/old-reader-check.mjs）。 */
   sizeM?: [number, number];
-  /** 单品的画：硬绑定到哪个定义的哪一套贴图坐标。有 layout 就没有 sizeM，反之亦然；两个都有或都没有 = 文件坏了。 */
-  layout?: { definition: Guid; uvSet: Guid };
+  /** 画：挂在哪一套排法上（CATSUP_textures 1.3，施工单十八 3.3，2026-11-13 起）。认的形状 = 正好一个键 uvSet、值是 GUID；多出别的键、不是 GUID = 这一版不当它是画（原样带回、按底色）。
+   *  有 layout 就没有 sizeM，反之亦然；两个都有或都没有 = 文件坏了。
+   *  （以前 ≤ 1.2：{ definition, uvSet } = 硬绑定到哪个定义的哪一套坐标。施工单十八不做迁移：这种行这一版不当画、原样带回、按底色，打开时说一句。） */
+  layout?: { uvSet: Guid };
 }
 export interface CatsupDocument { /* … */ textures: TextureDoc[] }
 
 // —— 槽：通道的名字 → 贴图。名字是开放集（渲染器 material/ 登记表里的，或用户自己起的）；本层不解释、认不出的原样带回。
 export type ChannelSlots = Record<string, Guid[]>;   // 每个通道一摞，从下往上盖；1.0 只写一张。写成一摞是为了以后叠第二张（细节图、贴花）不用改格式
 export interface MaterialDoc { guid: Guid; name: string; color: [number, number, number];
-  /** 以前的 texture = channels.color 里唯一的一张。一摞里可以混：自由的图（平铺）和单品的画（按它 layout 的那一套坐标）。
-   *  只要有一张是单品的画，这个材质就只许被 layout.definition 那个定义的槽表引用（校验）。 */
+  /** 以前的 texture = channels.color 里唯一的一张。一摞里可以混：自由的图（平铺）和画（按它 layout 的那一套排法）。
+   *  （以前还有一条「有单品的画 = 只许 layout.definition 那个定义的槽表引用」：施工单十八第 1 刀拿掉——排法不属于哪个物件了，而且那条是读的时候替人改数据。） */
   channels?: ChannelSlots }
 // DefinitionDoc 不加键：面走什么只问材质（面 → 槽号 → materialSlots → 材质），第 4 版起物件上没有槽。
 
-// —— CATSUP_mesh 2.0（major）：带 uvSets 的网格体才盖 2.0，没有的照旧盖 1.2
+// —— 2026-11-13 起（施工单十八第 1 刀；全文在施工单 ai-docs/20261111-paint-workorders-18.md 第三节和 src/format/mesh-payload.ts、uvset-table.ts 头注释）：
+// 排法表在顶层 CATSUP_uvsets 1.0（场景这一层，不属于哪个物件）：
 export interface UvSetDoc {
-  guid: Guid; name?: string;
-  width: number; height: number;     // 画布，像素
+  guid: Guid; name: string;
+  width: number; height: number;     // 画布，格（正整数，每边 ≤ 16384）
   pxPerM: number;                    // 铺的时候用的密度（设置；自动铺和给新面铺时用。不是贴图的性质，各块实际密度可以不一样）
-  /** 每个角一对坐标（像素单位，f32 成对；长度 = 2 × loopVert.length；和 loopVert 同序）。这一套不管的面，它的角写 NaN（明着的「没有」）。 */
-  loopUv: Float32Array;
+  fit: string;                       // "density" / "size"；别的值原样带回、这套排法什么都不自动动
+  freed?: number[];                  // 失去位置的面空出来的地方（四个一组；第 2 刀起用）
 }
-export interface MeshDoc { /* … */ uvSets?: UvSetDoc[] }     // 列表顺序没有语义
+// 网格体上是 CATSUP_mesh 3.0 的 columns；uv 是通道（统筹 11-13，照 user 的问题从「一套一列」改来）：
+//   { kind: "uv", arity: 2, sets: [排法 GUID…], faceSet: { bufferView, count = 面数 }（每面 int32 下标，−1 = 没有）, data: { bufferView, count = 角数 }（每角两个 int32、1/1024 格、没有 = 两个 −2³¹） }
+//   通道数 = 一张面同时在几套排法上的最大值（平时 1）；sets 里可以有没人引用的 GUID = 这个网格体在那套排法上、零张面有位置。不带列的网格体照旧盖 1.2。
+// （以前 2.x：网格体上 uvSets[{ guid, name, width, height, pxPerM, fit?, loopUv: f32 每角一对 }]。施工单十八不做迁移：读的门口不带回、打开时说一句「保存之后不再保留」。）
 ```
 
 **一行上 sizeM 和 layout（CATSUP_textures 1.2 起写明；施工单二十一第 3 刀，统筹 11-12 审格式时定；Claude Opus 5.5 写）**
