@@ -37,6 +37,7 @@ import "./param-panel.test.ts";   // 参数小窗马后炮会话（2026-10-25 Op
 import "./scale-handle.test.ts";   // 缩放柄透视拾、叠在一起近的赢（2026-10-25 Opus）
 import "./isolate.test.ts";   // DT44 只看这个（2026-10-25 Opus）
 import "./hide.test.ts";   // DT49 隐藏 / 全部显示（2026-10-25 Opus）
+import "./flat-soft-merge.test.ts";   // 共面软边自动并掉的两处判法（统筹 11-13，Opus）
 import "./references.test.ts";
 import "./reference-guard.test.ts";   // 参考窗单一接缝 + 图标（2026-10-25 Opus）   // CATSUP_references 参考窗牌组 + desk refPanel（2026-10-25 Opus）
 import "./facefind-hole-probe.test.ts";   // 挂洞探针不许用壳环顶点（2026-10-24，800 件场景第 379 步）

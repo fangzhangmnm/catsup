@@ -767,6 +767,8 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       throw new OpTargetError("setLocked: no target");
     }
     case "setHidden": {
+      // 藏一个物件和藏面 / 边不许写在同一条（统筹 11-13）：撤销分档一看到 instance 就只记骨架，混着发的话面 / 边那部分撤不回。现在没有调用方混着发，这里钉住
+      if (op.instance !== undefined && (op.faces?.length || op.edges?.length || op.meshFaces?.length || op.meshEdges?.length)) throw new OpTargetError("setHidden: an instance and faces / edges in one op (send two ops)");
       if (op.instance !== undefined) {
         const inst = s.def(op.at.def).instances.get(op.instance);
         if (!inst || inst.parent !== op.at.group) throw new OpTargetError(`instance ${op.instance}`);

@@ -217,9 +217,9 @@ export function meshToBrepWith(b: MeshBody, softDeg: number): { body: BrepBody; 
   const mixedHidden = carryMeshSides(kernel, m, tris, faceOfTri, () => { let i = slots.indexOf(BUILTIN_BACK_SLOT); if (i < 0) { i = slots.length; slots.push(BUILTIN_BACK_SLOT); } return i; });
   const lostHiddenEdges = carryHiddenEdges(kernel, m);
   kernel.faceLayers.backSlot = slots.indexOf(BUILTIN_BACK_SLOT);
-  const sameSides = (x: number, y: number): boolean => kernel.faceMaterialOf(x, 0) === kernel.faceMaterialOf(y, 0) && kernel.faceMaterialOf(x, 1) === kernel.faceMaterialOf(y, 1) && kernel.isFaceHidden(x) === kernel.isFaceHidden(y);
-  // 共面的三角形并回一张膜（同 FM80「软边两侧 180° 自动并掉」：软边、恰两张不同的膜、同一平面 → 擦边机 MERGE）；盒子回来还是 6 张、不留谜语人软边。藏着的边是人标的、不并掉
-  const flat = kernel.edges().filter((e) => { if (!kernel.isSoft(e.id) || kernel.isEdgeHidden(e.id) || e.faceLinks.length !== 2 || e.faceLinks[0] === e.faceLinks[1]) return false; const pa = kernel.planeOf(e.faceLinks[0]), pb = kernel.planeOf(e.faceLinks[1]); return !!pa && !!pb && pa.id === pb.id && sameSides(e.faceLinks[0], e.faceLinks[1]); }).map((e) => e.id);
+  // 共面的三角形并回一张膜（和 FM80「软边两侧 180° 自动并掉」同一个判定 = Kernel.flatSoftMergeable：软边、恰两张不同的膜、同一平面、两侧材质相同、藏没藏相同、边本身没藏）→ 擦边机 MERGE；
+  // 盒子回来还是 6 张、不留谜语人软边；两侧不一样 / 一藏一露 / 藏着的边 = 留着（统筹 11-13：两处判法收成一处，以前这里多看几样、挪一下点那边又并掉）
+  const flat = kernel.edges().filter((e) => kernel.flatSoftMergeable(e.id)).map((e) => e.id);
   if (flat.length) kernel.eraseEdges(flat);
   return { body: { kind: "brep", kernel, groups: new Map(), nextGroup: 1, materialSlots: slots, guides: emptyGuides() }, mixedHidden, lostHiddenEdges };
 }

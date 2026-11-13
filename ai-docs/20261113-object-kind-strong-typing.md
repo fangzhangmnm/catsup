@@ -143,3 +143,5 @@ user 2026-11-13 夜，原话：
 ### 施工记录
 
 （小弟写）
+
+- 记账（统筹 11-13，藏面藏边那一刀之后；Catsup小弟记，added 2026-11-13 by Claude Opus 5.5）：**以后凡是调 `castBody` 的入口，都要能拿到这次实际带不过去的数，并且说出来。**现在只有「转回硬表面体」做到了（`scene/kinds.ts meshToBrepWith` 返回 `mixedHidden` / `lostHiddenEdges`，转之前 `meshToBrepCheck` 弹框）。还有两条路拿不到：① 炸开跨种类（`editor/ops.ts explodeAcrossKinds`，网格体组件炸进硬表面那一层）；② 跨种类粘贴（`editor/transfer.ts`，载荷转成硬表面 / 网格体再贴）。这两条有自己的「转成 X 再炸 / 再贴」询问，但问的时候不知道这一次实际会丢什么（例：背靠背一藏一露的面会露出来）。做本轮「切换种类说清损失」时一起收。

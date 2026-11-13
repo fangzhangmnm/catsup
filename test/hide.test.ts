@@ -144,3 +144,18 @@ describe("b：转回硬表面带上藏面（统筹 11-13；以前藏着的面不
     assert(!KINDS.mesh.castsTo.some((c) => c.loses.some((l) => l.includes("隐藏"))), "丢掉清单里没有隐藏");
   });
 });
+
+describe("setHidden 不许把物件和面 / 边混在一条里（统筹 11-13：撤销分档看到 instance 只记骨架，混着的面 / 边撤不回）", () => {
+  it("实例 + 硬表面的面 / 网格体的面混在一条 = 拒（OpTargetError），场景一点没动；分开发照常", () => {
+    const s = sceneGrouped(), inst = [...s.def(s.root).instances.values()][0], k = s.kernelOf({ def: s.root, group: null }), f = k.faces()[0];
+    const at = { def: s.root, group: inst.parent }, before = JSON.stringify(flags(s));
+    for (const extra of [{ faces: [faceKey(k, f.id)] }, { meshFaces: [0] }]) {
+      let threw = "";
+      try { applyOp(s, { op: "setHidden", at, instance: inst.id, ...extra, on: true }); } catch (e) { threw = (e as Error).name + ":" + (e as Error).message; }
+      assert(/instance and faces/.test(threw), `混着发 = 拒：${threw}`);
+      eq(JSON.stringify(flags(s)), before, "拒了 = 一点没动");
+    }
+    applyOp(s, { op: "setHidden", at, instance: inst.id, on: true });
+    eq(flags(s).insts, 1, "只藏物件照常");
+  });
+});

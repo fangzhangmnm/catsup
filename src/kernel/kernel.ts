@@ -527,12 +527,12 @@ export class Kernel {
     for (const sv of new Set(merged.values())) if (this.graph.hasVertex(sv)) for (const eid of this.graph.vertex(sv).edges) dirtyEdges.add(eid);
     const events = this.emit(this._settle({ consumed: touched, images, edgeLayers: this.edgeLayers, faceLayers: this.faceLayers, dirtyEdges, ...(opts?.creaseLayers?.length ? { creaseLayers: opts.creaseLayers } : {}) }));
     // 软边两侧变 180° → 自动并掉（纪元账本 FM80，2026-10-27 Claude Fable 5.1；user「自动折硬边的话软边180自愈是不是还是可以加？关键还是看不见的180度软边的谜语人问题」）：
-    //   只看本次碰到的边（挪过的顶点的邻边 = 局部性）；软边、恰两张不同的膜、两张膜同一平面 → 走擦边机的 MERGE（擦边 v0.15.4 起局部化，坦克 45 ms）。
+    //   只看本次碰到的边（挪过的顶点的邻边 = 局部性）；能并的（flatSoftMergeable：软边、恰两张不同的膜、同一平面、两侧材质相同、藏没藏相同、边本身没藏）→ 走擦边机的 MERGE（擦边 v0.15.4 起局部化，坦克 45 ms）。
     //   不限于自动折出来的（user：看不见又没视觉效果的软边 = 谜语人，不管谁画的）；没碰到的老 180° 软边归修复「清理碎渣」。写进 op 重放一致（在 moveVertices 内部）。
     {
       const flat: EdgeId[] = [];
       const seen = new Set<EdgeId>();
-      const consider = (vid: VertexId): void => { if (!this.graph.hasVertex(vid)) return; for (const eid of this.graph.vertex(vid).edges) { if (seen.has(eid)) continue; seen.add(eid); const e = this.graph.edge(eid); if (!this.soft.has(eid) || e.faceLinks.length !== 2 || e.faceLinks[0] === e.faceLinks[1]) continue; const fa = this.store.face(e.faceLinks[0]), fb = this.store.face(e.faceLinks[1]); if (fa && fb && fa.planeId === fb.planeId) flat.push(eid); } };
+      const consider = (vid: VertexId): void => { if (!this.graph.hasVertex(vid)) return; for (const eid of this.graph.vertex(vid).edges) { if (seen.has(eid)) continue; seen.add(eid); if (this.flatSoftMergeable(eid)) flat.push(eid); } };   // 能不能并 = flatSoftMergeable 一处判（统筹 11-13）
       for (const { id } of batch) consider(id);
       for (const sv of new Set(merged.values())) consider(sv);
       if (flat.length) { this._rev++; const vd = this.store.snapshotEraseVerdicts(this.graph, flat); for (const id of flat) { this.curveReg.onRemove(id); this.graph.removeEdge(id); } events.push(...this.emit(this.store.reconcileErase(this.graph, this.planes, this.coplanarTol, vd, { global: this.settleMode === "global" }))); }
@@ -881,6 +881,18 @@ export class Kernel {
     for (const id of ids) { if (!this.store.face(id)) continue; if (on) this.faceLayers.set("hidden", id, 1); else this.faceLayers.delete("hidden", id); }
   }
   isFaceHidden(id: FaceId): boolean { return this.faceLayers.get("hidden", id) !== undefined; }
+  /**
+   * 这条共面软边能不能自动并掉（FM80「看不见又没视觉效果的软边 = 谜语人」；统筹 11-13 收成这一处）：软边、恰两张不同的膜、同一平面、两侧材质相同、藏没藏相同、边本身没藏。
+   * 两侧材质不同 / 一张藏一张露 / 边藏着 = 有视觉效果，不是谜语人，不并（并了会丢：材质只剩前一张的、露着的被藏掉、藏着的边没了）。全部显示之后两边一样了，它就又归自动并和修复「清理碎渣」管，不另加自愈。
+   * 用的人：moveVertices 末尾的 180° 自动并；scene/kinds.ts meshToBrepWith 转回硬表面时并共面三角形。
+   */
+  flatSoftMergeable(eid: EdgeId): boolean {
+    if (!this.soft.has(eid) || this.isEdgeHidden(eid) || !this.graph.hasEdge(eid)) return false;
+    const [a, b] = this.graph.edge(eid).faceLinks, n = this.graph.edge(eid).faceLinks.length;
+    if (n !== 2 || a === b) return false;
+    const fa = this.store.face(a), fb = this.store.face(b);
+    return !!fa && !!fb && fa.planeId === fb.planeId && this.faceMaterialOf(a, 0) === this.faceMaterialOf(b, 0) && this.faceMaterialOf(a, 1) === this.faceMaterialOf(b, 1) && this.isFaceHidden(a) === this.isFaceHidden(b);
+  }
   isEdgeHidden(id: EdgeId): boolean { return this.edgeLayers.has("hidden", id); }
   /** 给一批边打 / 去一个边层（软化 / 硬化工具）。 */
   setEdgeLayer(name: string, ids: readonly EdgeId[], on: boolean): void {
