@@ -74,6 +74,15 @@ export declare function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number, op
     growBar?: boolean;
     keepOnSelection?: boolean;
 }): "onSelection" | void;
+/**
+ * Blender L / Shift+L（user 11-13 重做小屋子：「Blender 里面的 L 键效果是对于鼠标做射线投掷，然后把它打中的这一块做连续选择」；统筹定 Shift+L = 拿掉）：
+ * 光标下照「选」的命中规矩打一下（同 clickSelect：拾取范围也认），打中的东西连着的一整块加进选区 / 从选区拿掉——就是连点三下那条路（selectExpand 第 2 档），不另写算法。
+ * 没打中 = false（什么都不做、不记一步）。两种工作台一样；手势进行中不响应（调用方查）。
+ */
+export declare function selectLinked(ctx: ToolCtx, at: {
+    x: number;
+    y: number;
+}, remove: boolean): boolean;
 export interface ScreenBox {
     minX: number;
     minY: number;
