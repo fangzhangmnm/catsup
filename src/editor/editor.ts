@@ -183,7 +183,7 @@ const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - 
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export const CIRCLE_SEGMENTS = TOOL_OPTIONS.circle.segments.def;
 
-import { fmtArea, fmtDeg, fmtLen, fmtStep, parseQuantity, setUnitSystem } from "./units.ts";
+import { fmtArea, fmtDeg, fmtLen, fmtStep, parseQuantity, setUnitSystem } from "./units.ts"; import { unitSystemRow } from "../format/unit-systems.ts";
 import { SEGMENT_TIERS, SEG_MAX, clampSegments, segMin, segmentNote, tierOf, tierSegments } from "./segment-ref.ts";
 export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）
 import { SNAP_LABELS } from "./gesture-consts.ts";
@@ -487,7 +487,7 @@ export class Editor {
     return q ? scaleTipView(L, this._scaleRefs, q) : null;
   }
   /** 显示 / 输入单位 = 单位制推出来的（公制 = 米、英制 / D&D = 英尺英寸）：数值小窗按它读、读数按它念。换单位 = setGrid({ system })（user 10-30「就是单位」）。 */
-  get vcbUnit(): LengthUnit { return this.grid.system === "metric" ? "m" : "ft"; }
+  get vcbUnit(): LengthUnit { return unitSystemRow(this.grid.system).display; }   // 单位制一张表（format/unit-systems.ts）
   get unitSystem(): UnitSystem { return this.grid.system; }
   private viewCache: { key: string; view: WorldView } | null = null;
   /** 只看这个（DT44，user 2026-10-25「然后左上角的hierarchy tree可以切换只看该组件」）：进了组 / 组件时，外面的不画、不吸、点不中。本次打开有效；根上无效果。 */

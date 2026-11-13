@@ -17,14 +17,16 @@
 //   parseLength —— 一段长度文字 → 米（数值小窗也用它；原来住 vcb.ts）。
 // 内部单位永远是 SI（米）；只有显示层换单位（user 10-22「引擎统一吃 SI，显示层换」）。B43「≈ 人高 / 一个车位」的参考短语以后也从这里出。
 
+import { unitSystemRow, type UnitSystem } from "../format/unit-systems.ts";
+
 export type LengthUnit = "m" | "cm" | "mm" | "ft" | "in";
 export const LENGTH_UNITS: readonly { id: LengthUnit; label: string }[] = [{ id: "m", label: "米" }, { id: "cm", label: "厘米" }, { id: "mm", label: "毫米" }, { id: "ft", label: "英尺英寸" }, { id: "in", label: "英寸" }];
 export const UNIT_M: Readonly<Record<LengthUnit, number>> = { m: 1, cm: 0.01, mm: 0.001, ft: 0.3048, in: 0.0254 };
 export const isLengthUnit = (x: unknown): x is LengthUnit => typeof x === "string" && x in UNIT_M;
 
-export type UnitSystem = "metric" | "imperial" | "dnd";   // 和 grid-settings.ts 同一个（那边是网格那半，这里是读写字那半）
+export type { UnitSystem } from "../format/unit-systems.ts";   // 单位制一张表（2026-11-13）；这里是读写字那半
 let system: UnitSystem = "metric", display: LengthUnit = "m";
-export function setUnitSystem(sys: UnitSystem): void { system = sys; display = sys === "metric" ? "m" : "ft"; }
+export function setUnitSystem(sys: UnitSystem): void { system = sys; display = unitSystemRow(sys).display; }
 export function unitSystemNow(): UnitSystem { return system; }
 export function displayUnit(): LengthUnit { return display; }
 /** 公制按大小挑的那一串（读数用；输入另认中文 / µm 的几种写法）。 */
@@ -43,7 +45,7 @@ export const MILE_M = 1609.344;
  */
 export function fmtStep(m: number, sys: UnitSystem = system): string {
   const trim = (v: number): string => String(Number(v.toPrecision(6)));
-  if (sys === "metric") { const [u, k] = metricUnit(m); return `${trim(m / k)} ${u}`; }
+  if (unitSystemRow(sys).stepStyle === "si") { const [u, k] = metricUnit(m); return `${trim(m / k)} ${u}`; }
   const inch = m / UNIT_M.in, ft = inch / 12;
   const tail = Math.abs(m) >= MILE_M ? `（约 ${Number((Math.abs(m) / MILE_M).toFixed(Math.abs(m) >= 10 * MILE_M ? 0 : 1))} mi）` : "";
   if (ft >= 1 && Math.abs(ft - Math.round(ft)) < 1e-6) return `${Math.round(ft)} ft${tail}`;
@@ -70,7 +72,7 @@ export function formatLength(m: number, unit: LengthUnit, digits = 1): string {
 }
 /** 看的字（提示 / 吸附标签 / 读数 / 网格标记）：按当前单位制；英制 / D&D ≥ 1 英里后面加「约 x mi」（不进网格进位、不进输入框）。 */
 export function fmtLen(m: number, digits = 1): string { return formatLength(m, display, digits) + aboutMiles(m); }
-export function aboutMiles(m: number): string { return system !== "metric" && Math.abs(m) >= MILE_M ? `（约 ${Number((Math.abs(m) / MILE_M).toFixed(Math.abs(m) >= 10 * MILE_M ? 0 : 1))} mi）` : ""; }
+export function aboutMiles(m: number): string { return unitSystemRow(system).miles && Math.abs(m) >= MILE_M ? `（约 ${Number((Math.abs(m) / MILE_M).toFixed(Math.abs(m) >= 10 * MILE_M ? 0 : 1))} mi）` : ""; }
 
 /** 面积读数：米制 < 1 m² 念 cm²（原行为）；cm / mm 念各自的平方；英制念平方英尺（英寸单位念平方英寸）。 */
 export function fmtArea(m2: number): string {

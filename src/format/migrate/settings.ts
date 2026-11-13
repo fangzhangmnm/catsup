@@ -7,8 +7,9 @@
 // 文件读进来的那份 CatsupDocument.settings 原样留着（老文件原样存回去字节不变）；门口只在「文件 ↔ 编辑器」那一下（app/session.ts 打开和存盘）。
 // 以前这些住在 editor/grid-settings.ts、editor/scale-ref.ts 里（v0.19.64 及以前）；搬过来的时候逐条照搬，结果一样（test/settings-door.test.ts 拿旧写法对拍）。
 import type { DocumentSettings } from "../document.ts";
+import { isUnitSystem, unitSystemRow, type UnitSystem } from "../unit-systems.ts";
 
-export type UnitSystemId = "metric" | "imperial" | "dnd";
+export type UnitSystemId = UnitSystem;   // 单位制一张表 = format/unit-systems.ts
 /** 现在的形状（运行时只认它）。 */
 export interface SettingsNow {
   readonly unitSystem: UnitSystemId;
@@ -22,7 +23,7 @@ export interface SettingsNow {
   readonly scaleRefs?: readonly string[];
 }
 
-const isUnitSystemId = (x: unknown): x is UnitSystemId => x === "metric" || x === "imperial" || x === "dnd";
+const isUnitSystemId = isUnitSystem;
 /** 老文件缺吸附长度、也算不出来时的吸附长度：老默认 1 m ÷ 5。 */
 const OLD_DEFAULT_SNAP = 0.2;
 /** 尺度参考选单改过名的 id（仓鼠 v3：人体 · 儿童 body/CHILD → body/KIDS）：读到旧的换成新的。 */
@@ -51,6 +52,6 @@ export function settingsNow(s: DocumentSettings): SettingsNow {
  */
 export function settingsForFile(s: DocumentSettings, now: { readonly absoluteGrid: boolean; readonly unitSystem: UnitSystemId; readonly snapIncrement: number; readonly gridPlane: "xy" | "yz" | "xz"; readonly gridHidden: boolean }): DocumentSettings {
   const { scaleRef: _oldSingle, ...rest } = s as DocumentSettings & { scaleRef?: string };
-  const preset = now.unitSystem === "metric" ? undefined : now.unitSystem === "imperial" ? "architectural" as const : "dnd" as const;
-  return { ...rest, absoluteGrid: now.absoluteGrid, unitSystem: now.unitSystem, snapIncrement: now.snapIncrement, gridStep: now.snapIncrement, gridSubdiv: 1, displayUnit: now.unitSystem === "metric" ? "m" : "ft-in", ...(now.gridPlane !== "xy" ? { gridPlane: now.gridPlane } : { gridPlane: undefined }), gridPreset: preset, gridHidden: now.gridHidden ? true : undefined };
+  const legacy = unitSystemRow(now.unitSystem).legacy, preset = legacy.gridPreset;   // 给旧版本照写的旧键（表里那一行说写什么）
+  return { ...rest, absoluteGrid: now.absoluteGrid, unitSystem: now.unitSystem, snapIncrement: now.snapIncrement, gridStep: now.snapIncrement, gridSubdiv: 1, displayUnit: legacy.displayUnit, ...(now.gridPlane !== "xy" ? { gridPlane: now.gridPlane } : { gridPlane: undefined }), gridPreset: preset, gridHidden: now.gridHidden ? true : undefined };
 }

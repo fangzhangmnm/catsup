@@ -2,6 +2,7 @@
 // 文档设置、桌面态（desk）、bake 模式、缩略图；未知 JSON 原样携带（round-trip 保真）。created 2026-09-20 by Claude Fable 5.1
 // v2（2026-10-21，group / component 纪元）：group = 自己的 B-rep 池 + 轴框 + 父 group；instance = definition 索引 + 3×4 变换 + 父 group。
 
+import type { UnitSystem } from "./unit-systems.ts";
 import type { BrepSnapshot, Pt3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform, WORLD_FRAME } from "../scene/xform.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
@@ -15,7 +16,7 @@ export interface DocumentSettings {
   gridStep: number;         // 米
   snapIncrement: number;    // 米：吸附长度（3.4 起是主的；3.3 以前 = gridStep / gridSubdiv，写入时派生）
   /** 单位制（3.4，2026-10-30；可选键）：metric / imperial / dnd = 显示单位 + 网格进位 + 吸附档一起（editor/grid-settings.ts）。缺 = 按老键猜。 */
-  unitSystem?: "metric" | "imperial" | "dnd";
+  unitSystem?: UnitSystem;   // 单位制一张表 = format/unit-systems.ts
   absoluteGrid: boolean;
   /** 网格面（0.13.14；可选键，缺省 xy）：yz / xz = 立面网格。 */
   gridPlane?: "xy" | "yz" | "xz";

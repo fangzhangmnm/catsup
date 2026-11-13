@@ -3,6 +3,7 @@ import type { DocumentSettings } from "../format/document.ts";
 import { settingsForFile, type SettingsNow } from "../format/migrate/settings.ts";
 import { fmtStep } from "./units.ts";
 import type { Frame } from "../scene/xform.ts";
+import { FT_M, IN_M, UNIT_SYSTEM_ROWS, isUnitSystem, unitSystemRow, type UnitSystem } from "../format/unit-systems.ts";
 
 /** 网格住哪个坐标面（user 2026-10-24「grid可以配置成xy yz xz，这样方便我吸附画立面」）：xy = 地面；yz / xz = 立面。 */
 export type GridPlane = "xy" | "yz" | "xz";
@@ -13,30 +14,19 @@ export const GRID_PLANES: readonly { id: GridPlane; label: string }[] = [{ id: "
  * 「有了你的自动缩放之后显示格距意义不大了……自动缩放grid也要注意不同的进位」；Tron 账本 T172–T175 / T179 / T181，方案 ai-docs/20261030-units-design.md）：
  * 一个旋钮管三样——显示 / 输入的长度单位（units.ts）、网格怎么自动换层（gridLadder）、吸附有哪几档（snapLevels）。以前的「显示单位 / 栅格制式 / 格距 / 吸附细分」四个旋钮退役。
  */
-export type UnitSystem = "metric" | "imperial" | "dnd";
-export const UNIT_SYSTEMS: readonly { id: UnitSystem; label: string; hint: string }[] = [
-  { id: "metric", label: "公制", hint: "米；按大小自动写 mm / cm / m / km…" },
-  { id: "imperial", label: "英制", hint: "英尺英寸" },
-  { id: "dnd", label: "D&D", hint: "英尺；5 ft 一格" },
-];
-export const isUnitSystem = (x: unknown): x is UnitSystem => x === "metric" || x === "imperial" || x === "dnd";
-export const IN_M = 0.0254, FT_M = 0.3048;
+export type { UnitSystem } from "../format/unit-systems.ts";   // 单位制一张表（2026-11-13）：名字、显示、进位、吸附档、旧键都在那一行
+export const UNIT_SYSTEMS: readonly { id: UnitSystem; label: string; hint: string }[] = UNIT_SYSTEM_ROWS.map((r) => ({ id: r.id, label: r.label, hint: r.hint }));
+export { isUnitSystem };
+export { IN_M, FT_M };
 /** on = 格点 + 整数长度同一开关；snap = 吸附长度（米；格点 / 整格 / 推拉停靠都按它）；plane = 网格住哪个坐标面；system = 单位制；
  *  shown = 画不画网格和三色轴（栅格面「关」= false；只管画，吸附照旧归 on——user 10-30「grid除了三个平面之外还能关。和坐标轴一起关」）。存进文档 settings、不进 undo。 */
 export interface GridSettings { on: boolean; snap: number; plane: GridPlane; system: UnitSystem; shown: boolean; }
-const range = (lo: number, hi: number): number[] => { const out: number[] = []; for (let e = lo; e <= hi; e++) out.push(10 ** e); return out; };
-const FEET_UP = range(1, 7).map((k) => k * FT_M);   // 10 ft、100 ft … 一路英尺 ×10（不进码 / 链 / 浪 / 英里：user「工业也不这么用吧」「dnd如果自己发明一个5000ft的mile感觉也不大好」）
-const INCH_FRACTIONS = [1 / 64, 1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1].map((k) => k * IN_M);
 /**
  * 网格自动换层的进位表（米，从细到粗；相邻两层是整数倍，粗的线一定落在细的线上）。渲染每帧按视角挑出看得清的几层（minccino/grid-ladder.ts）。
  * 公制 = ×10 一路从 1 fm 到 1 Gm（user「至少在ux层面支持从fm 更小到Mm Gm之类的」）；英制 = 1/64 … 1/2 in、1 in、1 ft（×12）、10 ft、100 ft…；
  * D&D = 英寸那段同英制、1 ft、5 ft（一格）、50 ft（十格）、500 ft…（user 10-30 拍）。
  */
-export function gridLadder(sys: UnitSystem): readonly number[] {
-  if (sys === "metric") return range(-15, 9);
-  if (sys === "imperial") return [...INCH_FRACTIONS, FT_M, ...FEET_UP];
-  return [...INCH_FRACTIONS, FT_M, 5 * FT_M, ...range(1, 6).map((k) => 5 * k * FT_M)];
-}
+export function gridLadder(sys: UnitSystem): readonly number[] { return unitSystemRow(sys).ladder; }
 /**
  * 画出来的网格 / 轴标记 / 刻度用的进位表 = 单位制的进位表从吸附长度那层起（user 10-30「比选的snap还细的格子不应该显示，因为没snap」）：
  * 比吸附细的层去掉；吸附长度不在表上但能整除上一层（5 cm → 10 cm、50 cm → 1 m、6 in → 1 ft）就补成最细一层 = 画出来的线永远落在吸得到的点上。
@@ -49,13 +39,9 @@ export function displayLadder(sys: UnitSystem, snap: number): readonly number[] 
 }
 /** 吸附的几档（米，从细到粗；user 10-30 拍）。每档都整除网格进位表里比它粗的下一层（画出来的线永远落在吸得到的点上，grid.test 钉着）。
  *  英制 1 ft 往上补 5 ft / 10 ft、D&D 补 1 in / 6 in / 10 ft（两格）：user 10-30「dnd吸附为什么只有两档，没有更细的」「然后英制没有ft的snapping也奇怪」（以前英制最粗 1 ft、D&D 只有 1 ft / 5 ft）。 */
-export function snapLevels(sys: UnitSystem): readonly number[] {
-  if (sys === "metric") return [0.001, 0.01, 0.05, 0.1, 0.2, 0.5, 1];
-  if (sys === "imperial") return [...[1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 6].map((k) => k * IN_M), FT_M, 5 * FT_M, 10 * FT_M];
-  return [IN_M, 6 * IN_M, FT_M, 5 * FT_M, 10 * FT_M];
-}
+export function snapLevels(sys: UnitSystem): readonly number[] { return unitSystemRow(sys).snaps; }
 /** 换单位制时吸附落到哪一档。 */
-export const DEFAULT_SNAP: Readonly<Record<UnitSystem, number>> = { metric: 0.2, imperial: IN_M, dnd: FT_M };   // user 10-30「米的默认是0.2 dnd的默认是1ft」
+export const DEFAULT_SNAP: Readonly<Record<UnitSystem, number>> = Object.fromEntries(UNIT_SYSTEM_ROWS.map((r) => [r.id, r.defaultSnap])) as Record<UnitSystem, number>;   // 表里每一行的 defaultSnap（user 10-30「米的默认是0.2 dnd的默认是1ft」）
 /** 吸附长度的短写（钮右上角 / 下拉）：和网格标记同一个写法（units.ts fmtStep）。 */
 export const snapLabel = (m: number, sys: UnitSystem): string => fmtStep(m, sys);
 /** 轴上的标记 / 刻度落在哪层：标记 = 屏上至少这么宽的那层（字放得下）、刻度 = 至少这么密的那层（CSS px；minccino/grid-ladder.ts ladderLevelAt）。 */
