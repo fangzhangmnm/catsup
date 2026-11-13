@@ -8,6 +8,9 @@
 //   ⑥ 用笔（带压力的 pointer 事件，走 seek-input 和重按判断那条真路；统筹 11-13）：画过的方块先在右侧面上用画笔画一笔草稿 → 换刀：轻按着滑 = 不下点、边上重按 = 起刀、
 //      面里重按两下 = 两个拐点、另一条边上重按 = 切到、抬笔 = 收刀。验：整条 = 一条指令一步撤销；轻按滑动途中一个点都没多下；草稿那一笔还在原来的三维位置
 //      （屏幕上同几个点下面还是有墨 + 画板字节一样 + 贴图坐标照第 ④ 组）；空位不变；抬笔后刀收了。反例：起刀、只下了面里的拐点、没切到边就抬笔 = 什么都没发生。
+//   ⑦ 环切跟上（第七节第 5 步）：Ctrl+R 之后报压感的笔轻按着滑到一条边上 = 只找（预演整圈、不切）；重按 = 切一圈（一步）；
+//      再预备一次、轻轻点一下 = 不切、还预备着；Esc = 不预备了。
+//   ⑧ 环切 + 不报压感的笔（恒 0.5，新开一页：这支笔从没报过压感）：点一下 = 切一圈。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-knife-bend.mjs [地址]（或 PROBE_URL）
 import { createRequire } from "node:module";
 const { chromium } = createRequire(new URL("../../../20260524 WeebPaint/package.json", import.meta.url))("playwright");
@@ -144,6 +147,40 @@ res.pen = await run(0, async () => {
   e.undo(); await sleep(30); out.undoFaces = m().faceCount() - f0;
   return out;
 });
+// ⑦ 环切 + 报压感的笔
+res.loopPen = await run(0, async () => {}, async () => {
+  const { e, P, sleep, esc, m } = globalThis.__kbEnv;
+  const c = document.getElementById("board"), r = c.getBoundingClientRect(), px = (p) => e.cam.angularPx(p, e.vp());
+  let pid = 80;
+  const pf = (type, q, p) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: r.left + q.x, clientY: r.top + q.y, pointerId: pid, pointerType: "pen", isPrimary: true, button: type === "pointermove" ? -1 : 0, buttons: type === "pointerup" ? 0 : 1, pressure: type === "pointerup" ? 0 : p }));
+  const lerp = (a, z, u) => ({ x: a.x + (z.x - a.x) * u, y: a.y + (z.y - a.y) * u });
+  const pdown = async (w) => { pid++; const q = px(w); pf("pointerdown", q, 0.1); await sleep(10); for (let i = 0; i < 12; i++) { pf("pointermove", q, 0.15 + (i % 2 ? 0.01 : -0.01)); await sleep(10); } };
+  const glide = async (a, z) => { const qa = px(a), qz = px(z); for (let i = 1; i <= 10; i++) { pf("pointermove", lerp(qa, qz, i / 10), 0.15 + (i % 2 ? 0.01 : -0.01)); await sleep(10); } };
+  const hard = async (w) => { const q = px(w); for (const p of [0.3, 0.45, 0.6, 0.6, 0.6, 0.35, 0.2, 0.15, 0.15]) { pf("pointermove", q, p); await sleep(8); } };
+  const lift = async (w) => { pf("pointerup", px(w), 0); await sleep(140); };
+  const k = e.handlers.knife, out = {}, f0 = m().faceCount(), h0 = e.history.position(), F = P(1, 0.5, 0.5), E = P(1, 0, 0.5);
+  e.armLoopCut(); await sleep(20);
+  await pdown(F); await glide(F, E); await sleep(30);
+  out.seek = { faces: m().faceCount() - f0, steps: e.history.position() - h0, preview: !!e.liveMesh, armed: k.active() };
+  await hard(E); out.cut = { faces: m().faceCount() - f0, steps: e.history.position() - h0, armed: k.describe().meshKnife ? k.active() : null };
+  await lift(E); out.afterLift = { steps: e.history.position() - h0 };
+  // 再预备一次：轻轻点一下 = 不切、还预备着；Esc = 不预备了
+  const f1 = m().faceCount(), h1 = e.history.position(), E2 = P(0.5, 0, 1);
+  e.armLoopCut(); await sleep(20); pid++; const q2 = px(E2); pf("pointerdown", q2, 0.08); await sleep(8); pf("pointermove", q2, 0.14); await sleep(8); await lift(E2);
+  out.lightTap = { faces: m().faceCount() - f1, steps: e.history.position() - h1, armed: k.active() };
+  await esc(); out.escaped = { armed: k.active() };
+  return out;
+});
+// ⑧ 环切 + 不报压感的笔（新开一页）
+res.loopFlat = await run(0, async () => {}, async () => {
+  const { e, P, sleep, m } = globalThis.__kbEnv;
+  const c = document.getElementById("board"), r = c.getBoundingClientRect(), q = e.cam.angularPx(P(1, 0, 0.5), e.vp());
+  const pf = (type, p) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: r.left + q.x, clientY: r.top + q.y, pointerId: 90, pointerType: "pen", isPrimary: true, button: 0, buttons: type === "pointerup" ? 0 : 1, pressure: p }));
+  const f0 = m().faceCount(), h0 = e.history.position();
+  e.armLoopCut(); await sleep(20);
+  pf("pointerdown", 0.5); await sleep(20); pf("pointerup", 0); await sleep(140);
+  return { faces: m().faceCount() - f0, steps: e.history.position() - h0, armed: e.handlers.knife.active() };
+});
 await browser.close();
 res.errs = errs;
 const checks = {
@@ -169,7 +206,11 @@ const checks = {
   "⑥ 笔：空位不变、自检干净": res.pen.after.freedSame && res.pen.after.check === "" && res.pen.after.newFaces === 1,
   "⑥ 笔反例：只下了面里的拐点就抬笔 = 什么都没发生": res.pen.counter.midBend === 1 && res.pen.counter.steps === 0 && res.pen.counter.faces === 0 && !res.pen.counter.active && res.pen.counter.start === null,
   "⑥ 笔：撤销一步 = 那一刀撤掉": res.pen.undoFaces === 0,
-  "⑦ 没有页面错误": errs.length === 0,
+  "⑦ 环切 + 笔：轻按着滑到边上 = 只找（预演整圈、不切、还预备着）": res.loopPen.seek.faces === 0 && res.loopPen.seek.steps === 0 && res.loopPen.seek.preview && res.loopPen.seek.armed,
+  "⑦ 环切 + 笔：重按 = 切一圈（面 +4、一步）": res.loopPen.cut.faces === 4 && res.loopPen.cut.steps === 1 && res.loopPen.afterLift.steps === 1,
+  "⑦ 环切 + 笔：轻轻点一下 = 不切、还预备着；Esc = 不预备了": res.loopPen.lightTap.faces === 0 && res.loopPen.lightTap.steps === 0 && res.loopPen.lightTap.armed && !res.loopPen.escaped.armed,
+  "⑧ 环切 + 不报压感的笔：点一下 = 切一圈": res.loopFlat.faces === 4 && res.loopFlat.steps === 1 && !res.loopFlat.armed,
+  "⑨ 没有页面错误": errs.length === 0,
 };
 const ok = Object.values(checks).every(Boolean);
 console.log(JSON.stringify({ checks, res }, null, 1));
