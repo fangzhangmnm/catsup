@@ -1,6 +1,7 @@
 // probe-space-gpu.mjs —— 空间里的笔，显卡的那一半（贴图主线 1-4b）：真显卡版画的薄层 vs 软件版（差不超过 1/255）。created 2026-11-11 by Claude Opus 5.5
 // 场景：方盒子转网格体、开始画、建画板；一串贴着盒子表面走、跨过好几张面的笔尖（1-4a 找面）。同一串笔尖、同一个薄层程序：
 //   真显卡版（渲染器那半边，providers/three/offscreen-gpu-gl.ts）和软件版（src/paint/space-gpu-soft.ts）各画一遍，逐格比；取最大 / 叠加 × 软 / 硬。
+// 第二段（施工单十八第 0 刀）：64 张面共用画布上同一块、一颗笔尖全罩住，真显卡版 = 软件版（以前最多 8 张）。
 // 叠得很多层的地方如果漂出去：量出「叠了多少层、漂了多少」报出来（统筹 11-11：不自己加大放行线）。另外量一帧画薄层花多少。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-space-gpu.mjs [地址]（或 PROBE_URL）
 import { createRequire } from "node:module";
@@ -48,12 +49,38 @@ const res = await page.evaluate(async () => {
     out.runs.push({ accum, hardness, alpha, maxd, inked, hist: Object.fromEntries(hist), worst, glDrawMs: +glMs.toFixed(2), glLastDrawMs: +gl.lastDrawMs.toFixed(2) });
     a.dispose(); b.dispose();
   }
+  // 64 张面共用画布上同一块（施工单十八第 0 刀：以前一颗笔尖下同一块最多 8 张，着色器外圈是常数上界；现在按这一块的面数循环）：
+  //   64 张叠着的方面、贴图坐标一模一样 → 归属表并成一块；一颗笔尖全罩住；真显卡版 vs 软件版逐格比，量这一帧
+  {
+    const MK = m.constructor, k64 = new MK(), N = 64, FRESH = { kind: "fresh" }, q = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)];
+    for (let k = 0; k < N; k++) k64.addFace(q.map((p) => k64.addVertex(P(p.x, p.y, p.z + k * 1e-4))), -1, FRESH);
+    k64.addColumn({ guid: "uv64", arity: 2 });
+    for (const f of k64.faces()) k64.setFaceValues(f, "uv64", [4, 4, 36, 4, 36, 36, 4, 36]);
+    const t64 = { id: "t64", mesh: k64, xform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], uvSet: "uv64", pxPerM: 32, canvas: { width: 40, height: 40 }, walks: () => true };
+    const g64 = L.buildTargetGeo(t64), tip = { x: 0.5, y: 0.5, z: 0.003, r: 0.2, alpha: 0.8 };
+    const reach = new Map([[0, new Map([[0, Array.from(g64.grid.face, (_, k) => k)]])]]);   // 叠着的面互不相连：这颗笔尖碰到的三角形直接给全部
+    const row = { polys: g64.table.polys.length, faces: g64.table.polyFaces[0]?.length ?? 0, runs: [] };
+    for (const [accum, hardness] of [["max", 0.5], ["over", 0.9]]) {
+      const opts = { hardness, color: [0.2, 0.7, 0.4], accum, origin: tip };
+      const a = new L.SpaceLayer(gl, g64, 0, opts), b = new L.SpaceLayer(soft, g64, 0, opts);
+      const t0 = performance.now(); a.update([{ tip, reach }], 1); const glMs = performance.now() - t0;
+      b.update([{ tip, reach }], 1);
+      const pa = gl.read(a.frame), pb = soft.read(b.frame);
+      let maxd = 0, inked = 0;
+      for (let c = 0; c < 40 * 40; c++) { if (pb[c * 4 + 3] > 0 || pa[c * 4 + 3] > 0) inked++; for (let k = 0; k < 4; k++) maxd = Math.max(maxd, Math.abs(pa[c * 4 + k] - pb[c * 4 + k])); }
+      row.runs.push({ accum, hardness, maxd, inked, glDrawMs: +glMs.toFixed(2), glLastDrawMs: +gl.lastDrawMs.toFixed(2) });
+      a.dispose(); b.dispose();
+    }
+    out.f64 = row;
+  }
   return out;
 });
 await browser.close();
 console.log(`画板 ${res.W}×${res.H}`);
 for (const r of res.runs) console.log(`${r.accum} 硬度 ${r.hardness} 浓度 ${r.alpha}：最大差 ${r.maxd} / 255（有墨 ${r.inked} 格；差的分布 ${JSON.stringify(r.hist)}）${r.worst ? " 最差 " + JSON.stringify(r.worst) : ""}；真显卡这一帧 ${r.glDrawMs} ms`);
-const ok = res.runs.every((r) => r.maxd <= 1 && r.inked > 100) && errs.length === 0;
+console.log(`64 张面共用一块（归属表 ${res.f64.polys} 块、${res.f64.faces} 张面）：` + res.f64.runs.map((r) => `${r.accum} 硬度 ${r.hardness} 最大差 ${r.maxd} / 255、有墨 ${r.inked} 格、真显卡这一帧 ${r.glDrawMs} ms`).join("；"));
+const ok64 = res.f64.polys === 1 && res.f64.faces === 64 && res.f64.runs.every((r) => r.maxd <= 1 && r.inked > 20);
+const ok = res.runs.every((r) => r.maxd <= 1 && r.inked > 100) && ok64 && errs.length === 0;
 if (errs.length) console.log("页面错误：", errs);
 console.log(ok ? "probe-space-gpu OK" : "probe-space-gpu FAIL");
 process.exit(ok ? 0 : 1);

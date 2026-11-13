@@ -4,7 +4,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { FRESH } from "../src/mesh/corner-columns.ts";
 import { SoftSpaceGpu } from "../src/paint/space-gpu-soft.ts";
-import { SpaceLayer, cellTable, packCell, checkLayerLimits, MAX_TRIS, MAX_FACES, MAX_POLYS, MAX_CANVAS_SIDE } from "../src/paint/space-layer.ts";
+import { SpaceLayer, cellTable, packCell, checkLayerLimits, MAX_TRIS, MAX_POLYS, MAX_CANVAS_SIDE } from "../src/paint/space-layer.ts";
 import { SpacePathPlacer } from "../src/paint/space-path.ts";
 import type { TexelTable } from "../src/paint/texel-table.ts";
 import { SpacePrep } from "../src/paint/space-prep.ts";
@@ -69,17 +69,19 @@ describe("画画路径上的容量上限（1-4c）", () => {
     const say = limitSay(() => checkLayerLimits(new SoftSpaceGpu({ maxSize: big.table.width - 1 }), big.table));
     assert(/画布（\d+ × \d+）比这台设备的显卡能放的（每边 \d+）大/.test(say), say);
   });
-  it(`一颗笔尖下同一块画布多边形挂的面最多 ${MAX_FACES} 张：9 张叠在一起、贴图坐标一样的面 → 这一帧报人话`, () => {
-    const m = new MeshKernel(), q = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)];
-    for (let k = 0; k <= MAX_FACES; k++) m.addFace(q.map((p) => m.addVertex(P(p.x, p.y, p.z + k * 1e-4))), -1, FRESH);
+  it("一颗笔尖下同一块画布多边形挂几张面不设上限（施工单十八第 0 刀；以前最多 8）：64 张叠在一起、贴图坐标一样的面，一颗笔尖全罩住 → 画得上、= 标准答案", () => {
+    const N = 64, m = new MeshKernel(), q = [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)];
+    for (let k = 0; k < N; k++) m.addFace(q.map((p) => m.addVertex(P(p.x, p.y, p.z + k * 1e-4))), -1, FRESH);
     m.addColumn({ guid: "uv", arity: 2 });
     for (const f of m.faces()) m.setFaceValues(f, "uv", [4, 4, 36, 4, 36, 36, 4, 36]);
     const gpu = new SoftSpaceGpu(), t = { ...targetOf(m, { guid: "uv", width: 40, height: 40, pxPerM: 32 }) }, g = buildTargetGeo(t);
-    eq(g.table.polys.length, 1, "九张面并成同一块"); eq(g.table.polyFaces[0].length, MAX_FACES + 1);
+    eq(g.table.polys.length, 1, "64 张面并成同一块"); eq(g.table.polyFaces[0].length, N);
     const tip: InkTip = { x: 0.5, y: 0.5, z: 0, r: 0.2, alpha: 1 }, L = new SpaceLayer(gpu, g, 0, { hardness: 0.5, color: [1, 1, 1], accum: "max", origin: tip });
     const reach = new Map([[0, new Map([[0, Array.from(g.grid.face, (_, k) => k)]])]]);   // 叠着的面互不相连（各自的点）：这颗笔尖碰到的三角形直接给全部
-    const say = limitSay(() => L.update([{ tip, reach }], 1));
-    eq(say, `这一笔画不了：笔下有 ${MAX_FACES + 1} 张面共用画布上同一块地方（最多 ${MAX_FACES} 张）`);
+    L.update([{ tip, reach }], 1);
+    const px = gpu.read(L.frame);
+    let inked = 0; for (let c = 0; c < 40 * 40; c++) if (px[4 * c + 3] > 0) inked++;
+    assert(inked > 20, `画上了（${inked} 格）`);
     L.dispose();
   });
   it(`画布多边形最多 ${MAX_POLYS} 块（实例表是 32 位浮点，2^24 以内的编号才精确）：多一块 = 准备时报人话`, () => {

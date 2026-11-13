@@ -9,7 +9,7 @@
 // 定型的笔尖只画一次，攒在定型层上；每帧：定型层拷到当帧那张，再画还会变的尾巴（每帧的活只随新定型的 + 尾巴涨）。
 // 位置一律先减去这一笔落笔的那一点再上传（数据图里不放半精度）。
 // 每格的表（1-4c，统筹 11-11 裁定）：定长，每格 8 字节（cellTable）；只跟贴图坐标有关，进工作台时建好、缓存在 space-prep.ts，落笔借来用（cells）。
-// 容量（每个都是「到了就抛 PaintLimitError、提示行说人话」，不静默画错）：多边形块数 ≤ MAX_POLYS、每张面三角形 ≤ MAX_TRIS、一颗笔尖下同一块的面 ≤ MAX_FACES、
+// 容量（每个都是「到了就抛 PaintLimitError、提示行说人话」，不静默画错）：多边形块数 ≤ MAX_POLYS、每张面三角形 ≤ MAX_TRIS、
 //   每张数据图 ≤ min(DATA_W × 显卡每边上限, 2^24) 个数（2^24 = 32 位浮点里的编号还精确）、每张图每边 ≤ 显卡上限。清单和行为见施工记录「容量清单」。
 import type { SpaceAccum, SpaceData, SpaceGpu, SpaceImage, SpaceProgram } from "./space-gpu.ts";
 import type { TargetGeo } from "./space-target.ts";
@@ -24,10 +24,12 @@ import type { Pt3 } from "../kernel/geom.ts";
 /** 数据图一行几个数（一维的表按这个宽度折成二维）。 */
 export const DATA_W = 2048;
 /**
- * 一颗笔尖下、同一块画布多边形挂的面最多几张；一张面最多几个三角形（着色器里那两圈循环的上界，循环带 break：面小的时候不花钱）。超了 = 抛 PaintLimitError。
+ * 一张面最多几个三角形（着色器里内圈循环的上界，循环带 break：面小的时候不花钱）。超了 = 抛 PaintLimitError。
  * MAX_TRIS = 1024（统筹 11-11：64 会把默认的 72 段圆面挡在外面；1024 挡住的只剩极端的大面。以后真有人撞上：把一张大面分几批画、每批只让取样点落在自己那批三角形里的格子写——现在不做）。
+ * 一颗笔尖下同一块画布多边形挂几张面：不设上限（施工单十八第 0 刀，2026-11-13）。以前是 8（MAX_FACES，着色器外圈的常数上界）；复制 = 合用之后一排复制出来的东西很容易超过 8，
+ *   而 WebGL2 的着色器（GLSL ES 3.00）循环上界可以是变量 = 外圈直接按这一块的面数循环。面多到一张数据表装不下时，照旧是「笔的数据表放不下」那句（分批画也装不下一个 item 才会到）。
  */
-export const MAX_FACES = 8, MAX_TRIS = 1024;
+export const MAX_TRIS = 1024;
 /** 画布多边形最多几块：着色器里拿来比的编号走 32 位浮点的实例表，2^24 以内才精确（每格的表本身能放到 2^32 − 2）。 */
 export const MAX_POLYS = 2 ** 24 - 1;
 /** 一张数据图最多几个数：32 位浮点里存的编号（三角形号、面单子里的位置）2^24 以内才精确。 */
@@ -81,8 +83,7 @@ void main() {
   int tb = ${TIP_STRIDE} * tip;
   vec3 tc = vec3(at(u_tips, tb), at(u_tips, tb + 1), at(u_tips, tb + 2));
   float r = at(u_tips, tb + 3), al = at(u_tips, tb + 4), best = 1e30;
-  for (int k = 0; k < ${MAX_FACES}; k++) {
-    if (k >= fn) break;
+  for (int k = 0; k < fn; k++) {   // 上界 = 这一块的面数（GLSL ES 3.00 允许变量上界；以前是常数 8 + break）
     int f = int(at(u_flist, fs + k)), t0 = int(at(u_faces, 2 * f)), tn = int(at(u_faces, 2 * f + 1));
     float bd = 1e30; int bi = t0;
     for (int j = 0; j < ${MAX_TRIS}; j++) {
@@ -353,7 +354,6 @@ export class SpaceLayer {
           const pr = this.ft.polyRect.get(poly);
           if (!pr) continue;
           const fs = [...new Set(trisList.map((k) => this.g.grid.face[k]))].sort((a, b) => a - b).filter((f) => this.ft.faceSlot.has(f));
-          if (fs.length > MAX_FACES) throw new PaintLimitError(`SpaceLayer: canvas polygon ${poly} has ${fs.length} faces under one tip (> ${MAX_FACES})`, `这一笔画不了：笔下有 ${fs.length} 张面共用画布上同一块地方（最多 ${MAX_FACES} 张）`);
           const rect = this.tipRect(tips[i].tip, fs, pr);
           if (rect) out.push({ tip: tips[i].tip, tipIdx: i, poly, tris: trisList, faces: fs, rect });
         }

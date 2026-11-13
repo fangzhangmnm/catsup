@@ -25,7 +25,7 @@ const hint = () => S(() => document.querySelector("#hint")?.textContent ?? "");
 await page.goto(url, { waitUntil: "load" }); await page.waitForFunction(() => globalThis.__catsup?.editor); await page.waitForTimeout(600);
 const board = await page.locator("#board").boundingBox();
 
-// 两个盒子（网格体组件）：A 六张面都开始画；B 只给顶面开始画（按总大小 256 = 这一张占满画布），再把正面加进这张画 = 放不下 = 走画但没排进画布
+// 两个盒子（网格体组件）：A 六张面都开始画；B 只给顶面开始画（按总大小 256 = 这一张占满画布），再把一张侧面加进这张画 = 放不下 = 走画但没排进画布
 const setup = await S(async () => {
   const C = globalThis.__catsup, e = C.editor, P = (x, y, z = 0) => ({ x, y, z }), g = () => crypto.randomUUID(), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   e.setGrid({ ...e.grid, on: false });
@@ -33,7 +33,8 @@ const setup = await S(async () => {
     const B = [[x0, 0], [x0 + 1, 0], [x0 + 1, 1], [x0, 1]], segs = [];
     for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], 1), P(d[0], d[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); }
     e.exitTo(0); e.deselectAll(); e.commitOp({ op: "addEdges", at: e.activePool(), segs });
-    e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent(name); e.runAction("object.toMesh");
+    e.selectAll(); e.selectedPools.clear();   // 全选会把已经建好的组件也选上：只留这次画的散几何（不然第二个盒子会把第一个包进去）
+    e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent(name); e.runAction("object.toMesh");
   };
   box(0, "甲"); await sleep(10);
   const insts = () => [...e.sceneRef.def(e.sceneRef.root).instances.values()];
@@ -41,7 +42,7 @@ const setup = await S(async () => {
   box(3, "乙"); await sleep(10);
   const instB = insts().find((i) => i.id !== instA.id);
   const enter = async (inst) => { e.exitTo(0); e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(10); };
-  // 乙：只顶面开始画，再加正面
+  // 乙：只顶面开始画，再加一张侧面
   await enter(instB);
   const kB = e.sceneRef.mesh(instB.def).kernel, nz = (f) => { const vs = kB.faceVerts(f).map((v) => kB.pt(v)); return vs.reduce((s, p) => s + p.z, 0) / vs.length; };
   const fsB = kB.faces(), topB = fsB.reduce((a, b) => (nz(b) > nz(a) ? b : a)), sideB = fsB.find((f) => f !== topB && Math.abs(nz(f) - 0.5) < 1e-6);
@@ -73,7 +74,7 @@ const faceSpots = (tex) => S((tex) => {
 /** 画板落定那张（合成图）的字节。 */
 const bytes = (tex) => S((tex) => Array.from(globalThis.__catsup.paint.boards.get(tex).composeBytes()), tex);
 /** 归属表：每格归哪块；每张面在哪块。 */
-const table = (tex) => S((tex) => { const t = globalThis.__catsup.paint.prep.take(tex).geo.table; return { W: t.width, H: t.height, owner: Array.from(t.owner), polyOf: Object.fromEntries([...t.faces].map(([f, fp]) => [f, fp.poly])) }; }, tex);
+const table = (tex) => S((tex) => { globalThis.__catsup.paint.prep.ensure(tex); const t = globalThis.__catsup.paint.prep.take(tex).geo.table; return { W: t.width, H: t.height, owner: Array.from(t.owner), polyOf: Object.fromEntries([...t.faces].map(([f, fp]) => [f, fp.poly])) }; }, tex);
 /** 两张合成图之间变了的格；变了的格里颜色不是红的有几格。 */
 const diff = (a, b) => { const ch = new Set(); let notRed = 0; for (let c = 0; c < a.length / 4; c++) { const i = 4 * c; if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2] || a[i + 3] !== b[i + 3]) { ch.add(c); if (!(b[i] === 255 && b[i + 1] === 0 && b[i + 2] === 0 && b[i + 3] === 255)) notRed++; } } return { ch, notRed }; };
 const sameSet = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
@@ -121,20 +122,22 @@ await S(() => globalThis.__catsup.editor.undo()); await frames(4);
 check(JSON.stringify(await bytes(setup.texA)) === JSON.stringify(b0) && (await pos()) === p0, "撤销一步：三张全回去（逐字节）");
 
 console.log("\n⑤ 走这张画但还没排进画布的面：点了不改");
-check(!setup.sideHasUv, "乙的正面走画、但没排进画布（角上没有贴图坐标）");
+check(!setup.sideHasUv, "乙的那张侧面走画、但没排进画布（角上没有贴图坐标）");
 const spotB = await S(async ({ instB, sideB, texB }) => {
   const C = globalThis.__catsup, e = C.editor, inst = [...e.sceneRef.def(e.sceneRef.root).instances.values()].find((i) => i.id === instB);
   e.exitTo(0); e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected();
   C.paint.ensure(texB); C.pickWorkbench("paint"); e.setTool("paintBucket");
-  e.cam.setView("front"); e.zoomExtents(); e.draw();
-  await new Promise((r) => setTimeout(r, 50));
-  // 正视图里正面占满中间：找一个落在正面上的点（cellAt 对没排进画布的面给 { face } 不带格）
-  const vp = e.vp();
-  for (let y = vp.h / 2 - 40; y < vp.h / 2 + 40; y += 8) for (let x = vp.w / 2 - 40; x < vp.w / 2 + 40; x += 8) { const h = C.paint.cellAt(texB, x, y); if (h && h.face === sideB && !h.cell) return [x, y]; }
+  // 侧面朝哪不一定：四个方向的视图轮流，扫整个画面找落在它上面、没有格的点（cellAt 对没排进画布的面给 { face } 不带格）
+  for (const view of ["front", "back", "left", "right"]) {
+    e.cam.setView(view); e.zoomExtents(); e.draw();
+    await new Promise((r) => setTimeout(r, 30));
+    const vp = e.vp();
+    for (let y = 8; y < vp.h; y += 8) for (let x = 8; x < vp.w; x += 8) { const h = C.paint.cellAt(texB, x, y); if (h && h.face === sideB && !h.cell) { e.draw(); return [x, y]; } }
+  }
   return null;
 }, setup);
 await page.waitForFunction((t) => globalThis.__catsup.paint.state(t) === "hot", setup.texB, { timeout: 15000 }); await frames(4);
-check(!!spotB, "正视图里找得到乙的正面", JSON.stringify(spotB));
+check(!!spotB, "找得到乙的那张侧面（四个方向的视图里轮流找）", JSON.stringify(spotB));
 if (spotB) {
   const c0 = await bytes(setup.texB), q0 = await pos();
   await page.mouse.move(P(spotB).x, P(spotB).y); await page.mouse.down(); await page.mouse.up(); await frames(4);
