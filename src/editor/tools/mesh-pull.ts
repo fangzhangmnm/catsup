@@ -17,7 +17,7 @@ import { rayPlane } from "../camera.ts";
 import { applyDir, applyNormal, applyPt, invert } from "../../scene/xform.ts";
 import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
-import { BoxDrag, adoptPress, clickSelect, pressTarget, selectionTarget, type Target as SelTarget } from "./selecting.ts";
+import { BoxDrag, adoptPress, clickSelect, pressKindOf, pressTarget, selectionTarget, type Target as SelTarget } from "./selecting.ts";
 import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { Op } from "../ops.ts";
 import type { SnapKind } from "../solver.ts";
@@ -60,6 +60,7 @@ export class MeshPullTool implements ToolHandler {
   private handleW: Pt3 | null = null;
   private snapT: { p: Pt3; kind: SnapKind } | null = null;
   /** 点一下 = 选（同选择工具），只有拖才挤出（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上没拖 = 不动。 */
+  pressKind(ctx: ToolCtx, at: { x: number; y: number }): "handle" | "thing" | "empty" { return pressKindOf(ctx, at, this.tool, this.handles); }   // 笔轻 = 选、重 = 抓：输入层落笔时问（纯读）
   tap(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.handles.grip(ctx, ev)) { ctx.hint(this.handles.cycleOrient(ctx)); return; }   // 点手柄（没拖）= 换朝向
     const r = clickSelect(ctx, ev, ctx.clicks(), { keepOnSelection: true });

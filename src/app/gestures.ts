@@ -21,10 +21,12 @@
 
 import type { Editor, ToolPointer } from "../editor/editor.ts";
 import { FINGER_DOUBLE_TAP_MS, FINGER_DOUBLE_TAP_PX, LONG_PRESS_MS, GESTURE_TAP_MAX_MS, GESTURE_TAP_MAX_MOVE, PALM_PEN_GUARD_MS, STALE_TOUCH_MS, SINGLE_TAP_MS, UNLOCK_PX } from "../controller/feel.ts";   // 时间 / 距离的数值住手感表（2026-10-28）
-import { pressDown, pressMove, pressureKnown, type PressHit, type PressState } from "../controller/hard-press.ts";   // 重按（笔的设计稿第七节第 2 步）：判法在那里，这里只喂笔的样本
+import { pressDown, pressMove, pressureKnown, type PressHit, type PressState } from "../controller/hard-press.ts";
+import { GrabRelay, type RelayAction, type RelayEnv } from "../controller/grab-relay.ts";   // 笔轻 = 选、重 = 抓（第七节第 6 步）
+import { TAP_RULES } from "../controller/feel.ts";   // 重按（笔的设计稿第七节第 2 步）：判法在那里，这里只喂笔的样本
 
 type Role = "tool" | "orbit" | "pan" | "hold" | "multi";
-interface Tracked { type: string; role: Role; x: number; y: number; downX: number; downY: number; downAt: number; lastAt: number; press?: PressState; }   // press = 笔的工具指针这一下的重按状态
+interface Tracked { type: string; role: Role; x: number; y: number; downX: number; downY: number; downAt: number; lastAt: number; press?: PressState; relay?: GrabRelay; }   // relay = 这一下笔在「抓东西」的工具里，轻重翻成按下 / 拖 / 松手   // press = 笔的工具指针这一下的重按状态
 interface GestureTap { firstDownTime: number; isTap: boolean; maxCount: number; start: Map<number, { x: number; y: number }>; }
 
 export interface GestureOpts {
@@ -53,6 +55,8 @@ export interface GestureOpts {
   armable?(pointerType: string): boolean;
   /** 笔的工具指针判到一次重按（hard-press.ts）：hit = 点下在哪（画布本地）；clientX / Y = 同一点的 client 坐标（笔尖闪一圈用）。同一下也带在递给编辑器的 ToolPointer.press 上。 */
   onHardPress?(hit: PressHit, clientX: number, clientY: number): void;
+  /** 现在的工具是「笔轻 = 选、重 = 抓」那一族（stance.ts PEN_PRESS = grab；第七节第 6 步）。只有报压感的笔走这条。 */
+  penGrab?(): boolean;
   /** 抬笔宽限（ms；设计稿第三节）：现在的工具用重按时 > 0。报压感的笔抬起先等这么久，其间又落下 = 当没断过；过了才交给编辑器（带 lift）。缺 / 0 = 不等。 */
   liftGraceMs?(): number;
 }
@@ -65,8 +69,18 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
   /** 这支笔报压感（hard-press.ts pressureKnown 见过一次就记住，整个会话）：报的笔松开 = 抬笔（ToolPointer.lift）；不报的笔松开 = 普通的松开（点一下 = 点）。 */
   let penPressure = false;
   /** 抬笔宽限里压着的那一下松开（设计稿第三节）：期间笔又落下 = 接着这一下走（同一份 Tracked、同一份重按状态），不交松开、也不交按下。 */
-  let pendingLift: { t: Tracked; up: ToolPointer; timer: number } | null = null;
-  const flushLift = (): void => { const p = pendingLift; if (!p) return; pendingLift = null; clearTimeout(p.timer); editor.pointerUp(p.up); };
+  let pendingLift: { t: Tracked; finish: () => void; timer: number } | null = null;
+  const flushLift = (): void => { const p = pendingLift; if (!p) return; pendingLift = null; clearTimeout(p.timer); p.finish(); };
+  /** 笔轻 = 选、重 = 抓（controller/grab-relay.ts）：要问的三件事 + 把动作递给编辑器（按下带意思、松手只在编辑器还在手势里时递：Esc 取消过的不再松一次）。 */
+  const relayEnv: RelayEnv = { kindAt: (x, y) => editor.pressKindAt(x, y), busy: () => editor.gestureInProgress(), hasActableSelection: () => editor.hasActableSelection(), slop: TAP_RULES.pen.slop };
+  const runRelay = (acts: readonly RelayAction[], base: ToolPointer): void => {
+    const r = canvas.getBoundingClientRect();
+    for (const a of acts) {
+      if (a.a === "abort") { editor.abortGesture(); continue; }
+      const p: ToolPointer = { ...base, x: a.x, y: a.y, clientX: r.left + a.x, clientY: r.top + a.y, press: undefined, lift: undefined, ...(a.a === "down" && a.intent ? { intent: a.intent } : {}) };
+      if (a.a === "down") editor.pointerDown(p); else if (a.a === "move") editor.pointerMove(p); else if (editor.gestureInProgress()) editor.pointerUp(p);
+    }
+  };
   /** locked = 笔按住拖的中途凑成的双指：先当手掌，质心 / 指距累计动过 UNLOCK_PX 才解锁成相机（user 2026-10-24「要不要大动作解锁」）。 */
   let multi: { cx: number; cy: number; d: number; locked: boolean; travel: number } | null = null;
   let tap: GestureTap | null = null;
@@ -148,6 +162,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
       const t = pendingLift.t; clearTimeout(pendingLift.timer); pendingLift = null;
       t.x = s.x; t.y = s.y; t.lastAt = lastPenActivity = performance.now(); pointers.set(ev.pointerId, t);
       lastTool = tp(ev); const hit = feedPress(ev, t);
+      if (t.relay) { runRelay(t.relay.move(s), lastTool); if (hit) runRelay(t.relay.hard(hit, relayEnv), lastTool); return; }
       editor.pointerMove(hit ? { ...lastTool, press: hit } : lastTool);
       return;
     }
@@ -186,6 +201,9 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
       if (opts.toolBlocked?.()) { base.role = "hold"; return; }   // 充能中落笔 = 无事发生（既不画也不转相机）
       lastTool = tp(ev);
       const hit = feedPress(ev, base);
+      if (ev.pointerType === "pen" && opts.penGrab?.() && (penPressure || (base.press && pressureKnown(base.press)))) {   // 报压感的笔 + 抓东西的工具：轻 = 选、重 = 抓（grab-relay.ts）
+        base.relay = new GrabRelay(); runRelay(base.relay.down(s, hit, relayEnv), lastTool); return;
+      }
       editor.pointerDown(hit ? { ...lastTool, press: hit } : lastTool);   // press 只带在这一下上：lastTool 相机动了会重放（retrack），不许把同一次重按再递一遍
     }
   }
@@ -203,7 +221,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     t.x = s.x; t.y = s.y; t.lastAt = performance.now();
     if (ev.pointerType === "pen") lastPenActivity = t.lastAt;
     switch (t.role) {
-      case "tool": { lastTool = tp(ev); const hit = feedPress(ev, t); editor.pointerMove(hit ? { ...lastTool, press: hit } : lastTool); return; }   // 同上：重按不进 lastTool
+      case "tool": { lastTool = tp(ev); const hit = feedPress(ev, t); if (t.relay) { runRelay(t.relay.move(s), lastTool); if (hit) runRelay(t.relay.hard(hit, relayEnv), lastTool); return; } editor.pointerMove(hit ? { ...lastTool, press: hit } : lastTool); return; }   // 同上：重按不进 lastTool   // 同上：重按不进 lastTool
       case "orbit": if (opts.look?.(dx, dy)) { editor.draw(); return; } if (toolPointerActive() && opts.cameraLocked?.()) return; editor.cam.orbit(dx, dy); retrack(); editor.draw(); return;
       case "pan": if (opts.look?.(dx, dy)) { editor.draw(); return; } if (toolPointerActive() && opts.cameraLocked?.()) return; editor.cam.pan(dx, dy, editor.vp()); retrack(); editor.draw(); return;
       case "multi": {
@@ -251,8 +269,9 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
       if (cancelled) { editor.cancel(); return; }
       if (ev.pointerType === "pen" && t.press && pressureKnown(t.press)) penPressure = true;
       const lift = ev.pointerType === "pen" && penPressure, up = lift ? { ...tp(ev), lift } : tp(ev), grace = lift ? opts.liftGraceMs?.() ?? 0 : 0;
-      if (grace > 0) { flushLift(); pendingLift = { t, up, timer: window.setTimeout(flushLift, grace) }; return; }   // 抬笔宽限：先压着（设计稿第三节）
-      editor.pointerUp(up);
+      const finish = t.relay ? (): void => runRelay(t.relay!.up(up, relayEnv), up) : (): void => editor.pointerUp(up);   // 抓东西的工具：抬笔交给 grab-relay（抓着 = 落定、框着 = 框选生效、轻点 = 点一下）
+      if (grace > 0) { flushLift(); pendingLift = { t, finish, timer: window.setTimeout(flushLift, grace) }; return; }   // 抬笔宽限：先压着（设计稿第三节）
+      finish();
       return;
     }
     if (ev.pointerType !== "touch") return;

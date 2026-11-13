@@ -14,7 +14,7 @@ import { rayPlane } from "../camera.ts";
 import { applyDir, applyPt } from "../../scene/xform.ts";
 import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
-import { BoxDrag, adoptPress, clickSelect, pressTarget, type Target } from "./selecting.ts";
+import { BoxDrag, adoptPress, clickSelect, pressKindOf, pressTarget, type Target } from "./selecting.ts";
 import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { Op } from "../ops.ts";
 import type { QuantityTag } from "../units.ts";
@@ -48,6 +48,7 @@ export class MeshInsetTool implements ToolHandler {
 
   /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
   private box = new BoxDrag();
+  pressKind(ctx: ToolCtx, at: { x: number; y: number }): "handle" | "thing" | "empty" { return pressKindOf(ctx, at, this.tool, null); }   // 笔轻 = 选、重 = 抓：输入层落笔时问（纯读）
   tap(ctx: ToolCtx, ev: ToolPointer): void { clickSelect(ctx, ev, ctx.clicks()); ctx.hint(null); }   // 点一下 = 选（同选择工具），只有拖才插入 / 倒角（user 10-27）
   active(): boolean { return this.job !== null || this.box.active(); }
   cancel(): void { this.box.cancel(); this.job = null; this.adopt = null; this.centerW = null; this.start = this.cur = null; }
@@ -65,11 +66,11 @@ export class MeshInsetTool implements ToolHandler {
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.box.active()) { this.box.finish(ctx, ev); return; }   // 拖框松手
     if (this.active()) { this.commit(ctx); return; }
-    this.begin(ctx, { x: ev.x, y: ev.y });
+    this.begin(ctx, { x: ev.x, y: ev.y, intent: ev.intent });   // intent = 笔轻按的「选」：空处 = 框（selecting.ts pressTarget）
     if (!this.job && !this.hadSel) { this.box.begin(ev, ctx); ctx.hint("框选（插入 / 倒角工具里：没选东西时在空处拖 = 框）"); }   // user 10-28「其他的同理」
   }
 
-  private begin(ctx: ToolCtx, at: { x: number; y: number }, force?: "bevel" | "bevelVerts"): void {
+  private begin(ctx: ToolCtx, at: { x: number; y: number; intent?: "select" | "grab" }, force?: "bevel" | "bevelVerts"): void {
     const m = ctx.mesh();
     // 按下作用在什么上 = selecting.ts（没选区只认面；FM165）；拿它做什么 = 这里：面 = 插入、边 = 倒角、点 = 倒点（Ctrl+B / Ctrl+Shift+B 强制倒角 / 倒点）
     const p = pressTarget(ctx, at, this.tool);

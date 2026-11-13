@@ -20,7 +20,7 @@ import { softDistances, softWeights } from "../../mesh/soft-select.ts";
 import { meshSnapTarget } from "./mesh-snap.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
-import { BoxDrag, adoptPress, clickSelect, pressTarget, selectionTarget, type Target } from "./selecting.ts";
+import { BoxDrag, adoptPress, clickSelect, pressKindOf, pressTarget, selectionTarget, type Target } from "./selecting.ts";
 import { type Grip, MeshHandles } from "./mesh-handles.ts";
 import type { ViewState } from "../view-state.ts";
 import { dragDelta, dragMaxLen } from "../../controller/lock-drag.ts";
@@ -83,6 +83,7 @@ export class MeshTransformTool implements ToolHandler {
   /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
   private box = new BoxDrag();
   /** 点一下 = 选（和选择工具同一套）；只有拖才是操作（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上（没拖）= 什么都不动。 */
+  pressKind(ctx: ToolCtx, at: { x: number; y: number }): "handle" | "thing" | "empty" { return pressKindOf(ctx, at, this.tool, this.handles); }   // 笔轻 = 选、重 = 抓：输入层落笔时问（纯读）
   tap(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.handles?.grip(ctx, ev)) { ctx.hint(this.handles.cycleOrient(ctx)); return; }   // 点手柄（没拖）= 换朝向
     const r = clickSelect(ctx, ev, ctx.clicks(), { keepOnSelection: !!this.handles });

@@ -126,7 +126,7 @@ export interface ToolPointer {
   /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。缺省 = 本帧 distTo（editor.movedSinceDown）。 */
   travel?: number;
   /** 事件自己发生的时间（ms，PointerEvent.timeStamp）：抬笔结算按它算停了多久（controller/lift-settle.ts）；画画的一笔按它算时间（施工单二十 1a）。键盘起手 / 程序造的没有。 */
-  at?: number; pressure?: number; press?: PressHit; lift?: boolean;   // lift = 这一下松开是报压感的笔抬笔（宽限已过；输入层给，只有 seek-input.ts 看）；press = 这一下判到重按（输入层 app/gestures.ts 喂 controller/hard-press.ts；点下在 press.x / y = 压力猛升之前那一刻，不是这一下的 x / y；工具不读 pressure）；pressure = 压感（PointerEvent.pressure，0..1）：只有画画的一笔用（controller/stroke-clock.ts 只信笔的；鼠标 / 手指报的 0.5 / 0 不是压感）；键盘起手 / 程序造的没有
+  at?: number; pressure?: number; press?: PressHit; lift?: boolean; intent?: "select" | "grab";   // intent = 笔这一下按下是「选」还是「抓」（controller/grab-relay.ts；selecting.ts pressTarget 认）； lift = 这一下松开是报压感的笔抬笔（宽限已过；输入层给，只有 seek-input.ts 看）；press = 这一下判到重按（输入层 app/gestures.ts 喂 controller/hard-press.ts；点下在 press.x / y = 压力猛升之前那一刻，不是这一下的 x / y；工具不读 pressure）；pressure = 压感（PointerEvent.pressure，0..1）：只有画画的一笔用（controller/stroke-clock.ts 只信笔的；鼠标 / 手指报的 0.5 / 0 不是压感）；键盘起手 / 程序造的没有
 }
 
 /** 选区快照（撤销 / 重做还原用；ctx = 当时的上下文键）。 */
@@ -3123,7 +3123,7 @@ export class Editor {
   rightClickInGesture(): boolean { if (!this.gestureActive()) return false; if (!this.commitInPlace()) this.abortGesture(); return true; }   // 手势中右键（两种工作台一样，T102）：能原地留下的原地留下，别的只取消这一下；不在手势里 = false（app 弹菜单）
   abortGesture(): void { this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.lasso?.(null); this.host.softRing?.(null); this.host.hint(null); this.draw(); }
   /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
-  gestureInProgress(): boolean { return this.gestureActive(); }
+  gestureInProgress(): boolean { return this.gestureActive(); } pressKindAt(x: number, y: number): "handle" | "thing" | "empty" | null { return this.handlers[this._tool]?.pressKind?.(this.toolCtx, { x, y }) ?? null; }   // pressKindAt = 这一点下面是把手 / 东西 / 空处（纯读；controller/grab-relay.ts 用）
   /** 指针下的实体是否已在选区里（右键 = 不在就先选它，SU 同款）。 */
   hitInSelection(hit: HitResult3): boolean {
     const c = this.classify(this.liveWorld(), hit);

@@ -268,6 +268,7 @@ import "./lift-settle.test.ts";   // 抬笔结算按事件自己的时间（A21 
 import "./hard-press.test.ts";   // 重按：压力短时间猛地变重才算（笔的设计稿第七节第 2 步）
 import "./seek-input.test.ts";   // 找位置 / 下点 / 抬笔：输入怎么翻（笔的设计稿第七节第 3 步）
 import "./knife-bend.test.ts";   // 刀在面中间拐弯：沿折线劈面 + 切之前验一道（笔的设计稿第八节）
+import "./grab-relay.test.ts";   // 笔轻 = 选、重 = 抓（笔的设计稿第七节第 6 步）
 import "./test-tiers-guard.test.ts";   // 测试分档守卫：没登记的、测试之间互相 import、探针表（2026-11-10 Opus）
 import { run } from "./runner.mjs";
 // 漏登记守卫挪进了 test/test-tiers-guard.test.ts（2026-11-10 Opus，测试分档：串跑和并行都当一条测试跑）。

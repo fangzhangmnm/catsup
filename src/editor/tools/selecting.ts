@@ -72,8 +72,9 @@ function touchesSelection(ctx: ToolCtx, sel: { verts: ReadonlySet<number>; edges
  *   只是点一下（没拖）= 工具走 clickSelect，选区照点选的规矩变（Shift 加选不被截胡）。
  * 缺 press = 有选区就是选区（不管按在哪）。
  */
-export function pressTarget(ctx: ToolCtx, at: { x: number; y: number; start?: GestureStart }, tool: Tool): Target | "box" {
+export function pressTarget(ctx: ToolCtx, at: { x: number; y: number; start?: GestureStart; intent?: "select" | "grab" }, tool: Tool): Target | "box" {
   const sel = ctx.selection(), st = stanceOf("freeform", tool), grab = st?.grab ?? "element";
+  if (at.intent === "select" && !grabUnder(ctx, at, grab)) return "box";   // 笔轻按落在空处 = 框选，有选区也框（第七节第 6 步，统筹 11-13 按推荐先定；要翻过来只改这一行）。鼠标照旧：有选区时空处拖 = 对选区做
   if (sel.kind === "mesh" && (sel.verts.size || sel.edges.size || sel.faces.size)) {
     // 键盘起手（G / R / S / E / I；ToolPointer.start = "keyboard"，ctx.keyboardStart 唯一造处）= 永远对选区做（Blender）：不走「按在选区外的东西上 = 对它做」的三分法——
     // 不然光标正下方有个没选的点时，G 挪的是它不是选区（2026-10-28 夜 probe-soft-select 抓到；以前拿 pointerType 冒充，2026-10-29 改成一等字段，周账 F-125）
@@ -85,6 +86,14 @@ export function pressTarget(ctx: ToolCtx, at: { x: number; y: number; start?: Ge
   }
   const u = grabUnder(ctx, at, grab);
   return u ? { ...u, fromSelection: false } : "box";
+}
+/**
+ * 这一点下面是把手 / 东西 / 空处（第七节第 6 步：笔轻 = 选、重 = 抓，输入层落笔时先问；controller/grab-relay.ts）。
+ * 纯读：不画悬停、不改选区、不记把手（handles.grip 只算，MeshHandles.hover 才记高亮）。东西 = 这把工具按它的立场抓得到的（grab 列：面 / 点边面）。
+ */
+export function pressKindOf(ctx: ToolCtx, at: { x: number; y: number }, tool: Tool, handles?: { grip(ctx: ToolCtx, s: { x: number; y: number }): unknown } | null): "handle" | "thing" | "empty" {
+  if (handles?.grip(ctx, at)) return "handle";
+  return grabUnder(ctx, at, stanceOf("freeform", tool)?.grab ?? "element") ? "thing" : "empty";
 }
 /** 目标 = 整个选区（网格体；还活着的点 / 边 / 面，按 id 排）；没选区 = null。按在操纵手柄上（tools/mesh-handles.ts）的那一下也走它：手柄下面压着别的东西也不换目标。 */
 export function selectionTarget(ctx: ToolCtx): Target | null {
