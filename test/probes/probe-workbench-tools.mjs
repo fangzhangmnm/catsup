@@ -88,7 +88,7 @@ for (const k of TOOL_KEYS) {
 check(moved.length === 0, `画画工作台里按 ${TOOL_KEYS.length} 个工具键：工作台、手上的工具、撤销栈都没动`, moved.join(" | "));
 await clearHint();
 const cE = await press("e");
-check(/「画画」工作台里没有这把工具（它在「自由建模」里）/.test(cE.hint), `按 E 说一句：「${cE.hint}」`);
+check(/「绘制」工作台里没有这把工具（它在「自由建模」里）/.test(cE.hint), `按 E 说一句：「${cE.hint}」`);
 const p0 = await S(() => globalThis.__WT.paint());
 await S(() => globalThis.__WT.drag(0.5));
 const c1 = await st(), m1 = await S(() => globalThis.__WT.mesh()), p1 = await S(() => globalThis.__WT.paint());
