@@ -2017,7 +2017,7 @@ export class Editor {
   /** 修复模块（repairs/）用的窄接口：模块不碰 Editor 本体。 */
   private get repairCtx(): CommandEnv {
     const self = this;
-    return { get scene() { return self.scene; }, gridFineStep: () => this.gridFineStep(), snapStepChoices: () => this.snapStepChoices(), snapLattice: (at, xf, f) => this.snapLattice(at, xf, f), sharpDeg: () => this.config.get("surface", "sharpDeg"), pointedInstance: () => this.pointedInstance(), circleSegments: () => this.config.get("circle", "segments") };
+    return { get scene() { return self.scene; }, gridFineStep: () => this.gridFineStep(), snapStepChoices: () => this.snapStepChoices(), snapLattice: (at, xf, f) => this.snapLattice(at, xf, f), sharpDeg: () => this.config.get("surface", "sharpDeg"), pointedInstance: () => this.pointedInstance(), eye: () => this.toLocal(this.cam.eye()), circleSegments: () => this.config.get("circle", "segments") };
   }
   /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
   repairLoaded(kind: RepairKind): boolean { return !!commandById(kind); }

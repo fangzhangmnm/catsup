@@ -11,6 +11,7 @@ import type { Op } from "../ops.ts";
 import type { DefId, InstId, PoolRef, Scene } from "../../scene/scene.ts";
 import type { BodyKind } from "../../scene/body-kind.ts";
 import type { Xform } from "../../scene/xform.ts";
+import type { Pt3 } from "../../kernel/geom.ts";
 import type { BrepSelection, MeshSelection } from "../tools.ts";
 import type { ParamField, ParamValue } from "../param-panel.ts";
 
@@ -49,6 +50,8 @@ export interface CommandEnv {
   circleSegments(): number;
   /** 菜单对着哪个选中的物件点的 / 光标压着哪个（这一层的实例 id；合并的目标 = 它，user 10-28 夜「你右键点在谁身上，谁留下 可以」）；没有 = null。 */
   pointedInstance(): InstId | null;
+  /** 眼睛在正在编辑的那一层的本地坐标里在哪（造面：旁边没有面时新面朝着它）；没有 = null。 */
+  eye(): Pt3 | null;
 }
 
 export type Params = Readonly<Record<string, ParamValue>>;

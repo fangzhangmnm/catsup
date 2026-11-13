@@ -395,6 +395,7 @@ flowchart LR
 | 工具推拉，VCB 改距离 | 同上 → `pushpull` | `front` + `seed` = 被推的面：底面没朝向时先定它再灌 |
 | 跟随、挪点 | `applyOp` 里 `sideNewFaces` | 只看邻面，不带 `front` |
 | 修复的造面（补洞）、OBJ 导入喂线段、老复现包 | `commitIn` 直走 | 没 `front`：有邻面跟邻面，没有 = 不写 |
+| 自由建模 F 造面（`mesh.makeFace`，v0.19.101） | 注册表动作 → `meshFill` / `meshMakeFace` | 朝向在计划里定（邻面 / 眼睛），写进点序；指令只照点序造、再核一遍会不会坏（挂三张面 / 共线 / 已有） |
 | 粘贴、炸开、镜像、导入 | 不走这条 | 载荷自带的层原样（有意的两面都出不被改） |
 | 涂默认背面 / 默认正面 | `paintFaces`（`material: −2` / `null`） | `sides` |
 | 翻面 / 统一朝向 / 自动朝外 | `repairs/orient/` 规划 → `flipFaceSides` + `paintFaces` | 用户点了才跑，一步撤销 |

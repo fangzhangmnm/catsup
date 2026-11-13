@@ -88,7 +88,7 @@ export const FREEFORM: Layer = {
   id: "workbench:freeform",
   bindings: [
     B("g", "modal:move", "移动（键盘起手）"), B("r", "modal:rotate", "旋转（键盘起手）"), B("s", "modal:scale", "缩放（键盘起手）"), B("e", "modal:pp", "挤出（键盘起手）"), B("i", "modal:offset", "插入（键盘起手）"),
-    B("a", "select.all", "全选"), B("j", "mesh.connect", "连线"),
+    B("a", "select.all", "全选"), B("j", "mesh.connect", "连线"), B("f", "mesh.makeFace", "造面（Blender F：一圈边 = 补洞，一条链 / 两条边 / 几个点 = 一张面，两个点 = 一条边）"),   // 压过全局的 F（偏移 / 插入；插入留 I）；user 11-13 重做小屋子卡在 F
     B("shift+a", "tool.key:shift+a:create", "拉出"), B("shift+d", "mesh.duplicateMove", "复制并接着挪（Blender Shift+D）", (c) => !c.gesture && c.actableSelection),
     B("o", "soft.toggle", "软选择 开 / 关"), B("[", "soft.smaller", "软半径 小一点"), B("]", "soft.bigger", "软半径 大一点"),   // Blender O；[ ] = WeebPaint 调笔刷粗细同款（user 10-28 夜「weebpaint的slider」）   // Blender 的「添加」= 这里的新建工具（user 10-28 晚「Shift+A 同意」）
     B("x", "delete.ifAny", "删除"),   // 选择工具里 X = 删除（操作工具层在上面把 X 接走 = 轴，UX17）
@@ -329,6 +329,7 @@ export function muscleConflicts(): Map<Chord, Map<string, string[]>> {
 export const KNOWN_CONFLICTS: Readonly<Record<Chord, string>> = {
   a: "硬表面 = 弧 · 自由建模 = 全选（Blender）",
   e: "硬表面 = 橡皮 · 自由建模 = 挤出（Blender）",
+  f: "硬表面 = 偏移 · 自由建模 = 造面（Blender F；user 11-13 重做小屋子卡在 F，统筹插队单：硬表面的 F 不动、插入留 I）",
   g: "硬表面 = 建组件（SketchUp）· 自由建模 = 抓起来移动（Blender）",
   k: "硬表面 = 画线 · 自由建模 = 切割（user 10-29「brep里面K也是线，先这样弄一下，之后可以好好理」：画线本来就能切开面，算同一个「切」的手感）",
   r: "硬表面 = 矩形 · 自由建模 = 旋转（Blender）",

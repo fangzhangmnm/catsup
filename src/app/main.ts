@@ -1678,6 +1678,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "soft.toggle": editor.config.set("soft", "on", !editor.config.get("soft", "on")); editor.refreshGesture(); syncUi(); return;
     case "soft.smaller": case "soft.bigger": { editor.config.set("soft", "radius", stepRadius(editor.config.get("soft", "radius"), verb === "soft.bigger" ? 1 : -1)); editor.refreshGesture(); syncUi(); softSliderRef?.flash(); return; }   // 按档位走（同滑条）；读数 + 圈闪一下   // 手势中打数（Blender「S Z 0」）
     case "mesh.connect": editor.runAction("mesh.connect"); syncUi(); return;
+    case "mesh.makeFace": editor.runAction("mesh.makeFace"); syncUi(); return;   // Blender F（自由建模；右键菜单「造面（F）」同一条）
     case "mesh.loopCutArm": editor.armLoopCut(); syncUi(); return;
     case "move.slideToggle": editor.toggleSlideOnce(); syncUi(); return;   // 移动中再按 G = 这一次沿边滑（Blender G G；工具条「沿边滑」= 常驻模式）
     case "lock.key": editor.lockKey(p1 === "none" ? null : (p1 as "x" | "y" | "z"), p2 === "plane"); syncUi(); return;   // 方向键（A9）

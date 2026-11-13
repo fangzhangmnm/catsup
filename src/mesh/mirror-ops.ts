@@ -10,7 +10,7 @@
 export type MirrorOpClass = "move" | "topo" | "flags" | "whole" | "meta";
 export const MIRROR_OP_CLASS = {
   meshMove: "move",
-  meshExtrude: "topo", meshDuplicate: "topo", meshFill: "topo", meshFlip: "topo", meshKnife: "topo", meshLoopCut: "topo", meshDelete: "topo", meshInset: "topo", meshBevel: "topo", meshBevelVerts: "topo", meshMerge: "topo", meshAddPrimitive: "topo",
+  meshExtrude: "topo", meshDuplicate: "topo", meshFill: "topo", meshMakeFace: "topo", meshFlip: "topo", meshKnife: "topo", meshLoopCut: "topo", meshDelete: "topo", meshInset: "topo", meshBevel: "topo", meshBevelVerts: "topo", meshMerge: "topo", meshAddPrimitive: "topo",
   meshEdgeMarks: "flags",
   // 画（贴图主线 1-3b，统筹 11-10 同意）：换材质 / 开始画只改面上的标记、不改拓扑（强行对称做完对称化，点名的面在 faces 里 → 选得出边）；
   //   给新面补位置只写贴图坐标那一列，不碰形状和材质 = meta（从不触发对称化，免得收尾自己套自己）。
@@ -37,5 +37,5 @@ export function namedElements(op: object): { verts: number[]; edges: number[]; f
 export function opsOfClass(c: MirrorOpClass): MeshOpName[] { return (Object.keys(MIRROR_OP_CLASS) as MeshOpName[]).filter((k) => MIRROR_OP_CLASS[k] === c); }
 
 /** 注册表里路由到网格体指令的动作：会改拓扑的（镜像编辑开着先问）vs 对称进对称出 / 只改标记 / 镜像自己的（直接做）。每个网格体动作必须在其中一张里（守卫查注册表）。 */
-export const MIRROR_TOPO_ACTIONS: ReadonlySet<string> = new Set(["mesh.loopCut", "mesh.connect", "mesh.inset", "mesh.bevel", "mesh.bevelVerts", "mesh.mergeCenter", "mesh.duplicate", "mesh.fill", "mesh.flipNormals", "mesh.mergeReversed"]);
+export const MIRROR_TOPO_ACTIONS: ReadonlySet<string> = new Set(["mesh.loopCut", "mesh.connect", "mesh.inset", "mesh.bevel", "mesh.bevelVerts", "mesh.mergeCenter", "mesh.duplicate", "mesh.fill", "mesh.makeFace", "mesh.flipNormals", "mesh.mergeReversed"]);
 export const MIRROR_PASS_ACTIONS: ReadonlySet<string> = new Set(["move", "mesh.flatten.x", "mesh.flatten.y", "mesh.flatten.z", "mesh.flatten.normal", "mesh.flatten.mirror", "mesh.subdivide", "mesh.symmetrySnap", "mesh.originToSelection", "mesh.startPaint", "mesh.paintAddFaces", "mesh.markSharp", "mesh.markSmooth", "mesh.clearMarks", "mesh.markSeam", "mesh.clearSeam", "mesh.autoSeams", "mesh.smooth.angle", "mesh.smooth.smooth", "mesh.smooth.hard"]);

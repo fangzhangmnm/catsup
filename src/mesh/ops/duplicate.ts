@@ -48,7 +48,7 @@ export function edgeLoops(k: MeshKernel, sel: MeshSel): number[][] | string {
 }
 
 /** 让这一圈的方向和旁边已有的面一致：填出来的面过共享边要和邻面反向（单面网格的正面 = 环的绕向）。旁边没有面 = 原样。 */
-function orientAsHole(k: MeshKernel, ring: number[]): number[] {
+export function orientAsHole(k: MeshKernel, ring: number[]): number[] {
   for (let i = 0; i < ring.length; i++) {
     const a = ring[i], b = ring[(i + 1) % ring.length], e = k.edgeOf(a, b);
     if (e < 0) continue;
@@ -75,4 +75,39 @@ export function fillOrBridge(k: MeshKernel, sel: MeshSel): { kind: "fill" | "bri
   const faces: number[] = [];
   for (let i = 0; i < n; i++) faces.push(k.addFace([A[i], A[(i + 1) % n], B[(i + 1 + best) % n], B[(i + best) % n]], FRESH));   // 桥接 = 凭空来的
   return { kind: "bridge", faces };
+}
+
+// ---------- 造面（Blender F；make-face.ts 定选区说的是哪一种面、点序和朝向，这里造）。added 2026-11-13 by Claude Opus 5.5 ----------
+const len3 = (a: Pt3): number => Math.hypot(a.x, a.y, a.z);
+const dist2 = (a: Pt3, b: Pt3): number => (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
+/** 环的 Newell 法向（长度 = 面积的两倍）。造面（make-face.ts）也用。 */
+export function ringNewell(k: MeshKernel, ring: readonly number[]): Pt3 {
+  let x = 0, y = 0, z = 0;
+  for (let i = 0; i < ring.length; i++) { const p = k.pt(ring[i]), q = k.pt(ring[(i + 1) % ring.length]); x += (p.y - q.y) * (p.z + q.z); y += (p.z - q.z) * (p.x + q.x); z += (p.x - q.x) * (p.y + q.y); }
+  return { x, y, z };
+}
+/** 造这张面会坏的情况（人话）；没有 = null。计划和指令各核一遍。 */
+export function faceBlocker(k: MeshKernel, ring: readonly number[]): string | null {
+  if (ring.length < 3 || new Set(ring).size !== ring.length) return "点不够——至少要三个不同的点";
+  const n = ringNewell(k, ring);
+  let scale = 0; for (const v of ring) for (const w of ring) scale = Math.max(scale, dist2(k.pt(v), k.pt(w)));
+  if (len3(n) <= 1e-9 * Math.max(scale, 1e-12)) return "这些点在一条线上，造不出有面积的面";
+  for (let i = 0; i < ring.length; i++) { const e = k.edgeOf(ring[i], ring[(i + 1) % ring.length]); if (e >= 0 && k.eFaces(e).length >= 2) return "会造出一条边挂三张面（有一条边两边都已经有面了）"; }
+  const want = [...ring].sort((a, b) => a - b).join(",");
+  for (const e of k.vEdges(ring[0])) for (const f of k.eFaces(e)) if ([...k.faceVerts(f)].sort((a, b) => a - b).join(",") === want) return "这里已经有这张面了";
+  return null;
+}
+/** 指令 meshMakeFace 的本体：按点序造一张面（两点 = 一条裸线）。返回新面 / 新边；会坏 = 人话错误（什么都没动）。 */
+export function makeFaceRing(k: MeshKernel, ring: readonly number[]): { face: number } | { edge: number } | string {
+  for (const v of ring) if (!k.hasV(v)) return "选的点已经不在了";
+  if (ring.length === 2) {
+    const [a, b] = ring;
+    if (a === b) return "点不够——至少要两个不同的点";
+    if (k.edgeOf(a, b) >= 0) return "这两个点之间已经有边了";
+    const e = k.addEdge(a, b, { kind: "fresh" }); k.setWire(e, true);   // 裸线位（结构位）：没有面 = 线
+    return { edge: e };
+  }
+  const why = faceBlocker(k, ring);
+  if (why) return why;
+  return { face: k.addFace(ring, FRESH) };   // 凭空来的：没有材质、不带画
 }
