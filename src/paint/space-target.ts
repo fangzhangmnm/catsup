@@ -10,7 +10,11 @@ import { buildTriGrid, castRay, rayTriangle, type PickMesh, type TriGrid } from 
 import { buildTexelTable, paintFaces, type PaintMesh, type TexelTable } from "./texel-table.ts";
 
 /** 目标的网格体（MeshKernel 满足）。rev = 修改号（任何改动都换一个从没用过的新值；画画的准备按它判过期，space-prep.ts）。 */
-export interface TargetMesh extends PickMesh, PaintMesh { readonly rev: number }
+export interface TargetMesh extends PickMesh, PaintMesh {
+  readonly rev: number;
+  /** 身份：缓存按它认（施工单十八第 1½ 刀：目标是 scene/uv.ts 的 uvMesh 视图，视图每次组名单都是新的，背后的内核才是同一个）。 */
+  readonly kernel: object;
+}
 /** 名单里的一项。 */
 export interface PaintTarget {
   /** 名单里的身份（摆放 + 画）。 */

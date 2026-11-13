@@ -7,6 +7,7 @@ import { tipReach, sphereTriDist } from "../src/paint/tip-reach.ts";
 import type { InkTip } from "../src/paint/tip-truth.ts";
 import type { TargetGeo } from "../src/paint/space-target.ts";
 import { boxMesh, laidOut, targetOf } from "./paint-space-kit.ts";
+import { placeOn, uvAtOf } from "./uv-kit.ts";
 
 const rig = () => { const m = boxMesh(2), uv = laidOut(m, "uv", m.faces(), { density: 40 }); return { m, uv, t: targetOf(m, uv) }; };
 const pending = (f: () => unknown): boolean => { try { f(); } catch (e) { return e instanceof PrepPendingError; } return false; };
@@ -15,6 +16,14 @@ const pending = (f: () => unknown): boolean => { try { f(); } catch (e) { return
 const PER = 3;
 
 describe("画画的准备：缓存、过期、放（1-4c）", () => {
+  it("同一个网格体每次组出来的目标（视图对象不一样，施工单十八第 1½ 刀起目标是 uvMesh 视图）：缓存的键一样、不重建；内核修订号动了才变", () => {
+    const { m, uv } = rig(), a = targetOf(m, uv), b = targetOf(m, uv);
+    assert(a.mesh !== b.mesh, "两次组出来的视图是两个对象");
+    const k0 = SpacePrep.keyOf(a);
+    eq(SpacePrep.keyOf(b), k0, "键一样（认的是背后的内核）");
+    const f = m.faces()[0]; placeOn(m, f, uv.guid, uvAtOf(m, f, uv.guid)!);   // 写一次坐标 = 内核修订号动了
+    assert(SpacePrep.keyOf(targetOf(m, uv)) !== k0, "内核动了，键跟着变");
+  });
   it("建一次；键没变再 ensure 不重建，取到的是同一张每格的表；目标换成这次传进来的那份（「走不走画」不进键）", () => {
     const gpu = new SoftSpaceGpu(), prep = new SpacePrep(() => gpu), { t } = rig();
     eq(prep.problem([t]), "pending", "没建 = 还不能画");
