@@ -80,14 +80,19 @@ export class MoveTool implements ToolHandler {
     const view = ctx.live();
     const mv = new Set(this.vids);
     const plane = cameraPlane(ctx.frame(), anchor);
-    let sn = ctx.applyLock(ctx.snap(view, s.x, s.y, { plane, anchor, alignSources: ctx.alignSources(), hand: ctx.hand(view, (vid) => mv.has(vid), false) }), s.x, s.y);   // A9 轴锁：锁着就不再按方向推断轴
-    // 意图门：候选在锚点另一侧（相机平面上与拖动方向点积 < 0）不合法（抬笔那一下滑到反方向的点 = 本案）
+    let sn = ctx.snap(view, s.x, s.y, { plane, anchor, alignSources: ctx.alignSources(), hand: ctx.hand(view, (vid) => mv.has(vid), false) });
+    // 意图门：候选在锚点另一侧（相机平面上与拖动方向点积 < 0）不合法（抬笔那一下滑到反方向的点 = 本案）。在套锁之前过（统筹 11-13：以前锁之后过，锁出来的点被换成自由点 → 锁着 X 沿 Z 走）
     const rayM = ctx.frame().ray(s.x, s.y, ctx.vp());
     const freeM = rayPlane(rayM.origin, rayM.dir, plane.plane.n, plane.plane.d);
     if (sn.kind !== null && freeM && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeM, anchor), sub3(sn.p, anchor), gestureMinLen(ctx, anchor))) { sn = { p: freeM, kind: null }; ctx.dropHysteresis(); }
+    if (ctx.axisConstraint().kind !== "free") {   // 锁是最后一道（统筹 11-13）：粘性在套锁之前；套完锁不再换点（不按拖动方向推断轴、不另外取整——取整在锁里，只在没指着具体东西时）
+      const locked = ctx.applyLock(ctx.hysteresis(sn, s.x, s.y), s.x, s.y);
+      ctx.setSnap(locked); ctx.charge(locked, 120); ctx.setCursor(locked.p);
+      return;
+    }
     if (sn.kind === null || sn.kind === "grid-point") {   // 格点是地板（D16）：拖出方向意图时轴向锥先于格点
       const prevKind = ctx.currentSnap()?.kind;
-      const keep = prevKind && prevKind.startsWith("axis-") ? { axis: prevKind.slice(5) as AxName, coneDeg: 55 } : undefined;   // 轴锁迟滞：进 30° / 出 55°（D17）
+      const keep = prevKind === "axis-x" || prevKind === "axis-y" || prevKind === "axis-z" ? { axis: prevKind.slice(5) as AxName, coneDeg: 55 } : undefined;   // 轴锁迟滞：进 30° / 出 55°（D17）
       const ax = inferAxisByDirection(ctx.frame(), ctx.vp(), anchor, s.x, s.y, 30, keep);
       const cur = ctx.cursor();
       if (ax) sn = { p: ax.p, kind: `axis-${ax.axis}` as SnapKind };

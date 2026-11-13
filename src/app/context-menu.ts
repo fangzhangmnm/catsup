@@ -68,13 +68,13 @@ export function openSubmenuAt(hud: HudModel, btn: HTMLElement, label: string): v
 
 /**
  * 动作外按 X（键表 delete.menu；统筹 11-13 按 user「动作里外」那条线定，锁的一轮第二步）：在光标处弹「删除 / 溶解」，不立刻删、也不是不做。
- * 溶解只在网格体里选着边 / 点（没有面）时露：网格体面的溶解、硬表面的溶解都没有现成的命令（照统筹「没有现成的就先不放那一项」，已报统筹）。没有选区 = 不弹。
+ * 溶解只在网格体里选着边 / 点（没有面）时露：网格体面的溶解、硬表面的溶解都没有现成的命令（照统筹「没有现成的就先不放那一项」，已报统筹）。没有选区 = 不弹（main.ts 先说一句）。
  */
 export function openDeleteMenuAt(editor: Editor, cx: number, cy: number): void {
   if (!editor.hasAnySelection()) return;
   const dissolve = editor.activeKind() === "mesh" && !editor.hasFaceSelection() && (editor.hasGeometrySelection() || editor.hasPointSelection());
   const items: PopupMenuItem[] = [{ id: "delete", label: "删除", icon: "trash-can" }, ...(dissolve ? [{ id: "dissolve", label: "溶解", hint: "边两侧的面并成一张、二度点去掉" }] : [])];
-  openPopupMenu({ anchor: anchorAt(cx, cy), items: () => items, onPick: (id) => { editor.deleteSelection(id === "dissolve"); } });
+  openPopupMenu({ anchor: anchorAt(cx, cy), at: { x: cx, y: cy }, items: () => items, onPick: (id) => { editor.deleteSelection(id === "dissolve"); } });   // 第一项（删除）压在光标下、回车 = 删除
 }
 
 /** 右键 / 子菜单 / 小菜单共用的 0×0 锚点：挪到 (x, y)（client 坐标）再弹。 */

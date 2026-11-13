@@ -116,7 +116,7 @@ export class TapeTool implements ToolHandler {
     //   偏移从光标真实落点量（不从格点量：斜边上绝对格点给的偏移没意义）；吸到端点 / 边这些几何照旧。取整得 0 = 不留线（不是「共线参考线」：人是拖开了的）
     const g = ctx.grid(), pl = this.plane!.plane;
     this.zeroSay = null;
-    if (g.on && (snapIsGridOnly(sn.kind) || (sn.kind?.startsWith("axis-") ?? false))) {   // 轴线方向的推断只定方向、不定偏移距离：照样取整
+    if (g.on && ctx.axisConstraint().kind === "free" && (snapIsGridOnly(sn.kind) || (sn.kind?.startsWith("axis-") ?? false))) {   // 轴线方向的推断只定方向、不定偏移距离：照样取整。锁着时不进来：锁是最后一道（统筹 11-13），取整已在锁里
       const ray = ctx.frame().ray(s.x, s.y, ctx.vp()), raw = rayPlane(ray.origin, ray.dir, pl.n, pl.d) ?? sn.p;
       const r = tapeResult(this.start, raw, gestureMinLen(ctx, this.start.p));
       if (r.make === "line" && r.d > 0 && g.snap > 0) {

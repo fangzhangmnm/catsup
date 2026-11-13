@@ -1699,6 +1699,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "select.none": editor.deselectAll(); return;
     case "delete.menu": {   // 动作外按 X = 光标处弹「删除 / 溶解」（统筹 11-13）；光标没进过画布 = 画布正中
       if (editor.locked) { hintEl.textContent = HINT_LOCKED; return; }
+      if (!editor.hasAnySelection()) { hintEl.textContent = "X：先选中要删的东西"; return; }   // 统筹 11-13：没选区不弹也得说一句
       const r = canvas.getBoundingClientRect(), at = lastCanvasClient ?? { x: r.left + r.width / 2, y: r.top + r.height / 2 };
       openDeleteMenuAt(editor, at.x, at.y); return;
     }

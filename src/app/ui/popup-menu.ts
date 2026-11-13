@@ -50,6 +50,9 @@ export interface PopupMenuOpts<Id extends string = string> {
   tab?: string;
   /** 这个菜单关掉了（任何原因：选了 / 外点 / Esc / 被别的菜单顶掉 / toggle）——调一次。参考窗库靠它清自己的菜单句柄和「再点一次删掉」（2026-10-25）。 */
   onClose?: () => void;
+  /** 按键弹出来的菜单（client 坐标，一般 = 光标）：第一项正好落在这一点下面（点一下就是它）、焦点放在第一项上（回车 = 第一项，按钮本来的回车；Esc / 点外面照旧）。
+   *  以后按键弹出来的菜单都用它（统筹 11-13，第一例 = 动作外按 X 的「删除 / 溶解」）。屏幕边上放不下 = 照常夹回屏幕里，第一项就不一定压在光标下了。 */
+  at?: { x: number; y: number };
 }
 const _lastTab = new Map<string, string>();
 /** tab 记忆交给宿主（user 2026-10-25「两个汉堡能记住选的是哪个tab吗」「不是应该跟文件吗」）：CatsUp 接 Session = 跟着文件走（WeebPaint desk.menuTab 同款）；
@@ -241,9 +244,12 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
     const w = el.offsetWidth, h = el.offsetHeight;
     let left = opts.align === "end" ? a.right - w : a.left;
     let top = a.bottom + 4;
+    const first = opts.at ? firstItem() : null;
+    if (opts.at && first) { left = opts.at.x - first.offsetLeft - Math.min(first.offsetWidth / 2, 28); top = opts.at.y - first.offsetTop - first.offsetHeight / 2; }   // 第一项压在这一点下面
     if (left + w > vw - 6) left = vw - 6 - w;
     if (left < 6) left = 6;
-    if (top + h > vh - 6) top = Math.max(6, a.top - 4 - h);   // 下面放不下 → 摆上面；都放不下 = 贴顶（高度被 CSS 夹在屏幕里、自己滚，不跑出屏幕）
+    if (opts.at) top = Math.min(Math.max(6, top), Math.max(6, vh - 6 - h));
+    else if (top + h > vh - 6) top = Math.max(6, a.top - 4 - h);   // 下面放不下 → 摆上面；都放不下 = 贴顶（高度被 CSS 夹在屏幕里、自己滚，不跑出屏幕）
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
   };
@@ -267,7 +273,9 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
     finally { el.remove(); opts.anchor.classList.remove("is-open"); opts.onClose?.(); }
   };
   const handle: PopupMenuHandle = { el, close, refresh: render, isOpen: () => open };
+  function firstItem(): HTMLElement | null { return el.querySelector<HTMLElement>(".menu-item:not([disabled])"); }
   try { render(); } catch (e) { el.remove(); throw e; }   // 画抛了：元素别留在页面上（还没记成「开着」，没人会去删它）
+  if (opts.at) firstItem()?.focus({ preventScroll: true });   // 回车 = 第一项（焦点在菜单里，输入闸放行）
   opts.anchor.classList.add("is-open");
   // 下一拍再挂外点关（本次点击的 pointerdown 已经过去了，click 触发的 open 不会被自己关掉）
   setTimeout(() => { if (open) document.addEventListener("pointerdown", onDocDown, true); }, 0);

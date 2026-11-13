@@ -151,7 +151,7 @@ export class MeshTransformTool implements ToolHandler {
     { const vp = ctx.vp(); let best = Infinity; for (const [, p] of this.base) { const w = applyPt(X, p), q = ctx.frame().project?.(w, vp); const d = q ? Math.hypot(q.x - ev.x, q.y - ev.y) : Infinity; if (d < best) { best = d; this.handleW = w; } } }
     ctx.setAnchor(this.grabW); ctx.setCursor(this.grabW);
     { const what = this.op === "move" ? "吸附：点 > 边 > 面" : this.op === "rotate" ? "15° 一档" : "0.1 一档";
-      ctx.hint(`${this.verb()} ${vids.length} 个点${grip ? `（手柄：${grip.say}）` : ""}：拖着松手，或者点第二下落定（方向键锁轴 / Shift+方向键锁面；${ctx.snapBase() ? `${what}，Shift = 反过来` : `按住 Shift = ${what}`}）`); }
+      ctx.hint(`${this.verb()} ${vids.length} 个点${grip ? `（手柄：${grip.say}）` : ""}：拖着松手，或者点第二下落定（X / Y / Z / N / T 锁方向、加 Shift 锁面；${ctx.snapBase() ? `${what}，Shift = 反过来` : `按住 Shift = ${what}`}）`); }
   }
 
   track(ctx: ToolCtx, s: { x: number; y: number }): void {

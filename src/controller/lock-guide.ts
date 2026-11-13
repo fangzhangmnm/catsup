@@ -15,7 +15,7 @@
 //   不平行的那根被锁住的方向 = "dir"（品红，aux.ts axisDir；统筹 11-13）；面里撑开的另一根不平行 = 中性。
 
 import type { AxisConstraint } from "./axis-constraint.ts";
-import { AXIS_PARALLEL_DEG } from "./feel.ts";
+import { frameAxisOf } from "./axis-apply.ts";
 
 export interface V3 { readonly x: number; readonly y: number; readonly z: number }
 export type LockAxisId = "x" | "y" | "z";
@@ -35,10 +35,6 @@ export function lockThrough(gesture: boolean, anchor: V3 | null, pivot: V3 | nul
 }
 
 const AXES = ["x", "y", "z"] as const;
-const COS_PAR = Math.cos((AXIS_PARALLEL_DEG * Math.PI) / 180);
-const dot = (a: V3, b: V3): number => a.x * b.x + a.y * b.y + a.z * b.z;
-/** 这根方向和坐标架哪根轴平行（同向反向都算）；都不平行 = null。 */
-function frameAxisOf(d: V3, frame: LockFrame): LockAxisId | null { const u = norm(d); return AXES.find((a) => Math.abs(dot(u, norm(frame[a]))) >= COS_PAR) ?? null; }
 
 /** 按钮锁（编辑器每把工具记着的那份）读成约束：锁轴 = 沿坐标架那根轴；锁轴面 = 法向是那根轴的面；锁「按下那张面」= 那张面；没锁 = 不限制。 */
 export function lockConstraint(lock: LockNow, frame: LockFrame): AxisConstraint {

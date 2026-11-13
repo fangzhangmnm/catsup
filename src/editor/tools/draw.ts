@@ -20,6 +20,8 @@ abstract class DrawTool implements ToolHandler {
   readonly grammar = "steps" as const;
   readonly draws = true;
   readonly lock: "axis" | "plane" = "plane";   // A9：矩形 / 圆 = 方向键锁平面（画线覆盖成 axis）
+  /** 动作里按轴键要几个方向（锁的一轮）：矩形 / 圆 = 两个（两根撑出图形的面、第一根 = 第一条边的方向；user「N 再 X」= 立在面上）；画线覆盖成 1。 */
+  readonly axisWants: 1 | 2 = 2;
   protected anchor: Pt3 | null = null;        // 首点（世界）；也写进底座 anchor（渲染轴线虚线起点）
   protected plane: DrawPlane = GROUND;        // 当前手势平面
   protected fixed: DrawPlane | null = null;   // 首点落在膜内 → 平面钉死（矩形 / 圆）
@@ -80,6 +82,7 @@ export class LineTool extends DrawTool {
   readonly sameSpotEnds = true;   // 同一处再点一下 = 收笔（底座 pointerDownStep；以前底座按工具名认画线）
   readonly finishLabel = "收笔";   // 左下芯片那颗「收」（W-7）
   readonly lock = "axis" as const;
+  readonly axisWants = 1 as const;
   track(ctx: ToolCtx, s: { x: number; y: number }, travel?: number): void {
     const a = this.anchor;
     if (!a) return;
@@ -93,8 +96,7 @@ export class LineTool extends DrawTool {
     const freeL = rayPlane(rayL.origin, rayL.dir, camL.plane.n, camL.plane.d);
     if (sn.kind !== null && freeL && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeL, a), sub3(sn.p, a), gestureMinLen(ctx, a))) { sn = { p: this.planeSnap(ctx, s.x, s.y), kind: null }; ctx.dropHysteresis(); }
     // 15° 整角归格点吸附（user 2026-10-25「15是grid合理」）：求解器在自由落点时咬（有捕捉阈）；Shift = 把格点吸附反过来（DT51），不再单独 = 15°
-    sn = ctx.applyLock(sn, s.x, s.y);   // A9 轴锁 / 面锁（没锁 = 原样）
-    const snapped = ctx.hysteresis(sn, s.x, s.y);
+    const snapped = ctx.applyLock(ctx.hysteresis(sn, s.x, s.y), s.x, s.y);   // 轴锁 / 面锁（没锁 = 原样）。锁是最后一道（统筹 11-13）：粘性在套锁之前，套完不再换点
     ctx.setSnap(snapped);
     ctx.charge(snapped, 120);
     ctx.setCursor(snapped.p);

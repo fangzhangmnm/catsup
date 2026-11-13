@@ -85,7 +85,7 @@ import { clipboard } from "./clipboard.ts";
 import { bodyEmpty } from "./ops.ts";
 import { type PoolSlot, WorldView, insideContext, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
-import { gridEffective } from "./increments.ts";
+import { gridEffective, gridSnap, snapIsGridOnly } from "./increments.ts"; import { frameAxisOf, moveLock, rotatePlane, shapePlane } from "../controller/axis-apply.ts";
 import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, det3, frameToXform, hasShear, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation, WORLD_FRAME, transformFrame } from "../scene/xform.ts";
 
 export { TOOLS, type Tool } from "./tool-ids.ts";
@@ -382,7 +382,7 @@ export class Editor {
   setAxisLock(a: LockAxis | null): void {
     if (this.lk.axis === a && this.lk.plane === null) return;
     this.locks.set(this._tool, { axis: a, plane: null, planeN: null });
-    this.host.hint(a ? `方向锁 ${a.toUpperCase()}（再按同一个方向键或 ↓ 解锁）` : null);
+    this.host.hint(a ? `方向锁 ${a.toUpperCase()}（再点一下解开）` : null);
     this.host.changed(); this.draw();
   }
   toggleAxisLock(a: LockAxis): void { this.setAxisLock(this.lk.axis === a ? null : a); }
@@ -391,11 +391,11 @@ export class Editor {
     let n: Pt3 | null = null;
     if (p === "face") {
       const w = this.liveWorld(), at = this.lastPtr, f = at ? pickFace(w, this.frame(), this.fvp(), at.x, at.y) : undefined, rec = f !== undefined ? w.planeOf(f) : undefined;
-      if (!rec) { this.host.hint("面锁：光标下没有面（把光标放到一张面上再按 Shift+↓）"); return; }
+      if (!rec) { this.host.hint("面锁：光标下没有面（把光标放到一张面上再锁）"); return; }
       n = normalize3(rec.plane.n);
     } else if (p) { const raw = this.contextFrame()[p]; n = normalize3(raw); }
     this.locks.set(this._tool, { axis: null, plane: p, planeN: n });
-    this.host.hint(p ? `面锁 ${planeLockLabel(p)}（再按同一个键或 ↓ 解锁）` : null);
+    this.host.hint(p ? `面锁 ${planeLockLabel(p)}（再点一下解开）` : null);
     this.host.changed(); this.draw();
   }
   togglePlaneLock(p: PlaneLock): void { this.setPlaneLock(this.lk.plane === p ? null : p); }
@@ -404,7 +404,7 @@ export class Editor {
     faceUnder: () => { const w = this.liveWorld(), at = this.lastPtr, f = at ? pickFace(w, this.frame(), this.fvp(), at.x, at.y) : undefined, rec = f !== undefined ? w.planeOf(f) : undefined; return rec ? { n: rec.plane.n, ref: `face:${f}` } : null; },
     edgeUnder: () => { const at = this.lastPtr, e = at ? this.pickAt(at.x, at.y, { kinds: { edges: true } }).edge : undefined, w = this.liveWorld(); if (e === undefined || !w.graph.hasEdge(e)) return null; const E = w.graph.edge(e); return { dir: sub3(w.graph.pt(E.b), w.graph.pt(E.a)), ref: `edge:${e}` }; }, buttonLocked: () => !!(this.lk.axis || this.lk.plane) });
   /** 键表 axis.press（手势层 X / Y / Z / N / T，加 Shift）：记进这一下的约束，提示行说现在被限制成什么（挂在读数后面一直看得见，computeLive）、预演马上跟着变。 */
-  axisPress(key: AxisKey, shift: boolean): void { const r = this.axisKeys.press(key, shift); this.host.hint(r.ok ? r.say : r.why); this.host.changed(); this.refreshGesture(); this.draw(); }
+  axisPress(key: AxisKey, shift: boolean): void { const r = this.axisKeys.press(key, shift); this.host.hint(r.ok ? r.say : r.why); this.lastSnap = null; if (r.ok && this.lastMoveEv && this.gestureActive()) this.pointerMove(this.lastMoveEv); this.host.changed(); this.refreshGesture(); this.draw(); }   // 规则换了：上一个吸附的粘性作废、按最后一次指针重算（同 setShiftHeld；先定平面的工具马上换面）
   /** 这一下现在被限制成什么：轴键那份在就以它为准，没有 = 按钮锁着的那份（设计稿第三节）。工具经 ToolCtx.axisConstraint 问，锁线也画它。 */
   axisConstraintNow(): AxisConstraint { return this.axisKeys.now() ?? lockConstraint(this.lk, this.contextFrame()); }
   /** 方向键 / 触屏虚拟轴键的唯一入口：axis = 键对应的轴（→ X / ← Y / ↑ Z），null = ↓；plane = Shift。按当前工具的锁种分派。 */
@@ -414,56 +414,48 @@ export class Editor {
     if (axis === null) { if (plane) this.togglePlaneLock("face"); else this.setAxisLock(null); return; }
     if (style === "plane" || plane) this.togglePlaneLock(axis); else this.toggleAxisLock(axis);
   }
-  /** 面锁下过 through 的平面（先定平面的工具在首点之后用；没锁 = null）。轴面的基 = 另外两根上下文轴。 */
-  private lockedPlaneThrough(through: Pt3): DrawPlane | null {
-    const n = this.lk.planeN;
-    if (!this.lk.plane || !n) return null;
-    const pl = canonicalPlane(n, dot3(n, through));
-    return { plane: pl, basis: planeBasis(pl) };
+  /** 先定平面的工具首点之后图形躺的面（锁的一轮第三步：吃约束 = 轴键那份 ?? 按钮锁）：二维那一族 = shapePlane、旋转那一族 = rotatePlane（controller/axis-apply.ts）；不限制 = null。 */
+  private lockedPlaneThrough(through: Pt3, family: "shape" | "rotate" = "shape"): DrawPlane | null {
+    const c = this.axisConstraintNow(), at = this.lastPtr, ray = at ? this.frame().ray(at.x, at.y, this.fvp()) : null;
+    const fp = family === "rotate" ? rotatePlane(c) : ray ? shapePlane(c, scale3(normalize3(ray.dir), -1)) : null;
+    if (!fp) return null;
+    const pl = canonicalPlane(fp.normal, dot3(normalize3(fp.normal), through)), u = fp.u ? normalize3(sub3(fp.u, scale3(pl.n, dot3(fp.u, pl.n)))) : null;
+    return { plane: pl, basis: u ? { u, v: cross3(pl.n, u) } : planeBasis(pl) };
   }
-  /** 锁的事后约束（求解器本身不动，排序规则归 Fable）：方向锁 → lockToAxis；面锁 → lockToPlane；没锁 = 原样。 */
+  /** 锁的事后约束（求解器本身不动，排序规则归统筹）：一维工具（画线 / 移动 / 卷尺）照 moveLock 读约束 → 沿线 lockToAxis / 在面里 lockToPlane；不限制 = 原样。
+   *  锁是最后一道（统筹 11-13）：工具套完锁之后不许再换点。「算不算指着具体的东西」只问 increments.ts snapIsGridOnly（以前这里另有一张 strongSnap 单子，并掉了）；
+   *  求解器从起点猜的方向（axis-*）在锁着时作废 = 当没吸到（方向由锁定；不然锁 X 时它猜 Y 会把点钉在起点）。 */
   private applyLock(sn: Snap3, anchor: Pt3 | null | undefined, sx: number, sy: number): Snap3 {
-    if (this.lk.axis) return this.lockToAxis(sn, anchor, sx, sy);
-    if (this.lk.plane) return this.lockToPlane(sn, anchor, sx, sy);
-    return sn;
+    const k = moveLock(this.axisConstraintNow());
+    if (!anchor || (!k.axis && !k.plane)) return sn;
+    const concrete = !!sn.kind && !sn.kind.startsWith("axis-") && !snapIsGridOnly(sn.kind), g = { on: this.gridEff, snap: this.grid.snap };
+    return k.axis ? this.lockToAxis(sn, anchor, sx, sy, normalize3(k.axis), concrete, g) : this.lockToPlane(sn, anchor, sx, sy, normalize3(k.plane!), concrete, g);
   }
-  private static strongSnap(sn: Snap3): boolean { return sn.kind !== null && sn.kind !== "on-face" && sn.kind !== "grid-point" && sn.kind !== "increment" && sn.kind !== "tool" && !sn.kind.startsWith("axis-"); }
-  /** 投到锁住的面（过锚点）上：吸到实几何 → 正投影（「从点」；已在面上就原样）；没吸到 → 光标射线交面（掠射 = 投影兜底）；
-   *  栅格开着且是轴面 → 面内两根轴各自落绝对格。 */
-  private lockToPlane(sn: Snap3, anchor: Pt3 | null | undefined, sx: number, sy: number): Snap3 {
-    const n = this.lk.planeN, lock = this.lk.plane;
-    if (!lock || !n || !anchor) return sn;
-    const strong = Editor.strongSnap(sn), off = dot3(sub3(sn.p, anchor), n);
-    if (strong && Math.abs(off) < 1e-9) return sn;
+  /** 投到锁住的面（过锚点）上：指着具体的东西 → 正投影（「从点」；已在面上就原样）；没有 → 光标射线交面（掠射 = 投影兜底），面的法向平行于某根轴时面内两根轴各自落绝对格（gridSnap）；斜面不落格。 */
+  private lockToPlane(sn: Snap3, anchor: Pt3, sx: number, sy: number, n: Pt3, concrete: boolean, g: { on: boolean; snap: number }): Snap3 {
+    const F = this.contextFrame(), ax = frameAxisOf(n, F), off = dot3(sub3(sn.p, anchor), n), name = ax ? planeLockLabel(ax) : planeLockLabel("face");
+    if (concrete && Math.abs(off) < 1e-9) return sn;
     let p = sub3(sn.p, scale3(n, off));
-    if (!strong) {
+    if (!concrete) {
       const ray = this.frame().ray(sx, sy, this.fvp()), den = dot3(ray.dir, n);
       if (Math.abs(den) > 0.05) { const t = dot3(sub3(anchor, ray.origin), n) / den; if (t > 0) p = { x: ray.origin.x + ray.dir.x * t, y: ray.origin.y + ray.dir.y * t, z: ray.origin.z + ray.dir.z * t }; }
+      if (ax) for (const a of (["x", "y", "z"] as const).filter((q) => q !== ax)) { const d = normalize3(F[a]), c = dot3(sub3(p, F.origin), d), q = gridSnap.length(c, g) - c; p = { x: p.x + d.x * q, y: p.y + d.y * q, z: p.z + d.z * q }; }
     }
-    if (this.gridEff && lock !== "face") {
-      const F = this.contextFrame(), s0 = this.grid.snap;
-      if (s0 > 0) for (const ax of (["x", "y", "z"] as const).filter((a) => a !== lock)) {
-        const raw = F[ax], d = normalize3(raw), c = dot3(sub3(p, F.origin), d), q = Math.round(c / s0) * s0 - c;
-        p = { x: p.x + d.x * q, y: p.y + d.y * q, z: p.z + d.z * q };
-      }
-    }
-    const label = `面锁 ${planeLockLabel(lock)}${strong ? " · 从点" : ""}`;
-    return { p, kind: "tool", label, hints: strong ? [{ a: sn.p, b: p, axis: "i" }] : [] };
+    return { p, kind: "tool", label: `面锁 ${name}${concrete ? " · 从点" : ""}`, hints: concrete ? [{ a: sn.p, b: p, axis: "i" }] : [] };
   }
-  /** 把求解器结果投到锁住的轴线（过锚点）上：吸到实几何 → 投影（SU「从点」）；没吸到 → 光标射线离轴线最近的点；栅格开着 → 沿轴落绝对格。 */
-  private lockToAxis(sn: Snap3, anchor: Pt3 | null | undefined, sx: number, sy: number): Snap3 {
-    if (!this.lk.axis || !anchor) return sn;
-    const F = this.contextFrame(), ax = this.lk.axis, raw = F[ax], dl = Math.hypot(raw.x, raw.y, raw.z) || 1, dir = { x: raw.x / dl, y: raw.y / dl, z: raw.z / dl };
-    const strong = Editor.strongSnap(sn);
+  /** 把求解器结果投到锁住的线（过锚点、沿 dir）上：指着具体的东西 → 投影（SU「从点」）；没有 → 光标射线离线最近的点，再取整：
+   *  线平行于某根轴 = 沿那根轴落绝对格；不平行 = 从锚点量的长度取整（统筹 11-13 第 3 条：硬表面的结果是说得出来的数）。 */
+  private lockToAxis(sn: Snap3, anchor: Pt3, sx: number, sy: number, dir: Pt3, concrete: boolean, g: { on: boolean; snap: number }): Snap3 {
+    const F = this.contextFrame(), ax = frameAxisOf(dir, F);
     let t = dot3(sub3(sn.p, anchor), dir);
-    if (!strong) {   // 射线 vs 轴线的最近点（俯视锁 Z 也能拉高）
+    if (!concrete) {   // 射线 vs 线的最近点（俯视锁 Z 也能拉高）
       const ray = this.frame().ray(sx, sy, this.fvp()), r = ray.dir, w0 = sub3(anchor, ray.origin);
       const b = dot3(dir, r), c = dot3(r, r), d = dot3(dir, w0), e = dot3(r, w0), den = c - b * b;
       if (den > 1e-9) t = (b * e - c * d) / den;
+      if (ax) { const c0 = dot3(sub3(anchor, F.origin), normalize3(F[ax])) * Math.sign(dot3(dir, F[ax]) || 1); t = gridSnap.length(c0 + t, g) - c0; } else t = gridSnap.length(t, g);
     }
-    if (this.gridEff) { const s0 = this.grid.snap, c0 = dot3(sub3(anchor, F.origin), dir); if (s0 > 0) t = Math.round((c0 + t) / s0) * s0 - c0; }
-    const p = { x: anchor.x + dir.x * t, y: anchor.y + dir.y * t, z: anchor.z + dir.z * t };
-    return { p, kind: `axis-${ax}` as SnapKind, label: `方向锁 ${ax.toUpperCase()}${strong ? " · 从点" : ""}`, hints: [{ a: anchor, b: p, axis: ax }, ...(strong ? [{ a: sn.p, b: p, axis: "i" as const }] : [])] };
+    const p = { x: anchor.x + dir.x * t, y: anchor.y + dir.y * t, z: anchor.z + dir.z * t }, say = this.axisKeys.note();
+    return { p, kind: ax ? `axis-${ax}` as SnapKind : "axis-dir", label: `${ax ? `方向锁 ${ax.toUpperCase()}` : say || "锁住的方向"}${concrete ? " · 从点" : ""}`, hints: [{ a: anchor, b: p, axis: ax ?? "d" }, ...(concrete ? [{ a: sn.p, b: p, axis: "i" as const }] : [])] };
   }
   /** B43 尺度参考：勾了哪几项（多选取并集；[] = 不显示；跟着文件存 settings.scaleRefs）+ 懒加载来的梯子数据（宿主递进来）。 */
   private _scaleRefs: string[] = [...DEFAULT_SCALE_REFS];
@@ -3859,7 +3851,7 @@ export class Editor {
       classify: (view, hit) => this.classify(view, hit),
       snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), { chargedEdges: this.alignEdges(), xrayPoints: this.poolOrigins(view), ...q }),
       applyLock: (sn, sx, sy) => this.applyLock(sn, this.anchor3, sx, sy),
-      lockedPlane: (through) => this.lockedPlaneThrough(through),
+      lockedPlane: (through, family) => this.lockedPlaneThrough(through, family),
       alignSources: () => this.alignSrcs(),
       hand: (view, extra, opaque) => this.freshHand(view, extra, opaque),
       toLocal: (p) => this.toLocal(p),

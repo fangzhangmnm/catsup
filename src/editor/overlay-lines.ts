@@ -19,7 +19,7 @@ import { SPHERE_RINGS, circlePoints } from "./guide-pick.ts";
 const CHARGED_PX = 5, GUIDE_POINT_PX = 6;
 /** A33 断口小垂线：半长 = 线宽 × TICK_K、颜色 = 边线色、粗细 = 边线。 */
 const TICK_K = 2;
-const AXIS_AUX: Record<string, AuxColor> = { x: "axisX", y: "axisY", z: "axisZ", u: "neutral", v: "neutral", i: "ink" };
+const AXIS_AUX: Record<string, AuxColor> = { x: "axisX", y: "axisY", z: "axisZ", u: "neutral", v: "neutral", i: "ink", d: "axisDir" };
 /** Z 轴刻度画多远 = 地面网格的半边（render3 GRID_N × GRID_STEP）。 */
 const AXIS_TICK_REACH_M = 50, AXIS_TICK_MAX = 100;   // Z 轴刻度最远排到哪 / 最多几根
 
@@ -247,7 +247,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): AuxLines[] {
 /** 吸附种类 → 颜色角色（小球和提示线共用；值在画风表）。 */
 export const SNAP_COLORS: Record<string, AuxColor> = {
   endpoint: "snapEndpoint", midpoint: "snapMid", "on-edge": "snapEdge", origin: "snapInfer", align: "snapInfer", "align-combo": "snapInfer", "edge-align": "snapEdge",
-  intersection: "snapIntersect", "cross-line": "snapIntersect", "axis-x": "axisX", "axis-y": "axisY", "axis-z": "axisZ", "h-stop": "snapStep",
+  intersection: "snapIntersect", "cross-line": "snapIntersect", "axis-x": "axisX", "axis-y": "axisY", "axis-z": "axisZ", "axis-dir": "axisDir", "h-stop": "snapStep",
   "on-face": "snapFace", "on-guide": "snapGuide", "guide-point": "snapGuide", "guide-cross": "snapIntersect", "grid-point": "snapGrid", increment: "snapStep",
   "on-extension": "snapInfer", center: "snapFace", "pool-origin": "snapIntersect",
 };

@@ -6,7 +6,7 @@ import { worldPerPx } from "./plane-gizmo.ts";
 import { STICKY_R } from "../kernel/subdivide.ts";
 export const SNAP_LABELS: Record<string, string> = {
   endpoint: "端点", midpoint: "中点", "on-edge": "边上", origin: "原点",
-  "axis-x": "X 轴", "axis-y": "Y 轴", "axis-z": "Z 轴",
+  "axis-x": "X 轴", "axis-y": "Y 轴", "axis-z": "Z 轴", "axis-dir": "锁住的方向",
   align: "共轴", "align-combo": "共轴角点", "edge-align": "边上·共轴", intersection: "交点", "cross-line": "交线",
   "h-stop": "高度咬合", "on-face": "面上",
   "on-guide": "参考线上", "guide-point": "参考点", "guide-cross": "参考线交点",

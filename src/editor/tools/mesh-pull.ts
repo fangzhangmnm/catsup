@@ -117,7 +117,7 @@ export class MeshPullTool implements ToolHandler {
     this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y };
     ctx.setAnchor(this.grabW); ctx.setCursor(this.grabW);
     const how = grip ? (grip.id === "mc" ? (t.faces.length ? "手柄中心：屏幕平面随手拖" : "手柄中心：沿各自的垂直方向") : `手柄：${grip.say}`) : t.faces.length ? "沿法向拖" : "屏幕平面随手拖";
-    ctx.hint(`挤出 ${this.what()}：${how}，松手或点第二下落定；右键 = 原地留下接着 G；方向键锁轴；${ctx.snapBase() ? "吸附：点 > 边 > 面，Shift = 反过来" : "按住 Shift = 吸附（点 > 边 > 面）"}`);
+    ctx.hint(`挤出 ${this.what()}：${how}，松手或点第二下落定；右键 = 原地留下接着 G；X / Y / Z 锁轴（N = 法线，T = 边，加 Shift = 那个面）；${ctx.snapBase() ? "吸附：点 > 边 > 面，Shift = 反过来" : "按住 Shift = 吸附（点 > 边 > 面）"}`);
   }
 
   track(ctx: ToolCtx, s: { x: number; y: number }): void {

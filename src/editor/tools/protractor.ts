@@ -35,7 +35,7 @@ export class ProtractorTool implements ToolHandler {
 
   private axis(): Pt3 { return this.plane!.plane.n; }
   /** A9 面锁：第二点落定之前随时可锁 / 解锁——平面过首点；解锁回到首点解析出的平面。 */
-  private relock(ctx: ToolCtx): void { if (this.stage === 1 && this.center && this.plane0) this.plane = ctx.lockedPlane(this.center) ?? this.plane0; }
+  private relock(ctx: ToolCtx): void { if (this.stage === 1 && this.center && this.plane0) this.plane = ctx.lockedPlane(this.center, "rotate") ?? this.plane0; }
   private snapAt(ctx: ToolCtx, sx: number, sy: number, lines: boolean): Snap3 {
     const view = ctx.live();
     return ctx.snap(view, sx, sy, { plane: this.plane!, anchor: this.center!, alignSources: ctx.alignSources(), hand: ctx.hand(view), lines });
@@ -44,7 +44,7 @@ export class ProtractorTool implements ToolHandler {
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.stage === 0) {
       const r = rectFirstPlane(ctx.live(), ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.snapPx(), ctx.alignSources());
-      this.plane0 = r.plane; this.plane = ctx.lockedPlane(r.snap.p) ?? r.plane; this.center = r.snap.p; this.ref = null; this.angle = 0;
+      this.plane0 = r.plane; this.plane = ctx.lockedPlane(r.snap.p, "rotate") ?? r.plane; this.center = r.snap.p; this.ref = null; this.angle = 0;
       ctx.setAnchor(this.center); ctx.setSnap(r.snap); ctx.setCursor(this.center);
       this.stage = 1;
       ctx.hint(`量角器 ②/③：圆心已定（转轴 = ${r.fixed ? "这张面的法向" : "当前平面法向"}）；点参考方向`);

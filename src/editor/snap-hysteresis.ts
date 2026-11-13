@@ -11,7 +11,7 @@ function epsOfKindVR(e: EpsSet, kind: string): number {
 }
 const EPS_OF: Record<string, number> = {
   endpoint: 10, origin: 10, midpoint: 10, "on-edge": 7,
-  "edge-align": 12, "align-combo": 12, align: 5, "axis-x": 5, "axis-y": 5, "axis-z": 5, "on-extension": 5, tool: 5,
+  "edge-align": 12, "align-combo": 12, align: 5, "axis-x": 5, "axis-y": 5, "axis-z": 5, "axis-dir": 5, "on-extension": 5, tool: 5,
 };
 /** 上一个吸附目标的放手容差：有这一帧的度量（VR / 新指针帧）用它，没有 = 桌面像素表 × 视口高 / 800。 */
 export function snapHoldTol(kind: string, eps: EpsSet | null | undefined, viewH: number): number { return eps ? epsOfKindVR(eps, kind) : (EPS_OF[kind] ?? 8) * (viewH / 800); }

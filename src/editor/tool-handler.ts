@@ -81,7 +81,7 @@ export interface ToolCtx {
   /** A9 锁的事后约束：没锁 = 原样返回；轴锁 = 投到过锚点的那根轴线上；面锁 = 投到过锚点的那张面上。沿轴走的工具（lock: "axis"）在自己算完吸附之后调一次。 */
   applyLock(sn: Snap3, sx: number, sy: number): Snap3;
   /** A9 面锁下过 through 的平面（没锁 = null）。先定平面的工具（lock: "plane"）首点之后用它代替自己解析出的平面。 */
-  lockedPlane(through: Pt3): DrawPlane | null;
+  lockedPlane(through: Pt3, family?: "shape" | "rotate"): DrawPlane | null;   // family：二维图形（矩形 / 圆 / 弧…，缺省）= 图形躺的面；rotate（旋转 / 量角器）= 转的那个面（controller/axis-apply.ts shapePlane / rotatePlane）
   alignSources(): Pt3[];
   /** 「手里」谓词（在手的几何不参与吸附）；extra = 工具自报的移动集（本地 id），opaque = 手中膜是否遮挡。 */
   hand(view: WorldView, extra?: (vid: VertexId) => boolean, opaque?: boolean): AlignHand;

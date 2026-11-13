@@ -680,6 +680,7 @@ export type SnapKind =
   | "endpoint" | "midpoint" | "on-edge" | "origin"
   | "center" | "pool-origin"   // 圆心 / 选中的组·组件的轴原点（DT15）
   | "axis-x" | "axis-y" | "axis-z"
+  | "axis-dir"   // 锁住的方向不和坐标架任何一根轴平行（轴键 N / T 按出来的；锁的一轮，统筹 11-13：不带轴名的那一种）
   | "align" | "align-combo" | "edge-align"
   | "on-extension"   // 充能边的延长线上（0.11.6）
   | "intersection" | "cross-line"
@@ -689,7 +690,7 @@ export type SnapKind =
   | "on-face"   // 裸落在膜内（2-D 目标；仅当平面来自膜且点在环内）
   | "h-stop";   // pp 高度通道咬合（标量吸附，非光标目标）
 /** 1-DOF 约束的视觉提示：从源点到吸附点的虚线（SU from-point 同款）。 */
-export interface SnapHint { a: Pt3; b: Pt3; axis: "x" | "y" | "z" | "u" | "v" | "i"; }
+export interface SnapHint { a: Pt3; b: Pt3; axis: "x" | "y" | "z" | "u" | "v" | "i" | "d"; }   // d = 锁住的方向不平行于任何轴（axis-dir）
 export interface Snap3 { p: Pt3; kind: SnapKind | null; hints?: SnapHint[]; /** 工具目标的人话标签（kind = "tool" 时）。 */ label?: string; }
 
 
