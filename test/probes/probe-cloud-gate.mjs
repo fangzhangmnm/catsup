@@ -335,7 +335,8 @@ console.log("退出登录 = 拆库（Fable 11-04，对齐 MoonSinger）：开着
   await s.page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
   await s.page.click("#galleryCloudBtn");
   await s.page.click(".popup-menu .menu-item:has-text('退出登录')");
-  await s.page.waitForFunction(() => globalThis.__catsup.store() === null, null, { timeout: 8000 });
+  // 等退出登录整个做完（开着的那份改挂成临时模型 = cloudSignOut 的最后几步），不是只等 store 放掉：放掉 store 那一下函数还在 await，紧跟着读会读到半路（v0.19.75 先存后数多了几拍，红过一次）
+  await s.page.waitForFunction(() => globalThis.__catsup.store() === null && globalThis.__catsup.session.home.kind === "transient", null, { timeout: 8000 });
   const after = await s.page.evaluate(async () => ({
     galleryHidden: document.getElementById("galleryFull").hidden, home: globalThis.__catsup.session.home.kind, dirty: globalThis.__catsup.session.dirty(),
     edges: globalThis.__catsup.editor.kernel.edges().length, attached: localStorage.getItem("catsup-7c1f0d2e9a4b6c58:gallery-attached"),
