@@ -189,7 +189,7 @@ export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（202
 import { SNAP_LABELS } from "./gesture-consts.ts";
 import { CHARGE_DWELL_MS } from "../controller/feel.ts";
 import { settleLift } from "../controller/lift-settle.ts"; import type { PressHit } from "../controller/hard-press.ts";
-import { lockLines, lockThrough } from "../controller/lock-guide.ts"; import { ToolHold, type Hold } from "../controller/tool-borrow.ts";
+import { lockLines, lockThrough } from "../controller/lock-guide.ts"; import { ToolHold, type Hold } from "../controller/tool-borrow.ts"; import { selectLinked } from "./tools/selecting.ts";
 import { stepSelection, type SelSets } from "../mesh/select-grow.ts";
 import { SNAP_BASE, deviceOf, stanceOf } from "../controller/stance.ts";
 import { createTypedInput, type TypedInput } from "../controller/typed-input.ts";
@@ -2017,7 +2017,7 @@ export class Editor {
   /** 修复模块（repairs/）用的窄接口：模块不碰 Editor 本体。 */
   private get repairCtx(): CommandEnv {
     const self = this;
-    return { get scene() { return self.scene; }, gridFineStep: () => this.gridFineStep(), snapStepChoices: () => this.snapStepChoices(), snapLattice: (at, xf, f) => this.snapLattice(at, xf, f), sharpDeg: () => this.config.get("surface", "sharpDeg"), pointedInstance: () => this.pointedInstance(), circleSegments: () => this.config.get("circle", "segments") };
+    return { get scene() { return self.scene; }, gridFineStep: () => this.gridFineStep(), snapStepChoices: () => this.snapStepChoices(), snapLattice: (at, xf, f) => this.snapLattice(at, xf, f), sharpDeg: () => this.config.get("surface", "sharpDeg"), pointedInstance: () => this.pointedInstance(), eye: () => this.toLocal(this.cam.eye()), circleSegments: () => this.config.get("circle", "segments") };
   }
   /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
   repairLoaded(kind: RepairKind): boolean { return !!commandById(kind); }
@@ -3123,7 +3123,7 @@ export class Editor {
   rightClickInGesture(): boolean { if (!this.gestureActive()) return false; if (!this.commitInPlace()) this.abortGesture(); return true; }   // 手势中右键（两种工作台一样，T102）：能原地留下的原地留下，别的只取消这一下；不在手势里 = false（app 弹菜单）
   abortGesture(): void { this.hold.noteCancel(this.gestureActive()); this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.lasso?.(null); this.host.softRing?.(null); this.host.hint(null); this.draw(); this.settleHold(false); }
   /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
-  gestureInProgress(): boolean { return this.gestureActive(); } pressKindAt(x: number, y: number): "handle" | "thing" | "empty" | null { return this.handlers[this._tool]?.pressKind?.(this.toolCtx, { x, y }) ?? null; }   // pressKindAt = 这一点下面是把手 / 东西 / 空处（纯读；controller/grab-relay.ts 用）
+  gestureInProgress(): boolean { return this.gestureActive(); } selectLinkedAt(remove: boolean): boolean { return !!this.lastPtr && !this.gestureActive() && selectLinked(this.toolCtx, this.lastPtr, remove); } pressKindAt(x: number, y: number): "handle" | "thing" | "empty" | null { return this.handlers[this._tool]?.pressKind?.(this.toolCtx, { x, y }) ?? null; }   // pressKindAt = 这一点下面是把手 / 东西 / 空处（纯读；controller/grab-relay.ts 用）
   /** 指针下的实体是否已在选区里（右键 = 不在就先选它，SU 同款）。 */
   hitInSelection(hit: HitResult3): boolean {
     const c = this.classify(this.liveWorld(), hit);

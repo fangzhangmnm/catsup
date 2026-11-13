@@ -13,7 +13,7 @@ import { meshDocFromKernel, kernelFromMeshDoc } from "../src/mesh/mesh-doc.ts";
 import type { Scene } from "../src/scene/scene.ts";
 import { UV_COLUMN_IDS } from "../src/scene/uv.ts";
 
-const BUDGET_BYTES: Record<string, number> = { box: 2900, holed: 3100, house: 3100, cylinder: 8400, folded: 3300 };   // holed / house 3000 → 3100（2026-11-13：新文档的 settings 写明单位制 "unitSystem":"metric" 等 ≈ +25 B，实测 3012 / 3024）   // 全部 +200（2026-11-04 身份地基）：实测每份多约 130 B = 定义 guid + root + 默认层 guid + 拍子   // folded（DT87 折线，2026-10-26）：两张三角 + 一层 fold，实测 2980   // box 2600 → 2700（2026-10-25：第六个扩展 CATSUP_desk + document minor 键 ≈ +50 B，实测 2648）   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
+const BUDGET_BYTES: Record<string, number> = { box: 2900, holed: 3100, house: 3100, cylinder: 8400, folded: 3400 };   // folded 3300 → 3400（2026-11-13：版本号 v0.19.99 → v0.19.100 多一位、按 4 字节对齐 = +4 B，实测 3304；v0.19.100 起 main 上这一格就红了，Claude Opus 5.5 发 A 时漏跑了全套）   // holed / house 3000 → 3100（2026-11-13：新文档的 settings 写明单位制 "unitSystem":"metric" 等 ≈ +25 B，实测 3012 / 3024）   // 全部 +200（2026-11-04 身份地基）：实测每份多约 130 B = 定义 guid + root + 默认层 guid + 拍子   // folded（DT87 折线，2026-10-26）：两张三角 + 一层 fold，实测 2980   // box 2600 → 2700（2026-10-25：第六个扩展 CATSUP_desk + document minor 键 ≈ +50 B，实测 2648）   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
 
 /** 同一身份的文档（2026-11-04：根定义现在有 GUID，比字节的测试要钉住它）。 */
 const FIXED_ROOT = "11111111-1111-4111-8111-111111111111";

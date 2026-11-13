@@ -29,6 +29,12 @@ export declare const bevelPoints: Command<MeshUnit>;
 export declare const mergeCenter: Command<MeshUnit>;
 export declare const duplicate: Command<MeshUnit>;
 export declare const fill: Command<MeshUnit>;
+/**
+ * 造面（Blender F；user 11-13 重做小屋子「你选中一些东西，按 F 能创建一个面，和 Blender 一样」，统筹插队单）。和「补洞 / 桥接」并排、不搅在一起：
+ * 选区说的是哪一种面由 mesh/ops/make-face.ts planMakeFace 定——一圈开口的边 = 补洞（就用现成的 meshFill）；一条链 / 两条边 / 散的点 = meshMakeFace 按点序造一张面；
+ * 两个点 = 连一条边。做不了 = 原因进提示行（这一步不提交）。朝向在计划里定死（跟邻面；旁边没有面 = 朝着眼睛）。
+ */
+export declare const makeFace: Command<MeshUnit>;
 export declare const flipNormals: Command<MeshUnit>;
 export declare const subdivideCmd: Command<MeshUnit>;
 export declare const symmetrySnap: Command<MeshUnit>;

@@ -2,6 +2,7 @@ import type { Op } from "../ops.ts";
 import type { DefId, InstId, PoolRef, Scene } from "../../scene/scene.ts";
 import type { BodyKind } from "../../scene/body-kind.ts";
 import type { Xform } from "../../scene/xform.ts";
+import type { Pt3 } from "../../kernel/geom.ts";
 import type { BrepSelection, MeshSelection } from "../tools.ts";
 import type { ParamField, ParamValue } from "../param-panel.ts";
 /** 族 = 指令吃的单位种类。brep / mesh = 两个内核各自的动词；object = 组 / 组件 / 实例这些容器；select = 选区；view = 相机和显示（不记撤销）；doc = 文件和文档设置；paint = 画布像素；simulation = 读任何几何、产出一个物体。
@@ -60,6 +61,10 @@ export interface CommandEnv {
     circleSegments(): number;
     /** 菜单对着哪个选中的物件点的 / 光标压着哪个（这一层的实例 id；合并的目标 = 它，user 10-28 夜「你右键点在谁身上，谁留下 可以」）；没有 = null。 */
     pointedInstance(): InstId | null;
+    /** 眼睛在正在编辑的那一层的本地坐标里在哪（造面：旁边没有面时新面朝着它）；没有 = null。
+     *  欠账（统筹 11-13）：这是命令读了屏幕那一侧的东西，和「命令 = 给参数做一次变换，不认手和屏幕」不合。到「命令和工具分家」那一轮改成造面的一个参数（朝向的参照点，调用的那一头填）；
+     *  在那之前 CommandEnv 不许再加第二个和视图有关的读法，有第二个需要时先停下来找统筹。 */
+    eye(): Pt3 | null;
 }
 export type Params = Readonly<Record<string, ParamValue>>;
 /** 一个单位上的规划结果。 */

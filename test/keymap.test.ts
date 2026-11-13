@@ -1,5 +1,5 @@
 // 分层键表（controller/keymap.ts）守卫：几个关键上下文里「按 X 是什么意思」（2026-10-28 Claude Fable 5.1；账本 UX17 / UX18）。
-import { describe, it, eq } from "./runner.mjs";
+import { describe, it, eq, assert } from "./runner.mjs";
 import { resolveKey, chordOf, chordLabel, layersOf, modifierChords, keyDocs, ALL_LAYERS, LAYER_DOCS, KNOWN_CONFLICTS, muscleConflicts, meaningOf, type KeyContext, type KeyEvt } from "../src/controller/keymap.ts";
 import { KEYS_TABLE, README_SECTIONS } from "../src/app/readme-docs.ts";
 
@@ -22,9 +22,14 @@ describe("键表：什么时候按 X 是什么意思", () => {
     }
     eq(act(ctx({ mode: "freeform", tool: "select" }), K("KeyY")), "lock.arm:y", "选择工具先锁 Y 下一下生效");
   });
-  it("硬表面：X = 橡皮（工具键）；G = 建组件；L = 画线；Shift+L 不再误切工具", () => {
-    eq(act(ctx({}), K("KeyX")), "tool.key:x:erase"); eq(act(ctx({}), K("KeyG")), "component.make"); eq(act(ctx({}), K("KeyL")), "tool.key:l:line");
-    eq(act(ctx({}), K("KeyL", "L", { shift: true })), "∅");
+  it("硬表面：X = 橡皮（工具键）；G = 建组件；L = 选连着的一块、Shift+L = 拿掉（Blender；user 11-13 批，画线只剩 K）", () => {
+    eq(act(ctx({}), K("KeyX")), "tool.key:x:erase"); eq(act(ctx({}), K("KeyG")), "component.make"); eq(act(ctx({}), K("KeyL")), "select.linked");
+    eq(act(ctx({}), K("KeyL", "L", { shift: true })), "select.linked:remove"); eq(act(ctx({}), K("KeyK")), "tool.key:k:line");
+  });
+  it("L / Shift+L：自由建模也是选连着的一块；手势进行中、画画里不响应", () => {
+    eq(act(ctx({ mode: "freeform", tool: "select" }), K("KeyL")), "select.linked"); eq(act(ctx({ mode: "freeform", tool: "move" }), K("KeyL", "L", { shift: true })), "select.linked:remove");
+    assert(act(ctx({ mode: "freeform", tool: "move", gesture: true }), K("KeyL")) !== "select.linked", "手势中不响应");
+    assert(act(ctx({ mode: "paint" as never }), K("KeyL")) !== "select.linked", "画画里不管");
   });
   it("自由建模：G / R / S / E = 键盘起手；A = 全选；Ctrl+R 环切；Ctrl+B / Ctrl+Shift+B 倒角", () => {
     const c = ctx({ mode: "freeform", tool: "select" });

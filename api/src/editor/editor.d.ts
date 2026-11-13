@@ -1187,6 +1187,7 @@ export declare class Editor {
     abortGesture(): void;
     /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
     gestureInProgress(): boolean;
+    selectLinkedAt(remove: boolean): boolean;
     pressKindAt(x: number, y: number): "handle" | "thing" | "empty" | null;
     /** 指针下的实体是否已在选区里（右键 = 不在就先选它，SU 同款）。 */
     hitInSelection(hit: HitResult3): boolean;

@@ -22,7 +22,7 @@ import { snapToSymmetry, symmetrize } from "../mesh/mirror.ts";
 import { looseBits, subdivide } from "../mesh/ops/subdivide.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
-import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, KnifeRefused, type KnifeStop, loopCut, loopCuts, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame, splitEdge, duplicateGeometry, fillOrBridge, flipFaces } from "../mesh/ops/index.ts";
+import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, KnifeRefused, type KnifeStop, loopCut, loopCuts, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame, splitEdge, duplicateGeometry, fillOrBridge, makeFaceRing, flipFaces } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { bornFaces, settleNewFaceSides } from "../kernel/face-sides.ts";
 import { MeshKernel, type EdgeOrigin } from "../mesh/mesh-kernel.ts";
@@ -182,6 +182,8 @@ export type Op =
   | { op: "meshDuplicate"; def: number; verts?: number[]; edges?: number[]; faces?: number[] }
   /** 补洞（一圈开口边 → 一张面）/ 桥接（两圈点数一样 → 一圈四边形）。 */
   | { op: "meshFill"; def: number; verts?: number[]; edges?: number[] }
+  /** 造面（Blender F；mesh/ops/make-face.ts）：按 ring 的点序造一张面（朝向已在计划里定好、写进点序）；两个点 = 连一条裸线。会坏（一条边挂三张面、共线、已经有）= 拒绝。 */
+  | { op: "meshMakeFace"; def: number; ring: number[] }
   /** 翻转这些面的朝向（单面网格的正面 = 环的绕向）。 */
   | { op: "meshFlip"; def: number; faces: number[] }
   /** 开始画（贴图主线 1-3b；editor/paint-ops.ts）：给这些面铺一套贴图坐标、建一张没有字节的分层贴图和一个接着它的材质、把面换成它。三个 GUID 写在指令里（重放得到同一个身份）。 */
@@ -824,6 +826,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "meshDelete": { deleteSelection(meshOf(s, op.def).kernel, op, !!op.dissolve); return { scene: s, events: [] }; }
     case "meshDuplicate": { duplicateGeometry(meshOf(s, op.def).kernel, op); return { scene: s, events: [] }; }
     case "meshFill": { const r = fillOrBridge(meshOf(s, op.def).kernel, op); if (typeof r === "string") throw new OpTargetError(r); return { scene: s, events: [] }; }
+    case "meshMakeFace": { const r = makeFaceRing(meshOf(s, op.def).kernel, op.ring); if (typeof r === "string") throw new OpTargetError(r); return { scene: s, events: [] }; }
     case "meshFlip": { const k = meshOf(s, op.def).kernel; flipFaces(k, op.faces.filter((f) => k.hasF(f))); return { scene: s, events: [] }; }
     case "startPaint": { if (s.texturesFrozen) throw new OpRejected(TEXTURES_FROZEN); return paintOutcome(s, applyStartPaint(s, op)); }   // 画的三条指令住 paint-ops.ts（1-3b）
     case "meshPaintFaces": return paintOutcome(s, applyMeshPaintFaces(s, op));
@@ -964,6 +967,7 @@ export function describeOp(op: Op): string {
     case "meshSmoothDefault": return `meshSmoothDefault def=${op.def} ${op.mode} ${op.deg}`;
     case "meshDuplicate": return `meshDuplicate def=${op.def} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFill": return `meshFill def=${op.def} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
+    case "meshMakeFace": return `meshMakeFace def=${op.def} n=${op.ring.length}`;
     case "meshFlip": return `meshFlip def=${op.def} faces=${op.faces.length}`;
     case "startPaint": return `startPaint def=${op.def} faces=${op.faces.length} uv=${op.uvSet.slice(0, 4)}${op.density !== undefined ? ` density=${op.density}` : ""}${op.canvas !== undefined ? ` canvas=${op.canvas}` : ""}${op.arrange !== undefined ? ` arrange=${op.arrange}` : ""}`;
     case "meshPaintFaces": return `meshPaintFaces def=${op.def} faces=${op.faces.length} material=${op.material ?? "default"}`;

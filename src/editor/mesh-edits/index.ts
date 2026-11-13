@@ -5,7 +5,7 @@ import { LOOP_CUT_DEFAULTS, LOOP_CUT_FIELDS, loopCutArgs } from "./loop-cut-fiel
 import { startPaint, paintAddFaces } from "./start-paint.ts";   // 画画工作台的「开始画」（贴图主线 1-7）+「把这几张面加进来」（施工单十五）；入口 = 上方正中那颗主按钮（app/primary-button.ts），不在右下角
 import type { Command, MeshUnit } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
-import { loopCuts as loopCutsOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits, duplicateGeometry, fillOrBridge, bestFitNormal, flattenMoves } from "../../mesh/ops/index.ts";
+import { loopCuts as loopCutsOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits, duplicateGeometry, fillOrBridge, planMakeFace, makeFaceRing, bestFitNormal, flattenMoves } from "../../mesh/ops/index.ts";
 import { add3, scale3, type Pt3 } from "../../kernel/geom.ts";
 import { snapToSymmetry, type MirrorAxis, type SnapSide } from "../../mesh/mirror.ts";
 import { type MeshKernel, type SmoothDefaultMode } from "../../mesh/mesh-kernel.ts";
@@ -270,6 +270,31 @@ export const fill: Command<MeshUnit> = {
   done: (n) => (n === 1 ? "补洞：补了一张面" : `桥接：连了 ${n} 张四边形`),
   none: "补洞 / 桥接：先选一圈开口的边（补洞）或者两圈点数一样的边（桥接）",
 };
+/**
+ * 造面（Blender F；user 11-13 重做小屋子「你选中一些东西，按 F 能创建一个面，和 Blender 一样」，统筹插队单）。和「补洞 / 桥接」并排、不搅在一起：
+ * 选区说的是哪一种面由 mesh/ops/make-face.ts planMakeFace 定——一圈开口的边 = 补洞（就用现成的 meshFill）；一条链 / 两条边 / 散的点 = meshMakeFace 按点序造一张面；
+ * 两个点 = 连一条边。做不了 = 原因进提示行（这一步不提交）。朝向在计划里定死（跟邻面；旁边没有面 = 朝着眼睛）。
+ */
+export const makeFace: Command<MeshUnit> = {
+  id: "mesh.makeFace", unit: "mesh", title: "造面",
+  defaults: () => ({}), params: () => [],
+  quickCount: (env, u) => { const k = env.scene.mesh(u.def).kernel; return typeof planMakeFace(k, selOf(k, u), null) === "string" ? 0 : 1; },
+  plan(env, u) {
+    const k = env.scene.mesh(u.def).kernel, s = selOf(k, u), p = planMakeFace(k, s, env.eye());
+    if (typeof p === "string") return { ops: [], count: 0, notes: [p] };
+    if (p.kind === "fill") {
+      const r = fillOrBridge(k.clone(), s);
+      if (typeof r === "string") return { ops: [], count: 0, notes: [r] };
+      return { ops: [{ op: "meshFill", def: u.def, ...(s.edges.length ? { edges: s.edges } : { verts: s.verts }) }], count: 1, select: { faces: r.faces }, notes: ["补了一张面（这一圈开口的边）"] };
+    }
+    const ring = p.kind === "edge" ? [p.a, p.b] : [...p.ring], r = makeFaceRing(k.clone(), ring);
+    if (typeof r === "string") return { ops: [], count: 0, notes: [r] };
+    const say = p.kind === "edge" ? "两个点之间连了一条边" : p.how === "chain" ? `把这条链的两头接上，造了一张 ${ring.length} 边形` : p.how === "quad" ? "两条边之间造了一张四边形" : `按这些点围成的一圈造了一张 ${ring.length} 边形`;
+    return { ops: [{ op: "meshMakeFace", def: u.def, ring }], count: 1, select: "face" in r ? { faces: [r.face] } : { edges: [r.edge] }, notes: [say] };
+  },
+  done: () => "造面",
+  none: "造面（F）没做",
+};
 export const flipNormals: Command<MeshUnit> = {
   id: "mesh.flipNormals", unit: "mesh", title: "翻转法线",
   defaults: () => ({}), params: () => [],
@@ -406,7 +431,7 @@ function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
 }
 export const smoothByAngle = smoothDefaultCommand("angle"), smoothAll = smoothDefaultCommand("smooth"), smoothNone = smoothDefaultCommand("hard");
 
-const commands: readonly Command[] = [startPaint as Command, paintAddFaces as Command, duplicate as Command, fill as Command, flipNormals as Command, loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
+const commands: readonly Command[] = [startPaint as Command, paintAddFaces as Command, duplicate as Command, fill as Command, makeFace as Command, flipNormals as Command, loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
   bevel as Command, bevelPoints as Command, symmetrySnap as Command, mergeCenter as Command, flattenX as Command, flattenY as Command, flattenZ as Command, flattenNormal as Command, flattenMirror as Command, subdivideCmd as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, markSeam as Command, clearSeam as Command, autoSeamsCmd as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
 /** 图标 = stopgap（剪刀；图标库 TODO 已登记 loop-cut）。 */
 const actions: readonly Action[] = [
@@ -414,6 +439,7 @@ const actions: readonly Action[] = [
   { id: "mesh.paintAddFaces", icon: "pencil", label: (n) => `把这几张面加进来（${n} 张）`, commands: { mesh: "mesh.paintAddFaces" } },   // 施工单十五
   { id: "mesh.duplicate", icon: "copy", label: (n) => `复制（${n}）`, commands: { mesh: "mesh.duplicate" } },
   { id: "mesh.fill", icon: "fill-hole", label: (n) => (n === 1 ? "补洞" : `桥接（${n} 张面）`), commands: { mesh: "mesh.fill" } },
+  { id: "mesh.makeFace", icon: "fill-hole", label: () => "造面（F）", commands: { mesh: "mesh.makeFace" } },   // Blender F：一条链 / 两条边 / 散点 = 一张面，两个点 = 一条边，一圈 = 补洞
   { id: "mesh.flipNormals", icon: "flip-horizontal", label: (n) => `翻转法线（${n} 张面）`, commands: { mesh: "mesh.flipNormals" } },
   { id: "mesh.loopCut", icon: "cut", label: (n) => `环切（${n} 条边）`, commands: { mesh: "mesh.loopCut" } },
   { id: "mesh.connect", icon: "line", label: () => "连线（J）", commands: { mesh: "mesh.connect" } },
@@ -447,7 +473,7 @@ const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "cont
   { action: "mesh.flatten.z", where: "contextBar", order: 25.3, modes: ["freeform"], submenu: { label: "压平", item: "沿 Z" } },
   { action: "mesh.flatten.normal", where: "contextBar", order: 25.4, modes: ["freeform"], submenu: { label: "压平", item: "沿这圈的朝向" } },
   { action: "mesh.flatten.mirror", where: "contextBar", order: 25.5, modes: ["freeform"], submenu: { label: "压平", item: "到镜像面" } },
-  { action: "mesh.duplicate", where: "contextBar", order: 26, modes: ["freeform"] }, { action: "mesh.fill", where: "contextBar", order: 27, modes: ["freeform"] },
+  { action: "mesh.duplicate", where: "contextBar", order: 26, modes: ["freeform"] }, { action: "mesh.fill", where: "contextBar", order: 27, modes: ["freeform"] }, { action: "mesh.makeFace", where: "contextBar", order: 27.5, modes: ["freeform"] },
   { action: "mesh.flipNormals", where: "contextBar", order: 28, modes: ["freeform"] },
   { action: "mesh.subdivide", where: "objectWindow", order: 36 },   // 细分 / 默认平滑 = 物体级 → 物体窗口（user 10-28「镜像细分默认平滑这些都收到选窗里面」）
   { action: "mesh.symmetrySnap", where: "contextBar", order: 38, modes: ["freeform"], submenu: { label: "镜像", item: "对称对齐…" } },

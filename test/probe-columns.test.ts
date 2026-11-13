@@ -62,6 +62,7 @@ const RUN: Record<string, Case> = {
   "delete.ts:deleteSelection": C(() => { const t = twoQuads(); shared = t.shared; return t.k; }, (k) => { Ops.deleteSelection(k, { edges: [shared] }, true); }),
   "duplicate.ts:duplicateGeometry": C(box, (k) => { Ops.duplicateGeometry(k, { faces: [top(k)] }); }),
   "duplicate.ts:fillOrBridge": C(() => { const k = new MeshKernel(); Ops.addPolygon(k, [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)]); Ops.addPolygon(k, [P(0, 0, 2), P(0, 1, 2), P(1, 1, 2), P(1, 0, 2)]); return k; }, (k) => { const r = Ops.fillOrBridge(k, { edges: k.edges() }); assert(typeof r !== "string", String(r)); }),
+  "duplicate.ts:makeFaceRing": C(() => { const k = new MeshKernel(); Ops.addPolygon(k, [P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 1, 0)]); for (const q of [P(0, 0, 1), P(1, 0, 1), P(0, 0, 2), P(1, 0, 2)]) k.addVertex(q); return k; }, (k) => { const vs = k.verts().filter((v) => !k.vEdges(v).length), f = Ops.makeFaceRing(k, [vs[0], vs[1], 1, 0]), e = Ops.makeFaceRing(k, [vs[2], vs[3]]); assert(typeof f !== "string" && typeof e !== "string", `${String(f)} ${String(e)}`); }),   // 造面：一张贴着现成边的四边形（新边新长、面凭空来的）+ 两个散点之间一条裸线（凭空来的边）
   "extrude.ts:extrudeFaces": C(box, (k) => { Ops.extrudeFaces(k, [top(k)]); }),
   "extrude.ts:extrudeEdges": C(quad, (k) => { Ops.extrudeEdges(k, [boundaryEdge(k)]); }),
   "extrude.ts:extrudeVerts": C(box, (k) => { Ops.extrudeVerts(k, [k.faceVerts(top(k))[0]]); }),

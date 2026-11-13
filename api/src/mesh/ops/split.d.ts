@@ -39,3 +39,14 @@ export declare function knifeCheck(k: MeshKernel, f: number, path: readonly Knif
  * 先 knifeCheck，拦下来就抛 KnifeRefused、一个数都不动；过了 = 劈边（边上的点）+ splitFaceAlong。两点之间已经有边、没有拐点 = 什么都不切（和以前一样）。
  */
 export declare function knife(k: MeshKernel, f: number, path: readonly KnifeStop[]): number[];
+/**
+ * 平面上的一圈点（已投到面的二维坐标里）自己交不交叉：第 i 段（只看 which(i) 为真的那些段，缺 = 全看）和第 j 段——相邻的交点多于一个（叠回去）、不相邻的有交点 = 交叉。
+ * 返回第一对（i 在外层、j 在内层，都按下标升序）；不交叉 = null。刀验刀线（只看刀线那几段）和造面验点序（全看，duplicate.ts faceBlocker）共用这一份。
+ */
+export declare function ringCrossing(q: readonly {
+    x: number;
+    y: number;
+}[], which?: (i: number) => boolean): {
+    i: number;
+    j: number;
+} | null;

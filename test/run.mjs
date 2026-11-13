@@ -108,6 +108,7 @@ import "./texture-basis.test.ts";   // 贴图默认铺法：上 = 上、不镜�
 import "./material-color-space.test.ts";   // 材质色文件边界换算 + 老文件原样（2026-10-30 Opus）
 import "./soft-select.test.ts";   // 软选择权重（2026-10-28 夜 Opus）
 import "./mesh-fill.test.ts";   // 复制 / 补洞 / 桥接（2026-10-28 夜 Opus）
+import "./make-face.test.ts";   // 造面（Blender F；统筹插队单 11-13）
 import "./select-grow.test.ts";   // 扩 / 缩选区（2026-10-28 夜 Opus）
 import "./object-ops-kinds.test.ts";   // 物件级 op × 身体种类组合矩阵（2026-10-28 夜 Opus）
 import "./mesh-subdivide.test.ts";   // 细分（Catmull-Clark，破坏性）：教科书值 / 折痕 / 裸线拒 / op + 撤销（FM133，2026-10-28 Opus）

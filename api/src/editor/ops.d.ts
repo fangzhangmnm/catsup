@@ -474,6 +474,12 @@ export type Op =
     verts?: number[];
     edges?: number[];
 }
+/** 造面（Blender F；mesh/ops/make-face.ts）：按 ring 的点序造一张面（朝向已在计划里定好、写进点序）；两个点 = 连一条裸线。会坏（一条边挂三张面、共线、已经有）= 拒绝。 */
+ | {
+    op: "meshMakeFace";
+    def: number;
+    ring: number[];
+}
 /** 翻转这些面的朝向（单面网格的正面 = 环的绕向）。 */
  | {
     op: "meshFlip";

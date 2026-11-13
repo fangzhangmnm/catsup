@@ -13,7 +13,7 @@ const fs = (await import("node:fs" as string)) as { readFileSync(p: string, enc:
 const src = (p: string): string => fs.readFileSync(url.fileURLToPath(new URL(p, import.meta.url)), "utf8");
 
 const VERBS = ["object.explode", "object.mergeInto", "object.makeUnique", "object.lock", "object.unlock", "object.hide", "object.applyScale"] as const;
-const env = (s: Scene, pointed: number | null = null): CommandEnv => ({ scene: s, gridFineStep: () => 0.1, snapStepChoices: () => [], snapLattice: () => IDENTITY as Xform, sharpDeg: () => 20, pointedInstance: () => pointed, circleSegments: () => 16 });
+const env = (s: Scene, pointed: number | null = null): CommandEnv => ({ scene: s, gridFineStep: () => 0.1, snapStepChoices: () => [], eye: () => null, snapLattice: () => IDENTITY as Xform, sharpDeg: () => 20, pointedInstance: () => pointed, circleSegments: () => 16 });
 /** 最外层 hostKind；里面两个盒子组件（A / B，各自定义），compKind 给 A。 */
 function setup(hostKind: "brep" | "mesh", compKind: "brep" | "mesh"): { s: Scene; A: number; B: number } {
   const s = new Scene(sceneBox());
