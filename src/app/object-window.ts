@@ -13,19 +13,15 @@ import { openPopupMenu, togglePopupMenu, type PopupMenuItem } from "./ui/popup-m
 import { foldSubmenus } from "./context-menu.ts";
 import { MACHINES, type Machine } from "./machine-window.ts";
 import type { MenuSpec } from "./ui/menu-window.ts";
-import type { MirrorAxis, MirrorMode } from "../mesh/mirror.ts";
-import { brepAttributeList, meshAttributeList, type AttributeRow } from "../scene/attribute-list.ts";
-import { brepAttrName, bytesSay, meshAttrName, typeSay } from "./attribute-names.ts";
+import type { AttributeRow } from "../scene/attribute-list.ts";
+import { bytesSay, typeSay } from "./attribute-names.ts";
+import { kindPageOf, type KindPageRow } from "./kind-pages.ts";
+import type { ParamValue } from "../editor/param-panel.ts";
 
 export type ObjectTarget = Exclude<MenuTarget, "selection">;
 /** 两页（属性地基轮 3½，统筹 11-13 深夜：照 user 定的叫法）：物体 = 字段 + 物件级动词 + 机器；元素 = 这个物体身上有哪些元素属性（只读）。记住上次停在哪一页。 */
 const OBJECT_TABS = [{ id: "object", label: "物体" }, { id: "elements", label: "元素" }] as const;
-// 强行对称排第一 = 主入口（user 10-28「就是水杉和blender那种啊，强行对称」）；镜像编辑 = 只挪点的那种（Blender 编辑模式的 X 镜像）
-const MIRROR_MODES: readonly { id: "off" | MirrorMode; label: string; hint: string }[] = [
-  { id: "off", label: "关", hint: "不镜" },
-  { id: "force", label: "强行对称", hint: "沿镜像面切开、另一半镜过来，每一步都镜" },
-  { id: "edit", label: "镜像编辑", hint: "只挪点：对面的点一起改" },
-];
+// 每个种类自己的那几行字段 / 元素页 = kind-pages.ts（第 1 版第五节第 1 条）：这里不认识种类，照着画（守卫 test/kind-pages.test.ts：本文件不许出现种类的名字）。
 
 /** 窗口要的（main.ts 给）：after = 改完刷 UI（syncUi）；openMachine = 开那台机器的板（修复页的「修复面板…」）。 */
 export interface ObjectWindowDeps { after(): void; openMachine(m: Machine): void }
@@ -50,8 +46,8 @@ export function objectWindowMenu(editor: Editor, hud: HudModel, target: ObjectTa
         editor.withMenuTarget("self", () => hud.pick(cmd)); after(); return "keep";
       }
       const def = soleDef(editor, target);
-      if (id.startsWith("mirror:mode:")) { const m = id.slice("mirror:mode:".length); editor.setMirror(m === "off" ? null : (m as MirrorMode), undefined, def); after(); return "keep"; }
-      if (id.startsWith("mirror:axis:")) { editor.setMirror(editor.mirrorOf(def)?.mode ?? "edit", Number(id.slice("mirror:axis:".length)) as MirrorAxis, def); after(); return "keep"; }
+      const hit = def === undefined ? null : fieldChoice(kindPageOf(editor, def).fields({ editor, def }), id);   // 种类自己的字段：选项 id = 「字段键:值」
+      if (hit) { if (!hit.row.off) hit.row.set(hit.value); after(); return "keep"; }
       if (id.startsWith("action:")) { editor.withMenuTarget(target, () => hud.pick(id)); after(); return; }   // 单位只在 runAction 开头取一次 → 马后炮重做也用同一批（跑完目标恢复成选区没关系）
       return "keep";
     },
@@ -69,12 +65,7 @@ function soleDef(editor: Editor, target: ObjectTarget): number | undefined { con
 export function objectWindowItems(editor: Editor, target: ObjectTarget): PopupMenuItem<string>[] {
   const who = editor.describeTarget(target), def = soleDef(editor, target);
   const out: PopupMenuItem<string>[] = [{ id: "who", label: who.title, note: true }];   // 第一行：设置的是谁
-  // 对称 = 网格体的属性（硬表面体没有；转成网格体之后才有）。镜像面只能选不能拖（拖的是工具「镜像…」的那张面）
-  const isMesh = def !== undefined && editor.kindOfDef(def) === "mesh", ms = isMesh ? editor.mirrorOf(def) : null;
-  if (isMesh) {
-    out.push({ id: "mirror:mode", label: "对称", icon: "axes", choices: MIRROR_MODES.map((m) => ({ id: `mirror:mode:${m.id}`, label: m.label, hint: m.hint, checked: (ms?.mode ?? "off") === m.id })) });
-    if (ms) out.push({ id: "mirror:axis", label: "镜像面", icon: "axes", choices: ([0, 1, 2] as const).map((a) => ({ id: `mirror:axis:${a}`, label: "XYZ"[a], hint: `物件自己的 ${"XYZ"[a]} = 0 这一面`, checked: ms.axis === a })) });
-  }
+  if (def !== undefined) for (const r of kindPageOf(editor, def).fields({ editor, def })) out.push(fieldItem(r));   // 这个种类自己报的字段（网格体 = 对称 + 镜像面）
   // 放置表 objectWindow 面上现在能做的（转换种类 / 细分 / 默认平滑 ›）
   const acts = editor.withMenuTarget(target, () => editor.commandMenu("objectWindow"));
   out.push(...foldSubmenus(acts.map((m): HudItem => ({ id: `action:${m.id}`, label: m.label, icon: m.icon, ...(m.submenu ? { submenu: m.submenu } : {}) }))));
@@ -92,15 +83,16 @@ const ELEMENT_GROUPS: readonly { readonly on: AttributeRow["on"] | "point"; read
 export function objectElementItems(editor: Editor, target: ObjectTarget): PopupMenuItem<string>[] {
   const tab = "elements", def = soleDef(editor, target);
   if (def === undefined) return [{ id: "el:none", label: "选了好几个物体：元素页一次只看一个", note: true, tab }];
-  const s = editor.sceneRef, mesh = editor.kindOfDef(def) === "mesh";
-  const list = mesh ? meshAttributeList(s.mesh(def).kernel) : brepAttributeList(s.brep(def).kernel), g = list.geometry;
+  const page = kindPageOf(editor, def).elements({ editor, def });
+  if ("none" in page) return [{ id: "el:none", label: page.none, note: true, tab }];
+  const list = page.list, g = list.geometry;
   const geo = [`点 ${g.points}`, `边 ${g.edges}`, `面 ${g.faces}`, ...(g.corners !== null ? [`角 ${g.corners}`] : []), `不挂面的线 ${g.wires}`].join(" · ");
   const out: PopupMenuItem<string>[] = [{ id: "el:geometry", label: geo, readout: { cells: [] }, tab }];
   if (!list.rows.length) { out.push({ id: "el:empty", label: "还没有元素属性", note: true, tab }); return out; }
   out.push({ id: "el:head", label: "", readout: { cells: ["类型", "个数", "大小"] }, tab });
   for (const grp of ELEMENT_GROUPS) {
     const rows = list.rows.filter((r) => r.on === grp.on)
-      .map((r) => ({ r, name: mesh ? meshAttrName(r.id) : { label: brepAttrName(r.on as "edge" | "face", r.id), code: null } }))
+      .map((r) => ({ r, name: page.nameOf(r) }))
       .sort((a, b) => a.name.label.localeCompare(b.name.label, "zh") || a.r.id.localeCompare(b.r.id));
     rows.forEach(({ r, name }, i) => out.push({
       id: `el:${r.on}:${r.id}`, label: name.label, tab, ...(i === 0 ? { sectionBefore: grp.title } : {}),
@@ -108,4 +100,22 @@ export function objectElementItems(editor: Editor, target: ObjectTarget): PopupM
     }));
   }
   return out;
+}
+
+/** 字段 → 窗口里的一行：枚举 / 开关 = 一排选项（选项 id = 「字段键:值」）；数值 = 先只显示（还没有种类报数值字段；要了再接参数小窗那个控件）。 */
+function fieldItem(r: KindPageRow): PopupMenuItem<string> {
+  if (r.kind === "note") return { id: `note:${r.text.slice(0, 16)}`, label: r.text, note: true };
+  const off = r.off ? { hint: r.off } : {};
+  if (r.def.kind === "enum") return { id: r.key, label: r.def.label, icon: r.icon, ...off, choices: r.def.values.map((v) => ({ id: `${r.key}:${v.id}`, label: v.label, ...(v.hint ? { hint: v.hint } : {}), checked: r.value === v.id })) };
+  if (r.def.kind === "bool") return { id: r.key, label: r.def.label, icon: r.icon, ...off, choices: [{ id: `${r.key}:true`, label: "开", checked: r.value === true }, { id: `${r.key}:false`, label: "关", checked: r.value === false }] };
+  return { id: r.key, label: `${r.def.label}：${String(r.value)}`, icon: r.icon, note: true };
+}
+/** 点的那个选项是哪个字段的哪个值（不是字段的选项 = null）。 */
+function fieldChoice(rows: readonly KindPageRow[], id: string): { row: Extract<KindPageRow, { kind: "field" }>; value: ParamValue } | null {
+  for (const row of rows) {
+    if (row.kind !== "field" || !id.startsWith(`${row.key}:`)) continue;
+    const raw = id.slice(row.key.length + 1);
+    return { row, value: row.def.kind === "bool" ? raw === "true" : row.def.kind === "number" ? Number(raw) : raw };
+  }
+  return null;
 }
