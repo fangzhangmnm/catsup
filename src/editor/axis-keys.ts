@@ -51,6 +51,12 @@ export class AxisKeys {
     const c = axisConstraint(this.s);
     return c.kind === "free" ? null : c;
   }
+  /** 这一下按着哪些轴键（右上角锁钮画空心框用：X / Y / Z = 方向钮，加 Shift = 面锁钮；N / T 没有钮）。动作不在 = 丢掉、空。 */
+  keys(): readonly { readonly key: AxisKey; readonly shift: boolean }[] {
+    if (!this.s) return [];
+    if (!this.p.gestureActive()) { this.drop(); return []; }
+    return axisDescribe(this.s).keys;
+  }
   /** 动作做完 / 取消 / 新的动作开始：丢掉。 */
   drop(): void { this.s = null; this.said = ""; }
 }

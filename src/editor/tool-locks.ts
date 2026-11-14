@@ -1,8 +1,7 @@
-// tool-locks.ts —— 每个工具各记各的锁（白模第一批 W-4；created 2026-11-10 by Claude Opus 5.5；user 11-10「remember the axis lock for each tools」）。
-// 锁 = 方向锁（沿上下文的一根轴）或面锁（法向是那根轴的面 / "face" = 按的时候光标下那张膜的面），二者互斥。
-// 以前只有一份锁：手势落定就解（SketchUp 同款）、Esc 解、换工具时没在手势里先按好的锁跟着带过去。
-// 现在：每个工具一份，手势落定不解、换工具不解（换回来还是它）；Esc 只解当前这把工具的（editor.clearToolLock，键盘 Esc 调）。
-// 只记在这次打开期间，不进文件；换文件（Editor.loadScene）全清（Fable 11-10 审：新开一份文件手上应该是干净的）。纯数据，不碰编辑器。
+// tool-locks.ts —— 按钮点的锁长什么样（created 2026-11-10 by Claude Opus 5.5 = 白模第一批 W-4「每个工具各记各的」；
+// 2026-11-13 锁的一轮第四步改：不再按工具记，编辑器只有一份 Editor.btnLock，管到放下这把工具——拿起任何工具（含借用、借完回去）、换文件都从没锁开始；
+// 手势外 Esc 解、手势里 Esc 只取消这一下。快捷键按的轴键是另一份、只管这一下（axis-keys.ts）。统筹 11-13 读法，设计稿 ai-docs/20261113-axis-constraint-module-design.md 第 8 条）。
+// 锁 = 方向锁（沿上下文的一根轴）或面锁（法向是那根轴的面 / "face" = 按的时候光标下那张膜的面），二者互斥。纯数据，不碰编辑器。
 import type { Pt3 } from "../kernel/geom.ts";
 import type { LockAxis, PlaneLock } from "./locks.ts";
 
@@ -13,13 +12,3 @@ export interface LockValue {
   readonly planeN: Pt3 | null;
 }
 export const NO_LOCK: LockValue = { axis: null, plane: null, planeN: null };
-
-export class ToolLocks {
-  private readonly mem = new Map<string, LockValue>();
-  /** 这把工具现在锁着什么（没记过 = 不锁）。 */
-  of(tool: string): LockValue { return this.mem.get(tool) ?? NO_LOCK; }
-  /** 记下这把工具的锁；都是空的 = 忘掉。 */
-  set(tool: string, v: LockValue): void { if (v.axis === null && v.plane === null) this.mem.delete(tool); else this.mem.set(tool, v); }
-  clear(tool: string): void { this.mem.delete(tool); }
-  clearAll(): void { this.mem.clear(); }
-}

@@ -1395,3 +1395,7 @@ freedOp：每个步开始就在的网格体 —— History.meshBefore（这一�
 - **先定平面的工具**（矩形 / 圆 / 弧 / 旋转矩形 / 圆规 / 旋转 / 量角器）：首点之后的面 = `lockedPlaneThrough(过首点, 族)`：二维 = `axis-apply.ts shapePlane`（面 / 面 + 第一条边的方向 / 含这条线且最正对视线的面），旋转那一族 = `rotatePlane`。按轴键之后编辑器用最后一次指针事件重算一遍（同按住 Shift），面马上换。
 - **按轴键**（两个建模工作台都是）：`main.ts axis.press` → `Editor.axisPress`：先问 `ToolHandler.lock`（不吃 = 不记、提示一句）→ `AxisKeys.press`（N / T 拾动作开始前的世界：`pickFace` / `pickEntity` 只拾边，不拾正在画、正在挪的预演）→ 语法模块 → 重算。一步提交了东西 = 轴键丢掉（连着画的线一段算一下）。
 - 碰多少东西不变：每帧多一次常数级的约束读法；N / T 按键那一下一次拾取。守卫 = `probe-lock-last`（按 lock 字段现列工具，锁着往各方向拖，结果都在锁的线 / 面上）。
+
+## 追记 2026-11-13（锁的一轮第四步，Claude Opus 5.5）：N / T 拾眼前的东西 + 按钮锁的寿命
+- **N / T 拾哪个世界**（改第三步那句「拾动作开始前的世界」）：`AxisKeys` 的两个端口拾 `liveWorld()`（眼前画出来的：被挪 / 被转的照现在的位置朝向），先算一张「这一下新生的」判定 `editor/born-this-gesture.ts bornThisGesture(动作开始前的世界, 眼前的世界, 预演的面事件)`，交给 `pickFace(…, skip)` / `pickEntity({ skipFace, skipEdge })`：新生的不参赛、遮挡也跳过（对 N / T 透明）。面 = 编号在动作开始前就有 → 原有；没有 → 顺着预演的 DIVIDE / MERGE / ABSORB 往上追到原有的面 → 原有（切开的碎片）；追不到 = 新生。边 = 编号原有，或两个端点都落在某条原有边现在的位置上 → 原有；否则新生。碰多少东西：只在按 N / T 那一下；面 = 这一下预演事件的条数，边 = 光标附近那几条新编号的边 × 原有边的条数（按键一次，不在每帧里）。
+- **按钮锁的寿命**：一份 `Editor.btnLock`（不再按工具记），手势落定不解；`setTool` 换到另一把（含借用、借完回去）、工作台切换真换了工具、换文件 = 清；再点手里这把不清。手势里 Esc 只取消这一下（`main.ts escape` 不再先解锁），手势外锁着 Esc = 只解锁。右上三行锁钮：按钮锁 `.on` 实心、这一下按着的轴键 `.once` 空心框（`Editor.axisKeysHeld()` ← `AxisKeys.keys()`）。守卫 = `probe-tool-locks`（重写）+ `probe-axis-live-pick`。

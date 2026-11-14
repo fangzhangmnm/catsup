@@ -24,6 +24,7 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { GuideSelection } from "./guide-selection.ts";
 import { describeEvent } from "./describe-event.ts";
+import { bornThisGesture } from "./born-this-gesture.ts";
 import { snapHoldTol } from "./snap-hysteresis.ts";
 import { type ForceEnv, forceSideFor, forcesOn, originNeedsAsk } from "./mirror-force.ts";
 import { type FreedBase, type UpkeepSnaps, freedBaseline, freedOp, upkeepAfter, upkeepRewrite, upkeepSnapshot } from "./paint-upkeep.ts";   // 每一步做完的收尾 = 强行对称 + 画的位置（1-3b）
@@ -54,7 +55,7 @@ import { copyPayloadOf } from "./copy-payload.ts";
 import type { FaceKey } from "./ops.ts";
 import { canonicalPlane, distToSegment, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
-import { type LockValue, ToolLocks } from "./tool-locks.ts"; import { AxisKeys } from "./axis-keys.ts"; import type { AxisConstraint, AxisKey } from "../controller/axis-constraint.ts";
+import { type LockValue, NO_LOCK } from "./tool-locks.ts"; import { AxisKeys } from "./axis-keys.ts"; import type { AxisConstraint, AxisKey } from "../controller/axis-constraint.ts";
 import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
 import { POOL_AXES_PX } from "./overlay-lines.ts"; import { frameInput, type ViewState } from "./view-state.ts"; import { type LineStyle, type RenderProvider, GRID_FINEST_PX, ladderLevelAt } from "../minccino/index.ts";   // 刀 f：编辑器只持画的供货商的契约，不 import three 那层
 import { EditorStreamProvider } from "./stream-provider.ts";
@@ -294,7 +295,7 @@ export class Editor {
     this.openParamSession(null);   // 换工作台：马前炮 / 马后炮都收
     this.mode = next;
     this.mode.enter?.(this.toolCtx);
-    if (!next.tools.includes(this._tool)) this._tool = this.locked && !isReadOnlyTool(next.defaultTool) && "tool" in next.whenLocked ? next.whenLocked.tool : next.defaultTool; this.hold.apply({ e: "take", tool: this._tool });   // 锁着：照这个工作台声明的只读工具（v0.19.48）
+    if (!next.tools.includes(this._tool)) { this._tool = this.locked && !isReadOnlyTool(next.defaultTool) && "tool" in next.whenLocked ? next.whenLocked.tool : next.defaultTool; this.btnLock = NO_LOCK; } this.hold.apply({ e: "take", tool: this._tool });   // 锁着：照这个工作台声明的只读工具（v0.19.48）
     this.last = null;
     this.clearCharged();
     this.host.changed();
@@ -360,13 +361,14 @@ export class Editor {
   /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
   /** A9 方向锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
    *  轴 = 上下文帧（绘图轴 / 组轴）的轴。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
-   *  生命周期（W-4，2026-11-10）：每个工具各记各的（tool-locks.ts），手势落定不解、换工具不解、换回来还是它；键盘 Esc 解当前这把的（clearToolLock）。
+   *  生命周期（锁的一轮第四步，统筹 11-13；取代 W-4「每个工具各记各的」）：按钮点的锁只有一份，管到放下这把工具——手势落定不解；拿起任何工具（含借用、借完回去）、换文件都从没锁开始；
+   *  手势外 Esc 解（clearToolLock，main.ts escape），手势里 Esc 只取消这一下、锁留着。快捷键按的轴键另是一份、只管这一下（axis-keys.ts）。
    *  面锁（user 2026-10-25「Shift + 方向键锁平面、矩形工具的平面锁、触屏常驻三颗轴键。 要！」；键位 = ledger A9 的 Blender Shift+X 语义）：
    *  锁到「排除该轴」的平面 = 法向是该轴的面（Shift+→ YZ / Shift+← XZ / Shift+↑ XY / Shift+↓ 光标下那张膜的面）。
    *  先定平面的工具（矩形 / 圆 / 旋转矩形 / 弧 / 旋转 / 量角器，`lock: "plane"`）不吃方向锁：方向键直接锁平面（SU 旋转矩形「按方向键定平面」同款），
    *  平面过首点（ctx.lockedPlane）；沿轴走的工具（`lock: "axis"`）Shift+方向键 = 点投到过锚点的那张面上（ctx.applyLock）。方向锁与面锁互斥。 */
-  private readonly locks = new ToolLocks();   // 面锁法向 planeN（世界、单位长）；"face" 锁时 = 按下那一刻光标下那张膜的法向
-  private get lk(): LockValue { return this.locks.of(this._tool); }
+  private btnLock: LockValue = NO_LOCK;   // 面锁法向 planeN（世界、单位长）；"face" 锁时 = 按下那一刻光标下那张膜的法向
+  private get lk(): LockValue { return this.btnLock; }
   private lastPtr: { x: number; y: number } | null = null;
   /** 最近一次真指针的种类（键盘起手不算）：自由建模吸附的底按它查 SNAP_BASE。 */
   private lastPtrType = "mouse";
@@ -375,13 +377,13 @@ export class Editor {
   private lastMoveEv: ToolPointer | null = null;   // Shift 按下 / 松开时按它重算（setShiftHeld）   // 最后一次指针位置（Shift+↓ 取光标下的膜用）
   get axisLock(): LockAxis | null { return this.lk.axis; }
   get planeLock(): PlaneLock | null { return this.lk.plane; }
-  /** 键盘 Esc / 芯片「取消」：解当前这把工具的锁（W-4；手指轻点的取消不解，免得误碰把锁悄悄清掉）。没在做手势时这一下只解锁、不再往下做（main.ts escape）。 */
-  clearToolLock(): void { if (!this.lk.axis && !this.lk.plane) return; this.locks.clear(this._tool); this.host.changed(); this.draw(); }
+  /** 键盘 Esc / 芯片「取消」在手势外：解按钮锁（手指轻点的取消不解，免得误碰把锁悄悄清掉）。这一下只解锁、不再往下做（main.ts escape）。 */
+  clearToolLock(): void { if (!this.lk.axis && !this.lk.plane) return; this.btnLock = NO_LOCK; this.host.changed(); this.draw(); }
   /** 当前工具吃哪种锁（null = 不吃锁：方向键 / 虚拟轴键无效）。 */
   lockStyle(): "axis" | "plane" | null { return this.handlers[this._tool]?.lock ?? null; }
   setAxisLock(a: LockAxis | null): void {
     if (this.lk.axis === a && this.lk.plane === null) return;
-    this.locks.set(this._tool, { axis: a, plane: null, planeN: null });
+    this.btnLock = a ? { axis: a, plane: null, planeN: null } : NO_LOCK;
     this.host.hint(a ? `方向锁 ${a.toUpperCase()}（再点一下解开）` : null);
     this.host.changed(); this.draw();
   }
@@ -394,20 +396,22 @@ export class Editor {
       if (!rec) { this.host.hint("面锁：光标下没有面（把光标放到一张面上再锁）"); return; }
       n = normalize3(rec.plane.n);
     } else if (p) { const raw = this.contextFrame()[p]; n = normalize3(raw); }
-    this.locks.set(this._tool, { axis: null, plane: p, planeN: n });
+    this.btnLock = p ? { axis: null, plane: p, planeN: n } : NO_LOCK;
     this.host.hint(p ? `面锁 ${planeLockLabel(p)}（再点一下解开）` : null);
     this.host.changed(); this.draw();
   }
   togglePlaneLock(p: PlaneLock): void { this.setPlaneLock(this.lk.plane === p ? null : p); }
   /** 动作里按的轴键（快捷键那份，只管这一下；锁的一轮第二步 = editor/axis-keys.ts 接 controller/axis-constraint.ts）。按钮锁（上面这几个 set / toggle / lockKey）留着当寿命长的那份。 */
   private readonly axisKeys = new AxisKeys({ gestureActive: () => this.gestureActive(), wants: () => this.handlers[this._tool]?.axisWants ?? 1, axes: () => this.contextFrame(),
-    // N / T 拾「动作开始前的世界」（不拾正在画 / 正在挪的预演：画线时预演那根线就经过光标）；拾边时点和面都关掉
-    faceUnder: () => { const w = this.worldView(), at = this.lastPtr, f = at ? pickFace(w, this.frame(), this.fvp(), at.x, at.y) : undefined, rec = f !== undefined ? w.planeOf(f) : undefined; return rec ? { n: rec.plane.n, ref: `face:${f}` } : null; },
-    edgeUnder: () => { const at = this.lastPtr, w = this.worldView(), e = at ? pickEntity(w, this.frame(), this.fvp(), at.x, at.y, this.hitPx(), { ...this.meshPickOpts(), kinds: { verts: false, edges: true, faces: false } }).edge : undefined; if (e === undefined || !w.graph.hasEdge(e)) return null; const E = w.graph.edge(e); return { dir: sub3(w.graph.pt(E.b), w.graph.pt(E.a)), ref: `edge:${e}` }; }, buttonLocked: () => !!(this.lk.axis || this.lk.plane) });
+    // N / T 拾眼前画出来的东西（被挪 / 被转的照现在的位置朝向），这一下动作自己新生的透明（统筹 11-13；怎么判 = born-this-gesture.ts）。拾边时点和面都关掉
+    faceUnder: () => { const at = this.lastPtr; if (!at) return null; const w = this.liveWorld(), born = bornThisGesture(this.worldView(), w, this.liveEvents), f = pickFace(w, this.frame(), this.fvp(), at.x, at.y, born.face), rec = f !== undefined ? w.planeOf(f) : undefined; return rec ? { n: rec.plane.n, ref: `face:${f}` } : null; },
+    edgeUnder: () => { const at = this.lastPtr; if (!at) return null; const w = this.liveWorld(), born = bornThisGesture(this.worldView(), w, this.liveEvents), e = pickEntity(w, this.frame(), this.fvp(), at.x, at.y, this.hitPx(), { ...this.meshPickOpts(), kinds: { verts: false, edges: true, faces: false }, skipFace: born.face, skipEdge: born.edge }).edge; if (e === undefined || !w.graph.hasEdge(e)) return null; const E = w.graph.edge(e); return { dir: sub3(w.graph.pt(E.b), w.graph.pt(E.a)), ref: `edge:${e}` }; }, buttonLocked: () => !!(this.lk.axis || this.lk.plane) });
   /** 键表 axis.press（手势层 X / Y / Z / N / T，加 Shift）：记进这一下的约束，提示行说现在被限制成什么（挂在读数后面一直看得见，computeLive）、预演马上跟着变。 */
   axisPress(key: AxisKey, shift: boolean): void { if (!this.lockStyle()) { this.host.hint("这把工具不吃轴键"); return; }   /* 吃不吃约束只问 ToolHandler.lock（统筹 11-13：按轴键 / 画锁线 / 右上角锁钮三处同问） */ const r = this.axisKeys.press(key, shift); this.host.hint(r.ok ? r.say : r.why); this.lastSnap = null; if (r.ok && this.lastMoveEv && this.gestureActive()) this.pointerMove(this.lastMoveEv); this.host.changed(); this.refreshGesture(); this.draw(); }   // 规则换了：上一个吸附的粘性作废、按最后一次指针重算（同 setShiftHeld；先定平面的工具马上换面）
   /** 这一下现在被限制成什么：轴键那份在就以它为准，没有 = 按钮锁着的那份（设计稿第三节）。工具经 ToolCtx.axisConstraint 问，锁线也画它。 */
   axisConstraintNow(): AxisConstraint { return this.axisKeys.now() ?? lockConstraint(this.lk, this.contextFrame()); }
+  /** 这一下按着的轴键（右上锁钮的空心框；按钮锁 = axisLock / planeLock 实心）。 */
+  axisKeysHeld(): readonly { readonly key: AxisKey; readonly shift: boolean }[] { return this.axisKeys.keys(); }
   /** 方向键 / 触屏虚拟轴键的唯一入口：axis = 键对应的轴（→ X / ← Y / ↑ Z），null = ↓；plane = Shift。按当前工具的锁种分派。 */
   lockKey(axis: LockAxis | null, plane: boolean): void {
     const style = this.lockStyle();
@@ -539,7 +543,7 @@ export class Editor {
     this.openParamSession(null);
     this.mode = next;
     this.mode.enter?.(this.toolCtx);
-    if (!next.tools.includes(this._tool)) this._tool = next.defaultTool; this.hold.apply({ e: "take", tool: this._tool });
+    if (!next.tools.includes(this._tool)) { this._tool = next.defaultTool; this.btnLock = NO_LOCK; } this.hold.apply({ e: "take", tool: this._tool });
     this.last = null;
     this.clearCharged();
   }
@@ -779,9 +783,10 @@ export class Editor {
     }
     if (how !== "back") this.last = null;
     if (how !== "back" && this.param?.phase === "after") { this.openParamSession(null); this.host.hint("刚才那一步的参数已收起（换了工具）"); }   // 马后炮寿命 = 栈顶没变 ∧ 工具没换 ∧ 没撤销过（设计稿 §7 第 4 条；user「切换工具…还是显示着“刚才”」）
+    if (t !== this._tool) this.btnLock = NO_LOCK;   // 拿起另一把工具（含借用、借完回去）从没锁开始（锁的一轮第四步）；再点手里这把不算放下，锁留着
     this._tool = t; this.hold.apply(how === "borrow" ? { e: "borrow", tool: t } : { e: "take", tool: t });
     this.originEdit = null;   // 改组件原点会话随换工具结束（beginComponentOrigin 在换完之后才开）
-    this.cancelGesture(how === "back");   // 锁不动：每个工具各记各的（W-4），换过去就是那把工具自己记着的（以前吃锁的工具之间「先按 Y 再按 S」也带过去，2026-10-28；W-4 起只从不吃锁的工具交过去）
+    this.cancelGesture(how === "back");
     this.clearCharged();   // 充能生命周期 = 工具子步（user 2026-10-24）：换工具就清
     this.host.changed();
     this.draw();
@@ -1355,7 +1360,7 @@ export class Editor {
   /** 第几个模型（换模型 = 加一）：粘贴提示据此说「这是从别的模型拷来的、用的是本文件这版」（clipboard.ts）。 */
   docEpoch = 0;   // 只在 loadScene 里加；外面只读（画板登记处认它判换文件，1-3c）
   loadScene(s: Scene, label = "打开"): void {
-    this.docEpoch++; this.locks.clearAll();   // 换文件：所有工具记着的锁一起清（W-4 审后，v0.19.3）
+    this.docEpoch++; this.btnLock = NO_LOCK;   // 换文件：锁清掉（W-4 审后，v0.19.3）
     this.last = null;
     this.cancelGesture();
     this.scene = s;

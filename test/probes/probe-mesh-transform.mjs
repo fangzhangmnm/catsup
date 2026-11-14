@@ -62,7 +62,7 @@ const res = await page.evaluate(async () => {
   key("z"); await sleep(30);
   // ④b 挪 + Shift = 吸附：选中右前上角那个点，按住 Shift 拖到右后上角 → 落得正正好（点 > 边 > 面）
   e.deselectAll(); e.setTool("select"); await click(P(1, 0, 1)); out.snapSel = e.selection.verts.size;
-  e.setTool("move"); out.moveLockBack = e.axisLock;   // 白模 W-4：移动在 ② 锁的 Z 一直记着（换去旋转 / 缩放再换回来还是它）
+  e.setTool("move"); out.moveLockBack = e.axisLock;   // 锁的一轮第四步（取代白模 W-4）：换去旋转 / 缩放再换回来 = 没锁
   e.clearToolLock();   // = 键盘 Esc：解这把工具的锁，下面吸附要自由拖
   { const a = px(P(1, 0, 1)), z = px(P(1, 1, 1)); await drag(a, { x: z.x + 3, y: z.y + 2 }, true); }
   const sv = [...e.selection.verts][0], sp = sv !== undefined ? m().pt(sv) : null;
@@ -145,7 +145,7 @@ await b.close();
 res.errs = errs;
 const ok = res.rail === "select,pp,move,rotate,scale,knife,erase,softErase,offset,shrink,create,transform,brushGrab,brushDraw,brushSmooth,brushFlatten"   // v0.16.49 起四把笔刷也在自由建模工作台里；软边橡皮（旧红，2026-10-30 跟上）；v0.17.59 变换
   && res.move.moved === res.move.top && res.move.steps === 1 && res.moveUndo
-  && res.moveZ.xyKept && res.moveZ.zUp && res.moveZ.lockAfter === "z" && res.moveLockBack === "z"   // W-4：手势落定不解锁、换工具再换回来还是它
+  && res.moveZ.xyKept && res.moveZ.zUp && res.moveZ.lockAfter === "z" && res.moveLockBack === null   // 手势落定不解锁（按钮锁管到放下这把工具）；换工具再换回来 = 没锁（锁的一轮第四步）
   && res.rotate.zKept && res.rotate.distKept && res.rotate.changed
   && res.scaleSel === 1 && res.scale.zKept && res.scale.bigger && res.scale.bottomKept && res.scaleShift.step
   && res.snapSel === 1 && JSON.stringify(res.snapMove.p) === JSON.stringify([0.5, 0.5, 1])

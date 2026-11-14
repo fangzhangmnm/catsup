@@ -168,3 +168,20 @@ user 定的：
 验：新探针 `probe-lock-last`（按 lock 字段现列：硬表面 11 把 × 6 方向 × 整格开关 = 132 次 + 自由建模 5 把 15 次，全在锁的线 / 面上；反方向两格：硬表面推拉、自由建模插入按 X = 不记、不画线、有提示——开发版旧代码上 3/7 红、新代码 7/7）、`probe-axis-hardsurface`（19 格）、`probe-pp-snap` +1 格；改：`probe-axis-lock` / `probe-plane-lock` / `probe-scale-ref`（方向键 → 手势里的字母键 / 右上角钮）、`probe-workbench-tools`（硬表面 E = 推拉）、`probe-rail`（橡皮的键名）；单测：键表（硬表面手势里五个键加 Shift、方向键全不绑、E 只在硬表面变）、工具提示。
 
 留给第四步：手势里 Esc 只取消这一下、按钮锁留着（统筹读法；验收加一格）；按钮显示成实心 / 空心；每把工具记锁的表拿掉。已知别扭：手势里打了单位再按 N / T 会当单位字（「G 2 m N」= 还没看懂）；再撞一次车改成按单位表前缀判（统筹）。
+
+### 第四步：锁不记忆 + 两种样子 + N / T 拾眼前的东西（v0.19.113，分支 axis-nomemory；统筹 11-13 审第三步后，要求在主分支的「四¾」节末尾）
+做了什么：
+- **N / T 拾眼前画出来的东西**（统筹不同意第三步的「拾动作开始前的世界」）：`editor.ts` AxisKeys 的两个端口改拾 `liveWorld()`（被挪 / 被转的照现在的位置朝向），这一下动作自己新生的对 N / T 透明——不参赛、也不挡后面的（`pick.ts` 的 `pickFace(…, skip)`、`pickEntity` 选项 `skipFace / skipEdge`，遮挡判定一起跳）。
+- **「这一下新生的」怎么判，只住一处 = `src/editor/born-this-gesture.ts`**：
+  - 面：动作开始前的世界里有这个编号 = 原有的（挪 / 转保编号）。没有 → 顺着这一下预演的面事件往上追（DIVIDE 的碎片 → 被切的那张，MERGE / ABSORB 并出来的 → 并进来的那几张），追到动作开始前就有的面 = 原有那张被切开 / 并起来的，算原有；追不到（BIRTH，或网格体这种不报事件的内核里的新编号）= 新生。
+  - 边：内核切边不留血缘（`topology.ts splitEdge` 直接换新编号），按几何判：两个端点都落在某条原有边「现在」的位置上（那条边两个端点在眼前世界里的坐标，挪过的照挪过以后的；容差 10 µm）= 原有那条边被切开的一段，算原有；否则新生。
+  - 为什么不用「拾到新编号就退回动作开始前的世界再拾」（我先写的那版）：被挪的面让别的东西切开会换新编号，退回去就拾到它原位置后面的东西——探针 ②b 专门钉这个。
+  - 网格体内核不报面事件，只靠「编号在不在」：挤出的帽子留在原来那张面的编号上（`mesh/ops/extrude.ts` 的 `setFaceRing`，读代码核过）= 原有，侧面是新编号 = 新生，对。已知不管的：自由建模里被刀切开的面会算新生（刀不吃轴键，碰不到）。
+- **按钮锁不记忆**：`ToolLocks`（按工具记的表）拿掉，编辑器只有一份 `btnLock`。拿起另一把工具（含借用、借完回去、工作台切换真换了工具）、换文件 = 从没锁开始；**再点手里这把不算放下，锁留着**（我的读法：「拿起」= 换到它；`probe-mirror-xform` 先锁再 setTool 同一把，照这个读法绿）。手势落定不解（管到放下这把工具）。`tool-locks.ts` 只剩数据类型。
+- **Esc**：手势里 Esc 只取消这一下、按钮锁留着；手势外锁着 = 这一下只解锁、到此为止（v0.19.3 那条照旧）。以前手势里 Esc 也顺手解锁（`main.ts escape` 先调 `clearToolLock`）。
+- **两种样子**：右上三行锁钮——按钮锁 = 实心（`.on`），这一下按着的轴键 = 空心框（`.once`，和借来的工具同一个样式）：X / Y / Z = 方向钮、加 Shift = 面锁钮；N / T 没有钮，只在提示行说。`AxisKeys.keys()` → `Editor.axisKeysHeld()` → `main.ts renderLockRows`。触屏没有单独的虚拟轴键（W-6 起锁的入口都在右上三行），笔点锁钮 = 走按钮那一半。「不吃锁的工具上挂着等交给下一把的锁也露钮」那条兜底删了（拿起工具就清，挂不住）。
+
+验：新探针 `probe-axis-live-pick`（统筹三格 + 血缘一格 ②b：盒子拖到一根散线上、顶面被切成两块新编号，光标在其中一块上按 N = 顶面，核拾到的是新编号、在 z = 1，不是往后看拾到的底面）——本地 6/6，开发版 v0.19.112 上 ①②②b 红、③a③b 绿（③ 测的「不拾预演线」旧代码本来就对）。`probe-tool-locks` 照第四步重写（W-4 那几格改成换工具 / 借用 / 借完回去 = 没锁；加：锁 Z 连挪三下、G 再 X 挪一下落定后没锁也没框、按钮锁 Z 实心 + 手势里 X 空心、手势里 Esc 留锁、手势外 Esc 解、笔点锁钮、再点手里这把锁还在）。跟着改期待的：`probe-mesh-transform`（换工具回来 = 没锁）、`probe-plane-lock`（矩形换过工具「YZ」不亮）。
+
+数字：全套 2778 过、0 红。点名探针 18 个（axis-lock / ipad-pen / lock-last / mesh-pull / mfd / mirror-xform / mesh-transform / plane-lock / soft-select / tool-locks / lock-line / lock-plane-drag / axis-freeform / axis-hardsurface / axis-live-pick / input-gate / rail / workbench-tools）全绿：其中 12 个是在「再点手里这把不清锁」那处改动之前的构建上绿的（那处只让清锁的场合变少），改动之后重跑了 mirror-xform / mesh-transform / plane-lock / tool-locks / axis-live-pick / axis-hardsurface 6 个。
+没验到的：空心框 / 实心的样子只核了 class（`.once` / `.on`），没截图用眼睛看；真机（iPad 笔点锁钮）没测，笔那格是合成的 pointer 事件 + click；自由建模里刀切开的面算新生那条没写探针（刀不吃轴键，现在碰不到）。

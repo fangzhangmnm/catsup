@@ -1468,7 +1468,7 @@ xrayBtn.addEventListener("click", () => { editor.setXray(!editor.xray); syncUi()
 xrayBtnRef = xrayBtn;
 // 锁的入口（白模第一批 W-6，2026-11-10；user「all lock entries are organized to the right top」）：吸附 / X 光那一行下面三行，每行两颗带字的钮
 // 「X｜YZ」「Y｜XZ」「Z｜XY」= 方向锁那根轴｜法向是它的面锁。只在这把工具吃锁时出现，只吃面锁的工具（矩形 / 圆 / 弧 / 旋转）只出右边那颗。
-// 点 = 开 / 关这把工具记着的锁（每个工具各记各的，W-4）；键盘的方向键 / X Y Z 照旧。左下芯片里的锁和吸附钮长按菜单里的锁都撤了。
+// 点 = 开 / 关按钮锁（实心，管到放下这把工具；锁的一轮第四步）；动作里按的轴键 X / Y / Z（加 Shift = 面）在对应的钮上画空心框（.once，只管这一下）。左下芯片里的锁和吸附钮长按菜单里的锁都撤了。
 const lockBox = document.createElement("div"); lockBox.className = "gizmo-btns gizmo-locks"; $("viewGizmo").appendChild(lockBox);
 const LOCK_AXES = ["x", "y", "z"] as const;
 lockRowsRef = LOCK_AXES.map((a) => {
@@ -1522,18 +1522,19 @@ var xrayBtnRef: HTMLButtonElement | undefined;
 var lockBoxRef: HTMLElement | undefined;
 // eslint-disable-next-line no-var
 var lockRowsRef: { row: HTMLElement; axis: HTMLButtonElement; plane: HTMLButtonElement }[] | undefined;
-/** 锁的三行跟着这把工具：吃什么锁出什么钮、锁着的那颗亮；走路时不出。
- *  不吃锁的工具（选择）上有先按好、等着交给下一把的锁 → 也出（六颗都出、亮着那一颗，点一下能解；v0.19.3，Fable 审：不留看不见的状态）。 */
+/** 锁的三行跟着这把工具：吃什么锁出什么钮、按钮锁着的那颗实心亮、这一下按着的轴键那颗空心框；走路时不出。
+ *  拿起工具就从没锁开始（锁的一轮第四步），不吃锁的工具上不会挂着锁，所以只看这把工具吃不吃。 */
 function renderLockRows(): void {
   if (!lockBoxRef || !lockRowsRef) return;
   const a = editor.axisLock, p = editor.planeLock, walking = !!locomotion?.isWalking();
-  const style = walking ? null : editor.lockStyle() ?? (a !== null || (p !== null && p !== "face") ? "axis" : null);
+  const style = walking ? null : editor.lockStyle(), held = editor.axisKeysHeld();
   lockBoxRef.hidden = !style;
   lockRowsRef.forEach((r, i) => {
     const ax = (["x", "y", "z"] as const)[i];
     r.axis.hidden = style !== "axis";
     r.axis.classList.toggle("on", a === ax); r.axis.setAttribute("aria-pressed", a === ax ? "true" : "false");
     r.plane.classList.toggle("on", p === ax); r.plane.setAttribute("aria-pressed", p === ax ? "true" : "false");
+    r.axis.classList.toggle("once", held.some((k) => k.key === ax && !k.shift)); r.plane.classList.toggle("once", held.some((k) => k.key === ax && k.shift));
   });
 }
 function renderSnapWidget(): void {
@@ -1729,10 +1730,9 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "undo": editor.undo(); return;
     case "redo": editor.redo(); return;
     case "escape":
-      // 键盘 Esc / 芯片「取消」解这把工具记着的锁（W-4：锁不再随手势落定 / 换工具解；手指轻点的取消不解）。
-      // 没在做手势、而这把工具锁着 = 这一下只解锁，到此为止（v0.19.3，Fable 审：不然一下 Esc 既解锁又退出组件，只想解锁的人会被带出去）；做手势时 = 取消这一下并且解锁
+      // 按钮锁（锁的一轮第四步，统筹 11-13）：手势里 Esc 只取消这一下、按钮锁留着；手势外、锁着 = 这一下只解锁，到此为止
+      // （v0.19.3，Fable 审：不然一下 Esc 既解锁又退出组件，只想解锁的人会被带出去）。手指轻点的取消不解锁。
       if (!editor.isGestureActive() && (editor.axisLock !== null || editor.planeLock !== null)) { editor.clearToolLock(); syncUi(); return; }
-      editor.clearToolLock();
       // 菜单 / 帮助 / 材质 / 调试日志开着时 Esc 到不了这里（输入闸的 escape：只关最上面那个面）
       // 自由建模的手势中（拖着 / 键盘起手 / 打数）→ 只取消这次操作、选区留着（Blender：G / S 里 Esc 只退回去；2026-10-28 晚「S Z 0」接线时改，硬表面照旧）
       if (editor.escToFinish()) { syncUi(); return; }   // 刀在等下一点：Esc = 收刀、开「切割」小窗（W-8，Fable 11-10）；再按一次才是取消

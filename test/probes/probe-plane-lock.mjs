@@ -39,7 +39,7 @@ await hoverTo({ x: 0, y: 0.75, z: 0.5 });
 await page.keyboard.press("Shift+KeyN");
 res.faceLock = await st();
 await page.keyboard.press("Escape"); await page.waitForTimeout(80);
-// ④ 右上角锁的三行按工具换锁种（白模 W-6，2026-11-10；以前在吸附钮菜单里）：矩形只出右边的面锁、画线两种都出；矩形在 ① 锁的面 YZ 一直记着（W-4）→ 亮；吸附菜单里不再有锁
+// ④ 右上角锁的三行按工具换锁种（白模 W-6，2026-11-10；以前在吸附钮菜单里）：矩形只出右边的面锁、画线两种都出；① 锁的面 YZ 换过工具就没了（锁的一轮第四步：拿起另一把工具从没锁开始）→ 不亮；吸附菜单里不再有锁
 const lockBtns = () => page.evaluate(() => [...document.querySelectorAll(".gizmo-lock")].filter((b) => !b.closest("[hidden]") && b.getClientRects().length > 0).map((b) => b.textContent + (b.classList.contains("on") ? "*" : "")).join(" "));
 await page.evaluate(() => globalThis.__catsup.hud.pick("rect")); await page.waitForTimeout(80);
 res.rectMenu = await lockBtns();
@@ -53,6 +53,6 @@ const rectOnX0 = res.rectEdges.length >= 4 && res.rectEdges.every((e) => near(e[
 const ok = res.rectArmed.plane === "x" && res.rectLive.cur && near(res.rectLive.cur[0], 0) && res.rectLive.cur[2] > 0.5 && rectOnX0 && res.rectAfter.plane === "x"   // W-4：画完不解锁
   && res.lineLive.con.kind === "plane" && near(Math.abs(res.lineLive.con.n[0]), 1) && /面锁 YZ/.test(res.lineLive.label) && res.lineLive.cur && near(res.lineLive.cur[0], 0.5) && res.lineLive.cur[2] > 0.3 && res.lineAfterEsc.con.kind === "free"
   && res.faceLock.con.kind === "plane" && near(Math.abs(res.faceLock.con.n[0]), 1)
-  && res.rectMenu === "YZ* XZ XY" && res.lineMenu === "X YZ Y XZ Z XY" && res.snapMenuLocks === "";
+  && res.rectMenu === "YZ XZ XY" && res.lineMenu === "X YZ Y XZ Z XY" && res.snapMenuLocks === "";
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

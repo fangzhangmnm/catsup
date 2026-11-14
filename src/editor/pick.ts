@@ -40,11 +40,11 @@ export interface HitResult3 { vertex?: VertexId; edge?: EdgeId; face?: FaceId; }
  * own = 这个点自己所在的面（点 = 连着的边两侧的面；边上的点 = 这条边两侧的面）：一个点不会被自己所在的面挡住。
  * 以前靠「贴在膜平面上」几何地判，网格体的面不平时角点不在那张面的拟合平面上，会被自己的邻面挡掉 = 点不中（user 10-27「有些侧面的点选不中」）；改按拓扑判。
  */
-export function occlusionTest(k: GeomView, pf: PointerFrame, vp: Viewport, xray: boolean): (p: Pt3, own?: ReadonlySet<FaceId>) => boolean {
+export function occlusionTest(k: GeomView, pf: PointerFrame, vp: Viewport, xray: boolean, skipFace?: (f: FaceId) => boolean): (p: Pt3, own?: ReadonlySet<FaceId>) => boolean {
   const idx = ScreenIndex.for(k, pf, vp);
   return (p, own) => {
     if (xray) return false;
-    const skip = own && own.size ? (fid: FaceId): boolean => own.has(fid) : undefined;
+    const skip = own && own.size ? (fid: FaceId): boolean => own.has(fid) || !!skipFace?.(fid) : skipFace;
     if (idx && pf.project) { const q = pf.project(p, vp); if (q) return occludedBy(k, pf, p, skip, idx.facesNear(q.x, q.y, 0)); }
     return occludedBy(k, pf, p, skip);
   };
@@ -55,10 +55,11 @@ export function facesAtVertex(k: GeomView, vid: VertexId): Set<FaceId> { const o
 /** vertexPx = 点自己的半径（缺 = tolPx；自由建模给 MESH_VERT_HIT_PX 换算过的常量）。 */
 /** 拾取范围（自由建模工具条「拾取：点 / 边 / 面」三个开关；user 10-28 晚「点线面，要不三个toggle，放在马前炮」）：关掉的那一级不参赛，下一级顶上。 */
 export interface PickKinds { readonly verts?: boolean; readonly edges?: boolean; readonly faces?: boolean }
-export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: { soft?: boolean; xray?: boolean; softActive?: boolean; vertexPx?: number; kinds?: PickKinds }): HitResult3 {
+/** skipFace / skipEdge：对这一次拾取透明的面 / 边——不参赛、也不挡后面的（N / T 跳过这一下动作新生的，editor/born-this-gesture.ts）。 */
+export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: { soft?: boolean; xray?: boolean; softActive?: boolean; vertexPx?: number; kinds?: PickKinds; skipFace?: (f: FaceId) => boolean; skipEdge?: (e: EdgeId) => boolean }): HitResult3 {
   // 顶点 / 边只在**看得见**时参赛；候选只从指针附近的格取（屏幕索引 #22）
   const idx = ScreenIndex.for(k, pf, vp);
-  const hidden = occlusionTest(k, pf, vp, !!opts?.xray);
+  const hidden = occlusionTest(k, pf, vp, !!opts?.xray, opts?.skipFace);
   const vTol = opts?.vertexPx ?? tolPx;
   let bestV: VertexId | undefined, bestVd = vTol;
   for (const v of opts?.kinds?.verts === false ? [] : idx ? idx.verticesNear(sx, sy, vTol + 1) : k.vertices()) {
@@ -70,7 +71,7 @@ export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: numb
 
   let bestE: EdgeId | undefined, bestEd = tolPx;
   for (const e of opts?.kinds?.edges === false ? [] : idx ? idx.edgesNear(sx, sy, tolPx + 1) : k.edges()) {
-    if (k.isFold(e.id)) continue;   // 折线（DT87）不是边：永远点不中，点到的是两侧那个面
+    if (k.isFold(e.id) || opts?.skipEdge?.(e.id)) continue;   // 折线（DT87）不是边：永远点不中，点到的是两侧那个面
     if (k.isSoft(e.id) && !opts?.soft && !(opts?.softActive && k.isActive?.(e.id))) continue;   // 自由建模（softActive）：正在编辑的网格体的平滑边画出来了，也点得中（纪元账本 FM138）   // 软边不可拾（0.10：看不见的东西不该被橡皮 / 选择碰到；「显示隐藏几何」视图开关 = wishlist）；硬化的橡皮例外（opts.soft，2026-10-26：不然软边永远硬化不了）
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     const { d, t } = pf.distToSeg(sx, sy, a, b, vp);
@@ -85,7 +86,7 @@ export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: numb
   // X 光只吃点和边（2026-10-29 user「x光模式的面心拾取太难了，而且在铸铜下面很乱」→「先这样，x光先统一不开面拾取……所以x光只吃点和边，面拾取以后再头疼」）：
   // 面心小点和射线认面都关（以前：面心小点 → 射线认最前面的面；框选不受影响）。面心拾取的实现（faceDotPoint）留着，以后再头疼时接回来。
   if (opts?.xray) return {};
-  const bestF = opts?.kinds?.faces === false ? undefined : pickFace(k, pf, vp, sx, sy);
+  const bestF = opts?.kinds?.faces === false ? undefined : pickFace(k, pf, vp, sx, sy, opts?.skipFace);
   if (bestF !== undefined) return { face: bestF };
   return {};
 }
@@ -107,11 +108,12 @@ function preferActive(k: GeomView, fid: FaceId): boolean {
   if (!v.activeSlot || !v.slotOf) return true;
   return v.slotOf(fid).index === v.activeSlot().index;
 }
-export function pickFace(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number): FaceId | undefined {
+export function pickFace(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, skip?: (f: FaceId) => boolean): FaceId | undefined {
   const ray = pf.ray(sx, sy, vp);
   const idx = ScreenIndex.for(k, pf, vp);
   let bestF: FaceId | undefined, bestT = Infinity;
   for (const f of idx ? idx.facesNear(sx, sy, 0) : k.faces()) {
+    if (skip?.(f.id)) continue;
     const rec = k.planeOf(f.id);
     if (!rec) continue;
     const p = rayPlane(ray.origin, ray.dir, rec.plane.n, rec.plane.d);
