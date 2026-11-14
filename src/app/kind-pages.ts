@@ -86,7 +86,7 @@ const BREP_PAGE: KindPage = {
 const EMPTY_PAGE: KindPage = {
   tab: null,
   fields: () => [],
-  elements: () => ({ none: "空物体只装子物体，没有几何，也就没有元素属性" }),
+  elements: () => ({ none: "空物体只装子物体，没有几何，也就没有图元属性" }),
   materials: () => [{ kind: "note", text: "空物体只装子物体，没有面，也就没有材质和贴图" }],
 };
 

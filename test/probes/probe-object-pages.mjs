@@ -78,7 +78,7 @@ await b.close();
 r.errs = errs;
 const has = (arr, re) => (arr ?? []).some((t) => re.test(t));
 const checks = [
-  ["① 网格体四页", r.meshTabs?.join("|") === "物体|网格体|元素|材质和贴图"],
+  ["① 网格体四页", r.meshTabs?.join("|") === "物体|网格体|图元|材质和贴图"],
   ["① 物体页：谁 + 切换种类 ›（转换不再平铺）", /网/.test(r.who) && (r.objIds ?? []).includes("cast") && !(r.objIds ?? []).includes("action:object.toBrep")],
   ["① 网格体页：对称 + 细分 + 默认平滑，没有转种类", (r.kindIds ?? []).includes("mirror:mode") && has(r.kindTexts, /细分/) && has(r.kindTexts, /默认平滑/) && !(r.kindIds ?? []).includes("action:object.toBrep")],
   ["① 材质页没画：没有挂材质 / 还没有贴图坐标", has(r.mat0, /没有挂材质/) && has(r.mat0, /还没有贴图坐标/) && !has(r.mat0, /把画拿掉/)],
@@ -86,9 +86,9 @@ const checks = [
   ["② 把画拿掉（第三稿 = 只换材质）：提示行说了还在文件里、面一张不少、画的那一槽 0 张面、贴图坐标那一套照列、出口收起", /把画拿掉了.*画和贴图坐标都还在文件里/.test(r.hintDrop) && r.facesAfter && has(r.mat2, /走画.*（0 张面）/) && has(r.mat2, /× \d+ 格/) && !has(r.mat2, /还没有贴图坐标/) && !has(r.mat2, /把画拿掉/)],
   ["②½ 拿掉画之后转硬表面：先问、询问里列了贴图坐标；照样转 = 转得过去、不被画拦；撤销回来", /贴图坐标的表 1 套/.test(r.castAsk ?? "") && r.castAfterDrop?.kind === "brep" && !/有画/.test(r.castAfterDrop.hint) && r.castUndone === "mesh"],
   ["② 再撤销一步：画回来（面真的走画，不是 0 张面的那一槽）", has(r.mat3, /走画/) && !has(r.mat3, /走画.*（0 张面）/)],
-  ["③ 硬表面体：种类页叫硬表面体；材质页说不能画", r.brepTabs?.join("|") === "物体|硬表面体|元素|材质和贴图" && has(r.brepMat, /硬表面体不能画/)],
-  ["④ 空物体：三页（没有种类页）", r.emptyKind === "empty" && r.emptyTabs?.join("|") === "物体|元素|材质和贴图"],
-  ["④ 空物体：元素页 / 材质页各说一句", has(r.emptyEl, /只装子物体/) && has(r.emptyMat, /只装子物体/)],
+  ["③ 硬表面体：种类页叫硬表面体；材质页说不能画", r.brepTabs?.join("|") === "物体|硬表面体|图元|材质和贴图" && has(r.brepMat, /硬表面体不能画/)],
+  ["④ 空物体：三页（没有种类页）", r.emptyKind === "empty" && r.emptyTabs?.join("|") === "物体|图元|材质和贴图"],
+  ["④ 空物体：图元页 / 材质页各说一句", has(r.emptyEl, /只装子物体/) && has(r.emptyMat, /只装子物体/)],
   ["⑤ 网格体：切换种类列出硬表面体（说丢什么）、空物体灰着（还有几何）", (() => { const c = r.meshCasts ?? [], b = c.find((x) => x.id === "action:object.toBrep"), m = c.find((x) => x.id === "action:object.toEmpty"); return c.length === 2 && b && !b.off && /可能丢/.test(b.text) && m && m.off && /还有几何/.test(m.text); })()],
   ["⑤ 空物体：切到硬表面体 / 网格体都不丢东西", (r.emptyCasts ?? []).length === 2 && r.emptyCasts.every((x) => !x.off && /不丢东西/.test(x.text))],
   ["⑤ 空物体 → 网格体：种类和工作台跟着换", r.afterToMesh === "mesh" && r.modeAfterToMesh === "freeform"],

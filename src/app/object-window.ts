@@ -26,11 +26,11 @@ export type ObjectTarget = Exclude<MenuTarget, "selection">;
 /**
  * 四页（第 1 版第五节第 2 条；物体种类施工稿第三节，user 11-13 夜定）：物体 = 设置的是谁 + 物件级动词（转种类，以后创建父物体 / 新建子物体）；
  * 种类那一页（页名 = 种类的名字，空物体没有）= 种类自己报的字段 + 种类自己的动词（细分、默认平滑、接缝……）+ 机器（修复面板…）；
- * 元素 = 只读；材质和贴图 = 只读 + 出口（把画拿掉，放置表 objectMaterials）。记住上次停在哪一页（跟文件走）。选了几种物体 = 没有种类页，动词都放物体页。
+ * 图元 = 只读；材质和贴图 = 只读 + 出口（把画拿掉，放置表 objectMaterials）。记住上次停在哪一页（跟文件走）。选了几种物体 = 没有种类页，动词都放物体页。
  */
 function tabsFor(editor: Editor, target: ObjectTarget): readonly { id: string; label: string }[] {
   const def = soleDef(editor, target), kindTab = def === undefined ? null : kindPageOf(editor, def).tab;
-  return [{ id: "object", label: "物体" }, ...(kindTab ? [{ id: "kind", label: kindTab }] : []), { id: "elements", label: "元素" }, { id: "materials", label: "材质和贴图" }];
+  return [{ id: "object", label: "物体" }, ...(kindTab ? [{ id: "kind", label: kindTab }] : []), { id: "elements", label: "图元" }, { id: "materials", label: "材质和贴图" }];
 }
 // 每个种类自己的那几行字段 / 元素页 / 材质页 = kind-pages.ts（第 1 版第五节第 1、2 条）：这里不认识种类，照着画（守卫 test/kind-pages.test.ts：本文件不许出现种类的名字）。
 
@@ -114,23 +114,23 @@ export function objectMaterialItems(editor: Editor, target: ObjectTarget): Popup
   return [...rows, ...foldSubmenus(actionItems(acts)).map((it, i) => ({ ...it, tab, ...(i === 0 ? { separatorBefore: true } : {}) }))];
 }
 
-/** 「元素」页的分组先后 = 几何那一行的先后（统筹 11-13 深夜：点 → 边 → 面 → 角）；没有列的组不出。 */
+/** 「图元」页的分组先后 = 几何那一行的先后（统筹 11-13 深夜：点 → 边 → 面 → 角）；没有列的组不出。 */
 const ELEMENT_GROUPS: readonly { readonly on: AttributeRow["on"] | "point"; readonly title: string; readonly unit: string }[] = [
   { on: "point", title: "点上", unit: "个" }, { on: "edge", title: "边上", unit: "条" }, { on: "face", title: "面上", unit: "张" }, { on: "corner", title: "角上", unit: "个" },
 ];
 /**
- * 「元素」页（属性地基轮 3½ 第一版：只看；删、改名、加一列在第二版）：几何个数一行 + 每一列一行（名字、类型、个数、大小），按挂在哪分组。
+ * 「图元」页（user 11-13 夜定的叫法，原叫「元素」；属性地基轮 3½ 第一版：只看；删、改名、加一列在第二版）：几何个数一行 + 每一列一行（名字、类型、个数、大小），按挂在哪分组。
  * 网格体的行带小灰字原名（名字就是键）；硬表面的行不带（那套还没搬上属性表）、层是稀疏存的（「有 N 条 / 张」、大小「—」）。纯函数：探针 / 测试也能问。
  */
 export function objectElementItems(editor: Editor, target: ObjectTarget): PopupMenuItem<string>[] {
   const tab = "elements", def = soleDef(editor, target);
-  if (def === undefined) return [{ id: "el:none", label: "选了好几个物体：元素页一次只看一个", note: true, tab }];
+  if (def === undefined) return [{ id: "el:none", label: "选了好几个物体：图元页一次只看一个", note: true, tab }];
   const page = kindPageOf(editor, def).elements({ editor, def });
   if ("none" in page) return [{ id: "el:none", label: page.none, note: true, tab }];
   const list = page.list, g = list.geometry;
   const geo = [`点 ${g.points}`, `边 ${g.edges}`, `面 ${g.faces}`, ...(g.corners !== null ? [`角 ${g.corners}`] : []), `不挂面的线 ${g.wires}`].join(" · ");
   const out: PopupMenuItem<string>[] = [{ id: "el:geometry", label: geo, readout: { cells: [] }, tab }];
-  if (!list.rows.length) { out.push({ id: "el:empty", label: "还没有元素属性", note: true, tab }); return out; }
+  if (!list.rows.length) { out.push({ id: "el:empty", label: "还没有图元属性", note: true, tab }); return out; }
   out.push({ id: "el:head", label: "", readout: { cells: ["类型", "个数", "大小"] }, tab });
   for (const grp of ELEMENT_GROUPS) {
     const rows = list.rows.filter((r) => r.on === grp.on)

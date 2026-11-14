@@ -47,17 +47,17 @@ res.errs = errs;
 const one = res.one, body = one.rows.filter((r) => r.id !== "el:geometry" && r.id !== "el:head");
 const sharp = body.find((r) => r.code === "sharp_edge"), groupsOrder = one.sections.join(">");
 const checks = {
-  "① 停在元素页": one.tab === "元素",
+  "① 停在元素页": one.tab === "图元",
   "① 几何行和内核一样": one.rows[0]?.name === one.geo,
   "① 行数 = 列数": body.length === one.cols.length && one.cols.length > 0,
   "① 每一行的原名都是内核里的列名": body.every((r) => one.cols.some((c) => c.startsWith(`${r.code ?? r.name}/`))),
   "① 棱：带原名 sharp_edge、是 / 否、个数 = 边数": !!sharp && sharp.name === "棱" && sharp.cells[0] === "是 / 否" && sharp.cells[1] === String(one.cols.find((c) => c.startsWith("sharp_edge/")).split("/")[3]),
   "① 分组先后：边上在面上之前（点 → 边 → 面 → 角；没有的组不出）": one.sections.join(">") === "边上>面上",
   "① 材质：带原名 material_index、整数": body.some((r) => r.code === "material_index" && r.name === "材质" && r.cells[0] === "整数"),
-  "② 再开停在元素页": res.two.tab === "元素",
+  "② 再开停在元素页": res.two.tab === "图元",
   "② 物体页第一行还是「设置的是谁」": res.two.back === "物体" && /块/.test(res.two.who),
   "③ 硬表面：几何行没有「角」": res.three.rows[0]?.name?.startsWith("点 ") && !/角/.test(res.three.rows[0]?.name ?? ""),
-  "③ 硬表面没有层：一行灰字": res.three.notes.includes("还没有元素属性") && res.three.rows.length === 1,
+  "③ 硬表面没有层：一行灰字": res.three.notes.includes("还没有图元属性") && res.three.rows.length === 1,
   "④ 没有页面错误": errs.length === 0,
 };
 const ok = Object.values(checks).every(Boolean);
