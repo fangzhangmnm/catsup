@@ -34,7 +34,9 @@ const res = await page.evaluate(async () => {
   out.setup = { kind: root().body.kind, groups: root().body.groups.size, instParent: inst0.parent, rootFaces: root().body.kernel.faces().length, groupFaces: [...root().body.groups.values()].reduce((n, g) => n + g.kernel.faces().length, 0) };
   e.deselectAll(); await sleep(10);
   await rclick(); out.menuEmpty = labels(); await closeAll();   // 空处右键：物件级的不在这
-  await openObj(); out.who = who(); out.menu = await castLabels(); out.clicked = await castClick(/^网格体/); await closeAll();
+  await openObj(); out.who = who(); out.menu = await castLabels(); out.clicked = await castClick(/^网格体/); await sleep(40);
+  out.askText = document.getElementById("sheetTitle")?.textContent ?? ""; out.asked = /带不过去/.test(out.askText) && /组分区/.test(document.getElementById("sheet")?.textContent ?? document.body.textContent ?? "");   // 4½：带着组 = 丢「组分区」→ 先问
+  document.getElementById("sheetConfirm")?.click(); await sleep(80); await closeAll();
   const m = root().body.kind === "mesh" ? root().body.kernel : null;
   out.after = { kind: root().body.kind, mode: e.modeId, faces: m ? m.faces().length : 0, instParent: [...root().instances.values()][0].parent, samePos: JSON.stringify([...root().instances.values()][0].xform) === JSON.stringify(wpos0), hint: hud.status() };
   e.undo(); await sleep(20);
@@ -48,7 +50,7 @@ await b.close();
 res.errs = errs;
 // 面数 × 2：盒子是用边搭的、没定朝向，两侧都是默认正面 = 转过去两侧都出（v0.18.31 单面 / 双面那一版的规矩，提示行照实说；W-9 查的老红）
 const ok = res.setup.kind === "brep" && res.setup.groups === 1 && res.setup.instParent !== null && res.setup.groupFaces === 6
-  && !res.menuEmpty.some((l) => /转成网格体/.test(l)) && /最外层/.test(res.who) && /硬表面体/.test(res.who) && res.menu.some((l) => /^网格体/.test(l)) && res.clicked && /最外层/.test(res.who2) && /网格体/.test(res.who2)
+  && !res.menuEmpty.some((l) => /转成网格体/.test(l)) && /最外层/.test(res.who) && /硬表面体/.test(res.who) && res.menu.some((l) => /^网格体/.test(l)) && res.clicked && res.asked && /最外层/.test(res.who2) && /网格体/.test(res.who2)
   && res.after.kind === "mesh" && res.after.mode === "freeform" && res.after.faces === 2 * (res.setup.rootFaces + res.setup.groupFaces) && /两侧都出/.test(res.after.hint) && res.after.instParent === null && res.after.samePos
   && res.undone.kind === "brep" && res.undone.groups === 1 && res.undone.instParent !== null && res.undone.mode !== "freeform"
   && res.menu2.some((l) => /^硬表面体/.test(l)) && res.clicked2 && res.back.kind === "brep" && res.back.mode !== "freeform"

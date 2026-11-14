@@ -86,7 +86,7 @@ const checks = [
   ["③ 硬表面体：种类页叫硬表面体；材质页说不能画", r.brepTabs?.join("|") === "物体|硬表面体|元素|材质和贴图" && has(r.brepMat, /硬表面体不能画/)],
   ["④ 空物体：三页（没有种类页）", r.emptyKind === "empty" && r.emptyTabs?.join("|") === "物体|元素|材质和贴图"],
   ["④ 空物体：元素页 / 材质页各说一句", has(r.emptyEl, /只装子物体/) && has(r.emptyMat, /只装子物体/)],
-  ["⑤ 网格体：切换种类列出硬表面体（说丢什么）、空物体灰着（还有几何）", (() => { const c = r.meshCasts ?? [], b = c.find((x) => x.id === "action:object.toBrep"), m = c.find((x) => x.id === "action:object.toEmpty"); return c.length === 2 && b && !b.off && /会丢/.test(b.text) && m && m.off && /还有几何/.test(m.text); })()],
+  ["⑤ 网格体：切换种类列出硬表面体（说丢什么）、空物体灰着（还有几何）", (() => { const c = r.meshCasts ?? [], b = c.find((x) => x.id === "action:object.toBrep"), m = c.find((x) => x.id === "action:object.toEmpty"); return c.length === 2 && b && !b.off && /可能丢/.test(b.text) && m && m.off && /还有几何/.test(m.text); })()],
   ["⑤ 空物体：切到硬表面体 / 网格体都不丢东西", (r.emptyCasts ?? []).length === 2 && r.emptyCasts.every((x) => !x.off && /不丢东西/.test(x.text))],
   ["⑤ 空物体 → 网格体：种类和工作台跟着换", r.afterToMesh === "mesh" && r.modeAfterToMesh === "freeform"],
   ["⑤ 没有几何的网格体能切回空物体；撤销一步回到网格体", (r.bareMeshCasts ?? []).some((x) => x.id === "action:object.toEmpty" && !x.off) && r.afterToEmpty === "empty" && r.modeAfterToEmpty === "object" && r.afterUndo === "mesh"],

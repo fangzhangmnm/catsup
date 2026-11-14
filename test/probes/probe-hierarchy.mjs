@@ -70,7 +70,7 @@ await page.click(`${W} .tree-row:nth-child(1) .tree-more`); await page.waitForTi
 const m2 = await page.evaluate(() => [...document.querySelectorAll(".popup-menu .menu-label")].map((x) => x.textContent.trim()));
 const st2 = await page.evaluate(() => globalThis.__catsup.editor.context.chain.length);
 const m2dis = await page.evaluate(() => [...document.querySelectorAll(".popup-menu button")].filter((b) => b.disabled).map((b) => b.textContent.trim()));
-check(st2 === 0 && m2.join("/") === "改名…/炸开/物件设置…" && m2dis.some((t) => t.startsWith("炸开")), `根那行的「…」= 走回根 + 和物件行同样子的菜单（炸开灰着：根没有父亲）：${m2.join(" / ")}；灰着：${m2dis.join(" / ")}`);
+check(st2 === 0 && m2.join("/") === "改名…/炸开/物件设置…/新建子物体" && m2dis.some((t) => t.startsWith("炸开")), `根那行的「…」= 走回根 + 和物件行同样子的菜单（炸开灰着：根没有父亲）：${m2.join(" / ")}；灰着：${m2dis.join(" / ")}`);
 // 根改名（I13）：「…」→「改名…」→ 树上跟着变；撤销一步回来
 await page.locator(".popup-menu button", { hasText: "改名…" }).click(); await page.waitForTimeout(150);
 await page.fill("#sheetInput", "小镇"); await page.keyboard.press("Enter"); await page.waitForTimeout(150);

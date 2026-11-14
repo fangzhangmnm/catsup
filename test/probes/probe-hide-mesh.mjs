@@ -132,7 +132,7 @@ const twinSetup = await S(async () => {
   const ok = document.getElementById("sheetConfirm"), msg = document.getElementById("sheetMessage")?.textContent ?? "";
   return { inst: inst.id, def: inst.def, shown: !!ok && !ok.closest("[hidden]"), msg, kind: S0.kindOf(inst.def) };
 });
-check(twinSetup.shown && /带不过去|会露出来/.test(twinSetup.msg + (await S(() => document.getElementById("sheetTitle")?.textContent ?? ""))) && /1 张藏着的面/.test(twinSetup.msg), "⑧ 背靠背一藏一露：转之前弹框、说 1 张藏着的面会露出来", twinSetup);
+check(twinSetup.shown && /带不过去|会露出来/.test(twinSetup.msg + (await S(() => document.getElementById("sheetTitle")?.textContent ?? ""))) && /藏着的面 1 张/.test(twinSetup.msg), "⑧ 背靠背一藏一露：转之前弹框、说 1 张藏着的面会露出来", twinSetup);
 await S(() => document.getElementById("sheetCancel")?.click()); await frames(1);
 const afterCancel = await S((def) => globalThis.__catsup.editor.sceneRef.kindOf(def), twinSetup.def);
 check(afterCancel === "mesh", "⑧ 取消 = 没转（还是网格体）", afterCancel);

@@ -28,7 +28,7 @@ await page.evaluate(async () => {
 const stat = () => page.evaluate(() => { const e = globalThis.__catsup.editor, m = e.scene.mesh(globalThis.__probe.def).kernel; return { faces: m.faces().length, maxOnEdge: Math.max(...m.edges().map((x) => m.eFaces(x).length)), hint: document.getElementById("hint")?.textContent ?? "" }; });
 // 关菜单不许按 Esc：Esc 在这个 app 里还会退出一层（2026-11-06 这个探针自己就这么读到了硬表面那层的菜单）
 const closeMenus = async () => { await page.evaluate(() => document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))); await page.waitForTimeout(60); };
-const objMenuRows = async () => { await page.click(".gizmo-object"); await page.waitForTimeout(100); const rows = await page.$$eval(".popup-menu .menu-item", (els) => els.map((x) => x.textContent ?? "")); return rows; };
+const objMenuRows = async () => { await page.click(".gizmo-object"); await page.waitForTimeout(100); await page.evaluate(() => document.querySelector('.popup-menu [data-menu-tab="kind"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }))); await page.waitForTimeout(60); const rows = await page.$$eval(".popup-menu .menu-item", (els) => els.map((x) => x.textContent ?? "")); return rows; };   // 第 1 版第五节第 2 条：修复面板住种类那一页
 
 const s0 = await stat();
 ok("转换不合并：12 张面、边挂 4 张", s0.faces === 12 && s0.maxOnEdge === 4, JSON.stringify({ f: s0.faces, e: s0.maxOnEdge }));
