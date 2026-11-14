@@ -378,6 +378,8 @@ const hud: HudModel = {
     { id: "explodeCurve", layer: "geometry", label: "炸开曲线", icon: "explode-folder", hidden: !editor.hasCurveSelection() },
     { id: "cut", layer: "geometry", label: "剪切", icon: "cut", hidden: !editor.hasActableSelection() },   // 剪贴板（设计稿 20261028-object-layer-and-clipboard-design §3）：几何 + 组 + 物件都走它；层级移动 = 剪切 → 走到那层 → 粘贴
     { id: "copy", layer: "geometry", label: "拷贝", icon: "copy", hidden: !editor.hasActableSelection() },
+    { id: "moveTo", layer: "geometry", label: "移到…", icon: "move", hidden: !editor.hasActableSelection() },   // 第 1 版第三节：点一个物体 = 原位搬进去（editor.armMoveTo）
+    { id: "moveUp", layer: "geometry", label: editor.contextDepth() === 0 ? "移出一层（已在最外一层）" : "移出一层", icon: "back", hidden: !editor.hasActableSelection(), disabled: editor.contextDepth() === 0 },   // 原位搬到上一层；最外一层 = 灰着、字里说原因
     { id: "paste", layer: "empty", label: "粘贴（原位）", icon: "paste", hidden: !editor.canPaste() },
     { id: "selectAll", layer: "empty", label: "全选", icon: "select" },   // 清空模型 = 这里全选再删（user 10-30「清空模型归右键，而且可能就是全选删除，我们这里不需要清空画布快捷键」）
     { id: "enter", layer: "child", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
@@ -442,6 +444,8 @@ const hud: HudModel = {
       case "componentOrigin": editor.beginComponentOrigin(); syncUi(); break;
       case "repairPanel": editor.beginRepairPanel(); break;
       case "exit": editor.exitContext(); break;
+      case "moveTo": editor.armMoveTo(); break;
+      case "moveUp": editor.moveSelectionTo({ kind: "up" }); break;
       case "soften": { const n = editor.softenSelection(true); notify({ text: n ? `软化了 ${n} 条边（soft + smooth）` : "选区里没有两膜之间的边", level: "info" }); break; }
       case "harden": { const n = editor.softenSelection(false); notify({ text: n ? `硬化了 ${n} 条边` : "选区里没有两膜之间的边", level: "info" }); break; }
       case "connected": editor.selectConnected(); break;
@@ -1732,6 +1736,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "escape":
       // 按钮锁（锁的一轮第四步，统筹 11-13）：手势里 Esc 只取消这一下、按钮锁留着；手势外、锁着 = 这一下只解锁，到此为止
       // （v0.19.3，Fable 审：不然一下 Esc 既解锁又退出组件，只想解锁的人会被带出去）。手指轻点的取消不解锁。
+      if (editor.cancelMoveTo()) { syncUi(); return; }   // 「移到…」在等你点物体：Esc = 取消
       if (!editor.isGestureActive() && (editor.axisLock !== null || editor.planeLock !== null)) { editor.clearToolLock(); syncUi(); return; }
       // 菜单 / 帮助 / 材质 / 调试日志开着时 Esc 到不了这里（输入闸的 escape：只关最上面那个面）
       // 自由建模的手势中（拖着 / 键盘起手 / 打数）→ 只取消这次操作、选区留着（Blender：G / S 里 Esc 只退回去；2026-10-28 晚「S Z 0」接线时改，硬表面照旧）

@@ -24,7 +24,7 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { GuideSelection } from "./guide-selection.ts";
 import { describeEvent } from "./describe-event.ts";
-import { bornThisGesture } from "./born-this-gesture.ts"; import { REACH } from "./reach-table.ts"; import { softEdgesOf, vertDotsOf } from "./edit-marks.ts";
+import { bornThisGesture } from "./born-this-gesture.ts"; import { REACH } from "./reach-table.ts"; import { softEdgesOf, vertDotsOf } from "./edit-marks.ts"; import { planMove, type MoveDest } from "./objects/move-to.ts";
 import { snapHoldTol } from "./snap-hysteresis.ts";
 import { type ForceEnv, forceSideFor, forcesOn, originNeedsAsk } from "./mirror-force.ts";
 import { type FreedBase, type UpkeepSnaps, freedBaseline, freedOp, upkeepAfter, upkeepRewrite, upkeepSnapshot } from "./paint-upkeep.ts";   // 每一步做完的收尾 = 强行对称 + 画的位置（1-3b）
@@ -1899,6 +1899,23 @@ export class Editor {
     void this.host.confirm("粘贴：要转种类", `${a.what}是另一种身体的几何，贴进这一层要先转成${to}（和物件设置里的转换一样，会丢它那一种才有的东西）。转过去再贴吗？`, `转成${to}再贴`)
       .then((ok) => { if (ok) this.pasteNow(castPayload(p, a.cast)); else { this.host.hint("粘贴：没贴（你选了不转）"); this.draw(); } });
   }
+  /** 「移到…」/「移出一层」（第 1 版第三节）：选中的原位搬走、一步撤销；规划和说法 = objects/move-to.ts。几何 / 组 = 抽载荷 → 删 → 走过去 → 原位贴（不碰剪贴板），子物体 = moveInstance（保 GUID）；种类对不上先问。 */
+  moveSelectionTo(dest: MoveDest, cast?: BodyKind): boolean {
+    const m = planMove(this.scene, this.ctx, [...this.selectedPools.values()], this.hasGeometrySelection(), dest, (p) => this.pickIsLocked(p)), geo = "why" in m || !(this.hasGeometrySelection() || m.groups.length) ? null : transferExtract(this.scene, this.ctx, this.selection, m.groups);
+    if ("why" in m || (geo && "blocked" in geo)) { this.host.hint("why" in m ? m.why : `搬不了：${(geo as { blocked: string }).blocked}`); return false; }
+    const acc = geo && !cast ? transferAccept(geo, m.kind) : null;
+    if (acc && !acc.ok) { const to = acc.cast === "mesh" ? "网格体" : "硬表面体"; void this.host.confirm?.("搬过去要转种类", `${acc.what}是另一种身体的几何，搬进去要先转成${to}（会丢它那一种才有的东西）。转过去再搬吗？`, `转成${to}再搬`).then((ok) => { if (ok) this.moveSelectionTo(dest, acc.cast); else this.host.hint("没搬（你选了不转）"); }); return false; }
+    return this.step((pass) => {
+      if (geo) { for (const [k, p] of [...this.selectedPools]) if (p.kind === "instance") this.selectedPools.delete(k); this.deleteSelection(); if (dest.kind === "up") this.exitContext(); else this.enterPool({ kind: "instance", instance: dest.instance }); this.pasteCommit(cast ? castPayload(geo, cast) : geo, KEEP); if (dest.kind === "into") this.exitContext(); }
+      for (const op of m.ops) this.commitIn(pass, op);
+      if (dest.kind === "into") this.selectPools([{ kind: "instance", instance: dest.instance }]);
+      else { if (!geo) { this.exitContext(); this.clearSel(pass); } const d = this.scene.def(this.scene.defOfContext(this.ctx)); for (const i of d.instances.values()) if (m.movedGuids.includes(i.guid)) this.selectedPools.set(this.pickKey({ kind: "instance", instance: i.id }), { kind: "instance", instance: i.id }); }
+      this.host.hint(m.say); this.host.changed(); this.draw(); return true;
+    }, { title: dest.kind === "up" ? "移出一层" : "移到" });
+  }
+  private moveToArmed = false;   // 「移到…」：等你点一个物体（这一层的子物件）
+  armMoveTo(): boolean { if (!this.hasAnySelection()) { this.host.hint("移到…：先选中要搬的东西"); return false; } this.moveToArmed = true; this.host.hint("移到…：点要搬进去的物体（Esc 取消）"); return true; }
+  cancelMoveTo(): boolean { if (!this.moveToArmed) return false; this.moveToArmed = false; this.host.hint("移到…：取消了"); return true; }
   private pasteNow(p: import("./transfer.ts").TransferPayload): void {
     const c = clipboard.doc() === this.docEpoch ? null : pasteConflict(this.scene, p, this.ctx), r0 = this._revision;   // 同一次打开永不问；内容不一样才问（设计书 §8）
     if (!c) this.pasteCommit(p, KEEP);
@@ -3705,6 +3722,7 @@ export class Editor {
     this.lastPtrType = ev.pointerType;   // 键盘起手的那一下带的也是真设备（keyboardStart 填的）
     this.ctxPick = null; this.pointed = null;   // 右键菜单那一下记的点 / Ctrl+J 压着的那个：画布上再按一下就作废
     if (this.gizmoPointer("down", ev)) return;   // 镜像会话：把手优先、别处不动作
+    if (this.moveToArmed) { this.moveToArmed = false; const c = this.classify(this.liveWorld(), this.pickAt(ev.x, ev.y)); if (c.kind === "pool" && c.pick.kind === "instance") this.moveSelectionTo({ kind: "into", instance: c.pick.instance }); else this.host.hint("移到…：没点到这一层里的物体，取消了"); return; }
     const s = ev;
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
     this.pressPeak = 0;
