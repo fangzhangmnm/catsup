@@ -121,6 +121,7 @@ const auto = await S(async (def) => {
   C.pickWorkbench("freeform"); e.deselectAll(); e.draw();
   const p0 = e.history.position();
   document.querySelector(".gizmo-object")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(80);   // 工作台下拉左边的「物件」钮 = 这一层的物件菜单（弹出菜单）
+  document.querySelector('.popup-menu [data-menu-tab="kind"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40);   // 第 1 版第五节第 2 条：修复面板 / 接缝住种类那一页
   const body = document.querySelector(".popup-menu:not(.choice-layer)"), row = body?.querySelector('[data-menu-id="submenu:接缝"]');
   if (!row) return { noRow: true, items: [...(body?.querySelectorAll("[data-menu-id]") ?? [])].map((x) => x.getAttribute("data-menu-id")) };
   row.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40);

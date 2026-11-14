@@ -12,18 +12,35 @@ import type { ParamFieldDef, ParamValue } from "../editor/param-panel.ts";
 import type { MirrorAxis, MirrorMode } from "../mesh/mirror.ts";
 import { brepAttributeList, meshAttributeList, type AttributeList, type AttributeRow } from "../scene/attribute-list.ts";
 import { brepAttrName, meshAttrName } from "./attribute-names.ts";
+import { KINDS } from "../scene/kinds.ts";
+import { faceMaterial } from "../mesh/reserved-columns.ts";
 
 export interface KindPageCtx { readonly editor: Editor; readonly def: number }
 /** 物体页上的一行：字段（枚举 / 开关 / 数值，形状 = 参数小窗那三种）或一句说明。off = 灰掉的原因。 */
 export type KindPageRow =
   | { readonly kind: "field"; readonly key: string; readonly icon: string; readonly def: ParamFieldDef; readonly value: ParamValue; readonly off?: string; set(v: ParamValue): void }
-  | { readonly kind: "note"; readonly text: string };
+  | { readonly kind: "note"; readonly text: string; readonly section?: string };
 /** 元素页：身上有哪些元素属性 + 每一列叫什么；none = 这个种类没有元素（说一句为什么）。 */
 export type KindElements = { readonly list: AttributeList; nameOf(r: AttributeRow): { readonly label: string; readonly code: string | null } } | { readonly none: string };
 export interface KindPage {
-  /** 物体页：第一行「设置的是谁」之后、物件级动词之前的那几行。 */
+  /** 种类自己那一页的页名（施工稿第三节：页名 = 种类的名字）；null = 没有这一页（空物体）。 */
+  readonly tab: string | null;
+  /** 种类那一页：字段（网格体 = 对称 + 镜像面）。这个种类自己的动词（细分、默认平滑、接缝……）照旧走放置表 objectWindow，窗口排在这些字段后面。 */
   fields(ctx: KindPageCtx): readonly KindPageRow[];
   elements(ctx: KindPageCtx): KindElements;
+  /** 「材质和贴图」页（第一版只看）：挂着的材质、画、贴图坐标的表。出口（把画拿掉）走放置表 objectMaterials。 */
+  materials(ctx: KindPageCtx): readonly KindPageRow[];
+}
+
+/** 材质槽那几行（硬表面体 / 网格体共用）：每个槽一行「名字（走画 = 画的名字）」；没有槽 = 都是默认材质。 */
+function slotRows({ editor, def }: KindPageCtx, slots: number, facesOn?: (slot: number) => number): KindPageRow[] {
+  const s = editor.sceneRef, out: KindPageRow[] = [];
+  for (let i = 0; i < slots; i++) {
+    const m = s.materialOfSlot(def, i), fp = s.facePaint(def, i), n = facesOn ? `（${facesOn(i)} 张面）` : "";   // 槽挂着、没有面用它 = 0 张面（「把画拿掉」之后就是这样：槽还在，资源页能清）
+    out.push({ kind: "note", text: m ? `${m.name || "（没起名）"}${fp ? `：走画「${fp.textureDoc.name || "（没起名）"}」` : ""}${n}` : `（空槽）${n}`, ...(i === 0 ? { section: "材质" } : {}) });
+  }
+  if (!slots) out.push({ kind: "note", text: "没有挂材质：面都是默认材质", section: "材质" });
+  return out;
 }
 
 // 强行对称排第一 = 主入口（user 10-28「就是水杉和blender那种啊，强行对称」）；镜像编辑 = 只挪点的那种（Blender 编辑模式的 X 镜像）
@@ -35,6 +52,7 @@ const MIRROR_MODES: readonly { id: "off" | MirrorMode; label: string; hint: stri
 
 /** 网格体：对称 + 镜像面（对称是网格体的属性；镜像面只能选不能拖，拖的是工具「镜像…」的那张面）。 */
 const MESH_PAGE: KindPage = {
+  tab: KINDS.mesh.noun,
   fields({ editor, def }) {
     const ms = editor.mirrorOf(def);
     const rows: KindPageRow[] = [{ kind: "field", key: "mirror:mode", icon: "axes", def: { kind: "enum", label: "对称", values: MIRROR_MODES }, value: ms?.mode ?? "off",
@@ -44,16 +62,28 @@ const MESH_PAGE: KindPage = {
     return rows;
   },
   elements: ({ editor, def }) => ({ list: meshAttributeList(editor.sceneRef.mesh(def).kernel), nameOf: (r) => meshAttrName(r.id) }),   // 网格体的行带小灰字原名（名字就是键）
+  materials(ctx) {
+    const s = ctx.editor.sceneRef, b = s.mesh(ctx.def), count = new Map<number, number>();
+    for (const f of b.kernel.faces()) { const c = faceMaterial(b.kernel, f); count.set(c, (count.get(c) ?? 0) + 1); }
+    const out = slotRows(ctx, b.materialSlots.length, (i) => count.get(i) ?? 0);
+    b.uvSetSlots.forEach((g, i) => { const row = s.uvSets.get(g); out.push({ kind: "note", text: row ? `${row.name || "（没起名）"}：${row.width} × ${row.height} 格` : "（排法表里没有这一套）", ...(i === 0 ? { section: "贴图坐标" } : {}) }); });
+    if (!b.uvSetSlots.length) out.push({ kind: "note", text: "还没有贴图坐标（开始画时铺）", section: "贴图坐标" });
+    return out;
+  },
 };
 /** 硬表面体：没有自己的字段（对称要转成网格体之后才有）；元素页的层是稀疏存的、不带原名（那套还没搬上属性表）。 */
 const BREP_PAGE: KindPage = {
+  tab: KINDS.brep.noun,
   fields: () => [],
   elements: ({ editor, def }) => ({ list: brepAttributeList(editor.sceneRef.brep(def).kernel), nameOf: (r) => ({ label: brepAttrName(r.on as "edge" | "face", r.id), code: null }) }),
+  materials: (ctx) => [...slotRows(ctx, ctx.editor.sceneRef.brep(ctx.def).materialSlots.length), { kind: "note", text: "硬表面体不能画（要画先转成网格体）", section: "画" }],
 };
 /** 空物体：只装子物体，没有几何也没有元素（第 1 版第四节）。 */
 const EMPTY_PAGE: KindPage = {
+  tab: null,
   fields: () => [],
   elements: () => ({ none: "空物体只装子物体，没有几何，也就没有元素属性" }),
+  materials: () => [{ kind: "note", text: "空物体只装子物体，没有面，也就没有材质和贴图" }],
 };
 
 export const KIND_PAGES: Readonly<Record<BodyKind, KindPage>> = { brep: BREP_PAGE, mesh: MESH_PAGE, empty: EMPTY_PAGE };

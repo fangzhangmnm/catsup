@@ -28,6 +28,7 @@ const res = await page.evaluate(async () => {
   // 指令板（v0.16.20，UX41）：点扳手 = 修复这台机器的浮板；开板 = 直接进修复面板（参数区住进板里，不在右下角）
   // 入口 = 物件窗口（弹出菜单，v0.17.65 不分页签）的「修复面板…」（v0.17.53 是「修复」页签；更早是右边视图那一列的扳手钮）
   click(document.querySelector(".gizmo-object")); await sleep(80);
+  document.querySelector('.popup-menu [data-menu-tab="kind"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40);   // 第 1 版第五节第 2 条：修复面板 / 接缝住种类那一页
   click([...document.querySelectorAll(".menu-item")].find((x) => x.textContent.includes("修复面板"))); await sleep(80);
   const board = () => document.querySelector('.board[data-board="repairWindow"]');
   out.window = { who: board()?.querySelector(".board-title")?.textContent ?? "", rows: [...(board()?.querySelectorAll("[data-cmd]") ?? [])].map((x) => x.dataset.cmd),

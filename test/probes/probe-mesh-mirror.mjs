@@ -18,7 +18,7 @@ const res = await page.evaluate(async () => {
   const drag = async (x0, y0, x1, y1) => { fire("pointermove", x0, y0, 0); await sleep(10); fire("pointerdown", x0, y0, 1); await sleep(10); for (let i = 1; i <= 6; i++) { fire("pointermove", x0 + (x1 - x0) * i / 6, y0 + (y1 - y0) * i / 6, 1); await sleep(10); } fire("pointerup", x1, y1, 0); await sleep(40); };
   const rclick = async () => { c.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + Math.round(vw * 0.15), clientY: r.top + Math.round(vh * 0.3), button: 2 })); await sleep(60); };
   const menu = () => document.querySelector(".popup-menu:not(.choice-layer)") ?? document.querySelector(".float-win:not([hidden]) .float-body"), layer = () => document.querySelector(".popup-menu.choice-layer");
-  const openObj = async () => { if (document.querySelector('.float-win[data-win="object"]:not([hidden])')) return; document.querySelector(".gizmo-object")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); };   // 右边「物件」钮 → 物件窗口（这一层）
+  const openObj = async () => { if (document.querySelector('.float-win[data-win="object"]:not([hidden])')) return; document.querySelector(".gizmo-object")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); document.querySelector('.popup-menu [data-menu-tab="kind"], .float-win [data-menu-tab="kind"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(30); };   // 第 1 版第五节第 2 条：对称 / 细分 / 默认平滑住种类那一页（有就切过去）   // 右边「物件」钮 → 物件窗口（这一层）
   const mirrorPick = async (id) => { await openObj(); menu()?.querySelector('[data-menu-id="mirror:mode"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40); layer()?.querySelector(`[data-choice-id="mirror:mode:${id}"]`)?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); };
   const closeAll = async () => { document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); await sleep(30); document.querySelectorAll(".popup-menu").forEach((m) => m.remove()); document.querySelectorAll(".float-win:not([hidden]) .float-close").forEach((b) => b.click()); };
   const box = (x0, y0, z0, x1, y1, z1) => { const B = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], z0), P(d[0], d[1], z0)]); segs.push([P(a[0], a[1], z1), P(d[0], d[1], z1)]); segs.push([P(a[0], a[1], z0), P(a[0], a[1], z1)]); } e.addSegments(segs); };
@@ -40,7 +40,7 @@ const res = await page.evaluate(async () => {
   // ①
   await openObj();
   const row = menu()?.querySelector('[data-menu-id="mirror:mode"]');
-  out.one = { row: !!row, who: menu()?.querySelector(".menu-note")?.textContent ?? "", axisBefore: !!menu()?.querySelector('[data-menu-id="mirror:axis"]') };
+  out.one = { row: !!row, who: await (async () => { document.querySelector('.popup-menu [data-menu-tab="object"], .float-win [data-menu-tab="object"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(30); const w = menu()?.querySelector(".menu-note")?.textContent ?? ""; document.querySelector('.popup-menu [data-menu-tab="kind"], .float-win [data-menu-tab="kind"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(30); return w; })(), axisBefore: !!menu()?.querySelector('[data-menu-id="mirror:axis"]') };
   row?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40);
   out.one.items = layer() ? [...layer().querySelectorAll(".menu-label")].map((x) => x.textContent).join("|") : "";
   layer()?.querySelector('[data-choice-id="mirror:mode:edit"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40);
@@ -162,8 +162,8 @@ const res = await page.evaluate(async () => {
   let freshN = 0;   // 每个新盒子摆在不同的地方（2026-11-09：⑪–⑭ 以前全叠在 x 14..16 同一处，按点的时候被叠着的别的组件挡住）
   const freshMesh = async (shiftTo) => {
     e.setMirror(null); e.exitTo(0); await sleep(20);
-    const before = new Set(S().def(S().root).instances.keys()), yo = 4 * freshN++;
-    box(14, yo, 0, 16, yo + 1, 1); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("偏2"); e.runAction("object.toMesh"); await sleep(20);
+    const before = new Set(S().def(S().root).instances.keys()), yo = 4 * freshN++;   // 只包新画的盒子：selectAll 之后清掉选中的子物体（2026-11-13 统筹：以前把前几段的组件也包了进去，第十四段靠拷贝时连带的子物体碰巧绿）
+    box(14, yo, 0, 16, yo + 1, 1); e.selectAll(); e.selectedPools.clear(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("偏2"); e.runAction("object.toMesh"); await sleep(20);
     const it = [...S().def(S().root).instances.values()].find((x) => !before.has(x.id) && S().kindOf(x.def) === "mesh");
     e.selectedPools.clear(); e.selectedPools.set(`i${it.id}`, { kind: "instance", instance: it.id }); e.enterSelected(); await sleep(30);
     const k = () => S().mesh(it.def).kernel, xs = k().verts().map((q) => k().pt(q).x), d = shiftTo - (Math.min(...xs) + Math.max(...xs)) / 2;

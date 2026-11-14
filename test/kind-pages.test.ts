@@ -26,10 +26,16 @@ describe("物体窗口不认识种类（第 1 版第五节第 1 条）", () => {
 
 describe("种类那一块的登记表", () => {
   it("表的键 = 全部身体种类", () => { eq(Object.keys(KIND_PAGES).sort().join(","), [...BODY_KINDS].sort().join(",")); });
+  it("空物体没有种类页；有几何的种类页名 = 种类给人看的名字", () => {
+    eq(KIND_PAGES.empty.tab, null);
+    for (const k of BODY_KINDS) if (k !== "empty") eq(KIND_PAGES[k].tab, KINDS[k].noun);
+  });
   it("空物体：没有字段；元素页说一句为什么没有", () => {
     const fake = {} as never;   // 空物体那一页不碰编辑器
     eq(KIND_PAGES.empty.fields({ editor: fake, def: 0 }).length, 0);
     const el = KIND_PAGES.empty.elements({ editor: fake, def: 0 });
     assert("none" in el && el.none.length > 4, "说一句");
+    const mat = KIND_PAGES.empty.materials({ editor: fake, def: 0 });
+    assert(mat.length === 1 && mat[0].kind === "note", "材质页说一句");
   });
 });

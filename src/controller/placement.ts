@@ -110,6 +110,7 @@ export type SurfaceStatus = { readonly renderer: string } | { readonly pending: 
 export const SURFACE_RENDERERS: Readonly<Record<Surface, SurfaceStatus>> = {
   contextBar: { renderer: "app/selection-actions.ts" },     // 几何层：右键菜单 + 笔 / 手指浮条
   objectWindow: { renderer: "app/object-window.ts" },       // 物体窗口（字段 + 物体级动词）
+  objectMaterials: { renderer: "app/object-window.ts" },    // 物体窗口「材质和贴图」页（第 1 版第五节第 2 条：只看 + 把画拿掉）
   repairWindow: { renderer: "app/machine-window.ts" },      // 修复这台机器的面板
   repairPanel: { renderer: "editor/editor.ts" },            // 修复面板的步骤表（REPAIR_STEPS；以后搬上指令板）
   objectMenu: { renderer: "app/selection-actions.ts" },     // 子物件的右键 / 浮条菜单：main.ts 把这个面上的动作画成 layer = child 的 HudItem，selection-actions.ts 按层筛

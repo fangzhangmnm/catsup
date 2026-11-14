@@ -12,6 +12,7 @@ import type { HudItem, HudModel } from "./ui/hud-model.ts";
 import { openPopupMenu, togglePopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
 import { foldSubmenus } from "./context-menu.ts";
 import { MACHINES, type Machine } from "./machine-window.ts";
+import { actionById, routesOf } from "../editor/commands/registry.ts";
 import type { MenuSpec } from "./ui/menu-window.ts";
 import type { AttributeRow } from "../scene/attribute-list.ts";
 import { bytesSay, typeSay } from "./attribute-names.ts";
@@ -19,9 +20,16 @@ import { kindPageOf, type KindPageRow } from "./kind-pages.ts";
 import type { ParamValue } from "../editor/param-panel.ts";
 
 export type ObjectTarget = Exclude<MenuTarget, "selection">;
-/** 两页（属性地基轮 3½，统筹 11-13 深夜：照 user 定的叫法）：物体 = 字段 + 物件级动词 + 机器；元素 = 这个物体身上有哪些元素属性（只读）。记住上次停在哪一页。 */
-const OBJECT_TABS = [{ id: "object", label: "物体" }, { id: "elements", label: "元素" }] as const;
-// 每个种类自己的那几行字段 / 元素页 = kind-pages.ts（第 1 版第五节第 1 条）：这里不认识种类，照着画（守卫 test/kind-pages.test.ts：本文件不许出现种类的名字）。
+/**
+ * 四页（第 1 版第五节第 2 条；物体种类施工稿第三节，user 11-13 夜定）：物体 = 设置的是谁 + 物件级动词（转种类，以后创建父物体 / 新建子物体）；
+ * 种类那一页（页名 = 种类的名字，空物体没有）= 种类自己报的字段 + 种类自己的动词（细分、默认平滑、接缝……）+ 机器（修复面板…）；
+ * 元素 = 只读；材质和贴图 = 只读 + 出口（把画拿掉，放置表 objectMaterials）。记住上次停在哪一页（跟文件走）。选了几种物体 = 没有种类页，动词都放物体页。
+ */
+function tabsFor(editor: Editor, target: ObjectTarget): readonly { id: string; label: string }[] {
+  const def = soleDef(editor, target), kindTab = def === undefined ? null : kindPageOf(editor, def).tab;
+  return [{ id: "object", label: "物体" }, ...(kindTab ? [{ id: "kind", label: kindTab }] : []), { id: "elements", label: "元素" }, { id: "materials", label: "材质和贴图" }];
+}
+// 每个种类自己的那几行字段 / 元素页 / 材质页 = kind-pages.ts（第 1 版第五节第 1、2 条）：这里不认识种类，照着画（守卫 test/kind-pages.test.ts：本文件不许出现种类的名字）。
 
 /** 窗口要的（main.ts 给）：after = 改完刷 UI（syncUi）；openMachine = 开那台机器的板（修复页的「修复面板…」）。 */
 export interface ObjectWindowDeps { after(): void; openMachine(m: Machine): void }
@@ -30,13 +38,15 @@ const machinesFor = (editor: Editor, target: ObjectTarget): readonly Machine[] =
 /** 物件窗口的菜单（弹出版和浮窗版共用一份）：页签（这一层 = 属性 + 露着的机器）+ 内容 + 点了做什么。 */
 export function objectWindowMenu(editor: Editor, hud: HudModel, target: ObjectTarget, deps: ObjectWindowDeps): MenuSpec<string> {
   const after = deps.after, machines = machinesFor(editor, target);
-  // 不分页签（user 10-30「物件的清理碎渣为什么不放到修复面板里面，那样物件就不需要分tab了。然后可以恢复成菜单的样式而不是浮窗」）：
-  // 字段 + 物件级动词，下面每台露着的机器一行「<机器>面板…」= 开那块板（九条修复连同清理碎渣都在板上，不在这里再列一遍）
+  // 每台露着的机器一行「<机器>面板…」= 开那块板（九条修复连同清理碎渣都在板上，不在这里再列一遍；user 10-30），住种类那一页（没有种类页 = 物体页）
+  const tabs = tabsFor(editor, target), home = tabs.some((t) => t.id === "kind") ? "kind" : "object";
   return {
-    tabs: OBJECT_TABS, tabKey: "objectWindow",
+    tabs, tabKey: "objectWindow",
     items: () => [
-      ...[...objectWindowItems(editor, target), ...machines.map((m, i): PopupMenuItem<string> => ({ id: `machine:${m.id}:board`, label: `${m.label}面板…`, icon: m.icon, ...(i === 0 ? { separatorBefore: true } : {}) }))].map((it) => ({ ...it, tab: "object" })),
+      ...objectWindowItems(editor, target),
+      ...machines.map((m, i): PopupMenuItem<string> => ({ id: `machine:${m.id}:board`, label: `${m.label}面板…`, icon: m.icon, tab: home, ...(i === 0 ? { separatorBefore: true } : {}) })),
       ...objectElementItems(editor, target),
+      ...objectMaterialItems(editor, target),
     ],
     onPick: (id) => {
       if (id.startsWith("machine:")) {   // 机器页：「修复面板…」= 开那台机器的板；别的 = 在这一层上跑那条指令（窗口不关，好接着修）
@@ -61,15 +71,29 @@ export function openObjectWindow(editor: Editor, hud: HudModel, target: ObjectTa
 /** 窗口正对着的唯一定义（对称这种「属性」只对一个定义有意义；选了几种物体 = 没有当前）。 */
 function soleDef(editor: Editor, target: ObjectTarget): number | undefined { const d = editor.describeTarget(target).defs; return d.length === 1 ? d[0] : undefined; }
 
-/** 窗口里显示什么（纯函数：探针 / 测试也能问）。 */
+/** 动作归哪一页：全部路由都是物件族（吃摆着的一份实例、改它的定义：转种类这类）= 物体页；别的（这个种类自己的动词）= 种类页。 */
+const objectFamily = (actionId: string): boolean => { const a = actionById(actionId); return !!a && routesOf(a).every((r) => r.kind === "object"); };
+const actionItems = (acts: readonly { id: string; label: string; icon: string; submenu?: { label: string; item: string } }[]): HudItem[] =>
+  acts.map((m): HudItem => ({ id: `action:${m.id}`, label: m.label, icon: m.icon, ...(m.submenu ? { submenu: m.submenu } : {}) }));
+/** 物体页 + 种类那一页显示什么（纯函数：探针 / 测试也能问）。 */
 export function objectWindowItems(editor: Editor, target: ObjectTarget): PopupMenuItem<string>[] {
-  const who = editor.describeTarget(target), def = soleDef(editor, target);
-  const out: PopupMenuItem<string>[] = [{ id: "who", label: who.title, note: true }];   // 第一行：设置的是谁
-  if (def !== undefined) for (const r of kindPageOf(editor, def).fields({ editor, def })) out.push(fieldItem(r));   // 这个种类自己报的字段（网格体 = 对称 + 镜像面）
-  // 放置表 objectWindow 面上现在能做的（转换种类 / 细分 / 默认平滑 ›）
-  const acts = editor.withMenuTarget(target, () => editor.commandMenu("objectWindow"));
-  out.push(...foldSubmenus(acts.map((m): HudItem => ({ id: `action:${m.id}`, label: m.label, icon: m.icon, ...(m.submenu ? { submenu: m.submenu } : {}) }))));
+  const who = editor.describeTarget(target), def = soleDef(editor, target), kindTab = tabsFor(editor, target).some((t) => t.id === "kind");
+  const acts = editor.withMenuTarget(target, () => editor.commandMenu("objectWindow"));   // 放置表 objectWindow 面上现在能做的
+  const own = kindTab ? acts.filter((m) => objectFamily(m.id)) : acts, kinds = kindTab ? acts.filter((m) => !objectFamily(m.id)) : [];
+  const out: PopupMenuItem<string>[] = [{ id: "who", label: who.title, note: true, tab: "object" }, ...foldSubmenus(actionItems(own)).map((it) => ({ ...it, tab: "object" }))];   // 第一行：设置的是谁
+  if (!kindTab) return out;
+  const fields = def === undefined ? [] : kindPageOf(editor, def).fields({ editor, def });   // 这个种类自己报的字段（网格体 = 对称 + 镜像面）
+  out.push(...[...fields.map(fieldItem), ...foldSubmenus(actionItems(kinds))].map((it) => ({ ...it, tab: "kind" })));
+  if (!fields.length && !kinds.length) out.push({ id: "kind:none", label: "这个种类现在没有自己的选项", note: true, tab: "kind" });
   return out;
+}
+/** 「材质和贴图」页（第一版只看）：种类报的材质 / 画 / 贴图坐标几行 + 放置表 objectMaterials 面上的出口（把画拿掉）。纯函数。 */
+export function objectMaterialItems(editor: Editor, target: ObjectTarget): PopupMenuItem<string>[] {
+  const tab = "materials", def = soleDef(editor, target);
+  if (def === undefined) return [{ id: "mat:none", label: "选了好几个物体：材质和贴图页一次只看一个", note: true, tab }];
+  const rows = kindPageOf(editor, def).materials({ editor, def }).map((r, i): PopupMenuItem<string> => (r.kind === "note" ? { id: `mat:${i}`, label: r.text, note: true, tab, ...(r.section ? { sectionBefore: r.section } : {}) } : { ...fieldItem(r), tab }));
+  const acts = editor.withMenuTarget(target, () => editor.commandMenu("objectMaterials"));
+  return [...rows, ...foldSubmenus(actionItems(acts)).map((it, i) => ({ ...it, tab, ...(i === 0 ? { separatorBefore: true } : {}) }))];
 }
 
 /** 「元素」页的分组先后 = 几何那一行的先后（统筹 11-13 深夜：点 → 边 → 面 → 角）；没有列的组不出。 */

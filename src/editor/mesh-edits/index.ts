@@ -2,7 +2,8 @@
 // 工具手势（挤出 / 挪 / 刀……）直接提交 op；这里是不用手势、选了就能点的那一类。第一条 = 环切（刀在一条边上点两下的菜单版，FM10「也加一个模式按钮，免得我不习惯」）。
 // 做完的选区走 PlanOut.select（规划时在副本上跑一遍拿新 id；op 确定性 = 提交后同一批）。
 import { LOOP_CUT_DEFAULTS, LOOP_CUT_FIELDS, loopCutArgs } from "./loop-cut-fields.ts";
-import { startPaint, paintAddFaces } from "./start-paint.ts";   // 画画工作台的「开始画」（贴图主线 1-7）+「把这几张面加进来」（施工单十五）；入口 = 上方正中那颗主按钮（app/primary-button.ts），不在右下角
+import { startPaint, paintAddFaces } from "./start-paint.ts";
+import { dropPaint } from "./drop-paint.ts";   // 物体窗口「材质和贴图」页的出口（第 1 版第五节第 2 条）   // 画画工作台的「开始画」（贴图主线 1-7）+「把这几张面加进来」（施工单十五）；入口 = 上方正中那颗主按钮（app/primary-button.ts），不在右下角
 import type { Command, MeshUnit } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
 import { loopCuts as loopCutsOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits, duplicateGeometry, fillOrBridge, planMakeFace, makeFaceRing, bestFitNormal, flattenMoves } from "../../mesh/ops/index.ts";
@@ -435,12 +436,13 @@ function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
 }
 export const smoothByAngle = smoothDefaultCommand("angle"), smoothAll = smoothDefaultCommand("smooth"), smoothNone = smoothDefaultCommand("hard");
 
-const commands: readonly Command[] = [startPaint as Command, paintAddFaces as Command, duplicate as Command, fill as Command, makeFace as Command, flipNormals as Command, loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
+const commands: readonly Command[] = [startPaint as Command, paintAddFaces as Command, dropPaint as Command, duplicate as Command, fill as Command, makeFace as Command, flipNormals as Command, loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
   bevel as Command, bevelPoints as Command, symmetrySnap as Command, mergeCenter as Command, flattenX as Command, flattenY as Command, flattenZ as Command, flattenNormal as Command, flattenMirror as Command, subdivideCmd as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, markSeam as Command, clearSeam as Command, autoSeamsCmd as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
 /** 图标 = stopgap（剪刀；图标库 TODO 已登记 loop-cut）。 */
 const actions: readonly Action[] = [
   { id: "mesh.startPaint", icon: "pencil", label: (n) => `开始画（${n} 张面）`, commands: { mesh: "mesh.startPaint" } },   // 画画工作台（1-7）
   { id: "mesh.paintAddFaces", icon: "pencil", label: (n) => `把这几张面加进来（${n} 张）`, commands: { mesh: "mesh.paintAddFaces" } },   // 施工单十五
+  { id: "mesh.dropPaint", icon: "trash-can", label: (n) => `把画拿掉（${n} 张面换回默认材质）`, commands: { mesh: "mesh.dropPaint" } },   // 物体窗口第四页的出口
   { id: "mesh.duplicate", icon: "copy", label: (n) => `复制（${n}）`, commands: { mesh: "mesh.duplicate" } },
   { id: "mesh.fill", icon: "fill-hole", label: (n) => (n === 1 ? "补洞" : `桥接（${n} 张面）`), commands: { mesh: "mesh.fill" } },
   { id: "mesh.makeFace", icon: "fill-hole", label: () => "造面（F）", commands: { mesh: "mesh.makeFace" } },   // Blender F：一条链 / 两条边 / 散点 = 一张面，两个点 = 一条边，一圈 = 补洞
@@ -490,6 +492,7 @@ const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "cont
   { action: "mesh.autoSeams", where: "objectWindow", order: 48, submenu: { label: "接缝", item: "自动标接缝…" } },   // 整个网格体（物件级，和「默认平滑 ›」住一起）
   { action: "mesh.smooth.angle", where: "objectWindow", order: 45, submenu: { label: "默认平滑", item: "按角度…" } },
   { action: "mesh.smooth.smooth", where: "objectWindow", order: 46, submenu: { label: "默认平滑", item: "全部平滑" } },
-  { action: "mesh.smooth.hard", where: "objectWindow", order: 47, submenu: { label: "默认平滑", item: "全部是棱" } }];
+  { action: "mesh.smooth.hard", where: "objectWindow", order: 47, submenu: { label: "默认平滑", item: "全部是棱" } },
+  { action: "mesh.dropPaint", where: "objectMaterials", order: 10 }];   // 物体窗口「材质和贴图」页（第 1 版第五节第 2 条）
 
 export const meshEdits: Family = { name: "meshEdits", commands, actions, placements };
