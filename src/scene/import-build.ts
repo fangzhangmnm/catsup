@@ -4,8 +4,8 @@
 // 映射：
 //   · 有网格、没孩子的节点 → 那个网格的定义的一份实例（同一个网格被几个节点用 = 同一个定义的几份实例，GTA 的六个轮子就是一个定义六份）；
 //   · 有孩子的节点 → 自己一个定义（网格几何 + 孩子们的实例）；
-//   · 没网格、没孩子 → 空定义（编辑器画三轴标记）；
-//   · 文件只有一个根 → 这个根就是放进来的那一份；好几个根 → 外面包一层，名字 = 文件名（导进来是一个能整体选中的东西）。
+//   · 没网格、没孩子 → 空物体（编辑器画三轴标记）；没网格、有孩子 → 空物体装孩子（第 1 版第四节第 5 条，2026-11-13：以前是没几何的硬表面定义）；
+//   · 文件只有一个根 → 这个根就是放进来的那一份；好几个根 → 外面包一层空物体，名字 = 文件名（导进来是一个能整体选中的东西）。
 // 网格几何走 kernel/from-triangles.ts（三角 → 膜；弯折 ≤ softDeg 的边变 soft + smooth），在 castImport 里、提交前跑一次。以后有 mesh 了，换掉的只是 castImport。
 import type { ImportNode, ImportScene } from "../format/gltf-import.ts";
 import { type BrepSnapshot, Kernel } from "../kernel/kernel.ts";
@@ -62,6 +62,8 @@ export function buildImport(s: Scene, at: PoolRef, data: ImportedScene, place: X
     if (m.brep) return s.mintDef(name, Kernel.fromBrep(m.brep)).id;
     throw new Error(`导入：网格 ${mi} 没有载荷`);
   };
+  /** 没网格的节点 / 多根时外面那一层 = 空物体（只装孩子）。 */
+  const mintEmpty = (name: string): DefId => { const d = s.mintDef(name, new Kernel()); d.body = { kind: "empty", materialSlots: [] }; return d.id; };
   const leafDef = new Map<number, DefId>();   // 网格号 → 共用的定义（没孩子的节点用）
   const visiting = new Set<number>();
   const defOf = (ni: number, depth: number): DefId => {
@@ -75,7 +77,7 @@ export function buildImport(s: Scene, at: PoolRef, data: ImportedScene, place: X
       return id;
     }
     visiting.add(ni);
-    const d = mesh !== null ? s.def(mintMeshDef(n.name, mesh)) : s.mintDef(n.name, new Kernel());
+    const d = s.def(mesh !== null ? mintMeshDef(n.name, mesh) : mintEmpty(n.name));
     definitions++;
     if (mesh === null && !n.children.length) empties++;
     for (const ci of n.children) {
@@ -92,7 +94,7 @@ export function buildImport(s: Scene, at: PoolRef, data: ImportedScene, place: X
     const r = data.roots[0];
     topDef = defOf(r, 0); topXform = compose(place, data.nodes[r].xform); topName = data.nodes[r].name;
   } else {
-    const w = s.mintDef(data.name, new Kernel());
+    const w = s.def(mintEmpty(data.name));
     definitions++;
     for (const r of data.roots) { const inst = s.mintInstance(w.id, null, defOf(r, 1), data.nodes[r].xform); inst.name = data.nodes[r].name; instances++; }
     topDef = w.id; topXform = place; topName = data.name;

@@ -193,7 +193,9 @@ export interface FormatReadNotes { /** 文件里写了身份、但重复或不�
    *  和上一条分开记：存过一次再打开，网格体上已经没有它了，这时只剩上一条、再存什么都不丢。 */
   oldUvColumns?: number;
   /** 网格体的面 / 边那两个字节里带着这一版不认识的位（不猜是谁写的：更新版、别的软件、坏了都可能）：几张面、几条边。读的门口去掉了（mesh/mesh-doc.ts dropUnknownMarks）= 没读进来，保存之后不再保留（统筹 11-13，属性规程第九½节末：不拒开）。 */
-  unknownMarks?: { faces: number; edges: number } }
+  unknownMarks?: { faces: number; edges: number };
+  /** 标着空物体（kind "empty"）却带着有面的种类才有的载荷（brep / groups / mesh / materialSlots / guides / drawFrame）的定义：几个。空物体只有头和子物体，这些不读 = 没读进来，保存之后不再保留（统筹 11-13：不读、说一句、不写；第 1 版第四节）。 */
+  emptyPayloadDropped?: number }
 /** 排法表的一行读不了的原因。 */
 export type UvRowWhy = "not-a-list" | "not-an-object" | "bad-guid" | "bad-size" | "bad-density" | "bad-fit" | "duplicate-guid";
 /** 角上的列坏了的一处（施工单十八：为什么 = 整个 columns 不是列表 / 这一列的身份号、种类、角上的数那一段不对 / 几列同一个身份号 / uv 列的号在排法表里没有 / 面的角一半有数一半没有、不是有限数、落在画布外面）。 */

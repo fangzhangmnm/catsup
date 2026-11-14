@@ -40,6 +40,8 @@ export const READ_NOTE_SAY: { readonly [K in keyof Required<FormatReadNotes>]: S
   orphanPaintTextures: (v) => [`有 ${v} 张画找不到它铺的那一套贴图坐标，先留着当没人用的（资源页能清）`],
   // 属性地基轮 3c（统筹 11-13，规程第九½节末）：面 / 边那两个字节里这一版不认识的位 = 不拒开，不读、说一句、不写
   unknownMarks: (v) => (v.faces || v.edges ? [`有${unknownMarksText(v)}，没读进来；保存之后不再保留`] : []),
+  // 第 1 版第四节（统筹 11-13）：空物体只有头和子物体；文件里写着空物体又带着几何 / 材质槽 / 参考线这类 = 同一条规矩：不读、说一句、不写
+  emptyPayloadDropped: (v) => (v ? [`有 ${v} 个空物体在文件里还带着几何、材质槽或参考线这类东西，空物体不读这些，没读进来；保存之后不再保留`] : []),
 };
 /**
  * 「N 张面、M 条边带着这一版不认识的标记」——打开和导入素材两处共用（导入那句在 shelf-actions.ts）。只说事实：不猜是谁写的
@@ -71,6 +73,7 @@ export const LOSSY_NOTES: { readonly [K in keyof Required<FormatReadNotes>]: boo
   oldUvColumns: true,            // 「保存之后不再保留」（施工单十八第五节；统筹 11-13 定的字的意思：要有保存的后果）
   orphanPaintTextures: false,
   unknownMarks: true,            // 「保存之后不再保留」（统筹 11-13：不读、说一句、不写）
+  emptyPayloadDropped: true,     // 「保存之后不再保留」（同上；第 1 版第四节）
 };
 /** 这次读入记下的、会丢东西的那几种说的话（没有 = 空）。 */
 export function lossySay(n: FormatReadNotes | undefined): string[] {

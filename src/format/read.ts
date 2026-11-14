@@ -90,6 +90,8 @@ function readShelf(j: Record<string, unknown>, defs: ReadonlySet<Guid>, mats: Re
   return { folders, items, extra };
 }
 
+/** 一个定义 = 每个种类都一样的头（guid / name / kind / axes / nodes / instances / extras）+ 这个种类自己的载荷（统筹 11-13 裁定）。空物体没有载荷：文件里带着下面这些键 = 不读、说一句（notes.emptyPayloadDropped）、不写。 */
+const EMPTY_SKIPS = ["brep", "groups", "mesh", "materialSlots", "guides", "drawFrame"] as const;
 export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const { json: j, bin } = decodeGlb(bytes);
   if (!isObj(j)) fail("JSON chunk is not an object");
@@ -192,7 +194,8 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const definitions: DefinitionDoc[] = (list as unknown[]).map((raw, di) => {
     if (!isObj(raw)) fail(`definition ${di} invalid`);
     const d = raw as Record<string, unknown>;
-    const isEmpty = d.kind === "empty";   // 空物体（definitions 8.0）：只认子物体，几何字段（brep / groups / mesh）有也不读
+    const isEmpty = d.kind === "empty";   // 空物体（definitions 8.0）：只认头和子物体；有面的种类的载荷（brep / groups / mesh / materialSlots / guides / drawFrame）有也不读，数出来说一句
+    if (isEmpty && EMPTY_SKIPS.some((k) => k in d)) notes.emptyPayloadDropped = (notes.emptyPayloadDropped ?? 0) + 1;
     if (!isEmpty && !isObj(d.brep)) fail(`definition ${di} has no brep`);
     const brepJson = isEmpty ? null : migrateExtension("CATSUP_brep", d.brep as Record<string, unknown>, notes) as unknown as CatsupBrepJson;
     const brep = brepJson ? decodeBrep(brepJson, view) : new Kernel().toBrep();   // 空物体：DefinitionDoc 形状要一份几何快照——每次现造一份空的（文件里不写、不解码；不共用同一个对象，免得谁改了串到别的定义）
@@ -230,7 +233,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       return { guid: ownGuid(inst.guid, instSeen, reminted), definition: inst.definition as Guid, parent: parentOr(inst.parent, groupKnown), xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.layer === "number" ? { layer: inst.layer } : {}), ...(inst.hidden === true ? { hidden: true } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
     });
     // 槽表值：材质 GUID / 内置默认背面；内置默认正面的唯一表示是「槽缺」，读到 = 没有（§9.2-A a；notes 记一笔）。
-    const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => { if (x === BUILTIN_FRONT_GUID) { notes.builtinFrontSlots = (notes.builtinFrontSlots ?? 0) + 1; return null; } if (isGuid(x) && (x === BUILTIN_BACK_GUID || matKnown.has(x))) return x; if (x !== null && x !== undefined) dangle("materialSlot"); return null; });
+    const materialSlots = isEmpty ? [] : (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => { if (x === BUILTIN_FRONT_GUID) { notes.builtinFrontSlots = (notes.builtinFrontSlots ?? 0) + 1; return null; } if (isGuid(x) && (x === BUILTIN_BACK_GUID || matKnown.has(x))) return x; if (x !== null && x !== undefined) dangle("materialSlot"); return null; });
     // 门 1：definition 的种类。缺省 brep；0.14 起认 mesh（载荷：definitions v5；card 在 v6 退场 = 迁成空 brep）；别的种类 → 拒开说清（开了再存会把它丢掉 = 数据丢失，比拒开更坏）。
     const kindRaw = d.kind === undefined ? "brep" : d.kind;
     if (kindRaw !== "brep" && kindRaw !== "mesh" && kindRaw !== "empty") fail(`definition ${di} kind "${String(d.kind)}" is not supported by this version`);   // empty（definitions 8.0）= 空物体：只认子物体

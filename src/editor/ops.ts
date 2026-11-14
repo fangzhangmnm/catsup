@@ -361,17 +361,18 @@ const shearedInstances = (s: Scene): Map<string, string> => {
  * 执行一条指令。斜切护栏（2026-10-26，user「斜切：和gltf对齐……在发生的时候护栏住，然后提示报错」）：执行后出现了**新的**斜切实例 → 抛 ShearRejected
  * （History 回滚整步）。老文件里本来就斜切的不算（不然那份文件之后什么都改不了）。
  */
-/** 网格体那一层的「建组件」只装组件（user 10-30「选择多个组件（没有几何）的时候应该也可以打包成一个新组件」）：选中的几份（这一层的直接孩子）搬进一个新组件，
- *  新组件的身体 = 空网格体（进去还是自由建模），原点 = 包围盒最小角（和硬表面那条同一个规矩，编辑器之后照样按马后炮换原点）。面做成组件走 separateObject。 */
-function wrapInMesh(s: Scene, op: Extract<Op, { op: "makeComponent" }>): ApplyResult {
-  if (op.faces.length || op.edges.length || op.groups?.length) throw new OpTargetError("mesh pool: makeComponent only wraps components (faces go through separateObject)");
-  const d0 = s.def(op.at.def), slots = meshOf(s, op.at.def).materialSlots;
+/** 网格体 / 空物体那一层的「建组件」只装组件（user 10-30「选择多个组件（没有几何）的时候应该也可以打包成一个新组件」）：选中的几份（这一层的直接孩子）搬进一个新组件，
+ *  新组件的身体 = 空物体（第 1 版第四节第 5 条，2026-11-13：以前是空网格体），原点 = 包围盒最小角（和硬表面那条同一个规矩，编辑器之后照样按马后炮换原点）。面做成组件走 separateObject。
+ *  硬表面里只选子物体建组件不走这里，照旧是硬表面（里面能接着画）。 */
+function wrapChildren(s: Scene, op: Extract<Op, { op: "makeComponent" }>): ApplyResult {
+  if (op.faces.length || op.edges.length || op.groups?.length) throw new OpTargetError(`${s.kindOf(op.at.def)} pool: makeComponent only wraps components (faces go through separateObject)`);
+  const d0 = s.def(op.at.def);
   const isel = (op.instances ?? []).map((id) => { const i = d0.instances.get(id); if (!i || i.parent !== op.at.group) throw new OpTargetError(`instance ${id}`); return i; });
   if (!isel.length) throw new OpTargetError("empty selection");
   const pts = isel.flatMap((i) => s.pointsOfDef(i.def, i.xform)), origin = pts.length ? bboxMin(pts) : { x: 0, y: 0, z: 0 };
   const T = translation({ x: -origin.x, y: -origin.y, z: -origin.z });
   const def = s.mintDef(op.name, new Kernel());
-  def.body = { kind: "mesh", kernel: new MeshKernel(), materialSlots: [...slots], uvSetSlots: [] };
+  def.body = { kind: "empty", materialSlots: [] };
   for (const i of isel) {
     const ni = s.mintInstance(def.id, null, i.def, compose(T, i.xform), i.guid);   // 搬家保身份（ID-2）
     if (i.name !== undefined) ni.name = i.name;
@@ -448,7 +449,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     }
     case "makeGroup":
     case "makeComponent": {
-      if (op.op === "makeComponent" && s.kindOf(op.at.def) === "mesh") return wrapInMesh(s, op);   // 网格体那一层：只装组件（组只住硬表面体里）
+      if (op.op === "makeComponent" && s.kindOf(op.at.def) !== "brep") return wrapChildren(s, op);   // 网格体 / 空物体那一层：只装组件（组只住硬表面体里），新组件 = 空物体
       const { kernel, ref } = poolOf(s, op.at);
       const fids = op.faces.map((f) => resolveFace(kernel, f));
       const eids = op.edges.map((e) => resolveEdge(kernel, e));
