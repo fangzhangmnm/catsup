@@ -17,7 +17,7 @@ export declare const FORMAT: {
         readonly patch: 0;
     };
     readonly CATSUP_definitions: {
-        readonly major: 7;
+        readonly major: 8;
         readonly minor: 0;
         readonly patch: 0;
     };
@@ -150,6 +150,8 @@ export interface FormatReadNotes {
         faces: number;
         edges: number;
     };
+    /** 标着空物体（kind "empty"）却带着有面的种类才有的载荷（brep / groups / mesh / materialSlots / guides；drawFrame 是头上的键，照读）的定义：几个。空物体只有头和子物体，这些不读 = 没读进来，保存之后不再保留（统筹 11-13：不读、说一句、不写；第 1 版第四节）。 */
+    emptyPayloadDropped?: number;
 }
 /** 排法表的一行读不了的原因。 */
 export type UvRowWhy = "not-a-list" | "not-an-object" | "bad-guid" | "bad-size" | "bad-density" | "bad-fit" | "duplicate-guid";

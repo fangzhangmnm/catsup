@@ -329,6 +329,36 @@ export type Op =
     to: BodyKind; /** mesh → brep：弯折不到这个角度的边算软边（度；缺 = 20）。 */
     softDeg?: number;
 }
+/** 新建子物体（第 1 版第五节第 5 条）：在 at 那一层新铸一个空的定义（种类 = kind）+ 摆一份；不碰这一层已有的任何东西。两个 GUID 写在指令里（后面进去、撤销重做、重放都按它认）；xform = 这一层坐标里的摆放。 */
+ | {
+    op: "addChild";
+    at: PoolRef;
+    kind: BodyKind;
+    name: string;
+    xform: Xform;
+    def: Guid;
+    inst: Guid;
+}
+/** 创建父物体（第 1 版第五节第 7 条；editor/objects/add-parent.ts）：at 那一层里的那一份（instance）整个放进一个新的空物体，世界位置不动；新父亲 = 孩子的原点和轴（缩放留在孩子身上），顶替孩子在兄弟里那一格；孩子的身份不变。 */
+ | {
+    op: "addParent";
+    at: PoolRef;
+    instance: number;
+    name: string;
+    def: Guid;
+    inst: Guid;
+}
+/** 给根包一层（第 1 版第七节；给根包一层定稿第 3 条）：新根 = 新的空物体（身份 = def、名字 = name）；旧根整个成为它下面的一份（身份 = inst，原位摆放），GUID / 名字都不变；新根的坐标架 = 旧根那一份。 */
+ | {
+    op: "wrapRoot";
+    name: string;
+    def: Guid;
+    inst: Guid;
+}
+/** 去掉这一层（wrapRoot 反过来，定稿第 4 条）：根自己什么都没有、只原位摆着一个子物体时，那个子物体顶上来当根，外面这一层拿掉。做不了 = 拒（unwrapRootWhy 说原因）。 */
+ | {
+    op: "unwrapRoot";
+}
 /** 挪网格点：往位置数组里写（mesh/ops/geometry.ts moveVerts）。不过结算机、不合并、不折面——mesh 刻意没有 brep 的公理。 */
  | {
     op: "meshMove";
@@ -515,6 +545,7 @@ export type Op =
     faces: number[];
     material: number | null;
 }
+/** 把画拿掉（第 1 版第五节 2½）：这个物体退出它身上的画——走画的面回默认、面在那几套排法上的位置交出、速查表和没人用的画材质槽拿掉；画 / 材质 / 排法那一行留在文件里。 */
 /** 给走画但还没有位置的面补一块（1-3b；每一步做完的收尾补进同一步）：faces = 只看这些（不给 = 全部）。放不下的不拒绝，留着没有值。 */
  | {
     op: "meshLayoutPaint";
@@ -693,6 +724,12 @@ export declare const poolOf: (s: Scene, at?: PoolRef) => {
     kernel: Kernel;
     ref: PoolRef;
 };
+/** 帧的三轴重新正交归一（x 定向，y 去掉 x 分量，z = x × y）。 */
+/**
+ * 去掉这一层做不了的原因（null = 做得了；第 1 版第七节，定稿第 4 条）：根自己什么都没有（没几何、没参考线、没组），只摆着一个子物体，
+ * 而且那一份是原位摆放、没锁没藏、没另起名字、在默认图层，那个物体别处也没摆着，外面这一层没另摆和里面不一样的坐标架。每一样都是「拿掉这一层就没地方放」的东西，不悄悄丢。
+ */
+export declare function unwrapRootWhy(s: Scene): string | null;
 /** 先解析全部目标再动内核：目标缺席在改动之前就抛，不留半改动（History 仍兜底回滚）。 */
 /** 护栏拒绝（不是崩溃）：这一步会让组件斜切 → 整步撤回，提示行说原因（不弹错误胶囊、不要复现包）。 */
 /** 规矩拒绝（不是崩溃）：commit 把 message 放进提示行，不弹错误胶囊。 */

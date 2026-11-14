@@ -1,7 +1,7 @@
 import { type PlaneParams, type Pt3 } from "../kernel/geom.ts";
 import type { BodyKind } from "./body-kind.ts";
-import type { Body, BrepBody, DefId, MeshBody, Scene } from "./scene.ts";
-export type KindModeId = "geometry" | "surface" | "freeform" | "paint";
+import type { Body, BrepBody, DefId, EmptyBody, MeshBody, Scene } from "./scene.ts";
+export type KindModeId = "geometry" | "surface" | "freeform" | "paint" | "object";
 export interface AlignGeometry {
     points: Pt3[];
     segments: [Pt3, Pt3][];
@@ -10,12 +10,14 @@ export interface AlignGeometry {
 export interface KindDef<B extends Body = Body> {
     readonly id: BodyKind;
     readonly label: string;
+    /** 给人看的名字（提示 / 确认框里「转成 X」「是 X」的 X；第 1 版第五节第 1 条：界面不写种类名，从这里取）。label 是登记表里的技术名。 */
+    readonly noun: string;
     /** 这种身体可用的编辑模式（空 = 只在物体层摆）。 */
     readonly modes: readonly KindModeId[];
-    /** 显式 cast 的去向 + 丢失清单（确认面文案的来源）。 */
+    /** 显式 cast 的去向 + 这个方向可能丢的那几种（第 1 版第五节 4½：名字一套，真转返回的清单不许出这个方向没声明的）。 */
     readonly castsTo: readonly {
         to: BodyKind;
-        loses: readonly string[];
+        loses: readonly CastLossId[];
     }[];
     alignGeometry(body: B): AlignGeometry;
     bounds(body: B): {
@@ -25,11 +27,13 @@ export interface KindDef<B extends Body = Body> {
 }
 export declare const BREP_KIND: KindDef<BrepBody>;
 export declare const MESH_KIND: KindDef<MeshBody>;
+/** 空物体（第 1 版第四节）：没有几何、没有编辑模式之外的「摆放」（modes/object.ts）；转去硬表面 / 网格体不丢东西（反方向只在自己没有几何时可用，丢的是那种身体才有的设置，见 BREP / MESH 的 castsTo）。 */
+export declare const EMPTY_KIND: KindDef<EmptyBody>;
 export declare const KINDS: Readonly<Record<BodyKind, KindDef>>;
 export declare const kindOfBody: (b: Body) => KindDef;
 export declare function canCast(from: BodyKind, to: BodyKind): {
     ok: true;
-    loses: readonly string[];
+    loses: readonly CastLossId[];
 } | {
     ok: false;
     why: string;
@@ -76,7 +80,61 @@ export declare function meshToBrepCheck(b: MeshBody, softDeg: number): {
     mixedHidden: number;
     lostHiddenEdges: number;
 };
-/** 显式 cast（op 层调用）：只认登记表里的方向。opts.softDeg = mesh → brep 的软边角度（缺 = 20°）。 */
-export declare function castBody(body: Body, to: BodyKind, opts?: {
-    softDeg?: number;
-}): Body;
+/** 显式 cast（op 层调用）：只认登记表里的方向。opts.softDeg = mesh → brep 的软边角度（缺 = 20°）；opts.mirrored = 这个网格体开着对称（设置住在场景上，身体里看不到）。
+ *  返回转好的身体 + 这一次带不过去的东西（castLosses 同一份算法；第 1 版第五节 4½）。返回了这个方向没声明的 = 抛（程序错误）。 */
+export declare function castBody(body: Body, to: BodyKind, opts: CastOpts): {
+    body: Body;
+    losses: readonly CastLoss[];
+};
+/** 一种带不过去的东西一个名字（字面量联合，不是开放集）。 */
+export type CastLossId = "holed-faces" | "back-only-faces" | "fold-edges" | "curves" | "groups" | "guides" | "nonplanar-faces" | "wires" | "edge-marks" | "seams" | "smooth-default" | "mirror" | "uv-sets" | "mixed-hidden" | "lost-hidden-edges" | "attr-columns" | "material-slots";
+/** 这一次带不过去的一样东西；0 个的不出现。设置这类不可数的 count = 1。 */
+export interface CastLoss {
+    readonly what: CastLossId;
+    readonly count: number;
+}
+/** mirrored 必填（统筹 11-13 夜：可选的话新加一个入口忘了传，对称这一样就少报、没人拦）：对称设置住在场景的表上、不在身体上，只有调转换的那一层知道（载荷那几处明写 false）。 */
+export interface CastOpts {
+    readonly softDeg?: number;
+    readonly mirrored: boolean;
+}
+/**
+ * 每个种类自己的载荷有哪几样（第五节 4½ 第 5 条；和第四节「一个定义 = 每个种类都一样的头 + 这个种类自己的载荷」同一张：头〔guid / 名字 / 子物体……〕不在这里）。
+ * 加载荷 / 加属性列 = 这里加一样 + 下面每个转换方向写明去向（守卫 test/cast-losses.test.ts：少一样 = 红）。
+ */
+export declare const KIND_PAYLOAD: {
+    readonly brep: readonly ["rules", "faces", "face-sides", "hidden-faces", "holes", "edges", "soft-edges", "hidden-edges", "fold-edges", "curves", "groups", "guides", "material-slots"];
+    readonly mesh: readonly ["faces", "face-materials", "hidden-faces", "nonplanar-faces", "edges", "edge-marks", "hidden-edges", "seams", "wires", "smooth-default", "mirror", "uv-sets", "attr-columns", "material-slots"];
+    readonly empty: readonly [];
+};
+export type PayloadOf<K extends BodyKind> = (typeof KIND_PAYLOAD)[K][number];
+/** 一样载荷转过去的去向：带过去 / 换算成什么 / 丢（数得出来的那一种，可能是一部分）/ 有就转不了（转成空物体只在没有几何时）。 */
+export type CastFate = "carried" | {
+    readonly converted: string;
+} | {
+    readonly lost: CastLossId;
+} | {
+    readonly blocks: string;
+};
+/** 网格体内核上的保留列各属于哪一样载荷（守卫：保留列一个不落）。 */
+export declare const MESH_COLUMN_PAYLOAD: Readonly<Record<string, PayloadOf<"mesh">>>;
+/** 每个转换方向上每一样的去向（第五节 4½ 第 5 条）。丢的那几样 = 这个方向 castsTo 声明的「可能丢」（守卫对账）。 */
+export declare const CAST_FATES: {
+    readonly [F in BodyKind]: {
+        readonly [T in BodyKind]?: {
+            readonly [P in PayloadOf<F>]: CastFate;
+        };
+    };
+};
+/** 「可能丢」列表里的名字（物体窗口照声明列，不为开窗口转一遍）。 */
+export declare const lossLabel: (id: CastLossId) => string;
+/** 给人看的一句；全仓只此一处造句。 */
+export declare function lossText(l: CastLoss): string;
+/** 一串连起来（询问里逐条列）；空 = 「不丢东西」。 */
+export declare const lossesText: (ls: readonly CastLoss[]) => string;
+/** 几份清单并成一份（同一样的数加起来；粘贴 / 移到…的载荷里好几块几何各转各的）。 */
+export declare function sumLosses(lists: readonly (readonly CastLoss[])[]): readonly CastLoss[];
+/** 只问不转：和真转同一份算法（网格体转硬表面有藏东西时照转一遍，只要清单）。 */
+export declare function castLosses(body: Body, to: BodyKind, opts: CastOpts): readonly CastLoss[];
+/** 自己没有几何（挂着子物体不算）。 */
+export declare function bodyBare(b: Body): boolean;

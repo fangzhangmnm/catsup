@@ -165,6 +165,7 @@ export interface Preset {
     /** 材质翻译挂点：面怎么上明暗（camera = 白模的跟相机平光 / none = 不打光 / flat = 平涂）、贴图怎么过滤、模型的边画不画（边 = 编辑器的线稿；叠加层的选中边照画）、
      *  上色方式（实验室 COLOR_MODES：model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色；none = 不上色：材料本色，铸铜 / Tron）。 */
     /** material.edges 线稿线两档（ai-docs/20261029-edge-display-scenarios.md）：all = 不在编辑的物件也画硬边（线块里本来只有硬边：软边 / 折线 / 隐藏的边建线块时就跳过了）；none = 不在编辑的不画。
+     *  线稿、像素描边、1-bit、Tron = all：画风自己的线，外面的 / 子物体 / 分身照画；能改的那一层靠顶点小圆点区分（层级显示施工单，user 11-13 更正）。
      *  正在编辑的那一个的结构线任何画风都画（2026-10-29 Opus；以前的第三档 active「只画编辑中的」= none + 结构线，退役）。 */
     readonly material: {
         readonly shade: "camera" | "none" | "flat" | "tron" | "pbr";

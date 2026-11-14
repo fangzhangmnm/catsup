@@ -53,12 +53,6 @@ export interface BrepBody {
     materialSlots: number[];
     /** 根池的参考几何（0.11；definition 坐标）。group 的在 Group.guides。 */
     guides: Guides;
-    /**
-     * 进了这个组件画图用的坐标架（DT86，2026-10-26 Claude Opus 5.5；user「坐标架同意 组件原点同意」）：definition 坐标；缺 = 跟组件原点（= 定义自己的坐标系）。
-     * 只管推断 / 网格 / 画的平面，不碰几何、不是组件原点（组件原点 = 定义坐标系，改它挪几何：user「原点挪几何，因为是低频commitment，改画画坐标架不挪」）。
-     * 根定义不用它：根的坐标架 = Scene.axes。组的坐标架 = Group.axes（组不配有原点：user「组不是物体只是管理sticky geometry用的。所以有坐标架，但是不配有原点」）。
-     */
-    drawFrame?: Frame;
 }
 /** 网格身体（Blender 式三角网最小形，user 2026-10-24 命名 `mesh` / 「网格」；契约 §2）：定义坐标；默认剔背面；材质槽同 brep 语义。 */
 /** 2026-10-27：身体 = 可编辑的 mesh 内核（src/mesh/；单池、单面、顶点 id 寻址）；文件里的载荷见 format/scene-doc.ts（M3 前仍是三角汤）。 */
@@ -77,7 +71,14 @@ export interface MeshBody {
     materialSlots: number[]; /** 贴图坐标的速查表：短代号 → 排法 GUID（施工单十八第 1½ 刀；scene/uv.ts）。 */
     uvSetSlots: Guid[];
 }
-export type Body = BrepBody | MeshBody;
+/** 空物体（第 1 版第四节；2026-11-13 Claude Opus 5.5）：没有几何，只装子物体（定义上的 instances）。materialSlots 永远是空表（通用的「每个定义的槽表」那几处照常走、不用为它分路）。 */
+/** 空物体的池看到的东西：一份共用、永远空的硬表面内核（只当视图用；改它 = 程序错误）。编辑器的 kernel 读口在空物体那一层也给它（摆放工作台的工具只挪子物体）。 */
+export declare const NO_GEOMETRY_KERNEL: Kernel;
+export interface EmptyBody {
+    readonly kind: "empty";
+    materialSlots: number[];
+}
+export type Body = BrepBody | MeshBody | EmptyBody;
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
 export interface Definition {
     readonly id: DefId;
@@ -86,6 +87,14 @@ export interface Definition {
     body: Body;
     instances: Map<InstId, Instance>;
     nextInst: number;
+    /**
+     * 进了这个物体画图用的坐标架（DT86，2026-10-26；user「坐标架同意 组件原点同意」）：本定义坐标；缺 = 定义自己的坐标系（= 组件原点）。
+     * 只管推断 / 网格 / 画的平面，不碰几何、不是组件原点（组件原点 = 定义坐标系，改它挪几何：user「原点挪几何，因为是低频commitment，改画画坐标架不挪」）。组的坐标架 = Group.axes（组不配有原点）。
+     * 根也住这里（第 1 版第七节 / 给根包一层定稿第 2 条，2026-11-13：以前根的住场景上 Scene.axes）：读文件 = document.axes、存盘写回 document.axes，运行时不再按「是不是根」分路。
+     * 恒等的一律存成「缺」（统筹 11-13 夜审查 a 第 1 条）：设到恒等 = 删、换原点之后成了恒等 = 删、读到世界帧 = 不放——不然「缺」和「明写的世界帧」读着一样、换原点时不一样，隔一次存盘重开结果就不同。
+     * 三个种类都有、都读都写（统筹 11-13 夜：运行时哪个种类能有，文件里那个种类就得写）：文件里 = 定义头上的 drawFrame（根除外，根的在 document.axes），转种类时照带（它在头上，不在载荷里）。
+     */
+    frame?: Frame;
 }
 /** 几何池地址 = (definition, group | null)。 */
 export interface PoolRef {
@@ -109,8 +118,6 @@ export declare class Scene {
     readonly root: DefId;
     /** 文档材质表（下标 = 运行时句柄，别跨撤销 / 清理攥着；要记住一个材质就记 guid 或对象）。 */
     readonly materials: Material[];
-    /** 绘图轴（0.11 尺规纪元）：根上下文的轴，世界坐标；轴工具可搬 / 转，默认 = 世界帧。进 CATSUP_document.axes。 */
-    axes: Frame;
     /** 层表（0.14 契约 §4）：id 0 永远是默认层；进 CATSUP_document.layers。 */
     layers: LayerDoc[];
     nextLayer: number;
@@ -126,11 +133,17 @@ export declare class Scene {
     shelfFrozen: Stamp | null;
     private nextDef;
     constructor(rootKernel?: Kernel, rootGuid?: Guid);
+    /** 换根（只给指令 wrapRoot / unwrapRoot 用：给根包一层 / 去掉这一层，第 1 版第七节）。根 = 文件的入口指针指着的那个定义，此外和别的物体没有区别（定稿第 2 条）。 */
+    reroot(def: DefId): void;
+    /** 这个定义画图用的坐标架（本定义坐标；没另摆 = 定义坐标系）。根的 = 绘图轴。 */
+    frameOf(def: DefId): Frame;
+    /** 写坐标架的唯一口（指令 / 换原点 / 读文件都走这里）：恒等 = 缺。 */
+    setFrame(def: DefId, f: Frame | null | undefined): void;
     mintDef(name: string, kernel: Kernel, guid?: Guid): Definition;
     mintGroup(defId: DefId, parent: GroupId | null, kernel: Kernel, axes: Frame, guid?: Guid): Group;
     /** 定义里全部顶点（本定义坐标 → 再经 m）：根池 + 各组 + 各实例（递归、经实例变换）。建组件 / 建组时算包围盒和原点用（2026-10-26 嵌套）。 */
     pointsOfDef(defId: DefId, m?: Xform, depth?: number): Pt3[];
-    /** 空定义（导入的空节点，T11）：brep、没顶点、没组、没实例——编辑器画小三轴代替几何（看得见、点得中）。 */
+    /** 什么都没装的定义（导入的空节点，T11）：空物体没有子物体；或老文件里的 brep、没顶点、没组、没实例（原样读，第 1 版第四节）——编辑器画小三轴代替几何（看得见、点得中）。 */
     isBare(defId: DefId): boolean;
     mintInstance(defId: DefId, parent: GroupId | null, target: DefId, xform: Xform, guid?: Guid): Instance;
     /** 材质在某 definition 里的槽号（没有就开一个）。 */
@@ -196,6 +209,8 @@ export declare class Scene {
      * 进了组件实例 = 那个 definition 的坐标架（没摆过 = 组件原点）——都乘上链上的实例变换。
      */
     frameOfContext(ctx: EditContext): Frame;
+    /** 同一个坐标架、在这一层自己的坐标里（= frameOfContext 去掉链上的实例变换）：新建子物体的朝向 / 原点（第 1 版第五节第 5 条）。 */
+    localFrameOfContext(ctx: EditContext): Frame;
     /** 一串实例链最里面那个组件的原点（世界坐标；= 它的定义坐标系经链上变换）。根 = 世界帧。 */
     originOfChain(chain: readonly InstId[]): Frame;
     /** 上下文的世界变换（链上实例变换的乘积；group 不带变换）。 */

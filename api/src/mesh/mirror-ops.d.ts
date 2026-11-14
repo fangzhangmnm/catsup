@@ -31,6 +31,10 @@ export declare const MIRROR_OP_CLASS: {
     readonly makeComponent: "topo";
     readonly setAxes: "whole";
     readonly castDefinition: "meta";
+    readonly addChild: "meta";
+    readonly addParent: "meta";
+    readonly wrapRoot: "meta";
+    readonly unwrapRoot: "meta";
     readonly setHidden: "meta";
     readonly unhideAll: "meta";
 };

@@ -1,9 +1,10 @@
 import type { Editor } from "../editor/editor.ts";
 import type { HudItem, HudModel } from "./ui/hud-model.ts";
 export type MenuPlace = "empty" | "selection";
-/** 显示什么（表的唯一出口）。groups = 选区里有组（组的进入 / 炸开 / 锁 / 藏照旧在几何层菜单里）。 */
+/** 显示什么（表的唯一出口）。groups = 选区里有组（组的进入 / 炸开 / 锁 / 藏照旧在几何层菜单里）；here = 带不带「这一层的、点在哪都在」那几项（右键菜单带，浮条不带：浮条只放对选区做的事）。 */
 export declare function menuItems(hud: HudModel, place: MenuPlace, opts?: {
     groups?: boolean;
+    here?: boolean;
 }): HudItem[];
 /** 子组件的物体菜单：对这几个物体的动词 + 「物体设置…」（开物体窗口、当前 = 它们）。 */
 export declare function objectMenuItems(hud: HudModel): HudItem[];

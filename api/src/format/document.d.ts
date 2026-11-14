@@ -287,7 +287,7 @@ export interface DefinitionDoc {
     groups: GroupDoc[];
     instances: InstanceDoc[]; /** 对照表：槽号 → 材质 GUID（面上存的小编号是它的代号）；null = 这一槽没有对应的材质（占位不压缩：面上的代号指着位置）。 */
     materialSlots: (Guid | null)[];
-    guides: GuidesDoc; /** 进这个组件画图用的坐标架（definitions 6.2，DT86；定义坐标；缺 = 跟组件原点）。 */
+    guides: GuidesDoc; /** 进这个物体画图用的坐标架（definitions 6.2，DT86；定义坐标；缺 = 跟定义原点）。8.0 起是头上的键、三个种类都读都写（以前只硬表面体）；根的不写这里（= document.axes）。 */
     drawFrame?: Frame;
     extras?: Record<string, unknown>;
 }
@@ -334,7 +334,8 @@ export interface CatsupDocument {
         documentExtra: Record<string, unknown>;
         definitionsExtra: Record<string, unknown>; /** 排法表（CATSUP_uvsets）表头上不认识的键（原样带回；施工单十八）。 */
         uvSetsExtra?: Record<string, unknown>;
-        brepKeep?: Record<string, unknown>; /** CATSUP_textures 扩展层面不认识的键（行里的不在这里，跟着行走）。 */
+        brepKeep?: Record<string, unknown>; /** brepKeep 是哪个定义的（GUID；给根包一层定稿第 2 条 b：按身份认、不按「是不是根」——包完之后旧根成了普通定义，带回的东西照样跟着它）。读的门口照旧只给打开时的那个根收（统筹 11-13 夜：不扩到所有定义，见施工单第九节）。 */
+        brepKeepOf?: Guid; /** CATSUP_textures 扩展层面不认识的键（行里的不在这里，跟着行走）。 */
         texturesExtra?: Record<string, unknown>;
         views: Map<number, Uint8Array>;
     };

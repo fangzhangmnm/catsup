@@ -230,7 +230,7 @@ export declare const TOOL_OPTIONS: {
             readonly label: "复制";
             readonly def: false;
             readonly scope: "session";
-            readonly modes: readonly ["geometry", "verify"];
+            readonly modes: readonly ["geometry", "verify", "object"];
         };
     };
     /** 变换（2026-10-26，user「transform的时候ctrl应该是复制吧」「transform能不能马后炮可以切换 pivot…是工具自己记住的选项。而且每个工具单独记」）：
@@ -265,7 +265,7 @@ export declare const TOOL_OPTIONS: {
             readonly label: "复制";
             readonly def: false;
             readonly scope: "session";
-            readonly modes: readonly ["geometry", "verify"];
+            readonly modes: readonly ["geometry", "verify", "object"];
         };
     };
     /** 旋转的「复制」开关（同移动；按住 Ctrl 临时复制；user 2026-10-26「移动旋转也是ctrl复制开关吧」）。 */
@@ -275,7 +275,7 @@ export declare const TOOL_OPTIONS: {
             readonly label: "复制";
             readonly def: false;
             readonly scope: "session";
-            readonly modes: readonly ["geometry", "verify"];
+            readonly modes: readonly ["geometry", "verify", "object"];
         };
     };
     /** 自由建模的删除（user 10-30「自由建模里面shift是溶解」+「2同意」再点钮切做法）：删除 / 溶解（不开洞）；按住 Shift = 这里选的反面。硬表面的橡皮不用它。 */

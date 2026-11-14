@@ -1,3 +1,3 @@
-export type BodyKind = "brep" | "mesh";
+export type BodyKind = "brep" | "mesh" | "empty";
 export declare const BODY_KINDS: readonly BodyKind[];
 export declare const isBodyKind: (x: unknown) => x is BodyKind;

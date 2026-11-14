@@ -47,5 +47,7 @@ export interface Frame {
 }
 export declare const WORLD_FRAME: Frame;
 export declare const frameAt: (origin: Pt3) => Frame;
+/** 是不是世界帧（容差 1e-12）：坐标架恒等 = 存成「缺」用（Scene.setFrame）。 */
+export declare function isWorldFrame(f: Frame, e?: number): boolean;
 export declare function transformFrame(m: Xform, f: Frame): Frame;
 export declare const frameToXform: (f: Frame) => Xform;

@@ -43,6 +43,31 @@ export interface ForcePaintHook {
  */
 export declare function forceAfter(env: ForceEnv, op: Op, snaps: ForceSnaps, commit: (op: Op) => void, paint?: ForcePaintHook): string;
 /**
+ * 强行对称下「点了谁就对谁做」的删、搬（第 1 版版末审查第 1 条，统筹 11-13；2026-11-13 Claude Opus 5.5）：一张面和它对称的另一半是一样东西——
+ * 删一边 = 两边都删（mirrorRewrite 给 meshDelete 补上另一半，这里不改那条路），搬走一边也得两边一起搬，不然另一半被删掉、没搬过去 = 悄悄少一张。
+ * 选区 → 补上另一半之后的选区 + 补进来几样 / 几样找不到另一半（mesh/mirror.ts mirrorCounterpartReport，和删除同一把尺）；数的单位按选区里最先有的那一种（面 > 边 > 点）。不开强行对称 = null。
+ */
+export interface ForceCounterparts {
+    readonly sel: {
+        readonly faces: readonly number[];
+        readonly edges: readonly number[];
+        readonly verts: readonly number[];
+    };
+    readonly added: number;
+    readonly lonely: number;
+    readonly unit: string;
+    readonly total: number;
+}
+export declare function forceCounterparts(env: ForceEnv, def: number, sel: {
+    readonly faces?: Iterable<number>;
+    readonly edges?: Iterable<number>;
+    readonly verts?: Iterable<number>;
+}): ForceCounterparts | null;
+/** 搬（移到… / 移出一层）的提示行后半句：一起搬了几张、一共几张；找不到另一半的只搬了选中的那几张。没有要说的 = 空串。 */
+export declare const forceMoveNote: (c: ForceCounterparts | null) => string;
+/** 删除 / 溶解（右键 / X 键 / 删除工具）的提示行那一句：对称的另一半一起删了几张（删除的行为不变）。没有补进来的 = 空串。 */
+export declare const forceDeleteNote: (c: ForceCounterparts | null, dissolve: boolean) => string;
+/**
  * 第 1 层：换原点（setAxes 落在定义根上）/ 应用缩放作用在开着强行对称的网格体上 = 模型可能整个对镜像面挪位。在整份拷贝上先做一遍（不用影子：换原点会连带改别处实例的变换）：
  * 仍对称 = null（照做）；不对称 = 要问的那个网格体（编辑器问「关掉镜像，照做 / 取消」，不硬拦）。镜像编辑不问（那个模式下挪原点正是推荐做法）。
  */

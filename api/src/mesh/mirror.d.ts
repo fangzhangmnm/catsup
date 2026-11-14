@@ -99,6 +99,29 @@ export declare function withMirrorCounterparts(m: MeshKernel, axis: MirrorAxis, 
     edges?: number[];
     faces?: number[];
 };
+/** 每一样的个数（点 / 边 / 面）。 */
+export interface ElementCounts {
+    readonly verts: number;
+    readonly edges: number;
+    readonly faces: number;
+}
+/**
+ * withMirrorCounterparts 同一把尺，另外报数：added = 补进来的另一半（不在传进来的里面）；lonely = 找不到另一半的（点没有孪生点 / 孪生点之间没有那条边 / 没有那张面；
+ * 中缝上的、自己就是自己镜像的不算）。强行对称下「移出一层」「移到…」带上另一半、提示行说几张（第 1 版版末审查第 1 条，统筹 11-13；2026-11-13 Claude Opus 5.5）。
+ */
+export declare function mirrorCounterpartReport(m: MeshKernel, axis: MirrorAxis, t: {
+    readonly verts?: readonly number[];
+    readonly edges?: readonly number[];
+    readonly faces?: readonly number[];
+}, tol?: number): {
+    sel: {
+        verts?: number[];
+        edges?: number[];
+        faces?: number[];
+    };
+    added: ElementCounts;
+    lonely: ElementCounts;
+};
 /** 这些点的镜像孪生点（不含自己 / 中缝上的点 / 对面找不到的）：镜像开着时拖它们，孪生点跟着动——吸附不该吸孪生点原来的位置（ToolCtx.mirrorFollowers；计划书 20261109-audit-fixes-plan 工单 3）。 */
 export declare function mirrorTwins(m: MeshKernel, verts: Iterable<number>, axis: MirrorAxis, tol?: number): Set<number>;
 /**

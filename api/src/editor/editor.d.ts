@@ -3,6 +3,7 @@ import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn } from "../kern
 import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type DrawPlane, type HitResult3, type PickKinds } from "./pick.ts";
+import { type MoveDest } from "./objects/move-to.ts";
 import { type MirrorAxis, type MirrorMode, type MirrorSetting } from "../mesh/mirror.ts";
 import { type HiddenCount } from "../scene/hidden.ts";
 import { type SelMode } from "./tools.ts";
@@ -446,6 +447,7 @@ export declare class Editor {
     private btnLock;
     private get lk();
     private lastPtr;
+    private hoverChild;
     /** 最近一次真指针的种类（键盘起手不算）：自由建模吸附的底按它查 SNAP_BASE。 */
     private lastPtrType;
     /** 这次按下以后离按下处最远到过多远（点按容差的量纲；松手时判点 / 拖用）。 */
@@ -938,6 +940,11 @@ export declare class Editor {
     canPaste(): boolean;
     /** 原位粘贴进当前上下文。散几何种类对不上 → 先问「转过去再贴」（castPayload），点了才贴。 */
     pasteClipboard(): void;
+    /** 「移到…」/「移出一层」（第 1 版第三节）：选中的原位搬走、一步撤销；规划和说法 = objects/move-to.ts。几何 / 组 = 抽载荷 → 删 → 走过去 → 原位贴（不碰剪贴板），子物体 = moveInstance（保 GUID）；种类对不上先问。 */
+    moveSelectionTo(dest: MoveDest, cast?: BodyKind): boolean;
+    private moveToArmed;
+    armMoveTo(): boolean;
+    cancelMoveTo(): boolean;
     private pasteNow;
     private pasteCommit;
     private copyInstanceStep;
@@ -1080,6 +1087,15 @@ export declare class Editor {
     unhideAll(): number;
     /** 进入选中（或命中）的子 group / 实例编辑。 */
     enterPool(p: PoolPick): void;
+    /** 进到 ctx 那一层（进组 / 进组件 / 新建子物体之后进去，同一段）：选区在上下文定了再造（id 空间 = 活动池的种类），工作台在 setCtx 里跟上；只换看法，文件不变（统筹 11-12）。 */
+    private enterIn;
+    /** 创建父物体（第 1 版第五节第 7 条；objects/add-parent.ts）：children = 选中的那一个子物体（做完选中新父亲）/ self = 你所在的这一层（人留在它里面）；一步撤销。addParentWhy = 现在做不了的原因（物体窗口灰掉写它）。 */
+    addParent(target: "self" | "children", name: string): boolean;
+    /** 去掉这一层（给根包一层反过来；ops unwrapRootWhy 说做不了的原因）：dry = 只问做不做得了。在外面这一层上做 = 人到顶上来的那一层；在里面 = 上下文链少前面一节。一步撤销。 */
+    unwrapRoot(dry?: boolean): string | null;
+    addParentWhy(target: "self" | "children"): string | null;
+    /** 新建子物体（第 1 版第五节第 5 条；落点 / 朝向 = objects/new-child.ts）：这一层铸一个空的子物体、直接进去，一步撤销。where = pointer：右键那一下点在点 / 边 / 面上就落在那一点，别处 = 这一层的原点。 */
+    newChild(kind: BodyKind, name: string, where?: "pointer"): boolean;
     enterSelected(): boolean;
     /** 退出一层（到父 group / 父实例）；已在根 → false。 */
     exitContext(): boolean;
@@ -1329,10 +1345,6 @@ export declare class Editor {
     private pivotOf;
     /** 选中的点（世界坐标；只画点本身）。 */
     private selVertsView;
-    /** 自由建模：活动池里的平滑边（世界坐标；棱照常画，平滑边淡淡地画出来、也点得中——纪元账本 FM138）。 */
-    private softEdgesView;
-    /** 自由建模：活动池的全部顶点（世界坐标）。键 = 合成视图的身份（几何 / 预演一变它就是新的）。 */
-    private vertDotsView;
     viewExtras: (() => Partial<ViewState>) | null;
     setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void;
     private drawSuspended;

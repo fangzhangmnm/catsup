@@ -5,6 +5,8 @@ import type { Guid } from "../format/guid.ts";
 export declare const uvSetsOf: (b: MeshBody) => readonly Guid[];
 /** 第六节那几种动作碰到走画的面时的原因（拒绝之后场景一个字节不变）。 */
 export declare const PAINT_CANT_MOVE = "\u8FD9\u4E9B\u9762\u4E0A\u6709\u753B\uFF1A\u5E26\u7740\u753B\u7684\u9762\u73B0\u5728\u8FD8\u4E0D\u80FD\u5E76\u8FDB\u522B\u7684\u7269\u4EF6\u3001\u5206\u51FA\u53BB\u3001\u505A\u6210\u552F\u4E00\u3001\u590D\u5236\u7C98\u8D34\u3001\u70B8\u5F00\u6216\u8005\u8F6C\u6210\u786C\u8868\u9762\uFF08\u8FD9\u4E2A\u529F\u80FD\u8FD8\u6CA1\u505A\uFF09";
+/** 粘贴带着贴图坐标（或挂在排法上的画），而那几套排法在这份文件里没有：粘贴的载荷还不带排法那一行（第 1 版第五节 2½ 第三稿第 3 条：带不过去在那一步明说，不悄悄丢）。 */
+export declare const PASTE_UV_ROWS_MISSING = "\u8FD9\u4E00\u8D34\u5E26\u7740\u8D34\u56FE\u5750\u6807\uFF0C\u5B83\u4EEC\u7684\u6392\u6CD5\u8FD9\u4EFD\u6587\u4EF6\u91CC\u6CA1\u6709\uFF1A\u7C98\u8D34\u73B0\u5728\u8FD8\u5E26\u4E0D\u8FC7\u53BB\u6392\u6CD5\uFF0C\u6CA1\u8D34\uFF08\u540C\u4E00\u4EFD\u6587\u4EF6\u91CC\u8D34\u7167\u5E38\uFF1B\u8981\u642C\u5230\u522B\u7684\u6587\u4EF6\uFF0C\u5148\u8F6C\u6210\u786C\u8868\u9762\u3014\u8D34\u56FE\u5750\u6807\u4F1A\u4E22\uFF0C\u8F6C\u4E4B\u524D\u4F1A\u5217\u51FA\u6765\u3015\u518D\u62F7\uFF09";
 /** 这张面走哪一套贴图坐标（走画 = 那一套的 GUID；不走 = null）。 */
 export declare function paintUvOf(s: Scene, def: DefId, f: number): Guid | null;
 /**
@@ -59,20 +61,26 @@ export type PaintMove = {
     readonly payload: {
         readonly materials?: readonly Material[];
         readonly textures?: readonly TextureDoc[];
-        readonly faceMats?: Iterable<number>;
-        readonly defSlots?: Iterable<readonly (Guid | null)[]>;
-        readonly replaces?: Iterable<DefId>; /** 这一贴要新建 / 更新的定义里有带着贴图坐标的（1-2½ 起文件形状带着它们）。 */
-        readonly carriesUv?: boolean;
+        readonly faceMats?: Iterable<number>; /** 这一贴要新建 / 更新的定义：各自的槽表 + 面上用到的槽号（只看面用着的那几槽）。 */
+        readonly defFaces?: Iterable<PayloadDefFaces>;
+        readonly replaces?: Iterable<DefId>; /** 这一贴要新建 / 更新的定义的贴图坐标 + 要新建的画挂的排法里，这份文件的排法表里没有的几套（载荷不带排法那一行）。 */
+        readonly uvRowsMissing?: number;
     };
 };
+/** 载荷里一个定义的槽表 + 它的面用到的槽号（网格体 = MeshDoc.faceMat，硬表面 = 面层 material，组里的也算）。 */
+export interface PayloadDefFaces {
+    readonly slots: readonly (Guid | null)[];
+    readonly used: Iterable<number>;
+}
 /**
- * 「带着画的面现在还搬不了」唯一的判断（1-3b 第六节 + 审后补）：并物件、把面分成新物件、变成独立的、炸开网格体组件、网格体转硬表面、复制 / 粘贴（含跨文件）都调它。
+ * 「带着画的面现在还搬不了」唯一的判断（1-3b 第六节 + 审后补；第 1 版施工单第五节 2½ 第三稿改成只问「有没有面在显示画」）：
+ * 并物件、把面分成新物件、变成独立的、炸开网格体组件、网格体转硬表面、复制 / 粘贴（含跨文件）都调它。
  * · 一摞面：有一张走画 = 拒。
- * · 整个定义：带着贴图坐标（有 uv 列，不管现在有没有面走画——从画换走的面角上的数还留着）= 拒：1-2½ 起文件形状（definitionToDoc）带着贴图坐标了，
- *   但搬到别处（复制成唯一、粘贴新建、并进别的物件）要给那几套铸新身份、把画的 layout 对上、贴图跟着按值拷，那是 1-3d；在那之前照旧拒，不让两个定义悄悄共用一套坐标的身份。
- * · 粘贴的载荷：散面里有画的材质 = 拒；这一贴要新建（跨文件 / 「断开」铸新身份）或更新的定义，槽表里有画的材质 = 拒（画会落到别的定义里、或者跟着换掉的身体丢了）；
- *   要被「更新」换掉身体的现有定义带着贴图坐标 = 拒；这一贴要新建 / 更新的定义自己带着贴图坐标（哪怕只剩没人引用的那几套）= 拒（1-2½ 起文件形状带着它们：
- *   跨文件 / 「断开」新建要给那几套铸新身份，归 1-3d；和「整个定义带着贴图坐标」那条一致）。同一份文件里贴整个物件的另一份摆放（留这里的那条）不受影响：它们本来就共用同一张画。
+ * · 整个定义：有一张面走画（anyFaceWalksPaint）= 拒。只带着贴图坐标（速查表、角上的数还在）、没有面显示画 = 普通网格体，放行：贴图坐标在网格体之间跟着面走，
+ *   带不过去的路（转硬表面；剪贴板拷散面）在那一步自己的询问 / 提示里明说（统筹 11-13 夜，user「原则上现在不用丢 UV」）。
+ * · 粘贴的载荷：散面里有画的材质 = 拒；这一贴要新建（跨文件 / 「断开」铸新身份）或更新的定义，面用着的槽里有画的材质 = 拒（画会落到别的定义里、或者跟着换掉的身体丢了）；
+ *   要被「更新」换掉身体的现有定义有面走画 = 拒。同一份文件里贴整个物件的另一份摆放（留这里的那条）不受影响：它们本来就共用同一张画。
+ *   另一条不是画的原因（PASTE_UV_ROWS_MISSING）：载荷还不带排法那一行，带着的贴图坐标 / 画指着这份文件里没有的排法 = 拒（贴进来存盘会抛：scene-doc 写的时候核速查表）。
  * 返回原因 / null（放行）。
  */
 export declare function paintMoveBlocked(s: Scene, what: PaintMove): string | null;

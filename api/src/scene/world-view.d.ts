@@ -55,14 +55,17 @@ export interface GeomView {
     };
 }
 export declare const ID_STRIDE: number;
+/** 一个槽相对正在改的这一层是什么（层级显示施工单二½：**只在 relationOf 算这一处**；怎么对待每一档 = editor/reach-table.ts 那张表）。
+ *  self = 这一层自己的几何；child = 这一层的子物体（连它里面的）；outer = 外面的（外层几何、兄弟、不相干的）；twin = 正在改的这个物件摆在别处的分身（连它里面的）。 */
+export type SlotRel = "self" | "child" | "outer" | "twin";
 export interface PoolSlot {
     index: number;
     pool: PoolRef;
     chain: readonly InstId[];
     xform: Xform;
     kernel: KernelView;
-    active: boolean;
-    inContext: boolean; /** 层级距离（#30）：0 自己 / 1 近亲 / 2 其他。 */
+    active: boolean; /** 这一档（relationOf）。 */
+    rel: SlotRel; /** 层级距离（#30）：0 自己 / 1 近亲 / 2 其他（吸附排远近用；relationOf 里一起算）。 */
     tier: 0 | 1 | 2; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */
     overridden: boolean; /** 复制预演的副本槽（DT14）：同一个池多画一份、在手里待遇（空 part），key 带 +copy；原槽照常。 */
     ghost?: boolean;
@@ -99,6 +102,14 @@ export declare function regularPolygonCenter(pts: readonly Pt3[]): Pt3 | null;
 /** 这个槽在当前上下文里面吗：活动池本身 + 它的子孙（group 子树、放在里面的实例整棵）。根上下文 = 全都在里面。
  *  「只看这个」用（DT44，user 2026-10-25「然后左上角的hierarchy tree可以切换只看该组件」）。 */
 export declare function insideContext(scene: Scene, ctx: EditContext, pool: PoolRef, chain: readonly InstId[]): boolean;
+/**
+ * 这一档 + 吸附远近，一处算（层级显示施工单二½）：self / child 和 insideContext 是同一个判定；twin = 不在这一层里面、但链上经过正在改的那个定义的另一份；
+ * tier 照 #30 的规矩（自己 0 / 孩子·父母·兄弟 1 / 其他 2），从同一处出，不另算。
+ */
+export declare function relationOf(scene: Scene, ctx: EditContext, pool: PoolRef, chain: readonly InstId[]): {
+    rel: SlotRel;
+    tier: 0 | 1 | 2;
+};
 export declare class WorldView implements GeomView {
     readonly slots: PoolSlot[];
     /** 每槽一份世界坐标几何（缓存单元；屏幕索引也按它缓存）。在手里的槽 = 空 part（见 OVERRIDDEN_PARTS_EMPTY）。 */

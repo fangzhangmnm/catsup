@@ -2,6 +2,7 @@ import type { Pt3 } from "../kernel/geom.ts";
 import { type BrepSnapshot } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { type Guides } from "../scene/guides.ts";
+import { type CastLoss } from "../scene/kinds.ts";
 import { type EditContext, type GroupId, type InstId, type Material, type Scene } from "../scene/scene.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 import type { DefinitionDoc, LayerDoc, TextureDoc } from "../format/document.ts";
@@ -56,6 +57,8 @@ export interface TransferPayload {
     readonly textures?: readonly TextureDoc[];
     /** 实例用到的定义（递归）+ 层。有实例才有。 */
     readonly closure?: TransferClosure;
+    /** 散面里有几张在贴图坐标上有位置：剪贴板不带角上的数（统筹 11-11 定，1-2½），这几张贴过去就没有贴图坐标了——拷贝那一下的提示行说出来（第 1 版第五节 2½ 第三稿第 3 条：带不过去在那一步报）。 */
+    readonly uvLeft?: number;
 }
 export declare const docsOfKind: <T>(b: Bundle, kind: string) => T[];
 export interface TransferCounts {
@@ -89,13 +92,14 @@ export declare function extract(s: Scene, ctx: EditContext, sel: {
     kind: "instance";
     instance: InstId;
 })[]): TransferPayload | null;
-/** 目标容器接不接：接 = ok；不接 = 要把散几何转成目标的种类（组件实例什么都接）。 */
+/** 目标容器接不接：接 = ok；不接 = 要把散几何转成目标的种类（组件实例什么都接）+ 转过去带不过去什么（castLosses，组转成网格体 = 组分区没了）。 */
 export declare function accept(p: TransferPayload, target: BodyKind): {
     ok: true;
 } | {
     ok: false;
     cast: BodyKind;
     what: string;
+    losses: readonly CastLoss[];
 };
 /** 用户点了「转」：散几何按目标种类转（物体设置窗的 castBody 同一套，确定性）；组转成网格体后不再是组（网格体没有组），里面的实例挂到载荷根上。 */
 export declare function castPayload(p: TransferPayload, to: BodyKind): TransferPayload;
