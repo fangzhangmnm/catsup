@@ -2,14 +2,25 @@
 // 10-27「explicit转换的话元数据也许也不要带，我们要诚实披露，不要藏东西」）：转成网格体 / 转回硬表面体，各自把丢掉什么写进提示。created 2026-10-27 by Claude Fable 5.1
 import type { Command, CommandEnv, ObjectUnit, Params } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
-import { brepSideCounts, canCast, meshToBrepCheck } from "../../scene/kinds.ts";
+import { brepSideCounts, canCast, castLosses, lossesText, type CastLoss } from "../../scene/kinds.ts";
 import type { BodyKind } from "../../scene/body-kind.ts";
 import { bodyEmpty } from "../ops.ts";
 
 /** 三角形 → 膜那条管线的速度（三角 / 秒；2026-10-27 node 实测：1 万个不平四边形 = 2 万三角 → 2 万张膜 2.2 s ≈ 9000 三角 / 秒，含共面合并；只是量级，浏览器同量级）。量纲：个 / 秒。 */
 const TRIS_PER_SECOND = 9000;
 
-const disclose = (u: ObjectUnit, loses: readonly string[]): string[] => [u.instance === null ? `转的是你所在的这一层「${u.name}」` : "", u.copies > 1 ? `「${u.name}」的 ${u.copies} 份实例一起变` : "", `丢掉：${loses.join("、")}`].filter(Boolean);
+/** 这一次转过去带不过去什么（scene/kinds.ts castLosses：和真转同一份算法；第 1 版第五节 4½）。 */
+const lossesFor = (env: CommandEnv, u: ObjectUnit, to: BodyKind, v?: Params): readonly CastLoss[] =>
+  castLosses(env.scene.def(u.def).body, to, { ...(v?.softDeg !== undefined ? { softDeg: Number(v.softDeg) } : {}), mirrored: !!env.scene.meshMirrors.get(u.def) });
+const disclose = (u: ObjectUnit, losses: readonly CastLoss[]): string[] => [u.instance === null ? `转的是你所在的这一层「${u.name}」` : "", u.copies > 1 ? `「${u.name}」的 ${u.copies} 份实例一起变` : "", losses.length ? `丢掉：${lossesText(losses)}` : ""].filter(Boolean);
+/** 四个入口同一个做法（第五节 4½ 第 3 条）：做之前问 castLosses；空 = 不为丢东西多问；不空 = 在这一个询问里逐条列出。 */
+function castAsk(to: BodyKind, verb: string, wait?: (env: CommandEnv, units: readonly ObjectUnit[], v: Params) => string) {
+  return (env: CommandEnv, units: readonly ObjectUnit[], v: Params) => {
+    const lines = units.map((u) => ({ u, ls: lossesFor(env, u, to, v) })).filter((x) => x.ls.length).map((x) => `「${x.u.name}」会丢：${lossesText(x.ls)}`);
+    if (!lines.length) return null;
+    return { title: `${verb}：有带不过去的东西`, message: `${lines.join("。")}。要转吗？${wait?.(env, units, v) ?? ""}`, okLabel: "照样转", params: {} };
+  };
+}
 
 export const toMesh: Command<ObjectUnit> = {
   id: "object.toMesh", unit: "object", perDefinition: true, takesContext: true, title: "转成网格体",
@@ -20,9 +31,10 @@ export const toMesh: Command<ObjectUnit> = {
     if (!c.ok) return { ops: [], count: 0, skipped: 1, notes: [`「${u.name}」${c.why}`] };
     // 转换不问，只报（计划书 §9.2½ ②）：两侧都出 = 两张叠着的面（共用点，环切 / 平滑跨不过去，要合并用修复工具）；两侧都是默认背面 = 这张面没了
     const sc = u.body === "brep" ? brepSideCounts(env.scene.brep(u.def)) : { both: 0, differ: 0, neither: 0 };   // 空物体：没有面
-    const sides = [...(sc.both ? [`「${u.name}」${sc.both} 张面两侧都出，转过去是叠着的两张（其中 ${sc.differ} 张两侧材质不同）；想只留一侧，先把另一侧涂成默认背面`] : []), ...(sc.neither ? [`「${u.name}」${sc.neither} 张面两侧都是默认背面，转过去就没了`] : [])];
-    return { ops: [{ op: "castDefinition", def: u.def, to: "mesh" }], count: 1, notes: [...disclose(u, c.loses), ...sides] };
+    const sides = sc.both ? [`「${u.name}」${sc.both} 张面两侧都出，转过去是叠着的两张（其中 ${sc.differ} 张两侧材质不同）；想只留一侧，先把另一侧涂成默认背面`] : [];   // 两侧都是默认背面的面 = 丢失清单里的 back-only-faces（不在这里另说）
+    return { ops: [{ op: "castDefinition", def: u.def, to: "mesh" }], count: 1, notes: [...disclose(u, lossesFor(env, u, "mesh")), ...sides] };
   },
+  ask: castAsk("mesh", "转成网格体"),
   done: (n) => `转成网格体：${n} 个（组件双击进去就是自由建模工作台）`,
   none: "没有能转的：选中一个硬表面体组件；什么都不选 = 转你所在的这一层",
 };
@@ -31,10 +43,10 @@ export const toBrep: Command<ObjectUnit> = {
   id: "object.toBrep", unit: "object", perDefinition: true, takesContext: true, title: "转回硬表面体",
   defaults: (env) => ({ softDeg: env.sharpDeg() }),
   params: () => [{ key: "softDeg", def: { kind: "number", label: "弯折不到这个角度的边算软边", min: 0, max: 90, step: 1, unit: "°" } }],
-  plan(_env, u, v) {
+  plan(env, u, v) {
     const c = canCast(u.body, "brep");
     if (!c.ok) return { ops: [], count: 0, skipped: 1, notes: [`「${u.name}」${c.why}`] };
-    return { ops: [{ op: "castDefinition", def: u.def, to: "brep", softDeg: Number(v.softDeg) }], count: 1, notes: disclose(u, c.loses) };
+    return { ops: [{ op: "castDefinition", def: u.def, to: "brep", softDeg: Number(v.softDeg) }], count: 1, notes: disclose(u, lossesFor(env, u, "brep", v)) };
   },
   done: (n) => `转回硬表面体：${n} 个`,
   none: "没有能转的：选中一个网格体组件；什么都不选 = 转你所在的这一层",
@@ -43,19 +55,8 @@ export const toBrep: Command<ObjectUnit> = {
     for (const u of units) if (u.body === "mesh") tris += env.scene.mesh(u.def).kernel.triangles().faceOfTri.length;
     return tris ? { seconds: tris / TRIS_PER_SECOND, what: `三角形 → 膜：${tris} 个三角形` } : null;
   },
-  /** 藏着的东西带不过去的那两种（统筹 11-13 b：转之前明着说、让人选转不转，不许悄悄少）；数和真转是同一份算法（scene/kinds.ts meshToBrepCheck）。没有藏着的东西 = 不问。 */
-  ask(env: CommandEnv, units: readonly ObjectUnit[], v: Params) {
-    const lines: string[] = [];
-    for (const u of units) {
-      if (u.body !== "mesh") continue;
-      const c = meshToBrepCheck(env.scene.mesh(u.def), Number(v.softDeg));
-      if (c.mixedHidden) lines.push(`「${u.name}」有 ${c.mixedHidden} 张藏着的面和背靠背（或叠着）的露着的面合在一起：硬表面里它们合成一张膜，只能整张藏或整张露，转过去这 ${c.mixedHidden} 张会露出来`);
-      if (c.lostHiddenEdges) lines.push(`「${u.name}」有 ${c.lostHiddenEdges} 条藏着的边转过去对不上（两头的点并掉了），这几条的「藏」会没了`);
-    }
-    if (!lines.length) return null;
-    const est = toBrep.estimate?.(env, units, v), wait = est && est.seconds >= 5 ? `（${est.what}，估计 ${Math.round(est.seconds)} 秒，期间界面会卡住）` : "";
-    return { title: "转回硬表面体：有藏着的东西带不过去", message: `${lines.join("；")}。要转吗？${wait}`, okLabel: "照样转", params: {} };
-  },
+  /** 带不过去的东西（含藏着的那两种，统筹 11-13 b：转之前明着说、让人选转不转，不许悄悄少）：四个入口同一个问法（castAsk）；转起来慢的附一句要等多久。 */
+  ask: castAsk("brep", "转回硬表面体", (env, units, v) => { const est = toBrep.estimate?.(env, units, v); return est && est.seconds >= 5 ? `（${est.what}，估计 ${Math.round(est.seconds)} 秒，期间界面会卡住）` : ""; }),
 };
 
 /** 转成空物体（第 1 版第五节第 4 条）：只在自己没有几何时可用（挂着子物体不算有几何）；有几何 = 明说转不成，不悄悄丢。丢的是挂在原来那个种类上的设置（登记表 castsTo）。 */
@@ -67,8 +68,9 @@ export const toEmpty: Command<ObjectUnit> = {
     const c = canCast(u.body, "empty");
     if (!c.ok) return { ops: [], count: 0, skipped: 1, notes: [`「${u.name}」${c.why}`] };
     if (!bodyEmpty(env.scene.def(u.def).body)) return { ops: [], count: 0, skipped: 1, notes: [`「${u.name}」还有几何，转不成空物体（空物体只装子物体）`] };
-    return { ops: [{ op: "castDefinition", def: u.def, to: "empty" }], count: 1, notes: disclose(u, c.loses) };
+    return { ops: [{ op: "castDefinition", def: u.def, to: "empty" }], count: 1, notes: disclose(u, lossesFor(env, u, "empty")) };
   },
+  ask: castAsk("empty", "转成空物体"),
   done: (n) => `转成空物体：${n} 个（进去是摆放工作台：只摆子物体）`,
   none: "没有能转的：只有自己没有几何的物体能转成空物体",
 };

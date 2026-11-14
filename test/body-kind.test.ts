@@ -89,6 +89,6 @@ describe("空物体（第 1 版第四、五节）：转换 + 名字归登记表"
     const sc = new Scene(sceneBox(1, 1)), full = { kind: "brep" as const, kernel: sc.kernelOf({ def: sc.root, group: null }), groups: new Map(), nextGroup: 1, materialSlots: [], guides: { lines: [], points: [], circles: [], spheres: [], next: 1 } };
     let msg = ""; try { castBody(full, "empty"); } catch (e) { msg = String(e); }
     assert(msg.includes("还有几何"), msg);
-    eq(castBody({ ...full, kernel: new Kernel() }, "empty").kind, "empty");
+    eq(castBody({ ...full, kernel: new Kernel() }, "empty").body.kind, "empty");
   });
 });

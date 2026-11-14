@@ -12,7 +12,7 @@ import type { ParamFieldDef, ParamValue } from "../editor/param-panel.ts";
 import type { MirrorAxis, MirrorMode } from "../mesh/mirror.ts";
 import { brepAttributeList, meshAttributeList, type AttributeList, type AttributeRow } from "../scene/attribute-list.ts";
 import { brepAttrName, meshAttrName } from "./attribute-names.ts";
-import { KINDS, canCast } from "../scene/kinds.ts";
+import { KINDS, canCast, lossLabel } from "../scene/kinds.ts";
 import { BODY_KINDS } from "../scene/scene.ts";
 import { CAST_ACTIONS } from "../editor/objects/index.ts";
 import { bodyEmpty } from "../editor/ops.ts";
@@ -100,8 +100,7 @@ export function castChoices(editor: Editor, def: number): CastChoice[] {
     const c = canCast(cur, to), action = CAST_ACTIONS[to], label = KINDS[to].noun;
     if (!c.ok) return { action, label, hint: "", off: c.why };
     if (to === "empty" && !bodyEmpty(body)) return { action, label, hint: "还有几何，转不成", off: "还有几何，转不成空物体（空物体只装子物体）" };
-    const short = c.loses.map((l) => l.split("（")[0]);
-    return { action, label, hint: short.length ? `会丢：${short.join("、")}` : "不丢东西" };
+    return { action, label, hint: c.loses.length ? `可能丢：${c.loses.map(lossLabel).join("、")}` : "不丢东西" };   // 照声明列（第五节 4½ 第 4 条：不为开窗口转一遍；点下去才算这一次的数）
   });
 }
 export const kindPageOf = (editor: Editor, def: number): KindPage => KIND_PAGES[editor.kindOfDef(def)];

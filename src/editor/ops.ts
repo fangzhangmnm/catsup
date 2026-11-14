@@ -903,9 +903,10 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "castDefinition": {
       const d = s.def(op.def);
       if (op.to === "brep") refusePaintMove(s, { def: op.def });   // 网格体转硬表面：带着画怎么办以后另定，现在先拒（1-3b，统筹 11-10）
-      const body = castBody(d.body, op.to, op.softDeg !== undefined ? { softDeg: op.softDeg } : undefined);   // 不认的方向在这里抛，文档不动
+      const { body } = castBody(d.body, op.to, { ...(op.softDeg !== undefined ? { softDeg: op.softDeg } : {}), mirrored: !!s.meshMirrors.get(op.def) });   // 不认的方向在这里抛，文档不动
       // 组没了（网格体没有组分区）：住在组里的实例挂回定义的根上——组没有自己的变换，摆的位置不变（2026-10-28：以前留着指向不存在的组）
       if (body.kind !== "brep") for (const inst of d.instances.values()) if (inst.parent !== null) inst.parent = null;
+      if (body.kind !== "mesh") s.meshMirrors.delete(op.def);   // 对称设置住在场景上：离开网格体 = 丢（清单里 mirror 那一样；2026-11-13 以前留着，同一次打开里转回来它又「回来」、存盘再开就没了 = 藏着的状态）
       d.body = body;
       return { scene: s, events: [] };
     }
@@ -1162,10 +1163,10 @@ function explodeAcrossKinds(s: Scene, at: PoolRef, inst: Instance): void {
   const host = s.def(at.def), src = s.def(inst.def), hostMesh = s.kindOf(at.def) === "mesh";
   const copyBody = (): SceneBody => (src.body.kind === "mesh" ? { ...src.body, kernel: src.body.kernel.clone(), materialSlots: [...src.body.materialSlots], uvSetSlots: [...src.body.uvSetSlots] } : src.body);
   if (hostMesh) {
-    const mb = (src.body.kind === "mesh" ? copyBody() : castBody(src.body, "mesh")) as MeshBody;
+    const mb = (src.body.kind === "mesh" ? copyBody() : castBody(src.body, "mesh").body) as MeshBody;
     appendMesh(s.mesh(at.def), mb, inst.xform);
   } else {
-    const bb = castBody(copyBody(), "brep") as BrepBody;
+    const bb = castBody(copyBody(), "brep").body as BrepBody;
     const remap = (slot: number): number => { const mat = bb.materialSlots[slot]; return mat === undefined ? -1 : s.slotFor(at.def, mat); };
     absorbSnapshot(poolOf(s, at).kernel, bb.kernel.toBrep(), inst.xform, remap);
   }

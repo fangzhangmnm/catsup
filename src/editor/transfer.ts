@@ -22,9 +22,9 @@ import { F_WIRE } from "../mesh/edge-bits.ts";
 import { FRESH } from "../mesh/columns.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { cloneGuides, emptyGuides, transformGuides, type Guides } from "../scene/guides.ts";
-import { castBody } from "../scene/kinds.ts";
+import { castBody, castLosses, sumLosses, type CastLoss } from "../scene/kinds.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
-import { extractSnapshot, remapSnapshotMaterial, transformSnapshot, type DefId, type EditContext, type GroupId, type InstId, type Instance, type Material, type Scene } from "../scene/scene.ts";
+import { extractSnapshot, remapSnapshotMaterial, transformSnapshot, type Body, type DefId, type EditContext, type GroupId, type InstId, type Instance, type Material, type Scene } from "../scene/scene.ts";
 import { applyPt, compose, transformFrame, type Frame, type Xform } from "../scene/xform.ts";
 import type { DefinitionDoc, LayerDoc, TextureDoc } from "../format/document.ts";
 import type { Guid } from "../format/guid.ts";
@@ -146,23 +146,31 @@ export function extract(s: Scene, ctx: EditContext, sel: { faces: Iterable<numbe
   return transferEmpty(out) ? null : out;
 }
 
-/** 目标容器接不接：接 = ok；不接 = 要把散几何转成目标的种类（组件实例什么都接）。 */
-export function accept(p: TransferPayload, target: BodyKind): { ok: true } | { ok: false; cast: BodyKind; what: string } {
-  if (target === "brep" && p.mesh) return { ok: false, cast: "brep", what: `${p.mesh.faces.length} 张网格体的面` };
-  if (target === "mesh" && (p.brep || p.groups?.length)) { const c = transferCounts(p); return { ok: false, cast: "mesh", what: `${c.faces} 张硬表面的面${c.groups ? `（含 ${c.groups} 个组，转过去组就没了）` : ""}` }; }
+/** 载荷里要转的散几何拼成的身体（castPayload 真转和 accept 问丢什么看的是同一批：第 1 版第五节 4½「和真转同一份算法」）。槽号 = 对照表的编号，槽表按对照表造（转换才认得内置默认背面，§9.3-6）。 */
+function payloadBodies(p: TransferPayload, to: BodyKind): Body[] {
+  const slots = (): number[] => (p.materials ?? []).map((m, i) => (m === BUILTIN_BACK || m.guid === BUILTIN_BACK.guid ? BUILTIN_BACK_SLOT : i));
+  if (to === "mesh") return [...(p.brep ? [p.brep] : []), ...(p.groups ?? []).map((g) => g.snap)].map((snap): Body => ({ kind: "brep", kernel: Kernel.fromBrep(snap), groups: new Map(), nextGroup: 1, materialSlots: slots(), guides: emptyGuides() }));
+  if (to !== "brep" || !p.mesh) return [];
+  const k = new MeshKernel(), vs = p.mesh.verts.map((q) => k.addVertex(q));
+  for (const f of p.mesh.faces) k.addFace(f.ring.map((i) => vs[i]), { kind: "fresh", face: givenFaceValues(k, { material: f.mat }) });   // 经过剪贴板：故意不带角上的数（统筹 11-11 定，1-2½）——这里是转成硬表面，本来也带不过去
+  for (const e of p.mesh.edges) { const id = k.ensureEdge(vs[e.a], vs[e.b]); unpackEdgeByte(k, id, e.flags); }
+  return [{ kind: "mesh", kernel: k, materialSlots: slots(), uvSetSlots: [] }];
+}
+/** 目标容器接不接：接 = ok；不接 = 要把散几何转成目标的种类（组件实例什么都接）+ 转过去带不过去什么（castLosses，组转成网格体 = 组分区没了）。 */
+export function accept(p: TransferPayload, target: BodyKind): { ok: true } | { ok: false; cast: BodyKind; what: string; losses: readonly CastLoss[] } {
+  const losses = (to: BodyKind): readonly CastLoss[] => sumLosses([...payloadBodies(p, to).map((b) => castLosses(b, to)), to === "mesh" && p.groups?.length ? [{ what: "groups" as const, count: p.groups.length }] : []]);
+  if (target === "brep" && p.mesh) return { ok: false, cast: "brep", what: `${p.mesh.faces.length} 张网格体的面`, losses: losses("brep") };
+  if (target === "mesh" && (p.brep || p.groups?.length)) { const c = transferCounts(p); return { ok: false, cast: "mesh", what: `${c.faces} 张硬表面的面${c.groups ? `（含 ${c.groups} 个组）` : ""}`, losses: losses("mesh") }; }
   return { ok: true };
 }
 
 /** 用户点了「转」：散几何按目标种类转（物体设置窗的 castBody 同一套，确定性）；组转成网格体后不再是组（网格体没有组），里面的实例挂到载荷根上。 */
 export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
   const instances = p.instances ?? [];
-  // 槽号 = 对照表的编号；槽表按对照表造，转换才认得内置默认背面（§9.3-6）
-  const slots = (): number[] => (p.materials ?? []).map((m, i) => (m === BUILTIN_BACK || m.guid === BUILTIN_BACK.guid ? BUILTIN_BACK_SLOT : i));
   if (to === "mesh") {
-    const parts: BrepSnapshot[] = [...(p.brep ? [p.brep] : []), ...(p.groups ?? []).map((g) => g.snap)];
     const verts: Pt3[] = [], faces: MeshFragment["faces"] = [], edges: MeshFragment["edges"] = [];
-    for (const snap of parts) {
-      const body = castBody({ kind: "brep", kernel: Kernel.fromBrep(snap), groups: new Map(), nextGroup: 1, materialSlots: slots(), guides: emptyGuides() }, "mesh");
+    for (const src of payloadBodies(p, "mesh")) {
+      const { body } = castBody(src, "mesh");
       if (body.kind !== "mesh") continue;
       const k = body.kernel, base = verts.length, vmap = new Map<number, number>();
       for (const v of k.verts()) { vmap.set(v, verts.length); verts.push(k.pt(v)); }
@@ -174,11 +182,9 @@ export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
     const flat = instances.map((i) => (i.parent === null ? i : { ...i, parent: null }));
     return { from: p.from, ...(mesh ? { mesh } : {}), ...(flat.length ? { instances: flat } : {}), ...(p.materials ? { materials: p.materials } : {}), ...(p.textures ? { textures: p.textures } : {}), ...(p.closure ? { closure: p.closure } : {}) };
   }
-  if (!p.mesh) return p;
-  const k = new MeshKernel(), vs = p.mesh.verts.map((q) => k.addVertex(q));
-  for (const f of p.mesh.faces) k.addFace(f.ring.map((i) => vs[i]), { kind: "fresh", face: givenFaceValues(k, { material: f.mat }) });   // 经过剪贴板：故意不带角上的数（统筹 11-11 定，1-2½）——这里是转成硬表面再贴，硬表面本来就没有角上的数
-  for (const e of p.mesh.edges) { const id = k.ensureEdge(vs[e.a], vs[e.b]); unpackEdgeByte(k, id, e.flags); }
-  const body = castBody({ kind: "mesh", kernel: k, materialSlots: slots(), uvSetSlots: [] }, "brep");
+  const src = payloadBodies(p, "brep")[0];
+  if (!src) return p;
+  const { body } = castBody(src, "brep");
   const brep = body.kind === "brep" ? body.kernel.toBrep() : undefined;
   // 转硬表面可能新开内置默认背面那一格：对照表跟着长（编号 = 槽号）
   const table = body.materialSlots.map((h, i) => (h === BUILTIN_BACK_SLOT ? BUILTIN_BACK : (p.materials?.[i] ?? BUILTIN_BACK)));

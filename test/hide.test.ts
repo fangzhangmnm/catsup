@@ -139,9 +139,10 @@ describe("b：转回硬表面带上藏面（统筹 11-13；以前藏着的面不
     const b = meshToBrep(body, 20);
     eq(b.kernel.faces().length, 1); eq(b.kernel.faces().filter((f) => b.kernel.isFaceHidden(f.id)).length, 0, "露着（转之前问过的就是这个）");
   });
-  it("网格体登记的「转回硬表面丢掉什么」里不再写「隐藏的面」", async () => {
-    const { KINDS } = await import("../src/scene/kinds.ts");
-    assert(!KINDS.mesh.castsTo.some((c) => c.loses.some((l) => l.includes("隐藏"))), "丢掉清单里没有隐藏");
+  it("网格体转回硬表面：隐藏的面照带，丢的只有背靠背一藏一露那种 + 并掉的藏边（去向表 + 声明）", async () => {
+    const { KINDS, CAST_FATES } = await import("../src/scene/kinds.ts");
+    eq(KINDS.mesh.castsTo.find((c) => c.to === "brep")!.loses.filter((l) => /hidden/.test(l)).sort().join(","), "lost-hidden-edges,mixed-hidden");
+    eq(JSON.stringify(CAST_FATES.mesh.brep!["hidden-faces"]), JSON.stringify({ lost: "mixed-hidden" }));
   });
 });
 

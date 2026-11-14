@@ -8,7 +8,7 @@ import { bodyEmpty } from "../ops.ts";
 import { invert } from "../../scene/xform.ts";
 import { isHex4 } from "../object-tree.ts";
 import { mintGuid } from "../../format/guid.ts";
-import { KINDS } from "../../scene/kinds.ts";
+import { KINDS, castLosses, lossesText } from "../../scene/kinds.ts";
 import type { BodyKind } from "../../scene/body-kind.ts";
 
 const kindName = (k: BodyKind): string => KINDS[k].noun;   // 名字归种类登记表（第 1 版第五节第 1 条）
@@ -18,8 +18,10 @@ const askCast = (verb: string, what: string) => (env: CommandEnv, units: readonl
   if (v.cast) return null;
   const need = units.filter((u) => { const h = hostDefOf(u); return h !== null && needsCast(env, u, h); });
   if (!need.length) return null;
-  const h = hostDefOf(need[0])!, to = kindName(env.scene.kindOf(h));
-  return { title: `${verb}：要转种类`, message: `${need.length} 个物件是另一种身体的几何，${what}要先转成${to}（和物件设置里的转换一样，会丢它那一种才有的东西）。转过去再${verb}吗？`, okLabel: `转成${to}再${verb}`, params: { cast: true } };
+  const h = hostDefOf(need[0])!, hk = env.scene.kindOf(h), to = kindName(hk);
+  // 带不过去什么（第五节 4½：四个入口同一个做法，在这一个询问里逐条列；scene/kinds.ts castLosses = 和真转同一份算法）
+  const lost = need.map((u) => ({ u, ls: castLosses(env.scene.def(u.def).body, hk, { mirrored: !!env.scene.meshMirrors.get(u.def) }) })).filter((x) => x.ls.length).map((x) => `「${x.u.name}」会丢：${lossesText(x.ls)}`);
+  return { title: `${verb}：要转种类`, message: `${need.length} 个物件是另一种身体的几何，${what}要先转成${to}${lost.length ? `。${lost.join("。")}` : "（不丢东西）"}。转过去再${verb}吗？`, okLabel: `转成${to}再${verb}`, params: { cast: true } };
 };
 
 export const explode: Command<ObjectUnit> = {
