@@ -126,7 +126,7 @@ export interface ToolKey {
 export declare function toolKeysOf(mode: ModeId, tool: Tool, inMode?: (t: Tool) => boolean): ToolKey[];
 /** 工具提示里的键那一截（「M · G 键盘起手」；没有键 = ""）：pick 直接写键名；没有 pick 才写 cycle「再按 E / X」；modal 写「G 键盘起手」（同义的并成「Alt+S / Alt+W 键盘起手」）、带变体的写那条的名字（「Ctrl+B 倒角」）。 */
 export declare function toolKeyText(mode: ModeId, tool: Tool, inMode?: (t: Tool) => boolean): string;
-/** 肌肉记忆层面的「意思」：锁轴的两条路（方向键 / 按钮的 lock.key、动作里的轴键 axis.press）算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */
+/** 肌肉记忆层面的「意思」：轴键（axis.press，两个建模工作台的动作里同一套）按轴算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */
 export declare function meaningOf(action: string): string;
 /** 拿来比的几个地方（会来回切的：两个建模工作台 × 拿着选择 / 移动，加验证、表面）。 */
 export declare const MUSCLE_CONTEXTS: Readonly<Record<string, Omit<KeyContext, "typingWants">>>;

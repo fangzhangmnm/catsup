@@ -469,15 +469,16 @@ export declare class Editor {
     axisConstraintNow(): AxisConstraint;
     /** 方向键 / 触屏虚拟轴键的唯一入口：axis = 键对应的轴（→ X / ← Y / ↑ Z），null = ↓；plane = Shift。按当前工具的锁种分派。 */
     lockKey(axis: LockAxis | null, plane: boolean): void;
-    /** 面锁下过 through 的平面（先定平面的工具在首点之后用；没锁 = null）。轴面的基 = 另外两根上下文轴。 */
+    /** 先定平面的工具首点之后图形躺的面（锁的一轮第三步：吃约束 = 轴键那份 ?? 按钮锁）：二维那一族 = shapePlane、旋转那一族 = rotatePlane（controller/axis-apply.ts）；不限制 = null。 */
     private lockedPlaneThrough;
-    /** 锁的事后约束（求解器本身不动，排序规则归 Fable）：方向锁 → lockToAxis；面锁 → lockToPlane；没锁 = 原样。 */
+    /** 锁的事后约束（求解器本身不动，排序规则归统筹）：一维工具（画线 / 移动 / 卷尺）照 moveLock 读约束 → 沿线 lockToAxis / 在面里 lockToPlane；不限制 = 原样。
+     *  锁是最后一道（统筹 11-13）：工具套完锁之后不许再换点。「算不算指着具体的东西」只问 increments.ts snapIsGridOnly（以前这里另有一张 strongSnap 单子，并掉了）；
+     *  求解器从起点猜的方向（axis-*）在锁着时作废 = 当没吸到（方向由锁定；不然锁 X 时它猜 Y 会把点钉在起点）。 */
     private applyLock;
-    private static strongSnap;
-    /** 投到锁住的面（过锚点）上：吸到实几何 → 正投影（「从点」；已在面上就原样）；没吸到 → 光标射线交面（掠射 = 投影兜底）；
-     *  栅格开着且是轴面 → 面内两根轴各自落绝对格。 */
+    /** 投到锁住的面（过锚点）上：指着具体的东西 → 正投影（「从点」；已在面上就原样）；没有 → 光标射线交面（掠射 = 投影兜底），面的法向平行于某根轴时面内两根轴各自落绝对格（gridSnap）；斜面不落格。 */
     private lockToPlane;
-    /** 把求解器结果投到锁住的轴线（过锚点）上：吸到实几何 → 投影（SU「从点」）；没吸到 → 光标射线离轴线最近的点；栅格开着 → 沿轴落绝对格。 */
+    /** 把求解器结果投到锁住的线（过锚点、沿 dir）上：指着具体的东西 → 投影（SU「从点」）；没有 → 光标射线离线最近的点，再取整：
+     *  线平行于某根轴 = 沿那根轴落绝对格；不平行 = 从锚点量的长度取整（统筹 11-13 第 3 条：硬表面的结果是说得出来的数）。 */
     private lockToAxis;
     /** B43 尺度参考：勾了哪几项（多选取并集；[] = 不显示；跟着文件存 settings.scaleRefs）+ 懒加载来的梯子数据（宿主递进来）。 */
     private _scaleRefs;

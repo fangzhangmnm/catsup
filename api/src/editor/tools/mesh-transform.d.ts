@@ -4,7 +4,8 @@ import type { ViewState } from "../view-state.ts";
 export type MeshXformKind = "move" | "rotate" | "scale" | "normal" | "transform";
 export declare class MeshTransformTool implements ToolHandler {
     readonly grammar: "steps";
-    readonly lock: "axis";
+    /** 吃不吃锁：沿法线不吃（每个点沿自己的方向走，算法里本来就不读锁；以前也挂着 axis = 右上角给它出锁的钮、按了没用。锁的一轮第三步，探针 probe-lock-last 按这个字段列工具）。 */
+    get lock(): "axis" | undefined;
     readonly tool: "move" | "rotate" | "scale" | "shrink" | "transform";
     private readonly kind;
     /** 这一下做的是哪种（变换工具按抓的把手定：箭头 / 中心 = 挪、环 = 转、方块 / 平面块 = 缩；别的工具 = 自己那种）。 */

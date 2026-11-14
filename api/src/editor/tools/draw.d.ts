@@ -8,6 +8,8 @@ declare abstract class DrawTool implements ToolHandler {
     readonly grammar: "steps";
     readonly draws = true;
     readonly lock: "axis" | "plane";
+    /** 动作里按轴键要几个方向（锁的一轮）：矩形 / 圆 = 两个（两根撑出图形的面、第一根 = 第一条边的方向；user「N 再 X」= 立在面上）；画线覆盖成 1。 */
+    readonly axisWants: 1 | 2;
     protected anchor: Pt3 | null;
     protected plane: DrawPlane;
     protected fixed: DrawPlane | null;
@@ -38,6 +40,7 @@ export declare class LineTool extends DrawTool {
     readonly sameSpotEnds = true;
     readonly finishLabel = "\u6536\u7B14";
     readonly lock: "axis";
+    readonly axisWants: 1;
     track(ctx: ToolCtx, s: {
         x: number;
         y: number;

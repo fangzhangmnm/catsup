@@ -183,12 +183,12 @@ export declare function faceCrossSegments(k: GeomView, f1: import("../kernel/ker
     dir: Pt3;
     len: number;
 }[];
-export type SnapKind = "endpoint" | "midpoint" | "on-edge" | "origin" | "center" | "pool-origin" | "axis-x" | "axis-y" | "axis-z" | "align" | "align-combo" | "edge-align" | "on-extension" | "intersection" | "cross-line" | "on-guide" | "guide-point" | "guide-cross" | "grid-point" | "increment" | "tool" | "on-face" | "h-stop";
+export type SnapKind = "endpoint" | "midpoint" | "on-edge" | "origin" | "center" | "pool-origin" | "axis-x" | "axis-y" | "axis-z" | "axis-dir" | "align" | "align-combo" | "edge-align" | "on-extension" | "intersection" | "cross-line" | "on-guide" | "guide-point" | "guide-cross" | "grid-point" | "increment" | "tool" | "on-face" | "h-stop";
 /** 1-DOF 约束的视觉提示：从源点到吸附点的虚线（SU from-point 同款）。 */
 export interface SnapHint {
     a: Pt3;
     b: Pt3;
-    axis: "x" | "y" | "z" | "u" | "v" | "i";
+    axis: "x" | "y" | "z" | "u" | "v" | "i" | "d";
 }
 export interface Snap3 {
     p: Pt3;
