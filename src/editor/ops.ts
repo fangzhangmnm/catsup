@@ -327,7 +327,7 @@ function changeDefinitionAxes(s: Scene, def: number, f: Frame): FaceEvent[] { re
  */
 function retransformDefinition(s: Scene, def: number, M: Xform): FaceEvent[] {
   const Mi = invert(M), events: FaceEvent[] = [], rigid = isRigid(M), b = s.def(def).body;
-  if (def === s.root) s.axes = rigid ? transformFrame(Mi, s.axes) : orthonormalFrame(transformFrame(Mi, s.axes));   // 根的坐标架住场景上：跟着内容一起换（世界里原地不动 = 对到它时正好回到原点）
+  { const d = s.def(def); if (d.frame) d.frame = rigid ? transformFrame(Mi, d.frame) : orthonormalFrame(transformFrame(Mi, d.frame)); }   // 另摆的坐标架（根的绘图轴生下来就写明）在世界里原地不动；没摆 = 跟着原点（DT86）
   if (b.kind !== "brep") {   // 网格体（2026-10-27 Opus：自由建模右键「设置原点到选择中心」）/ 空物体（第 1 版第四节）：点的位置整体乘 M⁻¹；没有组 / 参考几何 / 另摆的坐标架
     if (b.kind === "mesh") { const k = b.kernel; for (const v of k.verts()) k.setPos(v, applyPt(Mi, k.pt(v))); }
     for (const inst of s.def(def).instances.values()) inst.xform = compose(Mi, inst.xform);   // 自己的子物体（2026-11-13 补：以前网格体这一支漏了，网格体里有子物体时换原点子物体会在世界里跑）
@@ -337,7 +337,6 @@ function retransformDefinition(s: Scene, def: number, M: Xform): FaceEvent[] {
   const body = s.brep(def);
   events.push(...body.kernel.transformAll((p) => applyPt(Mi, p)));
   transformGuides(body.guides, Mi);
-  if (body.drawFrame) body.drawFrame = rigid ? transformFrame(Mi, body.drawFrame) : orthonormalFrame(transformFrame(Mi, body.drawFrame));   // 组件里另摆的坐标架在世界里原地不动（DT86）
   for (const g of body.groups.values()) { events.push(...g.kernel.transformAll((p) => applyPt(Mi, p))); g.axes = rigid ? transformFrame(Mi, g.axes) : orthonormalFrame(transformFrame(Mi, g.axes)); transformGuides(g.guides, Mi); }
   for (const inst of s.def(def).instances.values()) inst.xform = compose(Mi, inst.xform);
   for (const d of s.defs.values()) for (const inst of d.instances.values()) if (inst.def === def) inst.xform = compose(inst.xform, M);
@@ -627,16 +626,15 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (sc.every((v) => Math.abs(v - 1) < 1e-12)) return { scene: s, events: [] };
       return { scene: s, events: retransformDefinition(s, inst.def, invert(scalingAbout({ x: 0, y: 0, z: 0 }, { x: sc[0], y: sc[1], z: sc[2] }))) };
     }
-    case "setDrawFrame": {
-      const { ref } = poolOf(s, op.at);
+    case "setDrawFrame": {   // 三个种类都能设（坐标架住在定义的头上，统筹 11-13 夜）；组只在硬表面体里
+      const ref = op.at ?? { def: s.root, group: null };
+      if (!s.hasPool(ref)) throw new OpTargetError(`pool ${ref.def}/${ref.group ?? "root"}`);
       const f: Frame | null = op.frame ? { origin: { ...op.frame.origin }, x: { ...op.frame.x }, y: { ...op.frame.y }, z: { ...op.frame.z } } : null;
-      const body = s.brep(ref.def);
       if (ref.group !== null) {
         const g = s.group({ def: ref.def, group: ref.group });
-        g.axes = f ?? (g.parent !== null ? s.group({ def: ref.def, group: g.parent }).axes : ref.def === s.root ? s.axes : body.drawFrame ?? WORLD_FRAME);
-      } else if (ref.def === s.root) s.axes = f ?? WORLD_FRAME;
-      else if (f) body.drawFrame = f;
-      else delete body.drawFrame;
+        g.axes = f ?? (g.parent !== null ? s.group({ def: ref.def, group: g.parent }).axes : s.frameOf(ref.def));
+      } else if (f) s.def(ref.def).frame = f;
+      else delete s.def(ref.def).frame;   // 重置 = 回到这个定义的坐标系（根 = 世界帧）
       return { scene: s, events: [] };
     }
     case "setAxes": {
@@ -921,7 +919,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (op.at.group !== null && (d0.body.kind !== "brep" || !d0.body.groups.has(op.at.group))) throw new OpTargetError(`group ${op.at.group}`);
       if (guidTaken(s, op.def, op.inst)) throw new OpTargetError(`addChild: guid taken`);   // 指令里的身份已被占 = 程序错误（重放 / 拼错），不另铸
       const def = s.mintDef(op.name, new Kernel(), op.def);
-      if (op.kind !== "empty") def.body = castBody({ kind: "empty", materialSlots: [] }, op.kind).body;   // 一份空的身体：走登记表「空物体 → X」那一条（和切换种类同一个出生）
+      if (op.kind !== "empty") def.body = castBody({ kind: "empty", materialSlots: [] }, op.kind, { mirrored: false }).body;   // 一份空的身体：走登记表「空物体 → X」那一条（和切换种类同一个出生）
       else def.body = { kind: "empty", materialSlots: [] };
       s.mintInstance(op.at.def, op.at.group, def.id, op.xform, op.inst);
       return { scene: s, events: [] };
@@ -1193,15 +1191,16 @@ function applyShelfOp(s: Scene, op: Extract<Op, { op: "shelfPut" | "shelfTake" |
  * 炸开一份实例，外面一层或组件本身有一边是网格体（2026-10-28 夜 user「炸开mesh会出bug」）：
  * 外面是网格体 → 组件的几何（硬表面组件先拷一份转成网格体）经实例变换并进外面那份网格体；外面是硬表面体 → 网格体组件拷一份转成硬表面体、吸进那一层的汤。
  * 组件里摆着的子实例 → 搬到外面一层（变换叠上）；这一份删掉；**定义照留**（一份都没摆了也留着，SketchUp 也是「清理没用的」才删；2026-10-30 起，以前这里会删）。和硬表面的炸开同一个语义（SketchUp Explode）。
+ * 转的是拷贝、源定义原样留着：对称设置跟着源定义，所以 mirrored = false（外面那一层拿不到、也不该拿到它的对称）。
  */
 function explodeAcrossKinds(s: Scene, at: PoolRef, inst: Instance): void {
   const host = s.def(at.def), src = s.def(inst.def), hostMesh = s.kindOf(at.def) === "mesh";
   const copyBody = (): SceneBody => (src.body.kind === "mesh" ? { ...src.body, kernel: src.body.kernel.clone(), materialSlots: [...src.body.materialSlots], uvSetSlots: [...src.body.uvSetSlots] } : src.body);
   if (hostMesh) {
-    const mb = (src.body.kind === "mesh" ? copyBody() : castBody(src.body, "mesh").body) as MeshBody;
+    const mb = (src.body.kind === "mesh" ? copyBody() : castBody(src.body, "mesh", { mirrored: false }).body) as MeshBody;
     appendMesh(s.mesh(at.def), mb, inst.xform);
   } else {
-    const bb = castBody(copyBody(), "brep").body as BrepBody;
+    const bb = castBody(copyBody(), "brep", { mirrored: false }).body as BrepBody;
     const remap = (slot: number): number => { const mat = bb.materialSlots[slot]; return mat === undefined ? -1 : s.slotFor(at.def, mat); };
     absorbSnapshot(poolOf(s, at).kernel, bb.kernel.toBrep(), inst.xform, remap);
   }

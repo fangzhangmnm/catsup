@@ -119,9 +119,10 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     ...(g.circles?.length ? { circles: g.circles.map((c) => ({ id: c.id, c: v3(c.c), n: v3(c.n), r: c.r })) } : {}), ...(g.spheres?.length ? { spheres: g.spheres.map((s) => ({ id: s.id, c: v3(s.c), r: s.r })) } : {}) });
   const defList = doc.definitions.map((d, i) => {
     const instancesOf = (): Record<string, unknown>[] => d.instances.map((inst) => ({ guid: inst.guid, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}), ...(inst.layer !== undefined ? { layer: inst.layer } : {}), ...(inst.hidden ? { hidden: true } : {}) }));
-    // 空物体（definitions 8.0）：只写身份、名字、种类、子物体——不带几何载荷（没有 brep / groups / mesh / 材质槽 / 参考几何 / 坐标架）
-    if (d.kind === "empty") return { guid: d.guid, name: d.name, kind: "empty", axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, nodes: [], instances: instancesOf(), ...(d.extras ? { extras: d.extras } : {}) };
-    const brepJson: CatsupBrepJson = encodeBrep(canon[i].root, sink, i === doc.rootIndex ? (carry.brepKeep as never) : undefined);
+    // 空物体（definitions 8.0）：只写身份、名字、种类、子物体、画图坐标架（头上的）——不带几何载荷（没有 brep / groups / mesh / 材质槽 / 参考几何）
+    const drawFrame = d.drawFrame ? { drawFrame: { origin: v3(d.drawFrame.origin), x: v3(d.drawFrame.x), y: v3(d.drawFrame.y), z: v3(d.drawFrame.z) } } : {};   // 画图坐标架 = 头上的键，三个种类都写（统筹 11-13 夜；缺 = 跟定义原点）
+    if (d.kind === "empty") return { guid: d.guid, name: d.name, kind: "empty", axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, nodes: [], instances: instancesOf(), ...drawFrame, ...(d.extras ? { extras: d.extras } : {}) };
+    const brepJson: CatsupBrepJson = encodeBrep(canon[i].root, sink, d.guid === doc.carry.brepKeepOf ? (carry.brepKeep as never) : undefined);   // 认不出的内容按身份写回（定稿第 2 条 b；不再问是不是根）
     const groups = canon[i].groups.map((g) => ({
       guid: g.guid, parent: g.parent,
       axes: { origin: [g.axes.origin.x, g.axes.origin.y, g.axes.origin.z], x: [g.axes.x.x, g.axes.x.y, g.axes.x.z], y: [g.axes.y.x, g.axes.y.y, g.axes.y.z], z: [g.axes.z.x, g.axes.z.y, g.axes.z.z] },

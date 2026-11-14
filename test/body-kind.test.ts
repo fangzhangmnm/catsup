@@ -87,8 +87,8 @@ describe("空物体（第 1 版第四、五节）：转换 + 名字归登记表"
   });
   it("有几何的转空物体 = 明说拒绝（不悄悄丢）；没几何的转得过去", () => {
     const sc = new Scene(sceneBox(1, 1)), full = { kind: "brep" as const, kernel: sc.kernelOf({ def: sc.root, group: null }), groups: new Map(), nextGroup: 1, materialSlots: [], guides: { lines: [], points: [], circles: [], spheres: [], next: 1 } };
-    let msg = ""; try { castBody(full, "empty"); } catch (e) { msg = String(e); }
+    let msg = ""; try { castBody(full, "empty", { mirrored: false }); } catch (e) { msg = String(e); }
     assert(msg.includes("还有几何"), msg);
-    eq(castBody({ ...full, kernel: new Kernel() }, "empty").body.kind, "empty");
+    eq(castBody({ ...full, kernel: new Kernel() }, "empty", { mirrored: false }).body.kind, "empty");
   });
 });

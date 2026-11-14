@@ -200,7 +200,7 @@ export interface GuidesDoc { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: 
 export const emptyGuidesDoc = (): GuidesDoc => ({ lines: [], points: [] });
 export interface GroupDoc { guid: Guid; parent: Guid | null; axes: Frame; brep: BrepSnapshot; name?: string; guides: GuidesDoc; }   // 组不是物体（user 10-24）：无锁、无层；旧文件的 locked 读时丢弃（definitions v5）
 export interface InstanceDoc { guid: Guid; /** 摆的是哪个定义（定义的 GUID）。 */ definition: Guid; parent: Guid | null; xform: Xform; name?: string; /** 锁定（A27）；只在 true 时写。 */ locked?: boolean; /** 层（契约 §4；缺 = 继承父上下文的有效层）。 */ layer?: number; /** 隐藏（DT49；definitions 6.1 起；只在 true 时写；glTF 节点同时带 KHR_node_visibility）。 */ hidden?: boolean; }
-export interface DefinitionDoc { guid: Guid; name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */ kind?: BodyKind; /** kind = mesh 时的载荷（definitions v5）。 */ mesh?: MeshDoc; brep: BrepSnapshot; groups: GroupDoc[]; instances: InstanceDoc[]; /** 对照表：槽号 → 材质 GUID（面上存的小编号是它的代号）；null = 这一槽没有对应的材质（占位不压缩：面上的代号指着位置）。 */ materialSlots: (Guid | null)[]; guides: GuidesDoc; /** 进这个组件画图用的坐标架（definitions 6.2，DT86；定义坐标；缺 = 跟组件原点）。 */ drawFrame?: Frame; extras?: Record<string, unknown>; }
+export interface DefinitionDoc { guid: Guid; name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */ kind?: BodyKind; /** kind = mesh 时的载荷（definitions v5）。 */ mesh?: MeshDoc; brep: BrepSnapshot; groups: GroupDoc[]; instances: InstanceDoc[]; /** 对照表：槽号 → 材质 GUID（面上存的小编号是它的代号）；null = 这一槽没有对应的材质（占位不压缩：面上的代号指着位置）。 */ materialSlots: (Guid | null)[]; guides: GuidesDoc; /** 进这个物体画图用的坐标架（definitions 6.2，DT86；定义坐标；缺 = 跟定义原点）。8.0 起是头上的键、三个种类都读都写（以前只硬表面体）；根的不写这里（= document.axes）。 */ drawFrame?: Frame; extras?: Record<string, unknown>; }
 
 export interface CatsupDocument {
   settings: DocumentSettings;
@@ -231,7 +231,7 @@ export interface CatsupDocument {
   shelf?: ShelfDoc;
   thumbnail?: { mimeType: string; bytes: Uint8Array };
   /** round-trip 保真：读到的未知顶层键 / 未知扩展 / extras 原样带回；其中任何 `{ bufferView: N }` 引用的二进制也随 `views` 携带。 */
-  carry: { topLevel: Record<string, unknown>; extensions: Record<string, unknown>; documentExtra: Record<string, unknown>; definitionsExtra: Record<string, unknown>; /** 排法表（CATSUP_uvsets）表头上不认识的键（原样带回；施工单十八）。 */ uvSetsExtra?: Record<string, unknown>; brepKeep?: Record<string, unknown>; /** CATSUP_textures 扩展层面不认识的键（行里的不在这里，跟着行走）。 */ texturesExtra?: Record<string, unknown>; views: Map<number, Uint8Array> };
+  carry: { topLevel: Record<string, unknown>; extensions: Record<string, unknown>; documentExtra: Record<string, unknown>; definitionsExtra: Record<string, unknown>; /** 排法表（CATSUP_uvsets）表头上不认识的键（原样带回；施工单十八）。 */ uvSetsExtra?: Record<string, unknown>; brepKeep?: Record<string, unknown>; /** brepKeep 是哪个定义的（GUID；给根包一层定稿第 2 条 b：按身份认、不按「是不是根」——包完之后旧根成了普通定义，带回的东西照样跟着它）。读的门口照旧只给打开时的那个根收（统筹 11-13 夜：不扩到所有定义，见施工单第九节）。 */ brepKeepOf?: Guid; /** CATSUP_textures 扩展层面不认识的键（行里的不在这里，跟着行走）。 */ texturesExtra?: Record<string, unknown>; views: Map<number, Uint8Array> };
   /** 读取时攒的拍子判决（不持久化；newDocument 没有）：哪些子结构比本版新一个 minor（宿主提示一次）、desk 是否太新。 */
   readNotes?: FormatReadNotes;
 }

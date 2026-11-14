@@ -210,17 +210,18 @@ describe("空物体（definitions 8.0，第 1 版第四节）", () => {
     eq(Object.keys(emptyItem(json)).sort().join(","), "axes,guid,instances,kind,name,nodes", "头（extras 没有就不写）");
     eq(emptyItem(json).instances.length, 1, "子物体在");
   });
-  it("标着空物体却带着几何 / 材质槽 / 参考线：读得开、不读、记一句「没读进来，保存之后不再保留」，再存不写", () => {
+  it("标着空物体却带着几何 / 材质槽 / 参考线：读得开、不读、记一句「没读进来，保存之后不再保留」，再存不写；画图坐标架（头上的键）照读照写", () => {
     const { json, bin } = jsonOf(writeCatsup(documentFromScene(SCENE_DOCS.emptyObject(), "e")));
     const list = json.extensions.CATSUP_definitions.list, full = list.find((d: any) => d.brep && d.kind !== "empty"), e = emptyItem(json);
-    Object.assign(e, { brep: full.brep, groups: [], materialSlots: ["not-a-guid", BUILTIN_FRONT_GUID], guides: { lines: [], points: [] }, drawFrame: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] } });
+    Object.assign(e, { brep: full.brep, groups: [], materialSlots: ["not-a-guid", BUILTIN_FRONT_GUID], guides: { lines: [], points: [] }, drawFrame: { origin: [1, 2, 3], x: [0, 1, 0], y: [-1, 0, 0], z: [0, 0, 1] } });
     const doc = readCatsup(encodeGlb(json, bin)), d = doc.definitions.find((x) => x.kind === "empty")!;
     eq(doc.readNotes?.emptyPayloadDropped, 1, "数出一个");
     eq(d.materialSlots.length, 0, "槽表不读");
     assert(!doc.readNotes?.danglingMaterialSlots && !doc.readNotes?.builtinFrontSlots, "不跑材质槽的解析（不留不相干的备注）");
     eq(d.instances.length, 1, "子物体照读");
     const again = emptyItem(jsonOf(writeCatsup(documentFromScene(sceneFromDocument(doc), "e"))).json);
-    for (const k of ["brep", "groups", "mesh", "materialSlots", "guides", "drawFrame"]) assert(!(k in again), `再存不写 ${k}`);
+    for (const k of ["brep", "groups", "mesh", "materialSlots", "guides"]) assert(!(k in again), `再存不写 ${k}`);
+    eq(JSON.stringify(again.drawFrame), JSON.stringify({ origin: [1, 2, 3], x: [0, 1, 0], y: [-1, 0, 0], z: [0, 0, 1] }), "画图坐标架是头上的键：空物体照读照写（统筹 11-13 夜）");
   });
   it("干净的空物体不记这一句", () => {
     eq(readCatsup(writeCatsup(documentFromScene(SCENE_DOCS.emptyObject(), "e"))).readNotes?.emptyPayloadDropped, undefined);

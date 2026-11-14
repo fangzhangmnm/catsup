@@ -91,7 +91,7 @@ function readShelf(j: Record<string, unknown>, defs: ReadonlySet<Guid>, mats: Re
 }
 
 /** 一个定义 = 每个种类都一样的头（guid / name / kind / axes / nodes / instances / extras）+ 这个种类自己的载荷（统筹 11-13 裁定）。空物体没有载荷：文件里带着下面这些键 = 不读、说一句（notes.emptyPayloadDropped）、不写。 */
-const EMPTY_SKIPS = ["brep", "groups", "mesh", "materialSlots", "guides", "drawFrame"] as const;
+const EMPTY_SKIPS = ["brep", "groups", "mesh", "materialSlots", "guides"] as const;   // drawFrame 不在这里：它是头上的键，三个种类都读（统筹 11-13 夜）
 export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const { json: j, bin } = decodeGlb(bytes);
   if (!isObj(j)) fail("JSON chunk is not an object");
@@ -194,7 +194,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const definitions: DefinitionDoc[] = (list as unknown[]).map((raw, di) => {
     if (!isObj(raw)) fail(`definition ${di} invalid`);
     const d = raw as Record<string, unknown>;
-    const isEmpty = d.kind === "empty";   // 空物体（definitions 8.0）：只认头和子物体；有面的种类的载荷（brep / groups / mesh / materialSlots / guides / drawFrame）有也不读，数出来说一句
+    const isEmpty = d.kind === "empty";   // 空物体（definitions 8.0）：只认头和子物体；有面的种类的载荷（brep / groups / mesh / materialSlots / guides）有也不读；画图坐标架是头上的键，照读，数出来说一句
     if (isEmpty && EMPTY_SKIPS.some((k) => k in d)) notes.emptyPayloadDropped = (notes.emptyPayloadDropped ?? 0) + 1;
     if (!isEmpty && !isObj(d.brep)) fail(`definition ${di} has no brep`);
     const brepJson = isEmpty ? null : migrateExtension("CATSUP_brep", d.brep as Record<string, unknown>, notes) as unknown as CatsupBrepJson;
@@ -244,7 +244,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (!isObj(d.mesh)) fail(`definition ${di} mesh payload missing`);
       payload = { mesh: decodeMeshItem(d.mesh as Record<string, unknown>, sliceOf, notes, `definition ${di}`, fail, { guid: defGuids[di], name: typeof d.name === "string" ? d.name : `definition ${di}` }) };   // CATSUP_mesh：多边形载荷；没 faceStart = 0.14 三角汤（migrate/mesh.ts）
     }
-    if (isEmpty) return { guid: defGuids[di], name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind, brep, groups: [], instances, materialSlots: [], guides: guidesOf(undefined, ""), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };   // 空物体：只认子物体（几何 / 材质槽 / 参考几何 / 坐标架有也不读）
+    if (isEmpty) return { guid: defGuids[di], name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind, brep, groups: [], instances, materialSlots: [], guides: guidesOf(undefined, ""), ...(isObj(d.drawFrame) ? { drawFrame: frameOf(d.drawFrame, `definition ${di} drawFrame`) } : {}), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };   // 空物体：只认子物体（几何 / 材质槽 / 参考几何 / 坐标架有也不读）
     return { guid: defGuids[di], name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind, ...payload, brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.drawFrame) ? { drawFrame: frameOf(d.drawFrame, `definition ${di} drawFrame`) } : {}), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
   });
 
@@ -348,7 +348,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     uvSets,
     ...(shelf && !shelfIsEmpty(shelf) ? { shelf } : {}),
     ...(thumbnail ? { thumbnail } : {}),
-    carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), ...(Object.keys(texturesExtraRaw).length ? { texturesExtra: texturesExtraRaw } : {}), ...(Object.keys(uvSetsExtraRaw).length ? { uvSetsExtra: uvSetsExtraRaw } : {}), views },
+    carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep, brepKeepOf: defGuids[rootIdx] } : {}), ...(Object.keys(texturesExtraRaw).length ? { texturesExtra: texturesExtraRaw } : {}), ...(Object.keys(uvSetsExtraRaw).length ? { uvSetsExtra: uvSetsExtraRaw } : {}), views },
     ...(Object.values(notes).some((v) => (Array.isArray(v) ? v.length > 0 : !!v)) ? { readNotes: notes } : {}),   // 任何一个键有值就挂上（以前是手写的键名单，新键没补进去 = 记了等于没记；2026-11-12 Opus，存盘忠实度 R1 / R2 撞上的）
   };
 }

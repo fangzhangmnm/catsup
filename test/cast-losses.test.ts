@@ -12,6 +12,7 @@ import { Kernel } from "../src/kernel/kernel.ts";
 import { sceneBox, sceneGrouped } from "./format-scenes.ts";
 import type { BodyKind } from "../src/scene/body-kind.ts";
 
+const NO = { mirrored: false } as const;
 const lostOf = (f: CastFate): CastLossId | null => (typeof f === "object" && "lost" in f ? f.lost : null);
 const sorted = (xs: Iterable<string>): string => [...new Set(xs)].sort().join(",");
 
@@ -36,13 +37,13 @@ describe("载荷 × 转换方向 = 去向表（第五节 4½ 第 5 条）", () =
 
 // 身体上的字段各归哪一样载荷（kernel = 好几样，见各自的去向；null = 不是载荷：kind 是头，空物体的槽表永远空）
 const FIELD_PAYLOAD: { readonly [K in BodyKind]: Readonly<Record<string, string | null>> } = {
-  brep: { kind: null, kernel: "faces", groups: "groups", nextGroup: "groups", materialSlots: "material-slots", guides: "guides", drawFrame: "draw-frame" },
+  brep: { kind: null, kernel: "faces", groups: "groups", nextGroup: "groups", materialSlots: "material-slots", guides: "guides" },
   mesh: { kind: null, kernel: "faces", materialSlots: "material-slots", uvSetSlots: "uv-sets" },
   empty: { kind: null, materialSlots: null },
 };
 describe("身体的字段 / 网格体的保留列都在载荷清单里", () => {
   const box = new Scene(sceneBox(1, 1)), brep = box.def(box.root).body as Extract<Body, { kind: "brep" }>;
-  const samples: Body[] = [{ ...brep, drawFrame: { o: { x: 0, y: 0, z: 0 }, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } as never }, castBody(brep, "mesh").body, { kind: "empty", materialSlots: [] }];
+  const samples: Body[] = [{ ...brep }, castBody(brep, "mesh", NO).body, { kind: "empty", materialSlots: [] }];
   for (const b of samples) it(`${b.kind} 的每个字段都登记了`, () => {
     for (const k of Object.keys(b)) {
       assert(k in FIELD_PAYLOAD[b.kind], `${b.kind} 身体上多了字段「${k}」：进 KIND_PAYLOAD 并给每个转换方向写去向（再登记到这张表）`);
@@ -59,28 +60,28 @@ describe("身体的字段 / 网格体的保留列都在载荷清单里", () => {
 describe("转之前算的 = 真转出来的（同一份）", () => {
   it("硬表面（带组）→ 网格体", () => {
     const s = sceneGrouped(), b = s.def(s.root).body;
-    const pre = castLosses(b, "mesh"), got = castBody(b, "mesh").losses;
+    const pre = castLosses(b, "mesh", NO), got = castBody(b, "mesh", NO).losses;
     eq(JSON.stringify(got), JSON.stringify(pre));
     assert(pre.some((l) => l.what === "groups"), "带组");
   });
   it("一个方块（没洞、没曲线、没组）转网格体：什么都不丢、不问（来回切是核心做法；硬表面的规矩转回来照回来，不算丢）", () => {
     const s = new Scene(sceneBox(1, 1));
-    eq(lossesText(castLosses(s.def(s.root).body, "mesh")), "不丢东西");
+    eq(lossesText(castLosses(s.def(s.root).body, "mesh", NO)), "不丢东西");
   });
   it("网格体 → 硬表面（开着对称）：对称数成 1，别的照算", () => {
-    const s = new Scene(sceneBox(1, 1)), m = castBody(s.def(s.root).body, "mesh").body;
+    const s = new Scene(sceneBox(1, 1)), m = castBody(s.def(s.root).body, "mesh", NO).body;
     const pre = castLosses(m, "brep", { mirrored: true }), got = castBody(m, "brep", { mirrored: true }).losses;
     eq(JSON.stringify(got), JSON.stringify(pre));
     eq(pre.find((l) => l.what === "mirror")?.count, 1);
   });
   it("没有几何的硬表面 → 网格体：什么都不丢（没有面就没有规矩可丢）；句子 = 「不丢东西」", () => {
     const b: Body = { kind: "brep", kernel: new Kernel(), groups: new Map(), nextGroup: 1, materialSlots: [], guides: { lines: [], points: [], circles: [], spheres: [], next: 1 } as never };
-    eq(castLosses(b, "mesh").length, 0); eq(lossesText(castLosses(b, "mesh")), "不丢东西");
+    eq(castLosses(b, "mesh", NO).length, 0); eq(lossesText(castLosses(b, "mesh", NO)), "不丢东西");
   });
   it("有几何的转空物体：转之前不报数（转不了），真转明说拒绝", () => {
     const s = new Scene(sceneBox(1, 1)), b = s.def(s.root).body;
-    eq(castLosses(b, "empty").length, 0);
-    let msg = ""; try { castBody(b, "empty"); } catch (e) { msg = String(e); }
+    eq(castLosses(b, "empty", NO).length, 0);
+    let msg = ""; try { castBody(b, "empty", NO); } catch (e) { msg = String(e); }
     assert(msg.includes("还有几何"), msg);
   });
 });
@@ -88,24 +89,24 @@ describe("转之前算的 = 真转出来的（同一份）", () => {
 // 统筹 11-13 夜要核的：网格体转硬表面那一行以前没写对称、默认平滑、贴图坐标的表——转过去是不是真没了、来回一趟回不回得来（user 的核心做法是两个种类来回切）。
 describe("来回一趟：声明丢的真丢了（且报了数），写着带过去的真回来了", () => {
   it("网格体（藏背靠背一对面、标一条接缝、挂一套贴图坐标、默认平滑 = 全平滑）→ 硬表面 → 网格体", () => {
-    const s = new Scene(sceneBox(1, 1)), m = castBody(s.def(s.root).body, "mesh").body as Extract<Body, { kind: "mesh" }>, k = m.kernel;
+    const s = new Scene(sceneBox(1, 1)), m = castBody(s.def(s.root).body, "mesh", NO).body as Extract<Body, { kind: "mesh" }>, k = m.kernel;
     const key = (f: number): string => [...k.faceVerts(f)].sort((x, y) => x - y).join(","), k0 = key(k.faces()[0]);
     for (const f of k.faces()) if (key(f) === k0) setFaceHidden(k, f, true);   // 方块两侧都出 = 背靠背一对：一起藏（只藏一张 = 一藏一露，那是另一种，hide.test 管）
     setEdgeMark(k, k.edges()[0], UV_SEAM, true);
     m.uvSetSlots.push("0123456789abcdef0123456789abcdef" as never);
     k.setSmoothDefault({ mode: "smooth", deg: 30 });
-    const there = castBody(m, "brep"), lost = new Map(there.losses.map((l) => [l.what, l.count]));
+    const there = castBody(m, "brep", NO), lost = new Map(there.losses.map((l) => [l.what, l.count]));
     eq(lost.get("seams"), 1, "接缝报了 1 条"); eq(lost.get("uv-sets"), 1, "贴图坐标的表报了 1 套"); eq(lost.get("smooth-default"), 1, "全平滑回不来 = 报了");
     assert(!lost.has("mixed-hidden"), "单独藏着的面照带，不报");
-    const back = castBody(there.body, "mesh").body as Extract<Body, { kind: "mesh" }>, b = back.kernel;
+    const back = castBody(there.body, "mesh", NO).body as Extract<Body, { kind: "mesh" }>, b = back.kernel;
     eq(b.faces().filter((f) => faceHidden(b, f)).length, 2, "藏着的那一对回来了（写着带过去）");
     eq(b.edges().filter(edgeMarkReader(b, UV_SEAM)).length, 0, "接缝真没了（写着丢）");
     eq(back.uvSetSlots.length, 0, "贴图坐标的表真没了");
     eq(b.smoothDefault.mode, "angle", "默认平滑回来的是转换给的按角度，不是原来的全平滑");
   });
   it("默认平滑本来就是按角度 30°：转回硬表面不报它（回来还是它）", () => {
-    const s = new Scene(sceneBox(1, 1)), m = castBody(s.def(s.root).body, "mesh").body;
+    const s = new Scene(sceneBox(1, 1)), m = castBody(s.def(s.root).body, "mesh", NO).body;
     eq(JSON.stringify((m as Extract<Body, { kind: "mesh" }>).kernel.smoothDefault), JSON.stringify({ mode: "angle", deg: 30 }), "硬表面转来的就是按角度 30°");
-    assert(!castLosses(m, "brep").some((l) => l.what === "smooth-default"), "不报");
+    assert(!castLosses(m, "brep", NO).some((l) => l.what === "smooth-default"), "不报");
   });
 });

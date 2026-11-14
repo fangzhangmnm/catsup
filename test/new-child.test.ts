@@ -45,7 +45,7 @@ describe("新建子物体：指令 addChild", () => {
 describe("新建子物体：落点和朝向", () => {
   it("别处进来：根上 = 绘图轴（搬过、转过的也照它）", () => {
     const s = new Scene(sceneBox(1, 1)), F: Frame = { origin: { x: 2, y: 0, z: 1 }, x: { x: 0, y: 1, z: 0 }, y: { x: -1, y: 0, z: 0 }, z: { x: 0, y: 0, z: 1 } };
-    s.axes = F;
+    s.def(s.root).frame = F;
     assert(near(newChildOp(s, { chain: [], group: null }, { def: s.root, group: null }, null, "empty", "x").xform, frameToXform(F)), "摆放 = 绘图轴");
   });
   it("组件里：右键打到的那一点（世界）换成这一层自己的坐标；没打到 = 这一层的原点", () => {

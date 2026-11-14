@@ -40,7 +40,7 @@ const boundsOf = (pts: Iterable<Pt3>): { min: Pt3; max: Pt3 } | null => {
 export const BREP_KIND: KindDef<BrepBody> = {
   id: "brep", label: "肥皂膜", noun: "硬表面体",
   modes: ["geometry", "surface"],
-  castsTo: [{ to: "mesh", loses: ["holed-faces", "back-only-faces", "fold-edges", "curves", "groups", "guides", "draw-frame"] }, { to: "empty", loses: ["material-slots", "guides", "draw-frame"] }],
+  castsTo: [{ to: "mesh", loses: ["holed-faces", "back-only-faces", "fold-edges", "curves", "groups", "guides"] }, { to: "empty", loses: ["material-slots", "guides"] }],
   alignGeometry(b) {
     const k = b.kernel, points = k.vertices().map((v) => ({ x: v.x, y: v.y, z: v.z }));
     const segments = k.edges().map((e) => [k.graph.pt(e.a), k.graph.pt(e.b)] as [Pt3, Pt3]);
@@ -248,7 +248,7 @@ export function meshToBrepCheck(b: MeshBody, softDeg: number): { mixedHidden: nu
 }
 /** 显式 cast（op 层调用）：只认登记表里的方向。opts.softDeg = mesh → brep 的软边角度（缺 = 20°）；opts.mirrored = 这个网格体开着对称（设置住在场景上，身体里看不到）。
  *  返回转好的身体 + 这一次带不过去的东西（castLosses 同一份算法；第 1 版第五节 4½）。返回了这个方向没声明的 = 抛（程序错误）。 */
-export function castBody(body: Body, to: BodyKind, opts?: CastOpts): { body: Body; losses: readonly CastLoss[] } {
+export function castBody(body: Body, to: BodyKind, opts: CastOpts): { body: Body; losses: readonly CastLoss[] } {
   const c = canCast(body.kind, to);
   if (!c.ok) throw new Error(`cast: ${c.why}`);
   if (body.kind === "empty") return { body: to === "brep"   // 空物体 → 有几何的种类：一份空的身体（子物体挂在定义上，不归身体管，照留）
@@ -260,7 +260,7 @@ export function castBody(body: Body, to: BodyKind, opts?: CastOpts): { body: Bod
   }
   if (body.kind === "brep" && to === "mesh") return { body: brepToMesh(body), losses: declared("brep", to, lossesOf(body, to, opts)) };
   if (body.kind === "mesh" && to === "brep") {
-    const r = meshToBrepWith(body, opts?.softDeg ?? 20);
+    const r = meshToBrepWith(body, opts.softDeg ?? 20);
     return { body: r.body, losses: declared("mesh", to, lossesOf(body, to, opts, r)) };
   }
   throw new Error(`cast: ${body.kind} → ${to} 登记了却没有实现（内部）`);
@@ -269,12 +269,13 @@ export function castBody(body: Body, to: BodyKind, opts?: CastOpts): { body: Bod
 // ---- 换种类带不过去什么：只算一处（第 1 版施工单第五节 4½，统筹 11-13 夜钉的接口） ----
 /** 一种带不过去的东西一个名字（字面量联合，不是开放集）。 */
 export type CastLossId =
-  | "holed-faces" | "back-only-faces" | "fold-edges" | "curves" | "groups" | "guides" | "draw-frame"   // 硬表面体那边才有的
+  | "holed-faces" | "back-only-faces" | "fold-edges" | "curves" | "groups" | "guides"   // 硬表面体那边才有的（画图坐标架住在定义的头上，转种类照带，不在这里）
   | "nonplanar-faces" | "wires" | "edge-marks" | "seams" | "smooth-default" | "mirror" | "uv-sets" | "mixed-hidden" | "lost-hidden-edges" | "attr-columns"   // 网格体那边才有的
   | "material-slots";   // 转成空物体：有面的种类都有
 /** 这一次带不过去的一样东西；0 个的不出现。设置这类不可数的 count = 1。 */
 export interface CastLoss { readonly what: CastLossId; readonly count: number }
-export interface CastOpts { readonly softDeg?: number; readonly mirrored?: boolean }
+/** mirrored 必填（统筹 11-13 夜：可选的话新加一个入口忘了传，对称这一样就少报、没人拦）：对称设置住在场景的表上、不在身体上，只有调转换的那一层知道（载荷那几处明写 false）。 */
+export interface CastOpts { readonly softDeg?: number; readonly mirrored: boolean }
 /** 每一种叫什么、按什么数（label = 「可能丢」列表里那几个字；unit = 数量的量词，空 = 不可数的设置）。 */
 const LOSS_WORDS: Readonly<Record<CastLossId, { readonly label: string; readonly unit: string; readonly how?: string }>> = {
   "holed-faces": { label: "带洞的面", unit: "张", how: "变成三角形，内部的边软 + 平滑" },
@@ -283,7 +284,6 @@ const LOSS_WORDS: Readonly<Record<CastLossId, { readonly label: string; readonly
   curves: { label: "曲线实体", unit: "条", how: "圆 / 弧 / 焊接链变回一段段的边" },
   groups: { label: "组分区", unit: "个", how: "组里的几何并进来，组没了" },
   guides: { label: "参考线 / 参考点", unit: "个" },
-  "draw-frame": { label: "另摆的画图坐标架", unit: "" },
   "nonplanar-faces": { label: "不平的面", unit: "张", how: "折成平面块，块之间加软边" },
   wires: { label: "裸线", unit: "条", how: "不属于任何面的边" },
   "edge-marks": { label: "棱 / 平滑的手标", unit: "条", how: "改按弯折角度重判" },
@@ -301,7 +301,7 @@ const LOSS_WORDS: Readonly<Record<CastLossId, { readonly label: string; readonly
  * 加载荷 / 加属性列 = 这里加一样 + 下面每个转换方向写明去向（守卫 test/cast-losses.test.ts：少一样 = 红）。
  */
 export const KIND_PAYLOAD = {
-  brep: ["rules", "faces", "face-sides", "hidden-faces", "holes", "edges", "soft-edges", "hidden-edges", "fold-edges", "curves", "groups", "guides", "draw-frame", "material-slots"],
+  brep: ["rules", "faces", "face-sides", "hidden-faces", "holes", "edges", "soft-edges", "hidden-edges", "fold-edges", "curves", "groups", "guides", "material-slots"],
   mesh: ["faces", "face-materials", "hidden-faces", "nonplanar-faces", "edges", "edge-marks", "hidden-edges", "seams", "wires", "smooth-default", "mirror", "uv-sets", "attr-columns", "material-slots"],
   empty: [],
 } as const;
@@ -320,11 +320,11 @@ export const CAST_FATES: { readonly [F in BodyKind]: { readonly [T in BodyKind]?
     mesh: {
       rules: { converted: "网格体没有这套规矩（推拉 / 偏移 / 跟随不可用）；转回硬表面体时照回来，不算丢" }, faces: { lost: "back-only-faces" }, "face-sides": { converted: "按侧出面：一侧一张，两侧都出 = 叠着的两张；两侧都是默认背面的那张不出（= 丢的那几张）" }, "hidden-faces": "carried", holes: { lost: "holed-faces" },
       edges: "carried", "soft-edges": { converted: "软 + 平滑的手标；默认平滑 = 按角度 30°" }, "hidden-edges": "carried", "fold-edges": { lost: "fold-edges" }, curves: { lost: "curves" },
-      groups: { lost: "groups" }, guides: { lost: "guides" }, "draw-frame": { lost: "draw-frame" }, "material-slots": "carried",
+      groups: { lost: "groups" }, guides: { lost: "guides" }, "material-slots": "carried",
     },
     empty: {
       rules: { converted: "空物体没有几何，规矩不适用" }, faces: NO_GEOM, "face-sides": NO_GEOM, "hidden-faces": NO_GEOM, holes: NO_GEOM, edges: NO_GEOM, "soft-edges": NO_GEOM, "hidden-edges": NO_GEOM,
-      "fold-edges": NO_GEOM, curves: NO_GEOM, groups: NO_GEOM, guides: { lost: "guides" }, "draw-frame": { lost: "draw-frame" }, "material-slots": { lost: "material-slots" },
+      "fold-edges": NO_GEOM, curves: NO_GEOM, groups: NO_GEOM, guides: { lost: "guides" }, "material-slots": { lost: "material-slots" },
     },
   },
   mesh: {
@@ -356,7 +356,7 @@ export function sumLosses(lists: readonly (readonly CastLoss[])[]): readonly Cas
   return [...by].filter(([, n]) => n > 0).map(([what, count]) => ({ what, count }));
 }
 /** 只问不转：和真转同一份算法（网格体转硬表面有藏东西时照转一遍，只要清单）。 */
-export function castLosses(body: Body, to: BodyKind, opts?: CastOpts): readonly CastLoss[] {
+export function castLosses(body: Body, to: BodyKind, opts: CastOpts): readonly CastLoss[] {
   const c = canCast(body.kind, to);
   if (!c.ok || body.kind === "empty") return [];
   if (to === "empty" && !bodyBare(body)) return [];   // 转不了（有几何）：问的人自己看 canCast / bodyBare，这里没有「这一次」的数
@@ -382,7 +382,7 @@ const isPlanarRing = (pts: readonly Pt3[]): boolean => {
   return pts.every((p) => Math.abs(dot(u, p) - d0) <= 1e-6);
 };
 /** 每个方向逐样数（真转传 r = 网格体转硬表面已经算好的两个藏东西的数，不再转第二遍）。 */
-function lossesOf(body: Exclude<Body, EmptyBody>, to: BodyKind, opts?: CastOpts, r?: { mixedHidden: number; lostHiddenEdges: number }): CastLoss[] {
+function lossesOf(body: Exclude<Body, EmptyBody>, to: BodyKind, opts: CastOpts, r?: { mixedHidden: number; lostHiddenEdges: number }): CastLoss[] {
   const out: CastLoss[] = [], add = (what: CastLossId, count: number): void => { if (count > 0) out.push({ what, count }); };
   if (body.kind === "brep") {
     const pools = [body.kernel, ...[...body.groups.values()].map((g) => g.kernel)];   // 硬表面的规矩不算丢：转回来照回来（回得来的不算，和默认平滑同一条）
@@ -394,7 +394,6 @@ function lossesOf(body: Exclude<Body, EmptyBody>, to: BodyKind, opts?: CastOpts,
       add("groups", body.groups.size);
     } else add("material-slots", body.materialSlots.length);
     add("guides", guideCount(body.guides) + [...body.groups.values()].reduce((n, g) => n + guideCount(g.guides), 0));
-    add("draw-frame", body.drawFrame ? 1 : 0);
     return out;
   }
   const m = body.kernel;
@@ -406,13 +405,13 @@ function lossesOf(body: Exclude<Body, EmptyBody>, to: BodyKind, opts?: CastOpts,
     add("seams", m.edges().filter((e) => seam(e)).length);
     const known = new Set([...RESERVED_FACE, ...RESERVED_EDGE].map((d) => d.id).concat([...UV_COLUMN_IDS]));
     add("attr-columns", m.columnDefs().filter((d) => !known.has(d.id)).length);
-    const h = r ?? meshToBrepCheck(body, opts?.softDeg ?? 20);
+    const h = r ?? meshToBrepCheck(body, opts.softDeg ?? 20);
     add("mixed-hidden", h.mixedHidden);
     add("lost-hidden-edges", h.lostHiddenEdges);
   } else add("material-slots", body.materialSlots.length);
   const sd = m.smoothDefault, back = to === "brep" ? { mode: "angle", deg: 30 } : SMOOTH_DEFAULT_NEW;   // 转回来时它会被设成什么（硬表面 → 网格体 = 按角度 30°；空物体 → 网格体 = 新网格体的默认）：一样 = 回得来，不算丢
   add("smooth-default", sd.mode === back.mode && (sd.mode !== "angle" || sd.deg === back.deg) ? 0 : 1);
-  add("mirror", opts?.mirrored ? 1 : 0);
+  add("mirror", opts.mirrored ? 1 : 0);
   add("uv-sets", body.uvSetSlots.length);
   return out;
 }

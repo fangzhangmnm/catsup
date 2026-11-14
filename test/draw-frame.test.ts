@@ -50,7 +50,7 @@ describe("坐标架 / 组件原点（DT86）", () => {
     assert(sameFrame(sc.originOfChain([inst.id]), transformFrame(inst1.xform, WORLD_FRAME)), "组件原点不动");
     assert(samePts(worldPoints(sc), before, 0) && inst1.xform.every((v, i) => v === xf0[i]), "几何 / 实例矩阵一点没动");
     sc = applyOp(sc, { op: "setDrawFrame", at: { def, group: null }, frame: null }).scene;
-    assert(sc.brep(def).drawFrame === undefined && sameFrame(sc.frameOfContext(ctx), sc.originOfChain([inst.id])), "重置 = 回到组件原点");
+    assert(sc.def(def).frame === undefined && sameFrame(sc.frameOfContext(ctx), sc.originOfChain([inst.id])), "重置 = 回到组件原点");
   });
   it("改组件原点（setAxes）：挪几何、每份实例补，世界不动；另摆的坐标架在世界里原地不动", () => {
     let sc = sceneGrouped();
@@ -79,7 +79,7 @@ describe("坐标架 / 组件原点（DT86）", () => {
     const inst = [...sc.def(sc.root).instances.values()][0], def = inst.def, ctx = { chain: [inst.id], group: null };
     sc = applyOp(sc, { op: "setDrawFrame", at: { def, group: null }, frame: TILT }).scene;
     const before = worldPoints(sc), dfWorld = sc.frameOfContext(ctx);
-    sc = applyOp(sc, { op: "setAxes", at: { def, group: null }, frame: sc.brep(def).drawFrame! }).scene;
+    sc = applyOp(sc, { op: "setAxes", at: { def, group: null }, frame: sc.def(def).frame! }).scene;
     sc = applyOp(sc, { op: "setDrawFrame", at: { def, group: null }, frame: null }).scene;
     assert(samePts(worldPoints(sc), before, 3e-6), "世界不动（0.4 rad 转角：几何落回 1 µm 格点，差 ≤ 几 µm）");
     assert(sameFrame(sc.originOfChain([inst.id]), dfWorld) && sameFrame(sc.frameOfContext(ctx), dfWorld), "组件原点 = 刚才的坐标架，坐标架跟着它");
@@ -94,12 +94,54 @@ describe("坐标架 / 组件原点（DT86）", () => {
     sc = applyOp(sc, { op: "setDrawFrame", at: { def: sc.root, group: g.id }, frame: null }).scene;
     assert(sameFrame(sc.frameOfContext({ chain: [], group: g.id }), TILT), "组重置 = 外面那层（根的坐标架）");
     sc = applyOp(sc, { op: "setDrawFrame", at: { def: sc.root, group: null }, frame: null }).scene;
-    assert(sameFrame(sc.axes, WORLD_FRAME), "根重置 = 世界");
+    assert(sameFrame(sc.frameOf(sc.root), WORLD_FRAME), "根重置 = 世界");
   });
   it("撤销用的场景拷贝带着组件的坐标架", () => {
     let sc = sceneGrouped();
     const def = [...sc.def(sc.root).instances.values()][0].def;
     sc = applyOp(sc, { op: "setDrawFrame", at: { def, group: null }, frame: TILT }).scene;
-    assert(sameFrame(sc.clone().brep(def).drawFrame!, TILT), "clone 保留 drawFrame");
+    assert(sameFrame(sc.clone().def(def).frame!, TILT), "clone 保留 drawFrame");
+  });
+});
+
+// 给根包一层定稿第 2 条 a（第 1 版第七节；统筹 11-13 夜）：坐标架住在定义的头上，三个种类都能有、都读都写（文件里 = 头上的 drawFrame；根的 = document.axes），转种类照带。
+describe("坐标架在定义的头上：三个种类都有、转种类照带、存了读得回", () => {
+  const fileOf = async () => await import("../src/format/index.ts");
+  const meshComp = (): { sc: Scene; def: number } => {
+    let sc = sceneGrouped(); const def = [...sc.def(sc.root).instances.values()][0].def;
+    sc = applyOp(sc, { op: "setDrawFrame", at: { def, group: null }, frame: TILT }).scene;
+    return { sc, def };
+  };
+  it("硬表面体 → 网格体 → 硬表面体：另摆的坐标架一直带着（不在载荷里，不算丢）", () => {
+    let { sc, def } = meshComp();
+    sc = applyOp(sc, { op: "castDefinition", def, to: "mesh" }).scene;
+    assert(sc.kindOf(def) === "mesh" && sameFrame(sc.frameOf(def), TILT), "转成网格体：坐标架还在");
+    sc = applyOp(sc, { op: "castDefinition", def, to: "brep" }).scene;
+    assert(sc.kindOf(def) === "brep" && sameFrame(sc.frameOf(def), TILT), "转回来：还在");
+  });
+  it("网格体、空物体上的坐标架存了再读回来一样；根的走 document.axes", async () => {
+    const { writeCatsup, readCatsup, documentFromScene, sceneFromDocument } = await fileOf();
+    let { sc, def } = meshComp();
+    sc = applyOp(sc, { op: "castDefinition", def, to: "mesh" }).scene;
+    const E = sc.mintDef("E", new (await import("../src/kernel/kernel.ts")).Kernel()); E.body = { kind: "empty", materialSlots: [] }; E.frame = TILT;
+    sc.mintInstance(sc.root, null, E.id, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
+    const ROOT: Frame = { ...TILT, origin: { x: 5, y: 6, z: 7 } };
+    sc = applyOp(sc, { op: "setDrawFrame", at: { def: sc.root, group: null }, frame: ROOT }).scene;
+    const doc = documentFromScene(sc, "t");
+    assert(sameFrame(doc.axes, ROOT), "根的那一份 = document.axes");
+    assert(!("drawFrame" in doc.definitions[doc.rootIndex]), "根不另写 drawFrame");
+    const back = sceneFromDocument(readCatsup(writeCatsup(doc)));
+    const byName = (n: string): number => [...back.defs.values()].find((d) => d.name === n)!.id;
+    assert(back.kindOf(byName(sc.def(def).name)) === "mesh" && sameFrame(back.frameOf(byName(sc.def(def).name)), TILT), "网格体的坐标架读回来了");
+    assert(back.kindOf(byName("E")) === "empty" && sameFrame(back.frameOf(byName("E")), TILT), "空物体的坐标架读回来了");
+    assert(sameFrame(back.frameOf(back.root), ROOT), "根的读回来了");
+  });
+  it("网格体、空物体都能设 / 重置坐标架（指令不再只认硬表面体）", async () => {
+    let { sc, def } = meshComp();
+    sc = applyOp(sc, { op: "castDefinition", def, to: "mesh" }).scene;
+    sc = applyOp(sc, { op: "setDrawFrame", at: { def, group: null }, frame: null }).scene;
+    assert(sc.def(def).frame === undefined, "网格体重置 = 回到定义原点");
+    sc = applyOp(sc, { op: "setDrawFrame", at: { def, group: null }, frame: TILT }).scene;
+    assert(sameFrame(sc.frameOf(def), TILT), "网格体能设");
   });
 });

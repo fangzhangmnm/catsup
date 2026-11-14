@@ -338,21 +338,22 @@ export function sceneFingerprint(s: Scene): string {
   const f3 = (p: Pt3): string => `${r6(p.x)},${r6(p.y)},${r6(p.z)}`;
   const guidesFp = (g: { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: { id: number; p: Pt3 }[]; circles?: { id: number; c: Pt3; n: Pt3; r: number }[]; spheres?: { id: number; c: Pt3; r: number }[] }): string =>
     (g.lines.length || g.points.length || g.circles?.length || g.spheres?.length) ? ` guides=[${g.lines.map((l) => `L${l.id}:${f3(l.p)}>${f3(l.dir)}`).join(" ")} ${g.points.map((q) => `P${q.id}:${f3(q.p)}`).join(" ")}${(g.circles ?? []).map((c) => ` C${c.id}:${f3(c.c)}^${f3(c.n)}r${c.r.toFixed(6)}`).join("")}${(g.spheres ?? []).map((x) => ` S${x.id}:${f3(x.c)}r${x.r.toFixed(6)}`).join("")}]` : "";
-  parts.push(`axes ${f3(s.axes.origin)} | ${f3(s.axes.x)} | ${f3(s.axes.y)} | ${f3(s.axes.z)}`);
+  const ax = s.frameOf(s.root), frameFp = (id: number): string => { const f = s.def(id).frame; return f && id !== s.root ? ` drawFrame=${f3(f.origin)}|${f3(f.x)}|${f3(f.y)}|${f3(f.z)}` : ""; };   // 画图坐标架住在定义的头上（三个种类都有；根的 = axes 那一行）
+  parts.push(`axes ${f3(ax.origin)} | ${f3(ax.x)} | ${f3(ax.y)} | ${f3(ax.z)}`);
   for (const d of [...s.defs.values()].sort((a, b) => label(a.id).localeCompare(label(b.id)))) {
     if (d.body.kind === "mesh") {
       const m = d.body.kernel, sl = d.body.uvSetSlots, rows = new Map([...s.uvSets].filter(([g]) => sl.includes(g))), raw = m.toSnapshot();   // 贴图坐标（1-2½；施工单十八第 1½ 刀：速查表 + 面上的代号 + 角上的坐标）：排法的身份号是现铸的，不进指纹，换成那一套的名字；每套的宽高密度另记
       const { corner, face, ...geo } = raw, other = <T extends { def: { id: string } }>(xs: readonly T[] | undefined): T[] => (xs ?? []).filter((x) => !UV_COLUMN_IDS.has(x.def.id));
       const snap = { ...geo, ...(other(corner).length ? { corner: other(corner) } : {}), ...(other(face).length ? { face: other(face) } : {}), ...(sl.length ? { uvSets: sl.map((g) => rows.get(g)?.name ?? "?").sort(), uv: m.faces().map((f) => { const g = uvSetOfFace(m, sl, f); return g ? `${rows.get(g)?.name ?? "?"}:${Array.from(uvAt(m, sl, f, g)!).map(String).join(",")}` : null; }) } : {}) };   // 速查表的先后、代号的号不进指纹（存盘时按排法 GUID 的字典序换号；先后不是语义）
       const uv = [...rows.values()].map((u) => `${u.name} ${u.width}x${u.height}@${u.pxPerM}`).sort().join(" | ");
-      parts.push(`def ${label(d.id)} kind=mesh slots=${d.body.materialSlots.join(",")}${uv ? ` uvSets=${uv}` : ""}: ${JSON.stringify(snap)} faceFlags=${m.faces().map((f) => (faceHidden(m, f) ? 1 : 0)).join(",")}`); for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`); continue; }
+      parts.push(`def ${label(d.id)} kind=mesh slots=${d.body.materialSlots.join(",")}${uv ? ` uvSets=${uv}` : ""}: ${JSON.stringify(snap)} faceFlags=${m.faces().map((f) => (faceHidden(m, f) ? 1 : 0)).join(",")}${frameFp(d.id)}`); for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`); continue; }
     if (d.body.kind === "empty") {   // 空物体：只有孩子（第 1 版第四节）
-      parts.push(`def ${label(d.id)} kind=empty`);
+      parts.push(`def ${label(d.id)} kind=empty${frameFp(d.id)}`);
       for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`);
       continue;
     }
     const b = s.brep(d.id);
-    parts.push(`def ${label(d.id)} slots=${b.materialSlots.join(",")}: ${fingerprint(b.kernel)} mats=${b.kernel.faces().map((f) => `${b.kernel.faceMaterialOf(f.id) ?? -1}/${b.kernel.faceMaterialOf(f.id, 1) ?? -1}`).sort().join(",")}${guidesFp(b.guides)}${b.drawFrame ? ` drawFrame=${f3(b.drawFrame.origin)}|${f3(b.drawFrame.x)}|${f3(b.drawFrame.y)}|${f3(b.drawFrame.z)}` : ""}`);
+    parts.push(`def ${label(d.id)} slots=${b.materialSlots.join(",")}: ${fingerprint(b.kernel)} mats=${b.kernel.faces().map((f) => `${b.kernel.faceMaterialOf(f.id) ?? -1}/${b.kernel.faceMaterialOf(f.id, 1) ?? -1}`).sort().join(",")}${guidesFp(b.guides)}${frameFp(d.id)}`);
     for (const g of b.groups.values()) parts.push(`  group parent=${g.parent} axes=${[g.axes.origin.x, g.axes.origin.y, g.axes.origin.z].join(",")}: ${fingerprint(g.kernel)}${guidesFp(g.guides)}`);
     for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`);
   }

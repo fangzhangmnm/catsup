@@ -52,12 +52,6 @@ export interface BrepBody {
   materialSlots: number[];
   /** 根池的参考几何（0.11；definition 坐标）。group 的在 Group.guides。 */
   guides: Guides;
-  /**
-   * 进了这个组件画图用的坐标架（DT86，2026-10-26 Claude Opus 5.5；user「坐标架同意 组件原点同意」）：definition 坐标；缺 = 跟组件原点（= 定义自己的坐标系）。
-   * 只管推断 / 网格 / 画的平面，不碰几何、不是组件原点（组件原点 = 定义坐标系，改它挪几何：user「原点挪几何，因为是低频commitment，改画画坐标架不挪」）。
-   * 根定义不用它：根的坐标架 = Scene.axes。组的坐标架 = Group.axes（组不配有原点：user「组不是物体只是管理sticky geometry用的。所以有坐标架，但是不配有原点」）。
-   */
-  drawFrame?: Frame;
 }
 /** 网格身体（Blender 式三角网最小形，user 2026-10-24 命名 `mesh` / 「网格」；契约 §2）：定义坐标；默认剔背面；材质槽同 brep 语义。 */
 /** 2026-10-27：身体 = 可编辑的 mesh 内核（src/mesh/；单池、单面、顶点 id 寻址）；文件里的载荷见 format/scene-doc.ts（M3 前仍是三角汤）。 */
@@ -85,6 +79,13 @@ export interface Definition {
   body: Body;
   instances: Map<InstId, Instance>;
   nextInst: number;
+  /**
+   * 进了这个物体画图用的坐标架（DT86，2026-10-26；user「坐标架同意 组件原点同意」）：本定义坐标；缺 = 定义自己的坐标系（= 组件原点）。
+   * 只管推断 / 网格 / 画的平面，不碰几何、不是组件原点（组件原点 = 定义坐标系，改它挪几何：user「原点挪几何，因为是低频commitment，改画画坐标架不挪」）。组的坐标架 = Group.axes（组不配有原点）。
+   * 根也住这里（第 1 版第七节 / 给根包一层定稿第 2 条，2026-11-13：以前根的住场景上 Scene.axes）：根的这一份在门口写明（新建 = 世界帧、读文件 = document.axes、存盘写回 document.axes），运行时不再按「是不是根」分路。
+   * 三个种类都有、都读都写（统筹 11-13 夜：运行时哪个种类能有，文件里那个种类就得写）：文件里 = 定义头上的 drawFrame（根除外，根的在 document.axes），转种类时照带（它在头上，不在载荷里）。
+   */
+  frame?: Frame;
 }
 
 /** 几何池地址 = (definition, group | null)。 */
@@ -105,8 +106,6 @@ export class Scene {
   readonly root: DefId;
   /** 文档材质表（下标 = 运行时句柄，别跨撤销 / 清理攥着；要记住一个材质就记 guid 或对象）。 */
   readonly materials: Material[] = [];
-  /** 绘图轴（0.11 尺规纪元）：根上下文的轴，世界坐标；轴工具可搬 / 转，默认 = 世界帧。进 CATSUP_document.axes。 */
-  axes: Frame = WORLD_FRAME;
   /** 层表（0.14 契约 §4）：id 0 永远是默认层；进 CATSUP_document.layers。 */
   layers: LayerDoc[] = defaultLayers();
   nextLayer = 1;
@@ -123,8 +122,13 @@ export class Scene {
   private nextDef = 1;
 
   constructor(rootKernel?: Kernel, rootGuid?: Guid) {
-    this.root = this.mintDef("model", rootKernel ?? new Kernel(), rootGuid).id;
+    const r = this.mintDef("model", rootKernel ?? new Kernel(), rootGuid);
+    r.frame = WORLD_FRAME;   // 根的绘图轴生下来就写明（= 世界帧；0.11 尺规纪元：轴工具可搬 / 转）：换原点时它跟着内容一起换、不跟原点跑（缺 = 跟原点，那是组件的读法）
+    this.root = r.id;
   }
+  /** 这个定义画图用的坐标架（本定义坐标；没另摆 = 定义坐标系）。根的 = 绘图轴。 */
+  frameOf(def: DefId): Frame { return this.def(def).frame ?? WORLD_FRAME; }
+
 
   // ---------- 铸造 ----------
   mintDef(name: string, kernel: Kernel, guid: Guid = mintGuid()): Definition {
@@ -268,13 +272,11 @@ export class Scene {
    * 上下文的坐标架（世界坐标）= 推断引擎的「纸的边」（0.11 尺规纪元 ①；DT86 叫「坐标架」）：根 = 绘图轴；进了 group = 那个 group 的坐标架；
    * 进了组件实例 = 那个 definition 的坐标架（没摆过 = 组件原点）——都乘上链上的实例变换。
    */
-  frameOfContext(ctx: EditContext): Frame { return ctx.group === null && !ctx.chain.length ? this.axes : transformFrame(this.xformOfContext(ctx), this.localFrameOfContext(ctx)); }
+  frameOfContext(ctx: EditContext): Frame { return transformFrame(this.xformOfContext(ctx), this.localFrameOfContext(ctx)); }
   /** 同一个坐标架、在这一层自己的坐标里（= frameOfContext 去掉链上的实例变换）：新建子物体的朝向 / 原点（第 1 版第五节第 5 条）。 */
   localFrameOfContext(ctx: EditContext): Frame {
     if (ctx.group !== null) return this.group({ def: this.defOfContext(ctx), group: ctx.group }).axes;
-    if (!ctx.chain.length) return this.axes;
-    const body = this.def(this.defOfContext(ctx)).body;
-    return (body.kind === "brep" ? body.drawFrame : undefined) ?? WORLD_FRAME;
+    return this.frameOf(this.defOfContext(ctx));
   }
   /** 一串实例链最里面那个组件的原点（世界坐标；= 它的定义坐标系经链上变换）。根 = 世界帧。 */
   originOfChain(chain: readonly InstId[]): Frame { return transformFrame(this.xformOfContext({ chain, group: null }), WORLD_FRAME); }
@@ -325,19 +327,18 @@ export class Scene {
     (s as { materials: Material[] }).materials = [...this.materials];
     (s as { textures: Map<Guid, TextureDoc> }).textures = new Map(this.textures); s.texturesFrozen = this.texturesFrozen;   // 贴图条目不可变，浅拷安全
     (s as { uvSets: Map<Guid, UvSetRow> }).uvSets = new Map(this.uvSets);   // 排法表（施工单十八）：条目不可变，浅拷安全；撤销翻得回宽高靠它
-    s.axes = { origin: { ...this.axes.origin }, x: { ...this.axes.x }, y: { ...this.axes.y }, z: { ...this.axes.z } };
     s.layers = this.layers.map((l) => ({ ...l })); s.nextLayer = this.nextLayer; s.shelf = { folders: this.shelf.folders.map((f) => ({ ...f })), items: this.shelf.items.map((it) => ({ ...it })), extra: this.shelf.extra }; s.shelfFrozen = this.shelfFrozen;
     for (const [id, d] of this.defs) {
       let body: Body;
       if (d.body.kind === "brep") {
         const groups = new Map<GroupId, Group>();
         for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, guid: g.guid, parent: g.parent, axes: g.axes, kernel: g.kernel, guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
-        body = { kind: "brep", kernel: d.body.kernel, groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides), ...(d.body.drawFrame ? { drawFrame: d.body.drawFrame } : {}) };
+        body = { kind: "brep", kernel: d.body.kernel, groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides) };
       } else if (d.body.kind === "mesh") body = { kind: "mesh", kernel: d.body.kernel, materialSlots: [...d.body.materialSlots], uvSetSlots: [...d.body.uvSetSlots] };
       else body = { kind: "empty", materialSlots: [...d.body.materialSlots] };
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { ...i });
-      s.defs.set(id, { id: d.id, guid: d.guid, name: d.name, body, instances, nextInst: d.nextInst });
+      s.defs.set(id, { id: d.id, guid: d.guid, name: d.name, body, instances, nextInst: d.nextInst, ...(d.frame ? { frame: d.frame } : {}) });   // Frame 按不可变用（改 = 换一个对象）
     }
     return s;
   }
@@ -360,19 +361,18 @@ export class Scene {
     (s as { materials: Material[] }).materials = [...this.materials];   // 材质对象不可变，浅拷安全
     (s as { textures: Map<Guid, TextureDoc> }).textures = new Map(this.textures); s.texturesFrozen = this.texturesFrozen;
     (s as { uvSets: Map<Guid, UvSetRow> }).uvSets = new Map(this.uvSets);
-    s.axes = { origin: { ...this.axes.origin }, x: { ...this.axes.x }, y: { ...this.axes.y }, z: { ...this.axes.z } };
     s.layers = this.layers.map((l) => ({ ...l })); s.nextLayer = this.nextLayer; s.shelf = { folders: this.shelf.folders.map((f) => ({ ...f })), items: this.shelf.items.map((it) => ({ ...it })), extra: this.shelf.extra }; s.shelfFrozen = this.shelfFrozen;
     for (const [id, d] of this.defs) {
       let body: Body;
       if (d.body.kind === "brep") {
         const groups = new Map<GroupId, Group>();
         for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, guid: g.guid, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
-        body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides), ...(d.body.drawFrame ? { drawFrame: d.body.drawFrame } : {}) };   // Frame 按不可变对待
+        body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides) };   // Frame 按不可变对待
       } else if (d.body.kind === "mesh") body = { kind: "mesh", kernel: d.body.kernel.clone(), materialSlots: [...d.body.materialSlots], uvSetSlots: [...d.body.uvSetSlots] };   // mesh 内核深拷（列式 = 几次 slice）
       else body = { kind: "empty", materialSlots: [...d.body.materialSlots] };
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, guid: i.guid, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) });
-      s.defs.set(id, { id: d.id, guid: d.guid, name: d.name, body, instances, nextInst: d.nextInst });
+      s.defs.set(id, { id: d.id, guid: d.guid, name: d.name, body, instances, nextInst: d.nextInst, ...(d.frame ? { frame: d.frame } : {}) });   // Frame 按不可变用（改 = 换一个对象）
     }
     return s;
   }

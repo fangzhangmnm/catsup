@@ -867,7 +867,7 @@ export class Editor {
   setComponentOriginToFrame(): boolean {
     return this.step((pass) => {
     if (!this.inComponentRoot()) return false;
-    const at = this.activePool(), root = at.def === this.scene.root, f = root ? this.scene.axes : this.scene.kindOf(at.def) === "brep" ? this.scene.brep(at.def).drawFrame : undefined;   // 根的坐标架住场景上（Scene.axes）
+    const at = this.activePool(), root = at.def === this.scene.root, f = this.scene.def(at.def).frame;   // 这一层另摆的坐标架（住在定义的头上；根的绘图轴生下来就写明、做完不删 = 照旧钉在世界里）
     if (!f || (Math.hypot(f.origin.x, f.origin.y, f.origin.z) < 1e-12 && f.x.x > 1 - 1e-12 && f.y.y > 1 - 1e-12)) { this.host.hint("坐标架就在组件原点上"); return false; }
     const n = this.copiesOf(at.def);
     return this.step((pass) => {
@@ -2235,9 +2235,8 @@ export class Editor {
    */
   private snapLattice(at: PoolRef, xf: Xform, frame: "own" | "world"): Xform {
     const s = this.scene;
-    if (frame === "world") return compose(invert(frameToXform(s.axes)), compose(s.xformOfContext(this.ctx), xf));
-    const body = s.brep(at.def);
-    const f = at.group !== null ? s.group({ def: at.def, group: at.group }).axes : at.def === s.root ? s.axes : body.drawFrame ?? WORLD_FRAME;
+    if (frame === "world") return compose(invert(frameToXform(s.frameOf(s.root))), compose(s.xformOfContext(this.ctx), xf));
+    const f = at.group !== null ? s.group({ def: at.def, group: at.group }).axes : s.frameOf(at.def);
     return invert(frameToXform(f));
   }
   private repairDefaults(kind: RepairKind): Record<string, ParamValue> { return this.repairModule(kind).defaults(this.repairCtx); }

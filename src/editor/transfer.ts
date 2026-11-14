@@ -158,7 +158,7 @@ function payloadBodies(p: TransferPayload, to: BodyKind): Body[] {
 }
 /** 目标容器接不接：接 = ok；不接 = 要把散几何转成目标的种类（组件实例什么都接）+ 转过去带不过去什么（castLosses，组转成网格体 = 组分区没了）。 */
 export function accept(p: TransferPayload, target: BodyKind): { ok: true } | { ok: false; cast: BodyKind; what: string; losses: readonly CastLoss[] } {
-  const losses = (to: BodyKind): readonly CastLoss[] => sumLosses([...payloadBodies(p, to).map((b) => castLosses(b, to)), to === "mesh" && p.groups?.length ? [{ what: "groups" as const, count: p.groups.length }] : []]);
+  const losses = (to: BodyKind): readonly CastLoss[] => sumLosses([...payloadBodies(p, to).map((b) => castLosses(b, to, { mirrored: false })), to === "mesh" && p.groups?.length ? [{ what: "groups" as const, count: p.groups.length }] : []]);
   if (target === "brep" && p.mesh) return { ok: false, cast: "brep", what: `${p.mesh.faces.length} 张网格体的面`, losses: losses("brep") };
   if (target === "mesh" && (p.brep || p.groups?.length)) { const c = transferCounts(p); return { ok: false, cast: "mesh", what: `${c.faces} 张硬表面的面${c.groups ? `（含 ${c.groups} 个组）` : ""}`, losses: losses("mesh") }; }
   return { ok: true };
@@ -170,7 +170,7 @@ export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
   if (to === "mesh") {
     const verts: Pt3[] = [], faces: MeshFragment["faces"] = [], edges: MeshFragment["edges"] = [];
     for (const src of payloadBodies(p, "mesh")) {
-      const { body } = castBody(src, "mesh");
+      const { body } = castBody(src, "mesh", { mirrored: false });
       if (body.kind !== "mesh") continue;
       const k = body.kernel, base = verts.length, vmap = new Map<number, number>();
       for (const v of k.verts()) { vmap.set(v, verts.length); verts.push(k.pt(v)); }
@@ -184,7 +184,7 @@ export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
   }
   const src = payloadBodies(p, "brep")[0];
   if (!src) return p;
-  const { body } = castBody(src, "brep");
+  const { body } = castBody(src, "brep", { mirrored: false });
   const brep = body.kind === "brep" ? body.kernel.toBrep() : undefined;
   // 转硬表面可能新开内置默认背面那一格：对照表跟着长（编号 = 槽号）
   const table = body.materialSlots.map((h, i) => (h === BUILTIN_BACK_SLOT ? BUILTIN_BACK : (p.materials?.[i] ?? BUILTIN_BACK)));
