@@ -65,7 +65,7 @@ export const ELSEWHERE: Readonly<Record<string, OpsRow & { readonly allExports: 
   "mesh/mirror.ts": { allExports: true,
     say: "镜像：沿镜像面切开 = 跨面的边劈成两半（一块）、面里切出来的新边（新长）、两半面（一块）；对称化 = 切开 + 这一边的面、边镜过去（一份，裸线位照抄）；去掉夹在镜像面上的面、对称对齐（只挪点）不造元素",
     ops: { bisectPlane: B(["piece", "grown"], ["piece"]), symmetrize: B(["piece", "copy", "grown"], ["piece", "copy"]), removeSeamWalls: NONE, snapToSymmetry: NONE },
-    helpers: ["mirrorPairs", "mirrorMoves", "sideOfChange", "sideOfMoved", "sideOfElements", "pickSide", "forceSide", "withMirrorCounterparts", "mirrorTwins", "isSymmetric", "straddlingFaces", "trySymmetrize"] },
+    helpers: ["mirrorPairs", "mirrorMoves", "sideOfChange", "sideOfMoved", "sideOfElements", "pickSide", "forceSide", "withMirrorCounterparts", "mirrorCounterpartReport", "mirrorTwins", "isSymmetric", "straddlingFaces", "trySymmetrize"] },
   "editor/ops.ts": { allExports: false,
     say: "并物件（炸开 / 合并进一份网格体）：源的面、边连同每一列（材质槽号、排法代号换成这边的号，别的列原样）整张搬过来 = 凭空来的、带着给的值；不挂面的线带裸线位",
     ops: { appendMesh: B(["given"], ["given"]) } },

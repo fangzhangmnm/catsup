@@ -3,8 +3,12 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { FRESH } from "../src/mesh/columns.ts";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { addBox, loopCut, mergeVerts, splitEdge } from "../src/mesh/ops/index.ts";
-import { bisectPlane, mirrorPairs, mirrorMoves, sideOfChange, straddlingFaces, symmetrize, snapToSymmetry } from "../src/mesh/mirror.ts";
+import { addBox, loopCut, mergeVerts, moveVerts, splitEdge } from "../src/mesh/ops/index.ts";
+import { bisectPlane, mirrorCounterpartReport, mirrorPairs, mirrorMoves, sideOfChange, straddlingFaces, symmetrize, snapToSymmetry, withMirrorCounterparts } from "../src/mesh/mirror.ts";
+import { Scene } from "../src/scene/scene.ts";
+import { applyOp } from "../src/editor/ops.ts";
+import { forceCounterparts, forceDeleteNote, forceMoveNote } from "../src/editor/mirror-force.ts";
+import { sceneBox } from "./format-scenes.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
@@ -148,5 +152,55 @@ describe("镜像（mesh/mirror.ts）", () => {
     eq(r2.pairs, 1); eq(JSON.stringify(m.pt(v)), JSON.stringify(P(-1.004, 1.003, 1)), "已经对齐了，另一边为准也不变");
     const lone = new MeshKernel(); addBox(lone, P(0.5, 0, 0), P(1, 1, 1));
     eq(snapToSymmetry(lone, lone.verts(), 0, 0.01).unpaired, 8);
+  });
+});
+
+// 强行对称下「移出一层」「移到…」「删除」带上另一半、提示行报数（第 1 版版末审查第 1 条，统筹 11-13；2026-11-13 Claude Opus 5.5）。
+describe("找另一半并报数（mirrorCounterpartReport / forceCounterparts）", () => {
+  const facesAt = (m: MeshKernel, x: number): number[] => m.faces().filter((f) => m.faceVerts(f).every((v) => Math.abs(m.pt(v).x - x) < 1e-9));
+  it("左端一张面：补进右端那张，added 1、lonely 0；补出来的集合和 withMirrorCounterparts 一样", () => {
+    const m = halvedBox(), [l] = facesAt(m, -1), [r] = facesAt(m, 1);
+    const rep = mirrorCounterpartReport(m, 0, { faces: [l] });
+    eq(JSON.stringify(rep.sel.faces), JSON.stringify([l, r].sort((a, b) => a - b)));
+    eq(rep.added.faces, 1); eq(rep.lonely.faces, 0);
+    eq(JSON.stringify(withMirrorCounterparts(m, 0, { faces: [l] })), JSON.stringify(rep.sel), "同一把尺");
+  });
+  it("两半都选上了 = 不补、不报", () => {
+    const m = halvedBox(), [l] = facesAt(m, -1), [r] = facesAt(m, 1);
+    const rep = mirrorCounterpartReport(m, 0, { faces: [l, r] });
+    eq(rep.added.faces, 0); eq(rep.lonely.faces, 0); eq(rep.sel.faces!.length, 2);
+  });
+  it("中缝上的边 = 它自己，不算补、不算找不到；左端的边补右端那条", () => {
+    const m = halvedBox();
+    const seam = m.edges().find((e) => Math.abs(m.pt(m.edgeA[e]).x) < 1e-9 && Math.abs(m.pt(m.edgeB[e]).x) < 1e-9)!;
+    const left = m.edges().find((e) => m.pt(m.edgeA[e]).x === -1 && m.pt(m.edgeB[e]).x === -1)!;
+    const rep = mirrorCounterpartReport(m, 0, { edges: [seam, left] });
+    eq(rep.added.edges, 1, "只补了左端那条的另一半"); eq(rep.lonely.edges, 0); eq(rep.sel.edges!.length, 3);
+  });
+  it("右端挪了一个点（两边不一样）：左端那张面找不到另一半 → lonely 1、不补", () => {
+    const m = halvedBox(), [l] = facesAt(m, -1), [r] = facesAt(m, 1), v = m.faceVerts(r)[0], p = m.pt(v);
+    moveVerts(m, [{ v, to: P(p.x + 0.3, p.y, p.z) }]);
+    const rep = mirrorCounterpartReport(m, 0, { faces: [l] });
+    eq(rep.added.faces, 0); eq(rep.lonely.faces, 1); eq(JSON.stringify(rep.sel.faces), JSON.stringify([l]));
+  });
+  it("forceCounterparts：只在强行对称 + 网格体时答；单位按 面 > 边 > 点；提示行的说法", () => {
+    const s0 = new Scene(sceneBox()), d = s0.mintDef("盒", sceneBox());
+    const s = applyOp(s0, { op: "castDefinition", def: d.id, to: "mesh" }).scene;
+    s.mesh(d.id).kernel = halvedBox();
+    const m = s.mesh(d.id).kernel, [l] = facesAt(m, -1);
+    const env = (mode: "edit" | "force") => ({ scene: s, mirrors: new Map([[d.id, { mode, axis: 0 as const }]]), lastSide: new Map<number, -1 | 1>(), merging: false });
+    eq(forceCounterparts(env("edit"), d.id, { faces: [l] }), null, "镜像编辑不管");
+    eq(forceCounterparts(env("force"), s.root, { faces: [l] }), null, "不是网格体 / 没开不管");
+    const c = forceCounterparts(env("force"), d.id, { faces: [l], edges: [], verts: [] })!;
+    eq(c.unit, "张面"); eq(c.added, 1); eq(c.lonely, 0); eq(c.total, 2); eq(c.sel.faces.length, 2);
+    assert(/对称的另一半一起搬了 1 张面，一共 2 张面/.test(forceMoveNote(c)), forceMoveNote(c));
+    eq(forceDeleteNote(c, false), "强行对称，对称的另一半一起删了 1 张面");
+    eq(forceDeleteNote(c, true), "强行对称，对称的另一半一起溶解了 1 张面");
+    eq(forceMoveNote(null), ""); eq(forceDeleteNote(null, false), "");
+    const lone = { ...c, added: 0, lonely: 1, total: 1 };
+    assert(/1 张面找不到对称的另一半（这一刻两边不一样），只搬了选中的这 1 张面/.test(forceMoveNote(lone)) && !/一起搬了/.test(forceMoveNote(lone)), forceMoveNote(lone));
+    eq(forceDeleteNote(lone, false), "", "删除时没补进来的不说");
+    const v = forceCounterparts(env("force"), d.id, { verts: [m.faceVerts(l)[0]] })!;
+    eq(v.unit, "个点"); eq(v.added, 1);
   });
 });

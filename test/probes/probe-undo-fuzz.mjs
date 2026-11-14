@@ -7,6 +7,8 @@
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const SEEDS = Number(process.argv[2] ?? 4), ACTIONS = Number(process.argv[3] ?? 28);
+// 种子数 / 动作数不是正整数 = 报错退出：0 个种子空跑也会报 OK = 假绿（第 1 版版末：第一遍把网址当第一个参数传进来，0 个种子空跑报了 OK；网址走 PROBE_URL）
+for (const [what, n] of [["seeds", SEEDS], ["actions", ACTIONS]]) if (!Number.isInteger(n) || n < 1) { console.error(`probe-undo-fuzz: ${what} must be a positive integer, got ${JSON.stringify(process.argv[what === "seeds" ? 2 : 3])}（网址用环境变量 PROBE_URL，不当参数传）`); process.exit(2); }
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await b.newPage({ viewport: { width: 900, height: 700 } });
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));

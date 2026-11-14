@@ -142,6 +142,11 @@ r.eight = await ev(async () => {
   click(un); await sleep(120);
   out.unwrapped = { depth: here().depth, back: S().def(S().root).guid === root0, still: pts() === pts0 };
   if (menu()) { click(document.querySelector(".gizmo-object")); await sleep(40); }
+  // 撤销 / 重做（第 1 版版末审查第 2 条）：一下一下撤回去再重做回来；每一下人所在的那一层都指着还在的那一份、点不动
+  const ctxOk = () => { let def = S().root; for (const id of e.context.chain) { const i = S().def(def).instances.get(id); if (!i) return false; def = i.def; } return S().defs.has(S().defOfContext(e.context)); };
+  const rootIs = () => (S().def(S().root).guid === root0 ? "旧根" : S().kindOf(S().root) === "empty" ? "外面那层" : "别的");
+  out.undoRedo = [];
+  for (const step of ["undo", "undo", "redo", "redo"]) { e[step](); await sleep(60); out.undoRedo.push({ step, ok: ctxOk(), depth: here().depth, root: rootIs(), still: pts() === pts0 }); }
   return out;
 });
 r.thrown = await ev(() => window.__m.thrown);
@@ -167,6 +172,7 @@ const checks = [
   ["⑧ 在这一层自己创建父物体：人留在它里面（深一层）、上一层是空物体", r.eight.d0 === 1 && r.eight.d1 === 2 && r.eight.sameDef && r.eight.upKind === "empty"],
   ["⑨ 最外层「创建父物体」= 给根包一层：新的最外层是空物体、原来的最外层在它下面、人留在原来那一层（深一层）、点不动", r.eight.rootOn && r.eight.wrapped.depth === 1 && r.eight.wrapped.rootKind === "empty" && r.eight.wrapped.newRoot && r.eight.wrapped.kidIsOld && r.eight.wrapped.still],
   ["⑨ 回到最外层「去掉这一层」= 回去（身份、点都回来、人在最外层）", r.eight.unwrapOn && r.eight.unwrapped.back && r.eight.unwrapped.still && r.eight.unwrapped.depth === 0],
+  ["⑨ 撤销 / 重做：撤去掉这一层 = 又包着、再撤 = 没包过；重做两下回来；每一下人所在的那一层都指着还在的那一份、点不动", r.eight.undoRedo.map((x) => x.root).join(",") === "外面那层,旧根,外面那层,旧根" && r.eight.undoRedo.every((x) => x.ok && x.still)],
   ["没有报错", r.thrown.length === 0 && errs.length === 0],
 ];
 console.log(JSON.stringify(r, null, 1));

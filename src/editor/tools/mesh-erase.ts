@@ -53,7 +53,8 @@ export class MeshEraseTool implements ToolHandler {
     const t = { verts: [...h.verts].sort((a, b) => a - b), edges: [...h.edges].sort((a, b) => a - b), faces: [...h.faces].sort((a, b) => a - b) };
     const skipped = deleteSelection(ctx.mesh().clone(), t, dis);   // 先在副本上跑一遍：溶解不了几个（提交是同一份内核 + 同一组参数）
     if (dis && skipped === n) { ctx.hint("溶解：这些边 / 点溶解不了（边要恰好连两张面、点要只连两条边）"); return; }
+    const mirrored = ctx.mirrorDeleteNote(t, dis);   // 强行对称下另一半一起删（删之前数；第 1 版版末审查第 1 条）
     ctx.commitOp(this.opFor(ctx, t, dis));
-    ctx.hint(`${dis ? "溶解" : "删除"}了 ${n - skipped} 处${skipped ? `（${skipped} 处溶解不了，跳过了）` : ""}`);
+    ctx.hint(`${dis ? "溶解" : "删除"}了 ${n - skipped} 处${skipped ? `（${skipped} 处溶解不了，跳过了）` : ""}${mirrored ? `；${mirrored}` : ""}`);
   }
 }

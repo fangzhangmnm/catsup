@@ -192,21 +192,32 @@ export const sideLabel = (side: -1 | 1, axis: MirrorAxis): string => `${side > 0
  * 点 = mirrorPairs；边 = 两头的孪生点之间那条边；面 = 点集是镜像点集的那张面。只处理传进来的字段；输出升序去重。
  */
 export function withMirrorCounterparts(m: MeshKernel, axis: MirrorAxis, t: { readonly verts?: readonly number[]; readonly edges?: readonly number[]; readonly faces?: readonly number[] }, tol = MIRROR_TOL): { verts?: number[]; edges?: number[]; faces?: number[] } {
-  const p = mirrorPairs(m, axis, tol), sorted = (xs: Set<number>): number[] => [...xs].sort((a, b) => a - b), out: { verts?: number[]; edges?: number[]; faces?: number[] } = {};
-  if (t.verts) { const s = new Set(t.verts); for (const v of t.verts) { const w = p.get(v) ?? -1; if (w >= 0) s.add(w); } out.verts = sorted(s); }
-  if (t.edges) {
-    const s = new Set(t.edges);
-    for (const e of t.edges) { if (!m.hasE(e)) continue; const a = p.get(m.edgeA[e]) ?? -1, b = p.get(m.edgeB[e]) ?? -1; if (a >= 0 && b >= 0 && a !== b) { const x = m.edgeOf(a, b); if (x >= 0) s.add(x); } }
-    out.edges = sorted(s);
-  }
+  return mirrorCounterpartReport(m, axis, t, tol).sel;
+}
+/** 每一样的个数（点 / 边 / 面）。 */
+export interface ElementCounts { readonly verts: number; readonly edges: number; readonly faces: number }
+/**
+ * withMirrorCounterparts 同一把尺，另外报数：added = 补进来的另一半（不在传进来的里面）；lonely = 找不到另一半的（点没有孪生点 / 孪生点之间没有那条边 / 没有那张面；
+ * 中缝上的、自己就是自己镜像的不算）。强行对称下「移出一层」「移到…」带上另一半、提示行说几张（第 1 版版末审查第 1 条，统筹 11-13；2026-11-13 Claude Opus 5.5）。
+ */
+export function mirrorCounterpartReport(m: MeshKernel, axis: MirrorAxis, t: { readonly verts?: readonly number[]; readonly edges?: readonly number[]; readonly faces?: readonly number[] }, tol = MIRROR_TOL): { sel: { verts?: number[]; edges?: number[]; faces?: number[] }; added: ElementCounts; lonely: ElementCounts } {
+  const p = mirrorPairs(m, axis, tol), sorted = (xs: Set<number>): number[] => [...xs].sort((a, b) => a - b), sel: { verts?: number[]; edges?: number[]; faces?: number[] } = {};
+  const added = { verts: 0, edges: 0, faces: 0 }, lonely = { verts: 0, edges: 0, faces: 0 };
+  /** 一个字段：原来那几个 + 各自的另一半（twin 给 −1 = 找不到；给自己 = 中缝上 / 自己对称）。 */
+  const pass = (xs: readonly number[], alive: (x: number) => boolean, twin: (x: number) => number, key: keyof ElementCounts): number[] => {
+    const s = new Set(xs);
+    for (const x of xs) { if (!alive(x)) continue; const w = twin(x); if (w < 0) lonely[key]++; else s.add(w); }
+    added[key] = s.size - new Set(xs).size;
+    return sorted(s);
+  };
+  if (t.verts) sel.verts = pass(t.verts, (v) => m.hasV(v), (v) => p.get(v) ?? -1, "verts");
+  if (t.edges) sel.edges = pass(t.edges, (e) => m.hasE(e), (e) => { const a = p.get(m.edgeA[e]) ?? -1, b = p.get(m.edgeB[e]) ?? -1; return a >= 0 && b >= 0 && a !== b ? m.edgeOf(a, b) : -1; }, "edges");
   if (t.faces) {
     const setKey = (vs: readonly number[]): string => [...vs].sort((a, b) => a - b).join(","), byVerts = new Map<string, number>();
     for (const f of m.faces()) byVerts.set(setKey(m.faceVerts(f)), f);
-    const s = new Set(t.faces);
-    for (const f of t.faces) { if (!m.hasF(f)) continue; const ws = m.faceVerts(f).map((v) => p.get(v) ?? -1); if (ws.some((w) => w < 0)) continue; const g = byVerts.get(setKey(ws)); if (g !== undefined) s.add(g); }
-    out.faces = sorted(s);
+    sel.faces = pass(t.faces, (f) => m.hasF(f), (f) => { const ws = m.faceVerts(f).map((v) => p.get(v) ?? -1); return ws.some((w) => w < 0) ? -1 : byVerts.get(setKey(ws)) ?? -1; }, "faces");
   }
-  return out;
+  return { sel, added, lonely };
 }
 
 /** 这些点的镜像孪生点（不含自己 / 中缝上的点 / 对面找不到的）：镜像开着时拖它们，孪生点跟着动——吸附不该吸孪生点原来的位置（ToolCtx.mirrorFollowers；计划书 20261109-audit-fixes-plan 工单 3）。 */

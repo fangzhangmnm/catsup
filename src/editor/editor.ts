@@ -26,7 +26,7 @@ import { GuideSelection } from "./guide-selection.ts";
 import { describeEvent } from "./describe-event.ts";
 import { bornThisGesture } from "./born-this-gesture.ts"; import { REACH } from "./reach-table.ts"; import { softEdgesOf, vertDotsOf } from "./edit-marks.ts"; import { planMove, type MoveDest } from "./objects/move-to.ts"; import { newChildOp } from "./objects/new-child.ts"; import { planAddParent } from "./objects/add-parent.ts"; import { unwrapRootWhy } from "./ops.ts";
 import { snapHoldTol } from "./snap-hysteresis.ts";
-import { type ForceEnv, forceSideFor, forcesOn, originNeedsAsk } from "./mirror-force.ts";
+import { type ForceEnv, forceCounterparts, forceDeleteNote, forceMoveNote, forceSideFor, forcesOn, originNeedsAsk } from "./mirror-force.ts";
 import { type FreedBase, type UpkeepSnaps, freedBaseline, freedOp, upkeepAfter, upkeepRewrite, upkeepSnapshot } from "./paint-upkeep.ts";   // 每一步做完的收尾 = 强行对称 + 画的位置（1-3b）
 import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, mirrorTwins, withMirrorCounterparts, pickSide, sideLabel, sideOfElements, trySymmetrize } from "../mesh/mirror.ts";
 import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts"; import { HIDE_EDGE, edgeMark, faceMaterial } from "../mesh/reserved-columns.ts"; import { planHide, vertHidden } from "../mesh/hide-plan.ts"; import { hiddenCount, type HiddenCount } from "../scene/hidden.ts";   // 保留名 material_index（属性地基轮 3b）
@@ -1702,8 +1702,8 @@ export class Editor {
       }
     } else if (this.activeKind() === "mesh" && (this.hasGeometrySelection() || this.hasPointSelection())) {
       // 网格体：按选区的种类删（Blender X 同语义）——有面 = 只删面（面带的环边不连累邻面）、否则有边 = 删边（连着的面一起）、否则删点（2026-10-27 Opus 5.5）
-      const sel = this.selection, f = [...sel.faces], e = [...sel.edges], v = [...sel.verts];
-      this.commitIn(pass, { op: "meshDelete", def: at.def, ...(f.length ? { faces: f } : e.length ? { edges: e } : { verts: v }), ...(dissolve ? { dissolve: true } : {}) });
+      const sel = this.selection, f = [...sel.faces], e = [...sel.edges], v = [...sel.verts], t = f.length ? { faces: f } : e.length ? { edges: e } : { verts: v }, say = forceDeleteNote(forceCounterparts(this.forceEnv, at.def, t), dissolve);   // 强行对称下另一半一起删：照旧，提示行说几张（版末审查第 1 条）
+      this.commitIn(pass, { op: "meshDelete", def: at.def, ...t, ...(dissolve ? { dissolve: true } : {}) }); if (say && this.opCount > n0) this.host.hint(`${dissolve ? "溶解" : "删除"}：${say}`);
     } else if (this.hasGeometrySelection() || this.hasPointSelection()) this.requireBrep("删除几何");
     const def = this.scene.defOfContext(this.ctx);
     const kept = new Map<string, PoolPick>();   // 锁住的不删、留在选区里（要解锁得先选中它）
@@ -1898,7 +1898,7 @@ export class Editor {
   }
   /** 「移到…」/「移出一层」（第 1 版第三节）：选中的原位搬走、一步撤销；规划和说法 = objects/move-to.ts。几何 / 组 = 抽载荷 → 删 → 走过去 → 原位贴（不碰剪贴板），子物体 = moveInstance（保 GUID）；种类对不上先问。 */
   moveSelectionTo(dest: MoveDest, cast?: BodyKind): boolean {
-    const m = planMove(this.scene, this.ctx, [...this.selectedPools.values()], this.hasGeometrySelection(), dest, (p) => this.pickIsLocked(p)), geo = "why" in m || !(this.hasGeometrySelection() || m.groups.length) ? null : transferExtract(this.scene, this.ctx, this.selection, m.groups);
+    const m = planMove(this.scene, this.ctx, [...this.selectedPools.values()], this.hasGeometrySelection(), dest, (p) => this.pickIsLocked(p)), fc = this.activeKind() === "mesh" ? forceCounterparts(this.forceEnv, this.activePool().def, this.selection) : null, geo = "why" in m || !(this.hasGeometrySelection() || m.groups.length) ? null : transferExtract(this.scene, this.ctx, fc?.sel ?? this.selection, m.groups);   // 强行对称：另一半一起搬（版末审查第 1 条）
     if ("why" in m || (geo && "blocked" in geo)) { this.host.hint("why" in m ? m.why : `搬不了：${(geo as { blocked: string }).blocked}`); return false; }
     const acc = geo && !cast ? transferAccept(geo, m.kind) : null;
     if (acc && !acc.ok) { const to = KINDS[acc.cast].noun; void this.host.confirm?.("搬过去要转种类", `${acc.what}是另一种身体的几何，搬进去要先转成${to}（${acc.losses.length ? `会丢：${lossesText(acc.losses)}` : "不丢东西"}）。转过去再搬吗？`, `转成${to}再搬`).then((ok) => { if (ok) this.moveSelectionTo(dest, acc.cast); else this.host.hint("没搬（你选了不转）"); }); return false; }
@@ -1907,7 +1907,7 @@ export class Editor {
       for (const op of m.ops) this.commitIn(pass, op);
       if (dest.kind === "into") this.selectPools([{ kind: "instance", instance: dest.instance }]);
       else { if (!geo) { this.exitContext(); this.clearSel(pass); } const d = this.scene.def(this.scene.defOfContext(this.ctx)); for (const i of d.instances.values()) if (m.movedGuids.includes(i.guid)) this.selectedPools.set(this.pickKey({ kind: "instance", instance: i.id }), { kind: "instance", instance: i.id }); }
-      this.host.hint(m.say); this.host.changed(); this.draw(); return true;
+      this.host.hint(m.say + forceMoveNote(fc)); this.host.changed(); this.draw(); return true;
     }, { title: dest.kind === "up" ? "移出一层" : "移到" });
   }
   private moveToArmed = false;   // 「移到…」：等你点一个物体（这一层的子物件）
@@ -3950,7 +3950,7 @@ export class Editor {
       enterPool: (p) => this.enterPool(p),
       exitContext: () => this.exitContext(),
       contextDepth: () => this.contextDepth(),
-      hasAnySelection: () => this.hasAnySelection(), hasActableSelection: () => this.hasActableSelection(), mirrorFollowers: (vs) => { const ms = this.mirrorOf(); return ms ? mirrorTwins(this.scene.mesh(this.activePool().def).kernel, vs, ms.axis) : new Set<number>(); },
+      hasAnySelection: () => this.hasAnySelection(), hasActableSelection: () => this.hasActableSelection(), mirrorFollowers: (vs) => { const ms = this.mirrorOf(); return ms ? mirrorTwins(this.scene.mesh(this.activePool().def).kernel, vs, ms.axis) : new Set<number>(); }, mirrorDeleteNote: (t, dis) => forceDeleteNote(forceCounterparts(this.forceEnv, this.activePool().def, t), dis),
       softenEdges: (ids, on) => this.softenEdges(ids, on),
     };
   }

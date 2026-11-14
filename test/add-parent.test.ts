@@ -7,6 +7,7 @@ import { applyOp, OpRejected, OpTargetError, unwrapRootWhy } from "../src/editor
 import { planAddParent } from "../src/editor/objects/add-parent.ts";
 import { compose, rotationAbout, scalingAbout, translation, type Xform } from "../src/scene/xform.ts";
 import { sceneBox } from "./format-scenes.ts";
+import { History } from "../src/editor/history.ts";
 
 const pts = (s: Scene): string => s.pointsOfDef(s.root).map((p) => `${p.x.toFixed(9)},${p.y.toFixed(9)},${p.z.toFixed(9)}`).sort().join(";");
 /** 根上摆三份：A（平移）/ B（转 + 缩 + 平移）/ C；B 是要包的那一个。 */
@@ -100,6 +101,28 @@ describe("给根包一层 / 去掉这一层（第 1 版第七节；给根包一�
     const L = out.json.extensions.CATSUP_definitions.list, oldItem = L.find((d: any) => d.guid === rootGuid), newItem = L.find((d: any) => d.guid === out.json.extensions.CATSUP_definitions.root);
     assert(oldItem?.brep?.attributes?.face?.futureLayer, "旧根带着那一层");
     assert(!newItem?.brep, "新根是空物体，没有几何载荷（不会挂错到它身上）");
+  });
+  it("撤销 / 重做（版末审查第 2 条）：包一层撤销 = 根、定义表、坐标架、点回到原样；去掉这一层撤销 = 回到包着的样子；重做照样，身份不换", () => {
+    let { s } = three();
+    const F = { origin: { x: 1, y: 2, z: 3 }, x: { x: 0, y: 1, z: 0 }, y: { x: -1, y: 0, z: 0 }, z: { x: 0, y: 0, z: 1 } };
+    s.setFrame(s.root, F);
+    /** 一份场景的样子：根是谁、定义表（id → GUID / 名字 / 种类 / 摆着的每一份）、根的坐标架、世界里的点。 */
+    const shape = (x: Scene): string => JSON.stringify({ root: [x.root, x.def(x.root).guid], defs: [...x.defs.keys()].sort((a, b) => a - b).map((id) => [id, x.def(id).guid, x.def(id).name, x.kindOf(id), [...x.def(id).instances.values()].map((i) => [i.id, i.guid, i.def, [...i.xform]])]), frame: x.frameOf(x.root), pts: pts(x) });
+    const h = new History(s), s0 = shape(s), n = s.defs.size;
+    s = h.commit(s, wrapOf(s), false).scene;
+    const wrapped = shape(s), outer = s.def(s.root).guid;
+    assert(s.defs.size === n + 1 && wrapped !== s0, "包上了");
+    s = h.undo()!.scene;
+    eq(shape(s), s0, "包一层撤销：根、定义表、坐标架、点回到原样（外面那一层整个没了）");
+    s = h.redo(s)!.scene;
+    eq(shape(s), wrapped, "重做：和第一次包的一模一样（外面那一层的 id / GUID 不换）"); eq(s.def(s.root).guid, outer);
+    s = h.commit(s, { op: "unwrapRoot" }, false).scene;
+    const unwrapped = shape(s);
+    eq(JSON.parse(unwrapped).root[1], JSON.parse(s0).root[1], "去掉这一层 = 旧根回到最外层");
+    s = h.undo()!.scene;
+    eq(shape(s), wrapped, "去掉这一层撤销 = 回到包着的样子");
+    s = h.redo(s)!.scene;
+    eq(shape(s), unwrapped, "重做去掉这一层");
   });
   it("去掉这一层做不了的：根自己有几何 / 摆着两个 / 里面那一份挪过 / 外面另摆了不一样的坐标架", () => {
     const { s } = three();
