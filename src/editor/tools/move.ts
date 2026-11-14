@@ -86,8 +86,8 @@ export class MoveTool implements ToolHandler {
     const freeM = rayPlane(rayM.origin, rayM.dir, plane.plane.n, plane.plane.d);
     if (sn.kind !== null && freeM && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeM, anchor), sub3(sn.p, anchor), gestureMinLen(ctx, anchor))) { sn = { p: freeM, kind: null }; ctx.dropHysteresis(); }
     if (ctx.axisConstraint().kind !== "free") {   // 锁是最后一道（统筹 11-13）：粘性在套锁之前；套完锁不再换点（不按拖动方向推断轴、不另外取整——取整在锁里，只在没指着具体东西时）
-      const locked = ctx.applyLock(ctx.hysteresis(sn, s.x, s.y), s.x, s.y);
-      ctx.setSnap(locked); ctx.charge(locked, 120); ctx.setCursor(locked.p);
+      const raw = ctx.hysteresis(sn, s.x, s.y), locked = ctx.applyLock(raw, s.x, s.y);
+      ctx.setSnap(locked); ctx.charge(raw, 120); ctx.setCursor(locked.p);   // 充能充光标真压着的东西（锁之前的那个）
       return;
     }
     if (sn.kind === null || sn.kind === "grid-point") {   // 格点是地板（D16）：拖出方向意图时轴向锥先于格点

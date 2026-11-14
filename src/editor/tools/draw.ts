@@ -96,9 +96,9 @@ export class LineTool extends DrawTool {
     const freeL = rayPlane(rayL.origin, rayL.dir, camL.plane.n, camL.plane.d);
     if (sn.kind !== null && freeL && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeL, a), sub3(sn.p, a), gestureMinLen(ctx, a))) { sn = { p: this.planeSnap(ctx, s.x, s.y), kind: null }; ctx.dropHysteresis(); }
     // 15° 整角归格点吸附（user 2026-10-25「15是grid合理」）：求解器在自由落点时咬（有捕捉阈）；Shift = 把格点吸附反过来（DT51），不再单独 = 15°
-    const snapped = ctx.applyLock(ctx.hysteresis(sn, s.x, s.y), s.x, s.y);   // 轴锁 / 面锁（没锁 = 原样）。锁是最后一道（统筹 11-13）：粘性在套锁之前，套完不再换点
+    const raw = ctx.hysteresis(sn, s.x, s.y), snapped = ctx.applyLock(raw, s.x, s.y);   // 轴锁 / 面锁（没锁 = 原样）。锁是最后一道（统筹 11-13）：粘性在套锁之前，套完不再换点
     ctx.setSnap(snapped);
-    ctx.charge(snapped, 120);
+    ctx.charge(raw, 120);   // 充能充的是光标真压着的东西（锁之前的那个）：锁着时也能先在端点上停一下、再对齐（user 第 5 条「充能这些机制也都要」）
     ctx.setCursor(snapped.p);
   }
   protected segsFor(_ctx: ToolCtx, b: Pt3): [Pt3, Pt3][] { return [[this.anchor!, b]]; }
