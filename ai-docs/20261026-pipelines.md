@@ -1388,3 +1388,10 @@ freedOp：每个步开始就在的网格体 —— History.meshBefore（这一�
 - **画**：`lockGuide` → `constraintLines`（线和坐标架某根轴平行 = 那根轴的颜色；锁住的方向不平行 = `axisDir` 品红；面里撑开的另一根不平行 = 中性）。提示行：`axisDescribe` 那句挂在手势读数后面（`computeLive` 拼提示行时取 `AxisKeys.note()`）。
 - **动作外 X**：键表自由建模层 `delete.menu` → `main.ts`（光标位置 = 画布 pointermove 记的 client 坐标）→ `context-menu.ts openDeleteMenuAt`（删除；网格体里选着边 / 点时多一项溶解）→ `Editor.deleteSelection(dissolve)` → 网格体 `meshDelete`（`dissolve` 旗，和橡皮 Shift 同一条）。
 - **拿掉的**：键表操作工具层（`TOOL_OPS`）、自由建模层的 Y / Z / 方向键先锁、`Editor.armLock`、`setTool` 里把选择上的锁交给下一把的那段；`ToolCtx.axisLockDir / planeLockNormal` 换成 `axisConstraint`。
+
+## 追记 2026-11-13（锁的一轮第三步「硬表面接上」，Claude Opus 5.5）：锁是最后一道
+- **硬表面一维工具（画线 / 移动 / 卷尺）每帧求点的顺序**（改了顺序，统筹 11-13 规矩「套完锁之后不许再有任何一步换点」）：
+  求解器（全量吸附，排序不动）→ 意图门（反方向的候选不合法；**以前移动工具在套锁之后过**，锁出来的点被换成自由点再按方向推断轴 = 锁着 X 往垂直方向拖沿 Z 走）→ 粘性（hysteresis）→ **套锁**（`editor.ts applyLock`：约束 = 轴键 ?? 按钮锁，照一维那族读 moveLock；指着具体的东西〔`increments.ts snapIsGridOnly` 说不是只有格子；求解器从起点猜的方向 axis-* 锁着时作废〕= 投影，否则光标射线 + `gridSnap` 取整）→ 结束（锁着时移动工具不再推断方向、不再另外取整；卷尺不再另算整格偏移）。充能（`ctx.charge`）拿套锁之前那个点：充的是光标真压着的东西，不换点。
+- **先定平面的工具**（矩形 / 圆 / 弧 / 旋转矩形 / 圆规 / 旋转 / 量角器）：首点之后的面 = `lockedPlaneThrough(过首点, 族)`：二维 = `axis-apply.ts shapePlane`（面 / 面 + 第一条边的方向 / 含这条线且最正对视线的面），旋转那一族 = `rotatePlane`。按轴键之后编辑器用最后一次指针事件重算一遍（同按住 Shift），面马上换。
+- **按轴键**（两个建模工作台都是）：`main.ts axis.press` → `Editor.axisPress`：先问 `ToolHandler.lock`（不吃 = 不记、提示一句）→ `AxisKeys.press`（N / T 拾动作开始前的世界：`pickFace` / `pickEntity` 只拾边，不拾正在画、正在挪的预演）→ 语法模块 → 重算。一步提交了东西 = 轴键丢掉（连着画的线一段算一下）。
+- 碰多少东西不变：每帧多一次常数级的约束读法；N / T 按键那一下一次拾取。守卫 = `probe-lock-last`（按 lock 字段现列工具，锁着往各方向拖，结果都在锁的线 / 面上）。
