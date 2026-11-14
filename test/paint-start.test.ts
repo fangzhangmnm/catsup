@@ -12,7 +12,7 @@ import { History, OpApplyError } from "../src/editor/history.ts";
 import { extractForCopy } from "../src/editor/transfer.ts";
 import { upkeepAfter, upkeepRewrite, upkeepSnapshot } from "../src/editor/paint-upkeep.ts";
 import { OTHER_DEF_PAINT } from "../src/editor/paint-ops.ts";
-import { meshBodyIssues, paintUvOf, unplacedPaintFaces, PAINT_CANT_MOVE } from "../src/scene/paint.ts";
+import { meshBodyIssues, paintUvOf, unplacedPaintFaces, PAINT_CANT_MOVE, PASTE_UV_ROWS_MISSING } from "../src/scene/paint.ts";
 import { layoutFaces } from "../src/paint/layout.ts";
 import { documentFromScene } from "../src/format/scene-doc.ts";
 import { writeCatsup } from "../src/format/write.ts";
@@ -335,26 +335,26 @@ describe("拒绝的那几处（1-3b 测试 F）", () => {
     const kept = applyOp(s.clone(), { op: "paste", at: ROOT(s), ...whole, merge: { entries: "keep" } } as Op).scene;
     eq(kept.def(kept.root).instances.size, s.def(s.root).instances.size + 1, "留这里的：照贴（共用同一张画）");
   });
-  it("审后补：整个定义带着贴图坐标、但现在没有面走画（全换走了）：变成独立的 / 炸开 / 跨文件粘贴照样拒（搬到别处要给那几套铸新身份，归 1-3d）", () => {
+  it("整个定义带着贴图坐标、但现在没有面走画（全换走了）= 普通网格体：变成独立的 / 炸开 / 同一份文件里「断开」贴都照做；跨文件贴 = 明说「排法带不过去」拒（第 1 版第五节 2½ 第三稿；以前一律按「有画」拒）", () => {
     const { s, A, ia } = two();
     const s2 = applyOp(s, { op: "meshPaintFaces", def: A, faces: s.mesh(A).kernel.faces(), material: null }).scene;
     eq(s2.mesh(A).kernel.faces().filter((f) => paintUvOf(s2, A, f) !== null).length, 0, "没有面走画了");
-    const c0 = sceneCanon(s2);
-    eq(rejected(() => new History(s2).commit(s2, { op: "makeUnique", def: s2.root, instance: ia })), PAINT_CANT_MOVE, "变成独立的");
-    eq(rejected(() => new History(s2).commit(s2, { op: "explode", at: ROOT(s2), instance: ia })), PAINT_CANT_MOVE, "炸开");
-    eq(sceneCanon(s2), c0, "场景一个字节不变");
-    // 1-2½ 起文件形状带着贴图坐标：画的材质和贴图都清掉，定义只剩没人引用的那一套坐标；跨文件贴整个物件 = 要新建一个带着贴图坐标的定义 → 照样拒（铸新身份归 1-3d）；同一份文件里贴另一份摆放照贴
-    const paintIdx = s2.materials.length - 1, texG = s2.materials[paintIdx].channels!.color[0];
-    let s3 = applyOp(s2, { op: "purgeMaterials", materials: [paintIdx] }).scene;
-    s3 = applyOp(s3, { op: "purgeTextures", textures: [texG] }).scene;
-    assert(s3.mesh(A).uvSetSlots.length > 0 && !s3.materials.some((m) => paintIn(s3.textures, m)), "只剩贴图坐标，没有画");
-    const whole = extractForCopy(s3, { chain: [], group: null }, { faces: [], edges: [] }, [{ kind: "instance", instance: ia }]);
+    const uv0 = JSON.stringify(s2.mesh(A).uvSetSlots);
+    const u = applyOp(s2.clone(), { op: "makeUnique", def: s2.root, instance: ia }).scene, ud = u.def(s2.root).instances.get(ia)!.def;
+    assert(ud !== A && JSON.stringify(u.mesh(ud).uvSetSlots) === uv0, "变成独立的：新定义带着同一张速查表");
+    eq(meshBodyIssues(u, ud).length, 0, "变成独立的：自检没毛病");
+    assert(!!applyOp(s2.clone(), { op: "explode", at: ROOT(s2), instance: ia, cast: true }), "炸开（转成硬表面再炸）照做");
+    const whole = extractForCopy(s2, { chain: [], group: null }, { faces: [], edges: [] }, [{ kind: "instance", instance: ia }]) as Record<string, unknown>;
     assert(!!whole && !("blocked" in whole), "整个物件照拷");
+    // 同一份文件：内容改过再贴、选「断开」= 新建一个定义，排法那一行这份文件里本来就有 → 照贴
+    const k = s2.mesh(A).kernel, v0 = k.verts()[0], p0 = k.pt(v0), s3 = s2.clone();
+    s3.mesh(A).kernel.setPos(v0, { x: p0.x + 0.25, y: p0.y, z: p0.z });
+    const det = applyOp(s3, { op: "paste", at: ROOT(s3), ...whole, merge: { entries: "detach" } } as Op).scene, nd = [...det.defs.values()].filter((d) => d.body.kind === "mesh" && d.id !== A && d.name === s3.def(A).name);
+    assert(nd.length === 1 && JSON.stringify((nd[0].body as { uvSetSlots: string[] }).uvSetSlots) === uv0 && meshBodyIssues(det, nd[0].id).length === 0, "断开：新定义带着同一套贴图坐标、自检没毛病");
+    // 跨文件：载荷不带排法那一行 → 明说拒，目标一个字节不变（贴进来存盘会抛）
     const other = new Scene(), c1 = sceneCanon(other);
-    eq(rejected(() => new History(other).commit(other, { op: "paste", at: ROOT(other), ...(whole as object) } as Op)), PAINT_CANT_MOVE, "跨文件 = 拒");
+    eq(rejected(() => new History(other).commit(other, { op: "paste", at: ROOT(other), ...whole } as Op)), PASTE_UV_ROWS_MISSING, "跨文件 = 拒，原因是排法带不过去（不是「有画」）");
     eq(sceneCanon(other), c1, "目标场景一个字节不变");
-    const pasted = applyOp(s3.clone(), { op: "paste", at: ROOT(s3), ...(whole as object) } as Op).scene;
-    eq(pasted.def(pasted.root).instances.size, s3.def(s3.root).instances.size + 1, "同一份文件里贴另一份摆放照贴");
   });
   it("别的定义的画换不上来；硬表面的面换不成画", () => {
     const { s, A, B } = two(), paint = s.materials.length - 1, c0 = sceneCanon(s);

@@ -77,22 +77,6 @@ export function unplaceFace(k: MeshKernel, slots: readonly Guid[], f: number): G
   return before;
 }
 
-/**
- * 网格体退出这几套排法（「把画拿掉」，第 1 版施工单第五节 2½）：面在这几套上的位置全拿掉（代号 −1、角上清 0）、速查表里这几项删掉、
- * 剩下的面的代号照新速查表重新对上。排法表那一行（Scene.uvSets）不在这里动：留在文件里当孤儿。返回拿掉了几张面的位置。
- */
-export function leaveUvSets(k: MeshKernel, slots: Guid[], gone: ReadonlySet<Guid>): number {
-  const keep = slots.filter((g) => !gone.has(g)), to = slots.map((g) => keep.indexOf(g));   // 旧代号 → 新代号（退出的 = −1）
-  let n = 0;
-  if (hasUvColumns(k)) for (const f of k.faces()) {
-    const c = uvCodeOf(k, f);
-    if (c < 0) continue;
-    const nc = c < to.length ? to[c] : -1;
-    if (nc < 0) { unplaceFace(k, slots, f); n++; } else if (nc !== c) k.setFaceValue(f, UV_SET_COL.id, nc);
-  }
-  slots.length = 0; slots.push(...keep);
-  return n;
-}
 /** 面从 source 搬到 target 时（并物件 / 炸开，照材质槽那几行）：把 source 的速查表并进 target（没有的追加），返回代号换号的函数（−1 → −1）。 */
 export function mergeUvSlots(target: Guid[], source: readonly Guid[]): (code: number) => number {
   const map = source.map((g) => { let i = target.indexOf(g); if (i < 0) { target.push(g); i = target.length - 1; } return i; });

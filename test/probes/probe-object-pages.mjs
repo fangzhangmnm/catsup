@@ -1,6 +1,6 @@
 // 物体窗口四页（第 1 版施工单第五节第 2 条；物体种类施工稿第三节；2026-11-13 Claude Opus 5.5）。
 // ① 网格体：四页 = 物体 / 网格体 / 元素 / 材质和贴图；物体页 = 「谁」+ 转种类；网格体页 = 对称 + 细分 + 默认平滑；材质页没画时说「没有挂材质」「还没有贴图坐标」
-// ② 开始画之后材质页列出画和那一套贴图坐标，有「把画拿掉」；点它 = 走画的面全换回默认材质（面一张不少），一步撤销回来
+// ② 开始画之后材质页列出画和那一套贴图坐标，有「把画拿掉」；点它 = 走画的面全换回默认材质（面一张不少、贴图坐标照留，第 1 版第五节 2½ 第三稿），一步撤销回来
 // ③ 硬表面体：种类页叫「硬表面体」；材质页说硬表面体不能画 ④ 空物体：没有种类页（三页），元素页 / 材质页各说一句为什么没有
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-object-pages.mjs [地址]
 import { createRequire } from "node:module";
@@ -48,7 +48,10 @@ const r = await page.evaluate(async () => {
   out.hintDrop = document.getElementById("hint")?.textContent ?? "";
   await open(); await tab("materials"); out.mat2 = texts(); out.facesAfter = k().faceCount() === faces0;
   // 拿掉画之后转硬表面（统筹 11-13 第五节 2½：要真能逃生）：转得过去、不被画拦；撤销一步回到拿掉画之后
+  // 第三稿：贴图坐标留着 → 转硬表面先问、询问里列出「贴图坐标的表」（4½ 那一份清单），点「照样转」才转
   await closeAll(); e.deselectAll(); e.runAction("object.toBrep"); await sleep(60);
+  out.castAsk = document.getElementById("sheetMessage")?.textContent ?? "";
+  document.getElementById("sheetConfirm")?.click(); await sleep(80);
   out.castAfterDrop = { kind: S().kindOf(def), hint: document.getElementById("hint")?.textContent ?? "" };
   e.undo(); await sleep(60); out.castUndone = S().kindOf(def);
   await closeAll(); e.undo(); await sleep(60);
@@ -80,9 +83,9 @@ const checks = [
   ["① 网格体页：对称 + 细分 + 默认平滑，没有转种类", (r.kindIds ?? []).includes("mirror:mode") && has(r.kindTexts, /细分/) && has(r.kindTexts, /默认平滑/) && !(r.kindIds ?? []).includes("action:object.toBrep")],
   ["① 材质页没画：没有挂材质 / 还没有贴图坐标", has(r.mat0, /没有挂材质/) && has(r.mat0, /还没有贴图坐标/) && !has(r.mat0, /把画拿掉/)],
   ["② 开始画之后：材质页列出画 + 贴图坐标 + 把画拿掉", r.paintedBefore && has(r.mat1, /格/) && (r.mat1Ids ?? []).includes("action:mesh.dropPaint")],
-  ["② 把画拿掉：提示行说了、面一张不少、物体不再挂画的槽和贴图坐标、出口收起", /把画拿掉了.*不在这张画上了/.test(r.hintDrop) && r.facesAfter && !has(r.mat2, /走画/) && has(r.mat2, /还没有贴图坐标/) && !has(r.mat2, /把画拿掉/)],
-  ["②½ 拿掉画之后转硬表面：转得过去、不被画拦；撤销回来", r.castAfterDrop?.kind === "brep" && !/有画/.test(r.castAfterDrop.hint) && r.castUndone === "mesh"],
-  ["② 再撤销一步：画回来", has(r.mat3, /走画/)],
+  ["② 把画拿掉（第三稿 = 只换材质）：提示行说了还在文件里、面一张不少、画的那一槽 0 张面、贴图坐标那一套照列、出口收起", /把画拿掉了.*画和贴图坐标都还在文件里/.test(r.hintDrop) && r.facesAfter && has(r.mat2, /走画.*（0 张面）/) && has(r.mat2, /× \d+ 格/) && !has(r.mat2, /还没有贴图坐标/) && !has(r.mat2, /把画拿掉/)],
+  ["②½ 拿掉画之后转硬表面：先问、询问里列了贴图坐标；照样转 = 转得过去、不被画拦；撤销回来", /贴图坐标的表 1 套/.test(r.castAsk ?? "") && r.castAfterDrop?.kind === "brep" && !/有画/.test(r.castAfterDrop.hint) && r.castUndone === "mesh"],
+  ["② 再撤销一步：画回来（面真的走画，不是 0 张面的那一槽）", has(r.mat3, /走画/) && !has(r.mat3, /走画.*（0 张面）/)],
   ["③ 硬表面体：种类页叫硬表面体；材质页说不能画", r.brepTabs?.join("|") === "物体|硬表面体|元素|材质和贴图" && has(r.brepMat, /硬表面体不能画/)],
   ["④ 空物体：三页（没有种类页）", r.emptyKind === "empty" && r.emptyTabs?.join("|") === "物体|元素|材质和贴图"],
   ["④ 空物体：元素页 / 材质页各说一句", has(r.emptyEl, /只装子物体/) && has(r.emptyMat, /只装子物体/)],

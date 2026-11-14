@@ -9,11 +9,12 @@ import { hasUvColumns, uvAt, uvBoxes, uvCodeOf } from "./uv.ts";
 
 /** 这个网格体在哪几套排法上（网格体上的速查表；施工单十八第 1½ 刀起 = MeshBody.uvSetSlots，scene/uv.ts）。 */
 export const uvSetsOf = (b: MeshBody): readonly Guid[] => b.uvSetSlots;
-/** 这个网格体带不带贴图坐标（速查表空不空；从画换走的面位置还留着，所以和「有没有面走画」不是一回事）。施工单十八第 2 刀起只剩搬家的拒绝（paintMoveBlocked，第 3 刀开）用它；问「走不走画」一律看面。 */
-const hasUv = (b: MeshBody): boolean => b.uvSetSlots.length > 0;
 
 /** 第六节那几种动作碰到走画的面时的原因（拒绝之后场景一个字节不变）。 */
 export const PAINT_CANT_MOVE = "这些面上有画：带着画的面现在还不能并进别的物件、分出去、做成唯一、复制粘贴、炸开或者转成硬表面（这个功能还没做）";   // 人话（贴图主线 1-7 第 7 条）
+
+/** 粘贴带着贴图坐标（或挂在排法上的画），而那几套排法在这份文件里没有：粘贴的载荷还不带排法那一行（第 1 版第五节 2½ 第三稿第 3 条：带不过去在那一步明说，不悄悄丢）。 */
+export const PASTE_UV_ROWS_MISSING = "这一贴带着贴图坐标，它们的排法这份文件里没有：粘贴现在还带不过去排法，没贴（同一份文件里贴照常；要搬到别的文件，先转成硬表面〔贴图坐标会丢，转之前会列出来〕再拷）";
 
 /** 这张面走哪一套贴图坐标（走画 = 那一套的 GUID；不走 = null）。 */
 export function paintUvOf(s: Scene, def: DefId, f: number): Guid | null {
@@ -122,22 +123,25 @@ export function unplacedPaintFaces(s: Scene, def: DefId, candidates: Iterable<nu
  */
 export type PaintMove =
   | { readonly def: DefId; readonly faces?: Iterable<number> }
-  | { readonly payload: { readonly materials?: readonly Material[]; readonly textures?: readonly TextureDoc[]; readonly faceMats?: Iterable<number>; readonly defSlots?: Iterable<readonly (Guid | null)[]>; readonly replaces?: Iterable<DefId>; /** 这一贴要新建 / 更新的定义里有带着贴图坐标的（1-2½ 起文件形状带着它们）。 */ readonly carriesUv?: boolean } };
+  | { readonly payload: { readonly materials?: readonly Material[]; readonly textures?: readonly TextureDoc[]; readonly faceMats?: Iterable<number>; /** 这一贴要新建 / 更新的定义：各自的槽表 + 面上用到的槽号（只看面用着的那几槽）。 */ readonly defFaces?: Iterable<PayloadDefFaces>; readonly replaces?: Iterable<DefId>; /** 这一贴要新建 / 更新的定义的贴图坐标 + 要新建的画挂的排法里，这份文件的排法表里没有的几套（载荷不带排法那一行）。 */ readonly uvRowsMissing?: number } };
+/** 载荷里一个定义的槽表 + 它的面用到的槽号（网格体 = MeshDoc.faceMat，硬表面 = 面层 material，组里的也算）。 */
+export interface PayloadDefFaces { readonly slots: readonly (Guid | null)[]; readonly used: Iterable<number> }
 /**
- * 「带着画的面现在还搬不了」唯一的判断（1-3b 第六节 + 审后补）：并物件、把面分成新物件、变成独立的、炸开网格体组件、网格体转硬表面、复制 / 粘贴（含跨文件）都调它。
+ * 「带着画的面现在还搬不了」唯一的判断（1-3b 第六节 + 审后补；第 1 版施工单第五节 2½ 第三稿改成只问「有没有面在显示画」）：
+ * 并物件、把面分成新物件、变成独立的、炸开网格体组件、网格体转硬表面、复制 / 粘贴（含跨文件）都调它。
  * · 一摞面：有一张走画 = 拒。
- * · 整个定义：带着贴图坐标（有 uv 列，不管现在有没有面走画——从画换走的面角上的数还留着）= 拒：1-2½ 起文件形状（definitionToDoc）带着贴图坐标了，
- *   但搬到别处（复制成唯一、粘贴新建、并进别的物件）要给那几套铸新身份、把画的 layout 对上、贴图跟着按值拷，那是 1-3d；在那之前照旧拒，不让两个定义悄悄共用一套坐标的身份。
- * · 粘贴的载荷：散面里有画的材质 = 拒；这一贴要新建（跨文件 / 「断开」铸新身份）或更新的定义，槽表里有画的材质 = 拒（画会落到别的定义里、或者跟着换掉的身体丢了）；
- *   要被「更新」换掉身体的现有定义带着贴图坐标 = 拒；这一贴要新建 / 更新的定义自己带着贴图坐标（哪怕只剩没人引用的那几套）= 拒（1-2½ 起文件形状带着它们：
- *   跨文件 / 「断开」新建要给那几套铸新身份，归 1-3d；和「整个定义带着贴图坐标」那条一致）。同一份文件里贴整个物件的另一份摆放（留这里的那条）不受影响：它们本来就共用同一张画。
+ * · 整个定义：有一张面走画（anyFaceWalksPaint）= 拒。只带着贴图坐标（速查表、角上的数还在）、没有面显示画 = 普通网格体，放行：贴图坐标在网格体之间跟着面走，
+ *   带不过去的路（转硬表面；剪贴板拷散面）在那一步自己的询问 / 提示里明说（统筹 11-13 夜，user「原则上现在不用丢 UV」）。
+ * · 粘贴的载荷：散面里有画的材质 = 拒；这一贴要新建（跨文件 / 「断开」铸新身份）或更新的定义，面用着的槽里有画的材质 = 拒（画会落到别的定义里、或者跟着换掉的身体丢了）；
+ *   要被「更新」换掉身体的现有定义有面走画 = 拒。同一份文件里贴整个物件的另一份摆放（留这里的那条）不受影响：它们本来就共用同一张画。
+ *   另一条不是画的原因（PASTE_UV_ROWS_MISSING）：载荷还不带排法那一行，带着的贴图坐标 / 画指着这份文件里没有的排法 = 拒（贴进来存盘会抛：scene-doc 写的时候核速查表）。
  * 返回原因 / null（放行）。
  */
 export function paintMoveBlocked(s: Scene, what: PaintMove): string | null {
   if ("def" in what) {
     const b = s.defs.get(what.def)?.body;
-    if (!b || b.kind !== "mesh" || !hasUv(b)) return null;
-    if (!what.faces) return PAINT_CANT_MOVE;
+    if (!b || b.kind !== "mesh") return null;
+    if (!what.faces) return anyFaceWalksPaint(s, what.def) ? PAINT_CANT_MOVE : null;
     for (const f of what.faces) if (paintUvOf(s, what.def, f) !== null) return PAINT_CANT_MOVE;
     return null;
   }
@@ -148,8 +152,8 @@ export function paintMoveBlocked(s: Scene, what: PaintMove): string | null {
   for (const c of p.faceMats ?? []) if (c >= 0 && isPaint(mats[c])) return PAINT_CANT_MOVE;
   const byGuid = new Map<Guid, Material>(s.materials.map((m) => [m.guid, m]));
   for (const m of mats) byGuid.set(m.guid, m);
-  for (const slots of p.defSlots ?? []) for (const g of slots) if (g !== null && isPaint(byGuid.get(g))) return PAINT_CANT_MOVE;
+  for (const d of p.defFaces ?? []) for (const c of d.used) { const g = c >= 0 ? d.slots[c] : null; if (g && isPaint(byGuid.get(g))) return PAINT_CANT_MOVE; }
   for (const d of p.replaces ?? []) if (paintMoveBlocked(s, { def: d })) return PAINT_CANT_MOVE;
-  if (p.carriesUv) return PAINT_CANT_MOVE;
+  if (p.uvRowsMissing) return PASTE_UV_ROWS_MISSING;
   return null;
 }

@@ -12,9 +12,9 @@ import { HIDE_EDGE, MATERIAL_INDEX, faceHidden, faceMaterial, givenFaceValues, s
 import { showEverything } from "../scene/hidden.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
 import { uniqueCopy } from "../format/scene-store.ts";
-import { COLOR_CHANNEL, COLOR_VALUE, assertSizedImage, paintIn, type ShelfItem, type TextureDoc } from "../format/document.ts";
-import { type PaintOutcome, applyMeshLayoutPaint, applyMeshPaintFaces, applyMeshDropPaint, applySetFreed, applyStartPaint } from "./paint-ops.ts";
-import { type PaintMove, paintMoveBlocked } from "../scene/paint.ts";
+import { COLOR_CHANNEL, COLOR_VALUE, assertSizedImage, paintIn, paintUvSetOfRow, type DefinitionDoc, type ShelfItem, type TextureDoc } from "../format/document.ts";
+import { type PaintOutcome, applyMeshLayoutPaint, applyMeshPaintFaces, applySetFreed, applyStartPaint } from "./paint-ops.ts";
+import { type PaintMove, type PayloadDefFaces, paintMoveBlocked } from "../scene/paint.ts";
 import { DEFINITION, TEXTURE, type DefinitionEntry } from "../format/entry-kinds.ts";
 import type { CurveSpec } from "../kernel/kernel.ts";
 import { markEdges } from "../mesh/edge-smooth.ts";
@@ -201,7 +201,6 @@ export type Op =
   /** 给网格体的面换材质（1-3b）：material = 文档材质的下标、null = 默认；可以换成这个定义自己的画，别的定义的画拒绝；从画换走角上的数留着。 */
   | { op: "meshPaintFaces"; def: number; faces: number[]; material: number | null }
   /** 把画拿掉（第 1 版第五节 2½）：这个物体退出它身上的画——走画的面回默认、面在那几套排法上的位置交出、速查表和没人用的画材质槽拿掉；画 / 材质 / 排法那一行留在文件里。 */
-  | { op: "meshDropPaint"; def: number }
   /** 给走画但还没有位置的面补一块（1-3b；每一步做完的收尾补进同一步）：faces = 只看这些（不给 = 全部）。放不下的不拒绝，留着没有值。 */
   | { op: "meshLayoutPaint"; def: number; faces?: number[]; /** 先拿掉这些面的位置（每一步的收尾读内核报告：并面时贴图坐标对不上的；施工单十八第 1½ 刀）。 */ drop?: number[] }
   /** 分开（Blender P → 选中）：网格体 def 里这些面搬进一个新的网格体组件，摆在 at 池里、和正在编辑的那一份（instance）同一个变换（世界里不动）。 */
@@ -860,7 +859,6 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "meshFlip": { const k = meshOf(s, op.def).kernel; flipFaces(k, op.faces.filter((f) => k.hasF(f))); return { scene: s, events: [] }; }
     case "startPaint": { if (s.texturesFrozen) throw new OpRejected(TEXTURES_FROZEN); return paintOutcome(s, applyStartPaint(s, op)); }   // 画的三条指令住 paint-ops.ts（1-3b）
     case "meshPaintFaces": return paintOutcome(s, applyMeshPaintFaces(s, op));
-    case "meshDropPaint": return paintOutcome(s, applyMeshDropPaint(s, op));
     case "meshLayoutPaint": return paintOutcome(s, applyMeshLayoutPaint(s, op));
     case "paste": {
       const ref = op.at, kind = s.kindOf(ref.def);   // 两种身体都接：别走 poolOf（它只认硬表面池）
@@ -1050,7 +1048,6 @@ export function describeOp(op: Op): string {
     case "meshFlip": return `meshFlip def=${op.def} faces=${op.faces.length}`;
     case "startPaint": return `startPaint def=${op.def} faces=${op.faces.length} uv=${op.uvSet.slice(0, 4)}${op.density !== undefined ? ` density=${op.density}` : ""}${op.canvas !== undefined ? ` canvas=${op.canvas}` : ""}${op.arrange !== undefined ? ` arrange=${op.arrange}` : ""}`;
     case "meshPaintFaces": return `meshPaintFaces def=${op.def} faces=${op.faces.length} material=${op.material ?? "default"}`;
-    case "meshDropPaint": return `meshDropPaint def=${op.def}`;
     case "meshLayoutPaint": return `meshLayoutPaint def=${op.def}${op.faces ? ` faces=${op.faces.length}` : ""}`;
     case "paste": return `paste${op.brep ? ` brep=${op.brep.faces.length}f` : ""}${op.mesh ? ` mesh=${op.mesh.faces.length}f` : ""}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${op.closure ? ` closure=${op.closure.definitions.length}d` : ""}${op.merge ? ` merge=${op.merge.entries}` : ""}${op.shelve?.length ? ` shelve=${op.shelve.length}` : ""}${at}`;
     case "shelfPut": return `shelfPut ${op.kind} ${op.ref.slice(0, 4)}${op.folder ? ` in ${op.folder.slice(0, 4)}` : ""}${op.index !== undefined ? ` @${op.index}` : ""}`;
@@ -1162,11 +1159,15 @@ function mintPasted(s: Scene, def: number, parent: number | null, i: TransferIns
 }
 /** 画的指令的结果 → 抛（拒绝 = OpRejected 进提示行；目标没了 = OpTargetError）。 */
 const paintOutcome = (s: Scene, o: PaintOutcome): ApplyResult => { if (o && "rejected" in o) throw new OpRejected(o.rejected); if (o && "target" in o) throw new OpTargetError(o.target); return { scene: s, events: [] }; };
+/** 文件形状的定义里，面用到的槽号（网格体 = faceMat；硬表面 = 面层 material，组里的也算）。 */
+const facesSlotsOfDoc = (d: DefinitionDoc): number[] => d.mesh ? [...d.mesh.faceMat] : [d.brep, ...d.groups.map((g) => g.brep)].flatMap((b) => [...(b.faceLayers?.material ?? [])]);
 /** 粘贴计划里要新建（含「断开」铸新）/ 更新的定义：载荷里它们的槽表 + 要被换掉身体的现有定义（1-3b 审后补：同一份文件贴「断开」/「更新」也不许把画搬走、丢掉）。 */
-const pastePaintScope = (s: Scene, pp: PastePlan): { defSlots: (readonly (Guid | null)[])[]; replaces: number[]; carriesUv: boolean } => {
+const pastePaintScope = (s: Scene, pp: PastePlan): { defFaces: PayloadDefFaces[]; replaces: number[]; uvRowsMissing: number } => {
   const isDef = (r: { kind: string }): boolean => r.kind === DEFINITION, want = new Set([...pp.plan.create, ...pp.plan.update].filter(isDef).map((r) => r.guid)), upd = new Set(pp.plan.update.filter(isDef).map((r) => r.guid));
   const defs = pp.bundle.docs.filter((d) => d.kind === DEFINITION && want.has((d.doc as DefinitionEntry).def.guid)).map((d) => (d.doc as DefinitionEntry).def);
-  return { defSlots: defs.map((d) => d.materialSlots), replaces: [...s.defs.values()].filter((d) => upd.has(d.guid)).map((d) => d.id), carriesUv: defs.some((d) => (d.mesh?.uv?.sets.length ?? 0) > 0) };   // 1-2½：文件形状带着贴图坐标了（施工单十八第 1½ 刀：MeshDoc.uv，在至少一套排法上）
+  const made = new Set(pp.plan.create.filter((r) => r.kind === TEXTURE).map((r) => r.guid)), madeTex = pp.bundle.docs.filter((d) => d.kind === TEXTURE && made.has((d.doc as TextureDoc).guid)).map((d) => d.doc as TextureDoc);
+  const wantRows = new Set([...defs.flatMap((d) => d.mesh?.uv?.sets ?? []), ...madeTex.map(paintUvSetOfRow).filter((g): g is Guid => g !== null)]);   // 载荷不带排法那一行（施工单十八 3.4 起排法是条目，载荷还没跟上）
+  return { defFaces: defs.map((d) => ({ slots: d.materialSlots, used: facesSlotsOfDoc(d) })), replaces: [...s.defs.values()].filter((d) => upd.has(d.guid)).map((d) => d.id), uvRowsMissing: [...wantRows].filter((g) => !s.uvSets.has(g)).length };   // 第 1 版第五节 2½ 第三稿：只看面用着的槽（拿掉画之后槽表里还留着画的材质、速查表还挂着那一套 = 普通网格体，照贴）
 };
 /** 第六节那几种动作的唯一拒绝口（判断在 scene/paint.ts paintMoveBlocked）。 */
 const refusePaintMove = (s: Scene, what: PaintMove): void => { const why = paintMoveBlocked(s, what); if (why) throw new OpRejected(why); };

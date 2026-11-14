@@ -31,6 +31,7 @@ import type { Guid } from "../format/guid.ts";
 import { DEFINITION, LAYER, MATERIAL, defRef, layerRef, type DefinitionEntry } from "../format/entry-kinds.ts";
 import { sceneStore } from "../format/scene-store.ts";
 import { paintMoveBlocked } from "../scene/paint.ts";
+import { hasUvColumns, uvCodeOf } from "../scene/uv.ts";
 import { bundleOf, type Bundle } from "../identity/graph.ts";
 import type { Ref } from "../identity/kinds.ts";
 
@@ -58,6 +59,8 @@ export interface TransferPayload {
   readonly textures?: readonly TextureDoc[];
   /** 实例用到的定义（递归）+ 层。有实例才有。 */
   readonly closure?: TransferClosure;
+  /** 散面里有几张在贴图坐标上有位置：剪贴板不带角上的数（统筹 11-11 定，1-2½），这几张贴过去就没有贴图坐标了——拷贝那一下的提示行说出来（第 1 版第五节 2½ 第三稿第 3 条：带不过去在那一步报）。 */
+  readonly uvLeft?: number;
 }
 export const docsOfKind = <T>(b: Bundle, kind: string): T[] => b.docs.filter((e) => e.kind === kind).map((e) => e.doc as T);
 export interface TransferCounts { faces: number; edges: number; groups: number; instances: number }
@@ -76,7 +79,7 @@ export function transferSay(p: TransferPayload): string {
   if (!c.faces && c.edges) parts.push(`${c.edges} 条线`);
   if (c.groups) parts.push(`${c.groups} 个组`);
   if (c.instances) parts.push(`${c.instances} 个物件`);
-  return parts.join("、") || "空";
+  return (parts.join("、") || "空") + (p.uvLeft ? `（其中 ${p.uvLeft} 张面的贴图坐标没带上：拷散面不带贴图坐标，要带着就拷整个物体）` : "");
 }
 
 /** 从活动池抠一份（世界坐标）：选中的面 / 边 + 选中的组（子树）+ 选中的实例。什么都没选中 = null。 */
@@ -126,7 +129,8 @@ export function extract(s: Scene, ctx: EditContext, sel: { faces: Iterable<numbe
     for (const e of sel.edges) if (k.hasE(e)) eSet.add(e);   // 选中的裸线 / 别的边也带着（没有面的在目标里成裸线）
     const edges = [...eSet].sort((a, b) => a - b).map((e) => ({ a: nv(k.edgeA[e]), b: nv(k.edgeB[e]), flags: packEdgeByte(k, e) | (k.eFaces(e).length && faces.some((f) => k.fEdges(f).includes(e)) ? 0 : F_WIRE) }));
     const mesh = outFaces.length || edges.length ? { verts, faces: outFaces, edges } : undefined;
-    const out: TransferPayload = { from: "mesh", ...(mesh ? { mesh } : {}), ...(instances.length ? { instances } : {}), ...closureOut(), ...tableOut() };   // closureOut 先跑：它会往对照表里加
+    const uvLeft = hasUvColumns(k) ? faces.filter((f) => uvCodeOf(k, f) >= 0).length : 0;
+    const out: TransferPayload = { from: "mesh", ...(mesh ? { mesh } : {}), ...(instances.length ? { instances } : {}), ...closureOut(), ...tableOut(), ...(uvLeft ? { uvLeft } : {}) };   // closureOut 先跑：它会往对照表里加
     return transferEmpty(out) ? null : out;
   }
   const b = s.brep(at.def), k = s.kernelOf(at), idOf = (slot: number): number => codeOf(b.materialSlots[slot] ?? -1);
