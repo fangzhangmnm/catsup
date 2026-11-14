@@ -74,17 +74,29 @@ export const toEmpty: Command<ObjectUnit> = {
   done: (n) => `转成空物体：${n} 个（进去是摆放工作台：只摆子物体）`,
   none: "没有能转的：只有自己没有几何的物体能转成空物体",
 };
+/** 重置坐标架（统筹 11-13 夜审查 a 第 2 条）：另摆的画图坐标架删掉 = 回到这个物体自己的原点。三个种类都有（坐标架住在定义的头上）；摆坐标架的工具进不进自由建模 / 摆放第 3 版再定。 */
+export const resetFrame: Command<ObjectUnit> = {
+  id: "object.resetFrame", unit: "object", perDefinition: true, takesContext: true, title: "重置坐标架",
+  defaults: () => ({}), params: () => [],
+  plan(env, u) {
+    if (!env.scene.def(u.def).frame) return { ops: [], count: 0, skipped: 1, notes: [`「${u.name}」的坐标架本来就跟着原点`] };
+    return { ops: [{ op: "setDrawFrame", at: { def: u.def, group: null }, frame: null }], count: 1, notes: u.copies > 1 ? [`「${u.name}」的 ${u.copies} 份一起变（坐标架是这个物体的，不是这一份的）`] : [] };
+  },
+  done: (n) => `重置了 ${n} 个物体的坐标架（回到它自己的原点）`,
+  none: "没有另摆坐标架的物体：坐标架都跟着原点",
+};
 /** 每种身体由哪个动作转过去（物体窗口「切换种类 ›」照这张表列；加一个种类 = 这里一行，少一种编译不过）。 */
 export const CAST_ACTIONS: Readonly<Record<BodyKind, string>> = { brep: "object.toBrep", mesh: "object.toMesh", empty: "object.toEmpty" };
 
 import { verbActions, verbCommands, verbPlacements } from "./verbs.ts";
-const commands: readonly Command[] = [toMesh, toBrep, toEmpty, ...verbCommands];
+const commands: readonly Command[] = [toMesh, toBrep, toEmpty, resetFrame, ...verbCommands];
 /** 图标：两个都是 stopgap（图标库还没有「转成网格体 / 转回硬表面体」，已登记 SVG Icons TODO）。 */
 const actions: readonly Action[] = [
   { id: "object.toMesh", commands: { object: "object.toMesh" }, icon: "collection", label: (n) => `转成网格体（${n}）` },
   { id: "object.toBrep", commands: { object: "object.toBrep" }, icon: "wrench", label: (n) => `转回硬表面体（${n}）` },
   { id: "object.toEmpty", commands: { object: "object.toEmpty" }, icon: "object", label: (n) => `转成空物体（${n}）` },
+  { id: "object.resetFrame", commands: { object: "object.resetFrame" }, icon: "axes", label: () => "重置坐标架" },
 ];
-const placements: readonly Placement[] = [{ action: "object.toMesh", where: "objectWindow", order: 10 }, { action: "object.toBrep", where: "objectWindow", order: 11 }, { action: "object.toEmpty", where: "objectWindow", order: 12 }, ...verbPlacements];   // 物体窗口（2026-10-28：物体级不混进选区的右键，UX 心智模型 §2.2）
+const placements: readonly Placement[] = [{ action: "object.toMesh", where: "objectWindow", order: 10 }, { action: "object.toBrep", where: "objectWindow", order: 11 }, { action: "object.toEmpty", where: "objectWindow", order: 12 }, { action: "object.resetFrame", where: "objectWindow", order: 13 }, ...verbPlacements];   // 物体窗口（2026-10-28：物体级不混进选区的右键，UX 心智模型 §2.2）
 
 export const objects: Family = { name: "object", commands, actions: [...actions, ...verbActions], placements };

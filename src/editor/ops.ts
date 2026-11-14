@@ -327,7 +327,7 @@ function changeDefinitionAxes(s: Scene, def: number, f: Frame): FaceEvent[] { re
  */
 function retransformDefinition(s: Scene, def: number, M: Xform): FaceEvent[] {
   const Mi = invert(M), events: FaceEvent[] = [], rigid = isRigid(M), b = s.def(def).body;
-  { const d = s.def(def); if (d.frame) d.frame = rigid ? transformFrame(Mi, d.frame) : orthonormalFrame(transformFrame(Mi, d.frame)); }   // 另摆的坐标架（根的绘图轴生下来就写明）在世界里原地不动；没摆 = 跟着原点（DT86）
+  { const d = s.def(def); if (d.frame) s.setFrame(def, rigid ? transformFrame(Mi, d.frame) : orthonormalFrame(transformFrame(Mi, d.frame))); }   // 另摆的坐标架在世界里原地不动；没摆 = 跟着原点（DT86）；换完成了恒等 = 存成缺
   if (b.kind !== "brep") {   // 网格体（2026-10-27 Opus：自由建模右键「设置原点到选择中心」）/ 空物体（第 1 版第四节）：点的位置整体乘 M⁻¹；没有组 / 参考几何 / 另摆的坐标架
     if (b.kind === "mesh") { const k = b.kernel; for (const v of k.verts()) k.setPos(v, applyPt(Mi, k.pt(v))); }
     for (const inst of s.def(def).instances.values()) inst.xform = compose(Mi, inst.xform);   // 自己的子物体（2026-11-13 补：以前网格体这一支漏了，网格体里有子物体时换原点子物体会在世界里跑）
@@ -633,8 +633,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (ref.group !== null) {
         const g = s.group({ def: ref.def, group: ref.group });
         g.axes = f ?? (g.parent !== null ? s.group({ def: ref.def, group: g.parent }).axes : s.frameOf(ref.def));
-      } else if (f) s.def(ref.def).frame = f;
-      else delete s.def(ref.def).frame;   // 重置 = 回到这个定义的坐标系（根 = 世界帧）
+      } else s.setFrame(ref.def, f);   // 重置 / 设到恒等 = 缺（回到这个定义的坐标系，根 = 世界帧）
       return { scene: s, events: [] };
     }
     case "setAxes": {

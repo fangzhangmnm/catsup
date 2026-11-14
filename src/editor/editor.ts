@@ -867,14 +867,14 @@ export class Editor {
   setComponentOriginToFrame(): boolean {
     return this.step((pass) => {
     if (!this.inComponentRoot()) return false;
-    const at = this.activePool(), root = at.def === this.scene.root, f = this.scene.def(at.def).frame;   // 这一层另摆的坐标架（住在定义的头上；根的绘图轴生下来就写明、做完不删 = 照旧钉在世界里）
+    const at = this.activePool(), root = at.def === this.scene.root, f = this.scene.def(at.def).frame;   // 这一层另摆的坐标架（住在定义的头上；root 只管下面那句提示的说法）
     if (!f || (Math.hypot(f.origin.x, f.origin.y, f.origin.z) < 1e-12 && f.x.x > 1 - 1e-12 && f.y.y > 1 - 1e-12)) { this.host.hint("坐标架就在组件原点上"); return false; }
     const n = this.copiesOf(at.def);
     return this.step((pass) => {
       const n0 = this.opCount;
       this.commitIn(pass, { op: "setAxes", at, frame: f });
       if (this.opCount === n0 || this.stepFailed) return false;
-      if (!root) this.commitIn(pass, { op: "setDrawFrame", at, frame: null });   // 根：坐标架跟着内容一起挪、已经回到原点（ops retransformDefinition）
+      // 坐标架跟着内容一起挪、换完正好是恒等 = 自动存成缺（Scene.setFrame）：根和组件同一条，不另发重置
       this.host.hint(root ? "根的原点换到了坐标架：整个模型挪过去，坐标架那一点现在就是世界原点（视角没跟着动；撤销一步回来）" : `组件原点换到了坐标架（世界里没动；${n} 份一起换）`);
       this.host.changed(); this.draw();
       return true;

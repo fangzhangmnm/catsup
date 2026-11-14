@@ -91,7 +91,9 @@ export function objectWindowItems(editor: Editor, target: ObjectTarget): PopupMe
   const newRow: PopupMenuItem<string>[] = target === "self" ? [{ id: "newChild", label: "新建子物体", icon: "object", children: newChildChoices().map((c) => ({ id: c.id, label: c.label })) }] : [];
   // 创建父物体（第 1 版第五节第 7 条；和切换种类是两个按钮）：新父亲 = 空物体，这个物体整个放到它下面、位置不动；做不了 = 灰掉写原因
   const parentWhy = editor.addParentWhy(target), parentRow: PopupMenuItem<string>[] = [{ id: "addParent", label: "创建父物体", icon: "object", ...(parentWhy ? { disabled: true, hint: parentWhy } : {}) }];
-  const out: PopupMenuItem<string>[] = [{ id: "who", label: who.title, note: true, tab: "object" }, ...[...castRow, ...parentRow, ...newRow, ...foldSubmenus(actionItems(own))].map((it) => ({ ...it, tab: "object" }))];   // 第一行：设置的是谁
+  // 坐标架（统筹 11-13 夜审查 a 第 2 条）：一行说明它现在是跟着原点还是另摆了；重置走放置表那一条（object.resetFrame，另摆了才露）
+  const frameRow: PopupMenuItem<string>[] = def === undefined ? [] : [{ id: "frame", label: editor.sceneRef.def(def).frame ? "坐标架：另摆了（右边三色轴；重置 = 回到原点）" : "坐标架：跟着原点", note: true, tab: "object" }];
+  const out: PopupMenuItem<string>[] = [{ id: "who", label: who.title, note: true, tab: "object" }, ...frameRow, ...[...castRow, ...parentRow, ...newRow, ...foldSubmenus(actionItems(own))].map((it) => ({ ...it, tab: "object" }))];   // 第一行：设置的是谁
   if (!kindTab) return out;
   const fields = def === undefined ? [] : kindPageOf(editor, def).fields({ editor, def });   // 这个种类自己报的字段（网格体 = 对称 + 镜像面）
   out.push(...[...fields.map(fieldItem), ...foldSubmenus(actionItems(kinds))].map((it) => ({ ...it, tab: "kind" })));

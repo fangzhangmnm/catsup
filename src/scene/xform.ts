@@ -133,6 +133,11 @@ export function fromMatrix16(a: readonly number[]): Xform {
 export interface Frame { origin: Pt3; x: Pt3; y: Pt3; z: Pt3; }
 export const WORLD_FRAME: Frame = { origin: { x: 0, y: 0, z: 0 }, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } };
 export const frameAt = (origin: Pt3): Frame => ({ ...WORLD_FRAME, origin });
+/** 是不是世界帧（容差 1e-12）：坐标架恒等 = 存成「缺」用（Scene.setFrame）。 */
+export function isWorldFrame(f: Frame, e = 1e-12): boolean {
+  const near = (a: Pt3, b: Pt3): boolean => Math.abs(a.x - b.x) <= e && Math.abs(a.y - b.y) <= e && Math.abs(a.z - b.z) <= e;
+  return near(f.origin, WORLD_FRAME.origin) && near(f.x, WORLD_FRAME.x) && near(f.y, WORLD_FRAME.y) && near(f.z, WORLD_FRAME.z);
+}
 export function transformFrame(m: Xform, f: Frame): Frame {
   const x = normalize3(applyDir(m, f.x)), y0 = applyDir(m, f.y);
   const z = normalize3(cross3(x, y0));

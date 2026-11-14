@@ -81,7 +81,7 @@ export function materializeDefinitions(scene: Scene, entries: readonly Definitio
   };
   for (const e of fill) {
     const d = e.def, def = scene.def(idOf.get(d.guid)!);
-    if (d.drawFrame && def.id !== scene.root) def.frame = copyFrame(d.drawFrame);   // 画图坐标架住在定义的头上、三个种类都认（根的 = document.axes，在下面 sceneFromDocument）
+    if (d.drawFrame && def.id !== scene.root) scene.setFrame(def.id, copyFrame(d.drawFrame));   // 画图坐标架住在定义的头上、三个种类都认（根的 = document.axes，在下面 sceneFromDocument）
     if (d.kind === "empty") { def.body = { kind: "empty", materialSlots: [] }; placeInstances(def.id, e, () => null); continue; }   // 空物体（definitions 8.0）：只有子物体，没有组
     // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
     if (d.kind === "mesh" && d.mesh) {
@@ -115,7 +115,7 @@ const noLayerTable = (): undefined => undefined;   // 打开文件：层代号�
 /** 文档 → 场景（打开 = 往空店里落地；整张表原样装，没有要决定的事，不走 plan）。 */
 export function sceneFromDocument(doc: CatsupDocument): Scene {
   const scene = new Scene(Kernel.fromBrep(doc.root.brep), doc.root.guid);
-  scene.def(scene.root).frame = copyFrame(doc.axes);   // 根的绘图轴：门口从 document.axes 放进根自己身上（给根包一层定稿第 2 条；运行时不再有「如果是根」）
+  scene.setFrame(scene.root, copyFrame(doc.axes));   // 根的绘图轴：门口从 document.axes 放进根自己身上（给根包一层定稿第 2 条；运行时不再有「如果是根」）
   const matIndex = new Map<Guid, number>();
   for (const t of doc.textures) scene.addTexture(t);
   for (const u of doc.uvSets) scene.uvSets.set(u.guid, u);   // 排法表（施工单十八）：文件形状就是场景里那一行（条目不可变）   // 贴图条目不可变：文件形状就是场景里那一行

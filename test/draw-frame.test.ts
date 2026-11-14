@@ -145,3 +145,29 @@ describe("坐标架在定义的头上：三个种类都有、转种类照带、�
     assert(sameFrame(sc.frameOf(def), TILT), "网格体能设");
   });
 });
+
+// 统筹 11-13 夜审查 a 第 1 条：恒等的坐标架一律存成「缺」——不然「缺」和「明写的世界帧」读着一样、换原点时不一样，隔一次存盘重开结果就不同。
+describe("恒等的坐标架 = 缺：隔一次存盘重开，换原点的结果一样", () => {
+  it("根：另摆 → 重置 → （存 → 读）→ 换原点，存没存盘结果一样；新建的根、读到世界帧的根都是缺", async () => {
+    const { writeCatsup, readCatsup, documentFromScene, sceneFromDocument } = await import("../src/format/index.ts");
+    const F: Frame = { origin: { x: 1, y: 2, z: 0 }, x: { x: 0, y: 1, z: 0 }, y: { x: -1, y: 0, z: 0 }, z: { x: 0, y: 0, z: 1 } };
+    let a = sceneGrouped();
+    assert(a.def(a.root).frame === undefined, "新建的根不写");
+    a = applyOp(a, { op: "setDrawFrame", at: { def: a.root, group: null }, frame: TILT }).scene;
+    a = applyOp(a, { op: "setDrawFrame", at: { def: a.root, group: null }, frame: null }).scene;
+    assert(a.def(a.root).frame === undefined, "重置 = 缺");
+    let b = sceneFromDocument(readCatsup(writeCatsup(documentFromScene(a.clone(), "t"))));
+    assert(b.def(b.root).frame === undefined, "读到世界帧 = 不放到根身上");
+    a = applyOp(a, { op: "setAxes", at: { def: a.root, group: null }, frame: F }).scene;
+    b = applyOp(b, { op: "setAxes", at: { def: b.root, group: null }, frame: F }).scene;
+    assert(sameFrame(a.frameOf(a.root), b.frameOf(b.root)), "换原点之后根的坐标架一样");
+  });
+  it("设到恒等 = 删；换原点之后正好成了恒等 = 删", () => {
+    let sc = sceneGrouped(); const def = [...sc.def(sc.root).instances.values()][0].def;
+    sc = applyOp(sc, { op: "setDrawFrame", at: { def, group: null }, frame: WORLD_FRAME }).scene;
+    assert(sc.def(def).frame === undefined, "设到恒等 = 缺");
+    sc = applyOp(sc, { op: "setDrawFrame", at: { def, group: null }, frame: TILT }).scene;
+    sc = applyOp(sc, { op: "setAxes", at: { def, group: null }, frame: TILT }).scene;
+    assert(sc.def(def).frame === undefined, "原点换到坐标架上 = 坐标架成了恒等 = 缺");
+  });
+});

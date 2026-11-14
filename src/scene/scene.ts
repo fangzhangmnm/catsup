@@ -9,7 +9,7 @@
 
 import { add3, sub3, scale3, dist3, normalize3, cross3 } from "../kernel/geom.ts";
 import { Kernel, type BrepSnapshot, type EdgeId, type FaceEvent, type FaceId, type Pt3, type Seg3 } from "../kernel/kernel.ts";
-import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyNormal, applyPlane, applyPt, compose, det3, frameAt, transformFrame } from "./xform.ts";
+import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyNormal, applyPlane, applyPt, compose, det3, frameAt, isWorldFrame, transformFrame } from "./xform.ts";
 import { type Guides, cloneGuides, emptyGuides } from "./guides.ts";
 /** 非 brep 身体的「参考几何」：永远空的那一份（别往里写）。 */
 const NO_GUIDES: Guides = emptyGuides();
@@ -82,7 +82,8 @@ export interface Definition {
   /**
    * 进了这个物体画图用的坐标架（DT86，2026-10-26；user「坐标架同意 组件原点同意」）：本定义坐标；缺 = 定义自己的坐标系（= 组件原点）。
    * 只管推断 / 网格 / 画的平面，不碰几何、不是组件原点（组件原点 = 定义坐标系，改它挪几何：user「原点挪几何，因为是低频commitment，改画画坐标架不挪」）。组的坐标架 = Group.axes（组不配有原点）。
-   * 根也住这里（第 1 版第七节 / 给根包一层定稿第 2 条，2026-11-13：以前根的住场景上 Scene.axes）：根的这一份在门口写明（新建 = 世界帧、读文件 = document.axes、存盘写回 document.axes），运行时不再按「是不是根」分路。
+   * 根也住这里（第 1 版第七节 / 给根包一层定稿第 2 条，2026-11-13：以前根的住场景上 Scene.axes）：读文件 = document.axes、存盘写回 document.axes，运行时不再按「是不是根」分路。
+   * 恒等的一律存成「缺」（统筹 11-13 夜审查 a 第 1 条）：设到恒等 = 删、换原点之后成了恒等 = 删、读到世界帧 = 不放——不然「缺」和「明写的世界帧」读着一样、换原点时不一样，隔一次存盘重开结果就不同。
    * 三个种类都有、都读都写（统筹 11-13 夜：运行时哪个种类能有，文件里那个种类就得写）：文件里 = 定义头上的 drawFrame（根除外，根的在 document.axes），转种类时照带（它在头上，不在载荷里）。
    */
   frame?: Frame;
@@ -122,12 +123,12 @@ export class Scene {
   private nextDef = 1;
 
   constructor(rootKernel?: Kernel, rootGuid?: Guid) {
-    const r = this.mintDef("model", rootKernel ?? new Kernel(), rootGuid);
-    r.frame = WORLD_FRAME;   // 根的绘图轴生下来就写明（= 世界帧；0.11 尺规纪元：轴工具可搬 / 转）：换原点时它跟着内容一起换、不跟原点跑（缺 = 跟原点，那是组件的读法）
-    this.root = r.id;
+    this.root = this.mintDef("model", rootKernel ?? new Kernel(), rootGuid).id;   // 根的绘图轴生下来 = 缺（= 世界帧；恒等的一律存成缺，见 Definition.frame）
   }
   /** 这个定义画图用的坐标架（本定义坐标；没另摆 = 定义坐标系）。根的 = 绘图轴。 */
   frameOf(def: DefId): Frame { return this.def(def).frame ?? WORLD_FRAME; }
+  /** 写坐标架的唯一口（指令 / 换原点 / 读文件都走这里）：恒等 = 缺。 */
+  setFrame(def: DefId, f: Frame | null | undefined): void { const d = this.def(def); if (!f || isWorldFrame(f)) delete d.frame; else d.frame = f; }
 
 
   // ---------- 铸造 ----------
