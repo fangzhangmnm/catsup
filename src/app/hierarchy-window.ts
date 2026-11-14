@@ -25,6 +25,9 @@ import { foldSubmenus } from "./context-menu.ts";
 import { objectMenuItems } from "./selection-actions.ts";
 import type { HudModel } from "./ui/hud-model.ts";
 import type { PopupMenuItem } from "./ui/popup-menu.ts";
+import type { BodyKind } from "../scene/body-kind.ts";
+import { newChildChoices, newChildKindOf } from "./kind-pages.ts";
+import { hex4 } from "../config.ts";
 
 export interface HierarchyWindow { toggle(anchor: HTMLElement): void; isOpen(): boolean; refresh(): void }
 
@@ -124,9 +127,17 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     deps.hint(`把「${r.name}」挪进「${tgt.label}」底下（位置不动${notes.length ? "；" + notes.join("；") : ""}）`);
     deps.after();
   };
+  /** 新建子物体（第 1 版第五节第 5 条）：在这一行的物体里面建（先进到它里面，落在它的原点），建完直接进去；合成的那一行（×N）没有这一项（不知道进哪一份）。 */
+  const newChildRow = (n: HierNode): PopupMenuItem<string>[] => (n.kind === "copies" ? [] : [{ id: "newChild", label: "新建子物体", icon: "object", children: newChildChoices().map((c) => ({ id: c.id, label: c.label })) }]);
+  const newChildIn = (n: HierNode, kind: BodyKind): void => {
+    const path = n.kind === "root" ? [] : n.path;
+    goTo(path);
+    if (pathKeyFull(contextPath(editor.sceneRef, editor.context)) !== pathKeyFull(path)) { deps.hint(`进不去「${n.label}」（锁着的先解锁），没建子物体`); deps.after(); return; }
+    editor.newChild(kind, hex4()); deps.after();
+  };
   const openMenu = (n: HierNode, anchor: HTMLElement): void => {
     select(n);
-    openPopupMenu<string>({ anchor, align: "start", items: () => (n.kind === "root" ? ROOT_MENU : foldSubmenus(objectMenuItems(hud))), onPick: (id) => { hud.pick(id); deps.after(); } });
+    openPopupMenu<string>({ anchor, align: "start", items: () => [...(n.kind === "root" ? ROOT_MENU : foldSubmenus(objectMenuItems(hud))), ...newChildRow(n)], onPick: (id) => { const k = newChildKindOf(id); if (k) { newChildIn(n, k); return; } hud.pick(id); deps.after(); } });
   };
 
   /** 展开 / 收起；合成那一行 = 手风琴：同一层一次只展开一组（user 10-30「可以做成手风琴展开，一次只能展开一个」）。 */

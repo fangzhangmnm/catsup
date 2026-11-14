@@ -16,7 +16,8 @@ import { actionById, routesOf } from "../editor/commands/registry.ts";
 import type { MenuSpec } from "./ui/menu-window.ts";
 import type { AttributeRow } from "../scene/attribute-list.ts";
 import { bytesSay, typeSay } from "./attribute-names.ts";
-import { castChoices, kindPageOf, type KindPageRow } from "./kind-pages.ts";
+import { castChoices, kindPageOf, newChildChoices, newChildKindOf, type KindPageRow } from "./kind-pages.ts";
+import { hex4 } from "../config.ts";
 import { CAST_ACTIONS } from "../editor/objects/index.ts";
 import type { ParamValue } from "../editor/param-panel.ts";
 
@@ -59,6 +60,8 @@ export function objectWindowMenu(editor: Editor, hud: HudModel, target: ObjectTa
       const def = soleDef(editor, target);
       const hit = def === undefined ? null : fieldChoice(kindPageOf(editor, def).fields({ editor, def }), id);   // 种类自己的字段：选项 id = 「字段键:值」
       if (hit) { if (!hit.row.off) hit.row.set(hit.value); after(); return "keep"; }
+      { const k = newChildKindOf(id); if (k) { editor.newChild(k, hex4()); after(); return; } }   // 新建子物体：进到新的那一层 = 窗口关掉
+      if (id === "addParent") { editor.addParent(target, hex4()); after(); return; }
       if (id.startsWith("action:")) { editor.withMenuTarget(target, () => hud.pick(id)); after(); return; }   // 单位只在 runAction 开头取一次 → 马后炮重做也用同一批（跑完目标恢复成选区没关系）
       return "keep";
     },
@@ -84,7 +87,11 @@ export function objectWindowItems(editor: Editor, target: ObjectTarget): PopupMe
   const own = (kindTab ? acts.filter((m) => objectFamily(m.id)) : acts).filter((m) => !casts || !castIds.has(m.id)), kinds = kindTab ? acts.filter((m) => !objectFamily(m.id)) : [];
   // 切换种类 ›（第 1 版第五节第 4 条）：一个物体时 = 列出能切到的每一种、右边说丢什么、走不通的灰掉写原因；选了好几个 = 照旧平铺的转换动作
   const castRow: PopupMenuItem<string>[] = casts?.length ? [{ id: "cast", label: "切换种类", icon: "object", children: casts.map((c) => ({ id: `action:${c.action}`, label: c.label, hint: c.off ?? c.hint, ...(c.off ? { disabled: true } : {}) })) }] : [];
-  const out: PopupMenuItem<string>[] = [{ id: "who", label: who.title, note: true, tab: "object" }, ...[...castRow, ...foldSubmenus(actionItems(own))].map((it) => ({ ...it, tab: "object" }))];   // 第一行：设置的是谁
+  // 新建子物体 ›（第 1 版第五节第 5 条）：只在「这一层」（新的孩子长在你所在的这一层、落在它的原点，建完直接进去）；选中的子物体那一份没有
+  const newRow: PopupMenuItem<string>[] = target === "self" ? [{ id: "newChild", label: "新建子物体", icon: "object", children: newChildChoices().map((c) => ({ id: c.id, label: c.label })) }] : [];
+  // 创建父物体（第 1 版第五节第 7 条；和切换种类是两个按钮）：新父亲 = 空物体，这个物体整个放到它下面、位置不动；做不了 = 灰掉写原因
+  const parentWhy = editor.addParentWhy(target), parentRow: PopupMenuItem<string>[] = [{ id: "addParent", label: "创建父物体", icon: "object", ...(parentWhy ? { disabled: true, hint: parentWhy } : {}) }];
+  const out: PopupMenuItem<string>[] = [{ id: "who", label: who.title, note: true, tab: "object" }, ...[...castRow, ...parentRow, ...newRow, ...foldSubmenus(actionItems(own))].map((it) => ({ ...it, tab: "object" }))];   // 第一行：设置的是谁
   if (!kindTab) return out;
   const fields = def === undefined ? [] : kindPageOf(editor, def).fields({ editor, def });   // 这个种类自己报的字段（网格体 = 对称 + 镜像面）
   out.push(...[...fields.map(fieldItem), ...foldSubmenus(actionItems(kinds))].map((it) => ({ ...it, tab: "kind" })));

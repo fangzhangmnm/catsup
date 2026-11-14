@@ -15,6 +15,7 @@ import { brepAttrName, meshAttrName } from "./attribute-names.ts";
 import { KINDS, canCast, lossLabel } from "../scene/kinds.ts";
 import { BODY_KINDS } from "../scene/scene.ts";
 import { CAST_ACTIONS } from "../editor/objects/index.ts";
+import { NEW_CHILD_KINDS } from "../editor/objects/new-child.ts";
 import { bodyEmpty } from "../editor/ops.ts";
 import { faceMaterial } from "../mesh/reserved-columns.ts";
 
@@ -104,3 +105,7 @@ export function castChoices(editor: Editor, def: number): CastChoice[] {
   });
 }
 export const kindPageOf = (editor: Editor, def: number): KindPage => KIND_PAGES[editor.kindOfDef(def)];
+
+/** 「新建子物体 ›」的几项（第 1 版第五节第 5 条）：id = newChild:<种类>、字 = 种类给人看的名字；三个入口（右键 / 物体窗口 / 层级窗口）同一份，窗口那一层不认识种类。 */
+export const newChildChoices = (): readonly { readonly id: string; readonly kind: BodyKind; readonly label: string }[] => NEW_CHILD_KINDS.map((k) => ({ id: `newChild:${k}`, kind: k, label: KINDS[k].noun }));
+export const newChildKindOf = (id: string): BodyKind | null => newChildChoices().find((c) => c.id === id)?.kind ?? null;

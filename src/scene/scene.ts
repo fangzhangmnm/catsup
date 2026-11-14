@@ -268,12 +268,13 @@ export class Scene {
    * 上下文的坐标架（世界坐标）= 推断引擎的「纸的边」（0.11 尺规纪元 ①；DT86 叫「坐标架」）：根 = 绘图轴；进了 group = 那个 group 的坐标架；
    * 进了组件实例 = 那个 definition 的坐标架（没摆过 = 组件原点）——都乘上链上的实例变换。
    */
-  frameOfContext(ctx: EditContext): Frame {
-    const m = this.xformOfContext(ctx);
-    if (ctx.group !== null) return transformFrame(m, this.group({ def: this.defOfContext(ctx), group: ctx.group }).axes);
+  frameOfContext(ctx: EditContext): Frame { return ctx.group === null && !ctx.chain.length ? this.axes : transformFrame(this.xformOfContext(ctx), this.localFrameOfContext(ctx)); }
+  /** 同一个坐标架、在这一层自己的坐标里（= frameOfContext 去掉链上的实例变换）：新建子物体的朝向 / 原点（第 1 版第五节第 5 条）。 */
+  localFrameOfContext(ctx: EditContext): Frame {
+    if (ctx.group !== null) return this.group({ def: this.defOfContext(ctx), group: ctx.group }).axes;
     if (!ctx.chain.length) return this.axes;
     const body = this.def(this.defOfContext(ctx)).body;
-    return transformFrame(m, (body.kind === "brep" ? body.drawFrame : undefined) ?? WORLD_FRAME);
+    return (body.kind === "brep" ? body.drawFrame : undefined) ?? WORLD_FRAME;
   }
   /** 一串实例链最里面那个组件的原点（世界坐标；= 它的定义坐标系经链上变换）。根 = 世界帧。 */
   originOfChain(chain: readonly InstId[]): Frame { return transformFrame(this.xformOfContext({ chain, group: null }), WORLD_FRAME); }

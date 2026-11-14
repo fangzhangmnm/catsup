@@ -21,7 +21,7 @@ export const MIRROR_OP_CLASS = {
   // 之后在另一边做一步就被当成「另一半」删掉（11-09 真 app：左边贴进一张面，再在右边挪一个点，贴的那张没了）。现在编辑器按「内核版本号变没变」判（不看名字），这里登记是给人看 + 给守卫逼新 op 想一下。
   paste: "topo", mergeObject: "topo", explode: "topo", separateObject: "topo", plugin: "topo", makeComponent: "topo",
   setAxes: "whole",   // 换原点：会让模型整个对镜像面挪位——强行对称下先在拷贝上试，不对称就问（editor.ts forceOriginAsk = 第 1 层）
-  castDefinition: "meta", setHidden: "meta", unhideAll: "meta",   // 换身体种类 / 只改看法（隐藏不算对称）：从不对称化
+  castDefinition: "meta", addChild: "meta", addParent: "meta", setHidden: "meta", unhideAll: "meta",   // 换身体种类 / 只改看法（隐藏不算对称）：从不对称化
 } as const satisfies Readonly<Record<string, MirrorOpClass>>;
 export type MeshOpName = keyof typeof MIRROR_OP_CLASS;
 /**

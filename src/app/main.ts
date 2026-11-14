@@ -25,6 +25,7 @@ import { type ChoiceOption, multiSummary, openMultiSelect } from "./ui/choice-la
 import { ARC_MODES } from "../editor/arc-build.ts";
 import { APP_VERSION } from "../version.ts";
 import { DOC_EXT, downloadName, hex4 } from "../config.ts";
+import { newChildChoices, newChildKindOf } from "./kind-pages.ts";
 import { mountContextBar } from "./context-bar.ts";
 import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
@@ -403,7 +404,8 @@ const hud: HudModel = {
     { id: "invert", layer: "geometry", label: "反选", icon: "selection-invert", hidden: !editor.hasAnySelection() },   // Blender Ctrl+I（user 10-26「我们现在选择有shift之类的多选，反选吗」）
     { id: "deselect", layer: "geometry", label: "取消选择", icon: "x", hidden: !editor.hasAnySelection() },
     // 右键新建（FM120）：刚右键过就露（落点 = 右键那一点，吸点 / 面 / 原点 / 地面）；网格体里 = 长进这个网格体，别处 = 新的网格体组件。图标暂用 object（图标库没有基本体的图标）
-    ...(Object.keys(PRIMITIVES) as PrimitiveKind[]).map((k): HudItem => { const n = PRIMITIVES[k].label; return { id: `new:${k}`, layer: "empty", label: `新建${n}`, icon: "object", hidden: !editor.contextNewAllowed(), submenu: { label: "新建", item: n } }; }),   // 右键菜单里收进「新建 ›」子菜单（user 10-27「新建能不能收到一个子菜单里面」）   // user 2026-10-24「有东西选择的时候应该永远有取消选择的上下文胶囊」
+    ...(Object.keys(PRIMITIVES) as PrimitiveKind[]).map((k): HudItem => { const n = PRIMITIVES[k].label; return { id: `new:${k}`, layer: "empty", label: `新建${n}`, icon: "object", hidden: !editor.contextNewAllowed(), submenu: { label: "新建", item: n } }; }),
+    ...newChildChoices().map((c): HudItem => ({ id: c.id, layer: "here", label: `新建子物体：${c.label}`, icon: "object", submenu: { label: "新建子物体", item: c.label } })),   // 第 1 版第五节第 5 条：右键点在哪都在（落点 = 右键那一下；空白 = 这一层的原点），建完直接进去   // 右键菜单里收进「新建 ›」子菜单（user 10-27「新建能不能收到一个子菜单里面」）   // user 2026-10-24「有东西选择的时候应该永远有取消选择的上下文胶囊」
   ]; },
   vr: (): HudItem[] => [
     { id: "noclip", label: locomotion.noclip ? "飞行中" : "穿墙飞行", active: locomotion.noclip },
@@ -418,6 +420,7 @@ const hud: HudModel = {
     if (id === "action:shelve") { void shelfActions.putSelected(); return; }   // 没起名的先问名字（动作层，shelf-actions.ts）
     if (id.startsWith("action:")) { editor.runAction(id.slice("action:".length)); return; }
     if (id.startsWith("new:")) { editor.addPrimitive(id.slice(4) as PrimitiveKind); syncUi(); return; }
+    { const k = newChildKindOf(id); if (k) { editor.newChild(k, hex4(), "pointer"); syncUi(); return; } }   // 新建子物体（右键那一份；物体窗口 / 层级窗口各自调、落在原点）
     if (id === "objectWindowSelf") { objectBtn.click(); return; }   // 空处菜单的「物件设置…」= 这一层（左上物件钮那一份）
     if (id === "objectWindow") { openObjectWindow(editor, hud, "children", objectBtn, { after: syncUi, openMachine: (m) => openMachineBoard(m, objectBtn) }, "start"); return; }   // 子组件物体菜单 / 浮条的「物体设置…」：窗口的家 = 右边物体钮
     switch (id) {

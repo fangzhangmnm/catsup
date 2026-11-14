@@ -13,7 +13,7 @@ import type { ImportScene } from "../src/format/gltf-import.ts";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox } from "../src/mesh/ops/index.ts";
 import { edgeSmooth, edgeSoft } from "../src/mesh/edge-smooth.ts";
-import { oneSided, sceneBox } from "./format-scenes.ts";
+import { oneSided, sceneBox, sceneCylinder } from "./format-scenes.ts";
 import { IDENTITY } from "../src/scene/xform.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
@@ -40,7 +40,11 @@ describe("物件族：转成网格体 / 转回 SU 体", () => {
     const u: ObjectUnit = { kind: "object", at: { def: s.root, group: null }, instance: [...s.def(s.root).instances.keys()][0], def: d.id, name: "盒", body: "brep", copies: 2, xf: IDENTITY };
     const r = toMesh.plan(env(s), u, {});
     eq(r.count, 1); eq(r.ops[0].op, "castDefinition");
-    assert(r.notes!.some((n) => /2 份实例/.test(n)) && r.notes!.some((n) => /丢掉/.test(n)), `披露：${r.notes!.join(" / ")}`);
+    assert(r.notes!.some((n) => /2 份实例/.test(n)), `披露：${r.notes!.join(" / ")}`);
+    assert(!r.notes!.some((n) => /丢掉/.test(n)), `方块转网格体不丢东西 = 不说丢（硬表面的规矩转回来照回来，第五节 4½）：${r.notes!.join(" / ")}`);
+    { const s3 = new Scene(sceneBox()), c = s3.mintDef("柱", sceneCylinder()); s3.mintInstance(s3.root, null, c.id, IDENTITY);
+      const r3 = toMesh.plan(env(s3), { ...u, at: { def: s3.root, group: null }, instance: [...s3.def(s3.root).instances.keys()][0], def: c.id, name: "柱", copies: 1 }, {});
+      assert(r3.notes!.some((n) => /丢掉：.*曲线实体/.test(n)), `圆柱转网格体说丢了曲线：${r3.notes!.join(" / ")}`); }
     const s2 = applyOp(s, r.ops[0]).scene;
     eq(s2.kindOf(d.id), "mesh");
     const r2 = toMesh.plan(env(s2), { ...u, body: "mesh" }, {});

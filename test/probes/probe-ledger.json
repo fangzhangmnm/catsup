@@ -95,6 +95,7 @@
   "probe-hier-display.mjs": {"state":"green"},
   "probe-move-to.mjs": {"state":"green"},
   "probe-empty-object.mjs": {"state":"green"},
+  "probe-new-child.mjs": {"state":"green"},
   "probe-object-pages.mjs": {"state":"green"},
   "probe-make-face.mjs": {"state":"green"},
   "probe-make-nest.mjs": {"state":"green"},

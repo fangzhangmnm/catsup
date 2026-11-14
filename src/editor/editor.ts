@@ -24,7 +24,7 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { GuideSelection } from "./guide-selection.ts";
 import { describeEvent } from "./describe-event.ts";
-import { bornThisGesture } from "./born-this-gesture.ts"; import { REACH } from "./reach-table.ts"; import { softEdgesOf, vertDotsOf } from "./edit-marks.ts"; import { planMove, type MoveDest } from "./objects/move-to.ts";
+import { bornThisGesture } from "./born-this-gesture.ts"; import { REACH } from "./reach-table.ts"; import { softEdgesOf, vertDotsOf } from "./edit-marks.ts"; import { planMove, type MoveDest } from "./objects/move-to.ts"; import { newChildOp } from "./objects/new-child.ts"; import { planAddParent } from "./objects/add-parent.ts";
 import { snapHoldTol } from "./snap-hysteresis.ts";
 import { type ForceEnv, forceSideFor, forcesOn, originNeedsAsk } from "./mirror-force.ts";
 import { type FreedBase, type UpkeepSnaps, freedBaseline, freedOp, upkeepAfter, upkeepRewrite, upkeepSnapshot } from "./paint-upkeep.ts";   // 每一步做完的收尾 = 强行对称 + 画的位置（1-3b）
@@ -260,8 +260,7 @@ export class Editor {
   setGrid(patch: Partial<GridSettings>, fromDoc = false): void {   // fromDoc = 读盘 / 新建（整份照文档的换）；平时开关落在当前工作台那一份
     const was = this.gridState.doc; this.gridState.set(this.mode.id, patch, fromDoc); setUnitSystem(this.gridState.doc.system);   // 读数 / 输入跟着单位制（units.ts）
     this.viewCache = null; if (!fromDoc && gridDocChanged(was, this.gridState.doc)) this._settingsRev++;   // 文件里那一份变了 = 算改过（统筹 11-12：只改设置就关掉不许悄悄丢；不进撤销）；自由建模自己那份开关不进文件、不算
-    this.host.changed();
-    this.draw();
+    this.host.changed(); this.draw();
   }
   private history = new History<Session>(undefined, { onLeak: (w) => this.host?.trace?.({ kind: "fail", where: "history", op: null, message: `停放的重做尾巴漏到了「${w}」（已丢掉）` }) });
   /** 上一次经过选区口子 / 装场景时的会话：选区变了 = 记一步「只改选区」（撤销也撤选区，user 10-27「这个我们要」；连续几下不合并，Blender 同款）。上下文变了（进 / 出组件）不算选区步，只刷新。 */
@@ -298,8 +297,7 @@ export class Editor {
     if (!next.tools.includes(this._tool)) { this._tool = this.locked && !isReadOnlyTool(next.defaultTool) && "tool" in next.whenLocked ? next.whenLocked.tool : next.defaultTool; this.btnLock = NO_LOCK; } this.hold.apply({ e: "take", tool: this._tool });   // 锁着：照这个工作台声明的只读工具（v0.19.48）
     this.last = null;
     this.clearCharged();
-    this.host.changed();
-    this.draw();
+    this.host.changed(); this.draw();
     });   // 一个用户动作 = 一步（2026-10-28：通行证逼出来的漏包入口）
   }
   private get handlers(): Partial<Record<Tool, ToolHandler>> { return this.mode.handlers; }
@@ -2512,15 +2510,16 @@ export class Editor {
       const kind = this.scene.kindOf(inst.def);
       if (!KINDS[kind].modes.length || !this.modeList.some((m) => (m.kinds as readonly BodyKind[]).includes(kind))) { this.host.hint(`${KINDS[kind].label}：还没有能编辑它的工作台，现在只能整体挪 / 转 / 缩`); return; }
     }
-    this.last = null;
-    this.cancelGesture();
-    this.clearSel(pass);
-    this.setCtx(pass, p.kind === "group" ? { chain: this.ctx.chain, group: p.group } : { chain: [...this.ctx.chain, p.instance], group: null });
-    this.selection = this.blankSelection();   // 上下文定了再造（选区的 id 空间 = 活动池的种类；写口已标过）；工作台在 setCtx 里已经跟上
-    this.viewChanged();   // 进组件 = 只换看法，文件不变（统筹 11-12）
-    this.host.changed(); this.draw();
+    this.enterIn(pass, p.kind === "group" ? { chain: this.ctx.chain, group: p.group } : { chain: [...this.ctx.chain, p.instance], group: null });
     });
   }
+  /** 进到 ctx 那一层（进组 / 进组件 / 新建子物体之后进去，同一段）：选区在上下文定了再造（id 空间 = 活动池的种类），工作台在 setCtx 里跟上；只换看法，文件不变（统筹 11-12）。 */
+  private enterIn(pass: StepPass, ctx: EditContext): void { this.last = null; this.cancelGesture(); this.clearSel(pass); this.setCtx(pass, ctx); this.selection = this.blankSelection(); this.viewChanged(); this.host.changed(); this.draw(); }   // 选区：写口已标过（clearSel / setCtx 在前）
+  /** 创建父物体（第 1 版第五节第 7 条；objects/add-parent.ts）：children = 选中的那一个子物体（做完选中新父亲）/ self = 你所在的这一层（人留在它里面）；一步撤销。addParentWhy = 现在做不了的原因（物体窗口灰掉写它）。 */
+  addParent(target: "self" | "children", name: string): boolean { return this.step((pass) => { const p = planAddParent(this.scene, this.ctx, target === "self" ? null : this.instancePicks(), name); if ("why" in p) { this.host.hint(p.why); return false; } this.commitIn(pass, p.op); const par = [...this.scene.def(p.op.at.def).instances.values()].find((i) => i.guid === p.op.inst), kid = par && [...this.scene.def(par.def).instances.values()][0]; if (!par || !kid) return false; if (target === "self") this.setCtx(pass, { chain: [...this.ctx.chain.slice(0, -1), par.id, kid.id], group: null }); else { this.clearSel(pass); this.selectedPools.set(`i${par.id}`, { kind: "instance", instance: par.id }); } this.host.hint(`创建了父物体「${name}」（空物体）：「${this.scene.def(kid.def).name}」整个在它下面，位置不动（撤销一步 = 没建）`); this.host.changed(); this.draw(); return true; }); }
+  addParentWhy(target: "self" | "children"): string | null { const p = planAddParent(this.scene, this.ctx, target === "self" ? null : this.instancePicks(), ""); return "why" in p ? p.why : null; }
+  /** 新建子物体（第 1 版第五节第 5 条；落点 / 朝向 = objects/new-child.ts）：这一层铸一个空的子物体、直接进去，一步撤销。where = pointer：右键那一下点在点 / 边 / 面上就落在那一点，别处 = 这一层的原点。 */
+  newChild(kind: BodyKind, name: string, where?: "pointer"): boolean { return this.step((pass) => { const A = where === "pointer" && this.ctxPick && !this.ctxPick.blank ? this.newObjectAnchor() : null, op = newChildOp(this.scene, this.ctx, this.activePool(), A && ["点", "边", "面"].includes(A.on) ? A.p : null, kind, name); this.commitIn(pass, op); const inst = [...this.scene.def(op.at.def).instances.values()].find((i) => i.guid === op.inst); if (!inst) return false; this.enterIn(pass, { chain: [...this.ctx.chain, inst.id], group: null }); this.host.hint(`新建了${KINDS[kind].noun}「${name}」，已经进到它里面（撤销一步 = 没建）`); return true; }); }
   enterSelected(): boolean {
     const p = [...this.selectedPools.values()][0];
     if (!p) return false;

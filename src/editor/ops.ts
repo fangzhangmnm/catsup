@@ -143,6 +143,10 @@ export type Op =
   // ---------- 0.14 物体模型（契约 ai-docs/20261024-object-model-contract.md）----------
   /** 显式换身体种类（定义级：共享定义的全部实例一起变）；只认 kinds.ts 登记表里的方向，失败不改文档。 */
   | { op: "castDefinition"; def: number; to: BodyKind; /** mesh → brep：弯折不到这个角度的边算软边（度；缺 = 20）。 */ softDeg?: number }
+  /** 新建子物体（第 1 版第五节第 5 条）：在 at 那一层新铸一个空的定义（种类 = kind）+ 摆一份；不碰这一层已有的任何东西。两个 GUID 写在指令里（后面进去、撤销重做、重放都按它认）；xform = 这一层坐标里的摆放。 */
+  | { op: "addChild"; at: PoolRef; kind: BodyKind; name: string; xform: Xform; def: Guid; inst: Guid }
+  /** 创建父物体（第 1 版第五节第 7 条；editor/objects/add-parent.ts）：at 那一层里的那一份（instance）整个放进一个新的空物体，世界位置不动；新父亲 = 孩子的原点和轴（缩放留在孩子身上），顶替孩子在兄弟里那一格；孩子的身份不变。 */
+  | { op: "addParent"; at: PoolRef; instance: number; name: string; def: Guid; inst: Guid }
   // ---------- mesh 族（0.15 网格体；2026-10-27 接缝）：网格体没有组，寻址 = 定义 + 内核 id（数组制度：id 稳定、克隆保号，不用按坐标寻址）----------
   /** 挪网格点：往位置数组里写（mesh/ops/geometry.ts moveVerts）。不过结算机、不合并、不折面——mesh 刻意没有 brep 的公理。 */
   | { op: "meshMove"; def: number; moves: { v: number; to: Pt3 }[] }
@@ -340,6 +344,8 @@ function retransformDefinition(s: Scene, def: number, M: Xform): FaceEvent[] {
   return events;
 }
 /** 帧的三轴重新正交归一（x 定向，y 去掉 x 分量，z = x × y）。 */
+/** 指令里写着的身份已经有人用了（定义或任何一份摆放）。 */
+const guidTaken = (s: Scene, ...gs: readonly Guid[]): boolean => gs.some((g) => !!s.defByGuid(g) || [...s.defs.values()].some((d) => [...d.instances.values()].some((i) => i.guid === g)));
 function orthonormalFrame(f: Frame): Frame {
   const x = normalize3(f.x), y = normalize3(sub3(f.y, scale3(x, dot3(f.y, x)))), z = { x: x.y * y.z - x.z * y.y, y: x.z * y.x - x.x * y.z, z: x.x * y.y - x.y * y.x };
   return { origin: f.origin, x, y, z };
@@ -910,6 +916,33 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       d.body = body;
       return { scene: s, events: [] };
     }
+    case "addChild": {
+      const d0 = s.def(op.at.def);
+      if (op.at.group !== null && (d0.body.kind !== "brep" || !d0.body.groups.has(op.at.group))) throw new OpTargetError(`group ${op.at.group}`);
+      if (guidTaken(s, op.def, op.inst)) throw new OpTargetError(`addChild: guid taken`);   // 指令里的身份已被占 = 程序错误（重放 / 拼错），不另铸
+      const def = s.mintDef(op.name, new Kernel(), op.def);
+      if (op.kind !== "empty") def.body = castBody({ kind: "empty", materialSlots: [] }, op.kind).body;   // 一份空的身体：走登记表「空物体 → X」那一条（和切换种类同一个出生）
+      else def.body = { kind: "empty", materialSlots: [] };
+      s.mintInstance(op.at.def, op.at.group, def.id, op.xform, op.inst);
+      return { scene: s, events: [] };
+    }
+    case "addParent": {
+      const d0 = s.def(op.at.def), kid = d0.instances.get(op.instance);
+      if (!kid || kid.parent !== op.at.group) throw new OpTargetError(`instance ${op.instance}`);
+      if (guidTaken(s, op.def, op.inst)) throw new OpTargetError(`addParent: guid taken`);
+      const px = frameToXform(orthonormalFrame(transformFrame(kid.xform, WORLD_FRAME)));   // 孩子的原点 + 轴（去掉缩放）
+      const def = s.mintDef(op.name, new Kernel(), op.def);
+      def.body = { kind: "empty", materialSlots: [] };
+      const moved = s.mintInstance(def.id, null, kid.def, compose(invert(px), kid.xform), kid.guid);   // 搬家保身份（ID-2）；锁 / 藏 / 图层 / 自己的名字是这一份的，跟着它
+      if (kid.name !== undefined) moved.name = kid.name;
+      if (kid.locked) moved.locked = true;
+      if (kid.layer !== undefined) moved.layer = kid.layer;
+      if (kid.hidden) moved.hidden = true;
+      const slot = [...d0.instances.keys()].indexOf(kid.id);
+      d0.instances.delete(kid.id);
+      placeAmongSiblings(d0, s.mintInstance(op.at.def, op.at.group, def.id, px, op.inst).id, slot);   // 顶替孩子那一格（同级顺序 = 存盘顺序）
+      return { scene: s, events: [] };
+    }
     case "shelfPut": case "shelfTake": case "shelfMove": case "shelfFolderAdd": case "shelfFolderRename": case "shelfFolderRemove": return applyShelfOp(s, op);
     case "addLayer": { const id = s.nextLayer++; s.layers.push({ id, guid: mintGuid(), name: op.name, visible: true, ...(op.color ? { color: op.color } : {}) }); return { scene: s, events: [] }; }
     case "renameLayer": { const l = s.layers.find((x) => x.id === op.layer); if (!l) throw new OpTargetError(`layer ${op.layer}`); l.name = op.name; return { scene: s, events: [] }; }
@@ -959,6 +992,8 @@ export function describeOp(op: Op): string {
     case "explodeCurves": return `explodeCurves n=${op.edges.length}${at}`;
     case "weldEdges": return `weldEdges n=${op.edges.length}${at}`;
     case "castDefinition": return `castDefinition def=${op.def} → ${op.to}`;
+    case "addParent": return `addParent instance=${op.instance} "${op.name}" def=${op.def.slice(0, 8)} at=${op.at.def}/${op.at.group ?? "root"}`;
+    case "addChild": return `addChild ${op.kind} "${op.name}" def=${op.def.slice(0, 8)} inst=${op.inst.slice(0, 8)} at=${op.at.def}/${op.at.group ?? "root"}`;
     case "meshAddPrimitive": return `meshAddPrimitive def=${op.def} ${op.kind}`;
     case "meshInset": return `meshInset def=${op.def} faces=${op.faces.length} d=${op.dist.toFixed(4)}`;
     case "meshBevel": return `meshBevel def=${op.def} edges=${op.edges.length} w=${op.width.toFixed(4)} seg=${op.segments}`;

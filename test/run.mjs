@@ -40,6 +40,8 @@ import "./reach-table.test.ts";   // 层级显示二½：这一档只算一处 +
 import "./kind-pages.test.ts";   // 第 1 版第五节第 1 条：物体窗口不认识种类，种类那一块进登记表（2026-11-13 Opus）
 import "./drop-paint.test.ts";   // 第 1 版第五节 2½：把画拿掉 = 物体退出这张画（2026-11-13 Opus）
 import "./cast-losses.test.ts";   // 第 1 版第五节 4½：换种类带不过去什么只算一处 + 载荷 × 方向的去向表（2026-11-13 Opus）
+import "./new-child.test.ts";   // 第 1 版第五节第 5 条：新建子物体（指令 addChild + 落点 / 朝向）（2026-11-13 Opus）
+import "./add-parent.test.ts";   // 第 1 版第五节第 7 条：创建父物体（指令 addParent + 规划）（2026-11-13 Opus）
 import "./hide.test.ts";   // DT49 隐藏 / 全部显示（2026-10-25 Opus）
 import "./flat-soft-merge.test.ts";   // 共面软边自动并掉的两处判法（统筹 11-13，Opus）
 import "./axis-constraint.test.ts";   // 轴键的约束：对照表 = 规矩（锁的一轮第一步，2026-11-13 Opus）

@@ -16,8 +16,9 @@ export interface HudItem {
   /**
    * 属于哪一层（菜单显示什么 = selection-actions.ts；UX 心智模型 §2.2，user 10-28「object级别的上下文菜单但你在选择东西编辑的时候能不能不要污染」）：
    * geometry = 几何层（选区的右键 / 浮条）；child = 选中的子物体（组件 → 物体菜单；组照旧在几何层菜单里，组不是物体）；self = 这一层的（物体窗口）；empty = 空处右键（新建 / 回上一层）。缺 = 不进任何右键。
+   * here = 这一层的动词、右键点在哪都在（空处菜单和几何菜单都有，落点 = 右键那一下；物体菜单和笔 / 手指的浮条没有）：新建子物体（第 1 版第五节第 5 条）。
    */
-  layer?: "geometry" | "child" | "self" | "empty";
+  layer?: "geometry" | "child" | "self" | "empty" | "here";
 }
 
 export interface HudModel {
