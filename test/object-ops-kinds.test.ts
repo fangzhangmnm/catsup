@@ -4,7 +4,9 @@
 // 2026-10-30 Opus 5.5：「组件没了」改成「这一份没了、定义照留」（user「为什么删实例会有删组件定义的风险？这个风险就不应该有」；以前这里钉的是删定义）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Scene } from "../src/scene/scene.ts";
-import { applyOp, OpTargetError } from "../src/editor/ops.ts";
+import { Kernel } from "../src/kernel/kernel.ts";
+import { applyOp, OpTargetError, faceKey, edgeKey } from "../src/editor/ops.ts";
+import { translation } from "../src/scene/xform.ts";
 import { sceneBox } from "./format-scenes.ts";
 
 type Kind = "brep" | "mesh";
@@ -54,7 +56,7 @@ describe("物件级 op × 身体种类（炸开 / 建组件 / 合并）", () => 
     void i0;
   });
   // user 10-30「选择多个组件（没有几何）的时候应该也可以打包成一个新组件」：两种外层都能把几份组件装进一个新组件，世界里的点一个不动
-  for (const host of ["brep", "mesh"] as Kind[]) it(`只选组件建组件：外面 ${host} → 两份装进一个新组件（身体 = ${host}，进去还是同一个工作台）、世界里的点不动、原来那层只剩新的一份`, () => {
+  for (const host of ["brep", "mesh"] as Kind[]) it(`只选组件建组件：外面 ${host} → 两份装进一个新组件（硬表面里 = 硬表面、里面能接着画；网格体里 = 空物体，第 1 版第四节第 5 条）、世界里的点不动、原来那层只剩新的一份`, () => {
     const { s, comp } = setup("brep", "brep");
     const root = { def: s.root, group: null };
     applyOp(s, { op: "placeInstance", at: root, definition: comp, xform: [1, 0, 0, 5, 0, 1, 0, 2, 0, 0, 1, 0] });   // 摆第二份（placeInstance 只认硬表面那一层），再转外层
@@ -64,9 +66,24 @@ describe("物件级 op × 身体种类（炸开 / 建组件 / 合并）", () => 
     applyOp(s, { op: "makeComponent", at: root, faces: [], edges: [], name: "wheel", instances: ids });
     const top = [...s.def(s.root).instances.values()];
     eq(top.length, 1); const nd = top[0].def;
-    eq(s.def(nd).name, "wheel"); eq(s.kindOf(nd), host); eq(s.def(nd).instances.size, 2);
+    eq(s.def(nd).name, "wheel"); eq(s.kindOf(nd), host === "brep" ? "brep" : "empty"); eq(s.def(nd).instances.size, 2);
     assert([...s.def(nd).instances.values()].every((i) => i.def === comp), "装进去的还是原来那个组件定义（没复制）");
     eq(pts(), before, "世界里的点一个不动");
+  });
+});
+describe("换原点（setAxes 落在定义根上）× 身体种类：世界里一点不动", () => {
+  for (const kind of ["brep", "mesh", "empty"] as const) it(`${kind} 定义里装着一个子物体，换原点之后子物体世界位置不变（2026-11-13：网格体这一支以前漏乘子物体、空物体以前被拒）`, () => {
+    let s = new Scene(sceneBox(1, 1));
+    const R = { def: s.root, group: null }, k = s.kernelOf(R);
+    s = applyOp(s, { op: "makeComponent", at: R, faces: k.faces().map((f) => faceKey(k, f.id)), edges: k.edges().map((e) => edgeKey(k, e.id)), name: "盒" }).scene;
+    const box = [...s.defs.keys()].find((id) => id !== s.root)!, P = s.mintDef("P", new Kernel());
+    if (kind === "mesh") s = applyOp(s, { op: "castDefinition", def: P.id, to: "mesh" }).scene; else if (kind === "empty") P.body = { kind: "empty", materialSlots: [] };
+    s.mintInstance(P.id, null, box, translation({ x: 0, y: 0, z: 1 }));
+    s.mintInstance(s.root, null, P.id, translation({ x: 3, y: 0, z: 0 }));
+    const pts = (): string => s.pointsOfDef(s.root).map((p) => `${p.x.toFixed(6)},${p.y.toFixed(6)},${p.z.toFixed(6)}`).sort().join(";");
+    const before = pts();
+    s = applyOp(s, { op: "setAxes", at: { def: P.id, group: null }, frame: { origin: { x: 0.5, y: 0.5, z: 0 }, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } }).scene;
+    eq(s.kindOf(P.id), kind); eq(pts(), before, "世界里的点一个不动");
   });
 });
 void OpTargetError;

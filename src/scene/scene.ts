@@ -72,8 +72,9 @@ export type UvSetRow = UvSetDoc;   // 形状 = 文件里排法表的一行（for
 export const uvSetAutoPlaces = (r: UvSetRow): boolean => (r.fit === "density" || r.fit === "size") && !(r.extra && typeof r.extra.json === "object" && r.extra.json !== null && "freed" in (r.extra.json as Record<string, unknown>));
 export interface MeshBody { readonly kind: "mesh"; kernel: MeshKernel; materialSlots: number[]; /** 贴图坐标的速查表：短代号 → 排法 GUID（施工单十八第 1½ 刀；scene/uv.ts）。 */ uvSetSlots: Guid[]; }
 /** 空物体（第 1 版第四节；2026-11-13 Claude Opus 5.5）：没有几何，只装子物体（定义上的 instances）。materialSlots 永远是空表（通用的「每个定义的槽表」那几处照常走、不用为它分路）。 */
-/** 空物体的池看到的东西：一份共用、永远空的硬表面内核（只当视图用；改它 = 程序错误）。 */
-const EMPTY_VIEW: KernelView = new Kernel();
+/** 空物体的池看到的东西：一份共用、永远空的硬表面内核（只当视图用；改它 = 程序错误）。编辑器的 kernel 读口在空物体那一层也给它（摆放工作台的工具只挪子物体）。 */
+export const NO_GEOMETRY_KERNEL = new Kernel();
+const EMPTY_VIEW: KernelView = NO_GEOMETRY_KERNEL;
 export interface EmptyBody { readonly kind: "empty"; materialSlots: number[] }
 export type Body = BrepBody | MeshBody | EmptyBody;   // card 2026-10-24 sunset（body-kind.ts 头注释）
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
@@ -146,9 +147,10 @@ export class Scene {
     for (const i of d.instances.values()) out.push(...this.pointsOfDef(i.def, compose(m, i.xform), depth + 1));
     return out;
   }
-  /** 空定义（导入的空节点，T11）：brep、没顶点、没组、没实例——编辑器画小三轴代替几何（看得见、点得中）。 */
+  /** 什么都没装的定义（导入的空节点，T11）：空物体没有子物体；或老文件里的 brep、没顶点、没组、没实例（原样读，第 1 版第四节）——编辑器画小三轴代替几何（看得见、点得中）。 */
   isBare(defId: DefId): boolean {
     const d = this.defs.get(defId);
+    if (d?.body.kind === "empty") return d.instances.size === 0;
     if (!d || d.body.kind !== "brep") return false;
     return d.body.kernel.graph.vertexCount() === 0 && d.body.groups.size === 0 && d.instances.size === 0;
   }

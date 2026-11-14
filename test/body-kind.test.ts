@@ -10,6 +10,7 @@ import { writeCatsup, readCatsup, documentFromScene, sceneFromDocument } from ".
 import { decodeGlb, encodeGlb } from "../src/format/glb.ts";
 import { sceneBox } from "./format-scenes.ts";
 import { meshFromTriangles } from "../src/mesh/tri-soup.ts";
+import { KINDS, castBody } from "../src/scene/kinds.ts";
 
 describe("body kind: 对象层 / 内容层", () => {
   it("mintDef 默认 brep 身体；kindOf / brep() 取得到；BODY_KINDS 三个成员（brep / mesh / empty；card 已退场）", () => {
@@ -65,5 +66,29 @@ describe("body kind: 文件", () => {
     const back = readCatsup(encodeGlb(g.json as unknown as Record<string, unknown>, g.bin));
     eq(back.root.kind, "brep"); assert(!("card" in back.root), "card 键不许残留");
     eq(sceneFromDocument(back).kindOf(sceneFromDocument(back).root), "brep");
+  });
+});
+
+describe("空物体（第 1 版第四、五节）：转换 + 名字归登记表", () => {
+  it("每个种类都报给人看的名字（noun），互不相同", () => {
+    const nouns = BODY_KINDS.map((k) => KINDS[k].noun);
+    assert(nouns.every((n) => n.length > 0), nouns.join(","));
+    eq(new Set(nouns).size, nouns.length, "互不相同");
+  });
+  it("空物体 → 硬表面 / 网格体 = 一份空的身体；子物体照留", () => {
+    for (const to of ["brep", "mesh"] as const) {
+      const s = new Scene(sceneBox(1, 1)), P = s.mintDef("P", new Kernel());
+      P.body = { kind: "empty", materialSlots: [] };
+      s.mintInstance(P.id, null, s.root, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);   // 随便挂一份（只看子物体还在不在）
+      applyOp(s, { op: "castDefinition", def: P.id, to });
+      eq(s.kindOf(P.id), to); eq(s.def(P.id).instances.size, 1, "子物体照留");
+      assert(s.viewOf({ def: P.id, group: null }).faces().length === 0, "没有几何");
+    }
+  });
+  it("有几何的转空物体 = 明说拒绝（不悄悄丢）；没几何的转得过去", () => {
+    const sc = new Scene(sceneBox(1, 1)), full = { kind: "brep" as const, kernel: sc.kernelOf({ def: sc.root, group: null }), groups: new Map(), nextGroup: 1, materialSlots: [], guides: { lines: [], points: [], circles: [], spheres: [], next: 1 } };
+    let msg = ""; try { castBody(full, "empty"); } catch (e) { msg = String(e); }
+    assert(msg.includes("还有几何"), msg);
+    eq(castBody({ ...full, kernel: new Kernel() }, "empty").kind, "empty");
   });
 });

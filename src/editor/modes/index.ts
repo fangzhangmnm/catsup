@@ -7,9 +7,10 @@ import { SurfaceMode } from "./surface.ts";
 import { FreeformMode } from "./freeform.ts";
 import { VerifyMode } from "./verify.ts";
 import { PaintMode } from "./paint.ts";
+import { ObjectMode } from "./object.ts";
 
 /** 每个编辑器一份（工具模块有手势状态，不共用）。 */
-export function workbenches(): readonly Mode[] { return [new GeometryMode(), new SurfaceMode(), new FreeformMode(), new VerifyMode(), new PaintMode()]; }
+export function workbenches(): readonly Mode[] { return [new GeometryMode(), new SurfaceMode(), new FreeformMode(), new VerifyMode(), new PaintMode(), new ObjectMode()]; }
 /** 哪个工作台有这把工具、又管得了这种身体（kind = null：不看身体；among = 只在这几个里找；按工作台表的先后）。编辑器的 setTool 拒收时说在哪、明着跨工作台的调用方找去处都问它（统筹 11-11）。 */
 export function workbenchOf(list: readonly Mode[], t: Tool, kind: BodyKind | null, among?: readonly ModeId[]): Mode | undefined {
   return list.find((m) => (!among || among.includes(m.id)) && m.tools.includes(t) && (kind === null || (m.kinds as readonly BodyKind[]).includes(kind)));

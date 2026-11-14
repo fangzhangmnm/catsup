@@ -8,8 +8,10 @@ import { bodyEmpty } from "../ops.ts";
 import { invert } from "../../scene/xform.ts";
 import { isHex4 } from "../object-tree.ts";
 import { mintGuid } from "../../format/guid.ts";
+import { KINDS } from "../../scene/kinds.ts";
+import type { BodyKind } from "../../scene/body-kind.ts";
 
-const kindName = (k: string): string => (k === "mesh" ? "网格体" : "硬表面体");
+const kindName = (k: BodyKind): string => KINDS[k].noun;   // 名字归种类登记表（第 1 版第五节第 1 条）
 /** 这一份炸进 / 并进 hostDef 那一层要不要转种类。 */
 const needsCast = (env: CommandEnv, u: ObjectUnit, hostDef: number): boolean => env.scene.kindOf(hostDef) !== u.body && !bodyEmpty(env.scene.def(u.def).body);
 const askCast = (verb: string, what: string) => (env: CommandEnv, units: readonly ObjectUnit[], v: Params, hostDefOf: (u: ObjectUnit) => number | null) => {

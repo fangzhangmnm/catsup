@@ -240,10 +240,11 @@ export const TOOL_CYCLES: Readonly<Record<Chord, readonly Tool[]>> = { e: ["eras
  * 别处也不能靠工具键进画画（进画画要叫醒画板，只能明着进）。新加的工作台默认不在表里，要通才登记。
  */
 export const TOOL_KEY_JUMPS: Readonly<Partial<Record<ModeId, readonly ModeId[]>>> = {
-  geometry: ["freeform", "surface", "verify"],
-  freeform: ["geometry", "surface", "verify"],
-  surface: ["geometry", "freeform", "verify"],
-  verify: ["geometry", "freeform", "surface"],
+  geometry: ["freeform", "surface", "verify", "object"],
+  freeform: ["geometry", "surface", "verify", "object"],
+  surface: ["geometry", "freeform", "verify", "object"],
+  verify: ["geometry", "freeform", "surface", "object"],
+  object: ["geometry", "freeform", "surface", "verify"],   // 摆放（空物体，2026-11-13）：跳转照样按「管不管得了这种身体」筛——摆放只管空物体，别处的工具也管不了空物体，所以这两头实际上谁也跳不到谁；登记上是为了规矩只有一条
 };
 export interface ToolKey { readonly chord: Chord; readonly how: "pick" | "cycle" | "modal"; readonly label: string }
 /**

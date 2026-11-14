@@ -94,6 +94,7 @@
   "probe-axis-live-pick.mjs": {"state":"green"},
   "probe-hier-display.mjs": {"state":"green"},
   "probe-move-to.mjs": {"state":"green"},
+  "probe-empty-object.mjs": {"state":"green"},
   "probe-make-face.mjs": {"state":"green"},
   "probe-make-nest.mjs": {"state":"green"},
   "probe-make-planar.mjs": {"state":"green"},

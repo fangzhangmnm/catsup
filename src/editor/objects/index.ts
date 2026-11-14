@@ -17,7 +17,7 @@ export const toMesh: Command<ObjectUnit> = {
     const c = canCast(u.body, "mesh");
     if (!c.ok) return { ops: [], count: 0, skipped: 1, notes: [`「${u.name}」${c.why}`] };
     // 转换不问，只报（计划书 §9.2½ ②）：两侧都出 = 两张叠着的面（共用点，环切 / 平滑跨不过去，要合并用修复工具）；两侧都是默认背面 = 这张面没了
-    const sc = brepSideCounts(env.scene.brep(u.def));
+    const sc = u.body === "brep" ? brepSideCounts(env.scene.brep(u.def)) : { both: 0, differ: 0, neither: 0 };   // 空物体：没有面
     const sides = [...(sc.both ? [`「${u.name}」${sc.both} 张面两侧都出，转过去是叠着的两张（其中 ${sc.differ} 张两侧材质不同）；想只留一侧，先把另一侧涂成默认背面`] : []), ...(sc.neither ? [`「${u.name}」${sc.neither} 张面两侧都是默认背面，转过去就没了`] : [])];
     return { ops: [{ op: "castDefinition", def: u.def, to: "mesh" }], count: 1, notes: [...disclose(u, c.loses), ...sides] };
   },

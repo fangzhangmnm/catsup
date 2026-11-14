@@ -9,7 +9,7 @@ import { reachableDefs } from "./resources.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 import { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { FRESH } from "../mesh/columns.ts";
-import type { Kernel } from "../kernel/kernel.ts";
+import { Kernel } from "../kernel/kernel.ts";
 import { BUILTIN_BACK_SLOT } from "./builtin-materials.ts";
 import { edgeLookOf, keepLookUnderAngle } from "../mesh/edge-smooth.ts";
 import { kernelFromTriangles } from "../kernel/from-triangles.ts";
@@ -20,6 +20,8 @@ export interface AlignGeometry { points: Pt3[]; segments: [Pt3, Pt3][]; planes: 
 export interface KindDef<B extends Body = Body> {
   readonly id: BodyKind;
   readonly label: string;
+  /** 给人看的名字（提示 / 确认框里「转成 X」「是 X」的 X；第 1 版第五节第 1 条：界面不写种类名，从这里取）。label 是登记表里的技术名。 */
+  readonly noun: string;
   /** 这种身体可用的编辑模式（空 = 只在物体层摆）。 */
   readonly modes: readonly KindModeId[];
   /** 显式 cast 的去向 + 丢失清单（确认面文案的来源）。 */
@@ -35,9 +37,9 @@ const boundsOf = (pts: Iterable<Pt3>): { min: Pt3; max: Pt3 } | null => {
 };
 
 export const BREP_KIND: KindDef<BrepBody> = {
-  id: "brep", label: "肥皂膜",
+  id: "brep", label: "肥皂膜", noun: "硬表面体",
   modes: ["geometry", "surface"],
-  castsTo: [{ to: "mesh", loses: ["拓扑公理（共面即同面、重合即同点；推拉 / 偏移 / 跟随不再可用）", "带洞的面（变成三角形，内部的边软 + 平滑）", "默认背面那一侧（不出面）", "折线（变成软 + 平滑的边）", "曲线实体（圆 / 弧 / 焊接链）", "组分区", "参考几何"] }],
+  castsTo: [{ to: "mesh", loses: ["拓扑公理（共面即同面、重合即同点；推拉 / 偏移 / 跟随不再可用）", "带洞的面（变成三角形，内部的边软 + 平滑）", "默认背面那一侧（不出面）", "折线（变成软 + 平滑的边）", "曲线实体（圆 / 弧 / 焊接链）", "组分区", "参考几何"] }, { to: "empty", loses: ["材质槽表", "参考线 / 参考点", "另摆的画图坐标架"] }],
   alignGeometry(b) {
     const k = b.kernel, points = k.vertices().map((v) => ({ x: v.x, y: v.y, z: v.z }));
     const segments = k.edges().map((e) => [k.graph.pt(e.a), k.graph.pt(e.b)] as [Pt3, Pt3]);
@@ -47,9 +49,9 @@ export const BREP_KIND: KindDef<BrepBody> = {
   bounds(b) { return boundsOf(b.kernel.vertices()); },
 };
 export const MESH_KIND: KindDef<MeshBody> = {
-  id: "mesh", label: "网格",
+  id: "mesh", label: "网格", noun: "网格体",
   modes: ["freeform", "surface", "paint"],   // paint = 画画（贴图主线 1-7）   // surface = 表面（油漆桶）：W-12（2026-11-11）起网格体的面也能涂   // 自由建模工作台（modes/freeform.ts；2026-10-27 接缝：壳 + 选择；刀 / 拉 / 环切 = M4 Opus）
-  castsTo: [{ to: "brep", loses: ["不平的面（折成平面块，块之间加软边）", "裸线（不属于任何面的边）", "软边 / 平滑标记（改按弯折角度重判）"] }],   // 隐藏的面 / 边照带（统筹 11-13 b）；带不过去的那种（背靠背一藏一露）转之前问：meshToBrepCheck
+  castsTo: [{ to: "brep", loses: ["不平的面（折成平面块，块之间加软边）", "裸线（不属于任何面的边）", "软边 / 平滑标记（改按弯折角度重判）"] }, { to: "empty", loses: ["材质槽表", "对称设置", "默认平滑", "贴图坐标的表"] }],   // 隐藏的面 / 边照带（统筹 11-13 b）；带不过去的那种（背靠背一藏一露）转之前问：meshToBrepCheck
   alignGeometry(b) {
     const m = b.kernel, points = m.verts().map((v) => m.pt(v));
     const look = edgeLookOf(m), hid = edgeMarkReader(m, HIDE_EDGE);   // 每条边都问：三列一次拿在手里
@@ -60,7 +62,7 @@ export const MESH_KIND: KindDef<MeshBody> = {
 };
 /** 空物体（第 1 版第四节）：没有几何、没有编辑模式之外的「摆放」（modes/object.ts）；转去硬表面 / 网格体不丢东西（反方向只在自己没有几何时可用，丢的是那种身体才有的设置，见 BREP / MESH 的 castsTo）。 */
 export const EMPTY_KIND: KindDef<EmptyBody> = {
-  id: "empty", label: "空物体",
+  id: "empty", label: "空物体", noun: "空物体",
   modes: ["object"],
   castsTo: [{ to: "brep", loses: [] }, { to: "mesh", loses: [] }],
   alignGeometry() { return { points: [], segments: [], planes: [] }; },
@@ -247,6 +249,14 @@ export function meshToBrepCheck(b: MeshBody, softDeg: number): { mixedHidden: nu
 export function castBody(body: Body, to: BodyKind, opts?: { softDeg?: number }): Body {
   const c = canCast(body.kind, to);
   if (!c.ok) throw new Error(`cast: ${c.why}`);
+  if (body.kind === "empty") return to === "brep"   // 空物体 → 有几何的种类：一份空的身体（子物体挂在定义上，不归身体管，照留）
+    ? { kind: "brep", kernel: new Kernel(), groups: new Map(), nextGroup: 1, materialSlots: [], guides: emptyGuides() }
+    : { kind: "mesh", kernel: new MeshKernel(), materialSlots: [], uvSetSlots: [] };
+  if (to === "empty") {   // → 空物体：只在自己没有几何时（第 1 版第五节第 4 条；有几何 = 明说拒绝，不悄悄丢）
+    const bare = body.kind === "mesh" ? body.kernel.faceCount() === 0 && body.kernel.edges().length === 0 : body.kernel.faces().length === 0 && body.kernel.edges().length === 0 && body.groups.size === 0;
+    if (!bare) throw new Error("cast: 还有几何，转不成空物体（空物体只装子物体）");
+    return { kind: "empty", materialSlots: [] };
+  }
   if (body.kind === "brep" && to === "mesh") return brepToMesh(body);
   if (body.kind === "mesh" && to === "brep") return meshToBrep(body, opts?.softDeg ?? 20);
   throw new Error(`cast: ${body.kind} → ${to} 登记了却没有实现（内部）`);

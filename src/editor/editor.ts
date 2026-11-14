@@ -79,7 +79,7 @@ import { lastStepOf } from "./last-step.ts";
 import { History, OpApplyError, StepFlipError, type StepLabel, type UndoComponent } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
 import { contextCrumbsOf, contextLabelOf } from "./context-crumbs.ts";
-import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
+import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, NO_GEOMETRY_KERNEL, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
 import { accept as transferAccept, castPayload, extractForCopy as transferExtract, transferSay } from "./transfer.ts";   // 拷贝走 extractForCopy：带着画的面先拒（1-3b）
 import { KEEP, pasteConflict, preparePaste, type ConflictRow, type Decision, type PasteWays } from "./paste-plan.ts";
 import { clipboard } from "./clipboard.ts";
@@ -508,7 +508,7 @@ export class Editor {
   // ---------- 只读 ----------
   get tool(): Tool { return this._tool; } get toolHeld(): Hold { return this.hold.state; } private settleHold(hadOp: boolean): void { const b = this.hold.settle(this.gestureActive(), hadOp); if (b) this.setTool(b, "back"); } dropBorrow(): boolean { const h = this.hold.state; if (h.temp === null || this.gestureActive()) return false; this.setTool(h.base, "back"); this.host.hint(null); return true; }   // 借来的工具（controller/tool-borrow.ts）：toolHeld = 底 + 借（左柱画实心 / 蓝框）；settleHold = 一步收尾 / 步外取消后问一次「做完了吗」；dropBorrow = 借着、什么都没做时 Esc 回去
   /** 活动池的内核（上下文所在的几何池；根上下文 = 根池）。 */
-  get kernel(): Kernel { return this.scene.kernelOf(this.activePool()); }
+  get kernel(): Kernel { const p = this.activePool(); return this.scene.kindOf(p.def) === "empty" ? NO_GEOMETRY_KERNEL : this.scene.kernelOf(p); }   // 空物体：一份空的硬表面内核（摆放工作台的工具挪的是子物体，这一层没有点；只读，谁也不往里写）
   /** 活动池的身体种类（选区的 id 空间、工作台、指令的单位种类都跟它走；2026-10-27 接缝）。 */
   activeKind(): BodyKind { return this.scene.kindOf(this.activePool().def); }
   /** 你所在的这一层自己有没有几何（不算子组件）：工作台下拉换种类时，空的直接转、有东西的先问（main.ts pickWorkbench）。 */
@@ -1894,7 +1894,7 @@ export class Editor {
     if (this.activeKind() === "mesh" && this.mirrorGateEntry("粘贴", () => this.pasteClipboard())) return;
     const kind = this.activeKind(), a = transferAccept(p, kind);
     if (a.ok) { this.pasteNow(p); return; }
-    const to = a.cast === "mesh" ? "网格体" : "硬表面体";
+    const to = KINDS[a.cast].noun;
     if (!this.host.confirm) { this.host.hint(`粘贴：${a.what}要先转成${to}才能贴进这一层（这里不能问，没贴）`); return; }
     void this.host.confirm("粘贴：要转种类", `${a.what}是另一种身体的几何，贴进这一层要先转成${to}（和物件设置里的转换一样，会丢它那一种才有的东西）。转过去再贴吗？`, `转成${to}再贴`)
       .then((ok) => { if (ok) this.pasteNow(castPayload(p, a.cast)); else { this.host.hint("粘贴：没贴（你选了不转）"); this.draw(); } });
@@ -1904,7 +1904,7 @@ export class Editor {
     const m = planMove(this.scene, this.ctx, [...this.selectedPools.values()], this.hasGeometrySelection(), dest, (p) => this.pickIsLocked(p)), geo = "why" in m || !(this.hasGeometrySelection() || m.groups.length) ? null : transferExtract(this.scene, this.ctx, this.selection, m.groups);
     if ("why" in m || (geo && "blocked" in geo)) { this.host.hint("why" in m ? m.why : `搬不了：${(geo as { blocked: string }).blocked}`); return false; }
     const acc = geo && !cast ? transferAccept(geo, m.kind) : null;
-    if (acc && !acc.ok) { const to = acc.cast === "mesh" ? "网格体" : "硬表面体"; void this.host.confirm?.("搬过去要转种类", `${acc.what}是另一种身体的几何，搬进去要先转成${to}（会丢它那一种才有的东西）。转过去再搬吗？`, `转成${to}再搬`).then((ok) => { if (ok) this.moveSelectionTo(dest, acc.cast); else this.host.hint("没搬（你选了不转）"); }); return false; }
+    if (acc && !acc.ok) { const to = KINDS[acc.cast].noun; void this.host.confirm?.("搬过去要转种类", `${acc.what}是另一种身体的几何，搬进去要先转成${to}（会丢它那一种才有的东西）。转过去再搬吗？`, `转成${to}再搬`).then((ok) => { if (ok) this.moveSelectionTo(dest, acc.cast); else this.host.hint("没搬（你选了不转）"); }); return false; }
     return this.step((pass) => {
       if (geo) { for (const [k, p] of [...this.selectedPools]) if (p.kind === "instance") this.selectedPools.delete(k); this.deleteSelection(); if (dest.kind === "up") this.exitContext(); else this.enterPool({ kind: "instance", instance: dest.instance }); this.pasteCommit(cast ? castPayload(geo, cast) : geo, KEEP); if (dest.kind === "into") this.exitContext(); }
       for (const op of m.ops) this.commitIn(pass, op);
@@ -2116,7 +2116,7 @@ export class Editor {
   withMenuTarget<T>(t: MenuTarget, fn: () => T): T { const prev = this.unitTarget; this.unitTarget = t; try { return fn(); } finally { this.unitTarget = prev; } }
   /** 物体窗口的第一行：设置的是哪个物体（user「选窗要说明选择的是哪个object」）。 */
   describeTarget(t: Exclude<MenuTarget, "selection">): { title: string; defs: number[] } {
-    const s = this.scene, kindLabel = (d: number): string => (s.kindOf(d) === "mesh" ? "网格体" : "硬表面体");
+    const s = this.scene, kindLabel = (d: number): string => KINDS[s.kindOf(d)].noun;
     if (t === "self") { const d = s.defOfContext(this.ctx); return { title: `${d === s.root ? "最外层" : `组件「${s.def(d).name}」`}（${kindLabel(d)}）`, defs: [d] }; }
     const ctxDef = s.defOfContext(this.ctx), defs: number[] = [];
     let n = 0;

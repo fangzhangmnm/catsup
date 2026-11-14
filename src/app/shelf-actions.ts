@@ -11,6 +11,7 @@ import { readCatsup } from "../format/index.ts";
 import { isForeignGlb } from "../format/gltf-import.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
 import type { DefId } from "../scene/scene.ts";
+import { KINDS } from "../scene/kinds.ts";
 import { openFormSheet, openInputSheet } from "./ui/sheets.ts";
 
 export interface ShelfActionsDeps {
@@ -85,7 +86,7 @@ export function createShelfActions(d: ShelfActionsDeps): ShelfActions {
         if (isForeignGlb(bytes)) { fail(`「${file.name}」是别的软件导出的模型，不是 CatsUp 工程：要放进场景请用「导入 glb」`); return; }
         const doc = readCatsup(bytes), { rows, unnamed } = importCandidates(doc), more = unnamed ? `另有 ${unnamed} 个没起名的组件没列（素材架上的东西要有名字，先在那份模型里起名）` : "";
         if (!rows.length) { fail(`「${file.name}」里没有能上架的组件${more ? `：${more}` : ""}`); return; }
-        const v = await openFormSheet(`从「${file.name}」导入素材`, rows.map((r) => ({ key: r.guid, label: `${r.name}（${r.kind === "mesh" ? "网格体" : "硬表面体"}，摆了 ${r.placed} 份）`, options: [{ value: "yes", label: "上架" }, { value: "no", label: "不要" }], value: "yes" })), {
+        const v = await openFormSheet(`从「${file.name}」导入素材`, rows.map((r) => ({ key: r.guid, label: `${r.name}（${KINDS[r.kind].noun}，摆了 ${r.placed} 份）`, options: [{ value: "yes", label: "上架" }, { value: "no", label: "不要" }], value: "yes" })), {
           okLabel: "放上素材架",
           note: () => `挑中的组件连同它们里面的组件、材质、层一起带进这份模型，放上素材架，不摆进场景；这份模型已有同一个组件、内容又不一样时，下一步问你。那份文件不会被改动。${more ? `\n${more}` : ""}`,
         });

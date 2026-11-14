@@ -22,7 +22,7 @@ import { bevelEdges, bevelVerts } from "../mesh/ops/bevel.ts";
 import { snapToSymmetry, symmetrize } from "../mesh/mirror.ts";
 import { looseBits, subdivide } from "../mesh/ops/subdivide.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
-import { castBody } from "../scene/kinds.ts";
+import { castBody, KINDS } from "../scene/kinds.ts";
 import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, KnifeRefused, type KnifeStop, loopCut, loopCuts, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame, splitEdge, duplicateGeometry, fillOrBridge, makeFaceRing, flipFaces } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { bornFaces, settleNewFaceSides } from "../kernel/face-sides.ts";
@@ -322,9 +322,9 @@ function changeDefinitionAxes(s: Scene, def: number, f: Frame): FaceEvent[] { re
 function retransformDefinition(s: Scene, def: number, M: Xform): FaceEvent[] {
   const Mi = invert(M), events: FaceEvent[] = [], rigid = isRigid(M), b = s.def(def).body;
   if (def === s.root) s.axes = rigid ? transformFrame(Mi, s.axes) : orthonormalFrame(transformFrame(Mi, s.axes));   // 根的坐标架住场景上：跟着内容一起换（世界里原地不动 = 对到它时正好回到原点）
-  if (b.kind === "mesh") {   // 网格体（2026-10-27 Opus：自由建模右键「设置原点到选择中心」）：点的位置整体乘 M⁻¹；网格体没有组 / 参考几何 / 另摆的坐标架
-    const k = b.kernel;
-    for (const v of k.verts()) k.setPos(v, applyPt(Mi, k.pt(v)));
+  if (b.kind !== "brep") {   // 网格体（2026-10-27 Opus：自由建模右键「设置原点到选择中心」）/ 空物体（第 1 版第四节）：点的位置整体乘 M⁻¹；没有组 / 参考几何 / 另摆的坐标架
+    if (b.kind === "mesh") { const k = b.kernel; for (const v of k.verts()) k.setPos(v, applyPt(Mi, k.pt(v))); }
+    for (const inst of s.def(def).instances.values()) inst.xform = compose(Mi, inst.xform);   // 自己的子物体（2026-11-13 补：以前网格体这一支漏了，网格体里有子物体时换原点子物体会在世界里跑）
     for (const d of s.defs.values()) for (const inst of d.instances.values()) if (inst.def === def) inst.xform = compose(inst.xform, M);
     return events;
   }
@@ -634,7 +634,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "setAxes": {
       const f: Frame = { origin: { ...op.frame.origin }, x: { ...op.frame.x }, y: { ...op.frame.y }, z: { ...op.frame.z } };
       // 落在定义根上 = 换这个组件的原点（网格体也一样；根也一样——根 = 普通组件，user 10-30「我说了root和其他的尽量一视同仁」：根没有外层实例补偿 = 内容整个挪过去，坐标架那一点落到世界原点，编辑器让视角跟着平移）
-      if (op.at.group === null && s.defs.has(op.at.def) && (op.at.def === s.root || s.kindOf(op.at.def) === "mesh")) return { scene: s, events: changeDefinitionAxes(s, op.at.def, f) };
+      if (op.at.group === null && s.defs.has(op.at.def) && (op.at.def === s.root || s.kindOf(op.at.def) !== "brep")) return { scene: s, events: changeDefinitionAxes(s, op.at.def, f) };   // 网格体 / 空物体：没有组，落在根上 = 换原点
       const { ref } = poolOf(s, op.at);
       if (ref.group !== null) s.group({ def: ref.def, group: ref.group }).axes = f;
       else return { scene: s, events: changeDefinitionAxes(s, ref.def, f) };
@@ -1055,7 +1055,7 @@ export function appendMesh(tb: MeshBody, sb: MeshBody, X: Xform): void {
 function givenEdge(src: MeshKernel, e: number): EdgeOrigin { const v = src.edgeShape(e).values; return v ? { kind: "fresh", values: v } : { kind: "fresh" }; }
 /** 炸开一份实例（外面一层和它不是一种身体、或外面是网格体的那条路）：跨种类且它有自己的几何 = 要 cast（用户点过「转成 X 再炸」），否则人话拒绝。 */
 function explodeInstance(s: Scene, at: PoolRef, inst: Instance, cast: boolean): void {
-  if (s.kindOf(at.def) !== s.kindOf(inst.def) && !cast && !bodyEmpty(s.def(inst.def).body)) throw new OpTargetError(`explode: 「${s.def(inst.def).name}」是${s.kindOf(inst.def) === "mesh" ? "网格体" : "硬表面体"}、这一层是${s.kindOf(at.def) === "mesh" ? "网格体" : "硬表面体"}，要先转种类（点「转成 X 再炸」）`);
+  if (s.kindOf(at.def) !== s.kindOf(inst.def) && !cast && !bodyEmpty(s.def(inst.def).body)) throw new OpTargetError(`explode: 「${s.def(inst.def).name}」是${KINDS[s.kindOf(inst.def)].noun}、这一层是${KINDS[s.kindOf(at.def)].noun}，要先转种类（点「转成 X 再炸」）`);
   if (s.kindOf(at.def) === s.kindOf(inst.def) && s.kindOf(at.def) === "brep") { applyOp(s, { op: "explode", at, instance: inst.id }); return; }   // 同种硬表面：走原来那条（组 / 子实例 / 材质重映射）
   explodeAcrossKinds(s, at, inst);
 }
