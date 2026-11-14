@@ -437,12 +437,13 @@ export declare class Editor {
     /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
     /** A9 方向锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
      *  轴 = 上下文帧（绘图轴 / 组轴）的轴。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
-     *  生命周期（W-4，2026-11-10）：每个工具各记各的（tool-locks.ts），手势落定不解、换工具不解、换回来还是它；键盘 Esc 解当前这把的（clearToolLock）。
+     *  生命周期（锁的一轮第四步，统筹 11-13；取代 W-4「每个工具各记各的」）：按钮点的锁只有一份，管到放下这把工具——手势落定不解；拿起任何工具（含借用、借完回去）、换文件都从没锁开始；
+     *  手势外 Esc 解（clearToolLock，main.ts escape），手势里 Esc 只取消这一下、锁留着。快捷键按的轴键另是一份、只管这一下（axis-keys.ts）。
      *  面锁（user 2026-10-25「Shift + 方向键锁平面、矩形工具的平面锁、触屏常驻三颗轴键。 要！」；键位 = ledger A9 的 Blender Shift+X 语义）：
      *  锁到「排除该轴」的平面 = 法向是该轴的面（Shift+→ YZ / Shift+← XZ / Shift+↑ XY / Shift+↓ 光标下那张膜的面）。
      *  先定平面的工具（矩形 / 圆 / 旋转矩形 / 弧 / 旋转 / 量角器，`lock: "plane"`）不吃方向锁：方向键直接锁平面（SU 旋转矩形「按方向键定平面」同款），
      *  平面过首点（ctx.lockedPlane）；沿轴走的工具（`lock: "axis"`）Shift+方向键 = 点投到过锚点的那张面上（ctx.applyLock）。方向锁与面锁互斥。 */
-    private readonly locks;
+    private btnLock;
     private get lk();
     private lastPtr;
     /** 最近一次真指针的种类（键盘起手不算）：自由建模吸附的底按它查 SNAP_BASE。 */
@@ -452,7 +453,7 @@ export declare class Editor {
     private lastMoveEv;
     get axisLock(): LockAxis | null;
     get planeLock(): PlaneLock | null;
-    /** 键盘 Esc / 芯片「取消」：解当前这把工具的锁（W-4；手指轻点的取消不解，免得误碰把锁悄悄清掉）。没在做手势时这一下只解锁、不再往下做（main.ts escape）。 */
+    /** 键盘 Esc / 芯片「取消」在手势外：解按钮锁（手指轻点的取消不解，免得误碰把锁悄悄清掉）。这一下只解锁、不再往下做（main.ts escape）。 */
     clearToolLock(): void;
     /** 当前工具吃哪种锁（null = 不吃锁：方向键 / 虚拟轴键无效）。 */
     lockStyle(): "axis" | "plane" | null;
@@ -467,6 +468,11 @@ export declare class Editor {
     axisPress(key: AxisKey, shift: boolean): void;
     /** 这一下现在被限制成什么：轴键那份在就以它为准，没有 = 按钮锁着的那份（设计稿第三节）。工具经 ToolCtx.axisConstraint 问，锁线也画它。 */
     axisConstraintNow(): AxisConstraint;
+    /** 这一下按着的轴键（右上锁钮的空心框；按钮锁 = axisLock / planeLock 实心）。 */
+    axisKeysHeld(): readonly {
+        readonly key: AxisKey;
+        readonly shift: boolean;
+    }[];
     /** 方向键 / 触屏虚拟轴键的唯一入口：axis = 键对应的轴（→ X / ← Y / ↑ Z），null = ↓；plane = Shift。按当前工具的锁种分派。 */
     lockKey(axis: LockAxis | null, plane: boolean): void;
     /** 先定平面的工具首点之后图形躺的面（锁的一轮第三步：吃约束 = 轴键那份 ?? 按钮锁）：二维那一族 = shapePlane、旋转那一族 = rotatePlane（controller/axis-apply.ts）；不限制 = null。 */

@@ -42,6 +42,11 @@ export declare class AxisKeys {
     note(): string;
     /** 快捷键那份现在把动作限制成什么；动作不在 = 丢掉；没按过 / 全取消了 = null（调用方退回按钮锁着的那份）。 */
     now(): AxisConstraint | null;
+    /** 这一下按着哪些轴键（右上角锁钮画空心框用：X / Y / Z = 方向钮，加 Shift = 面锁钮；N / T 没有钮）。动作不在 = 丢掉、空。 */
+    keys(): readonly {
+        readonly key: AxisKey;
+        readonly shift: boolean;
+    }[];
     /** 动作做完 / 取消 / 新的动作开始：丢掉。 */
     drop(): void;
 }

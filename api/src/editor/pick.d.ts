@@ -17,7 +17,7 @@ export interface HitResult3 {
  * own = 这个点自己所在的面（点 = 连着的边两侧的面；边上的点 = 这条边两侧的面）：一个点不会被自己所在的面挡住。
  * 以前靠「贴在膜平面上」几何地判，网格体的面不平时角点不在那张面的拟合平面上，会被自己的邻面挡掉 = 点不中（user 10-27「有些侧面的点选不中」）；改按拓扑判。
  */
-export declare function occlusionTest(k: GeomView, pf: PointerFrame, vp: Viewport, xray: boolean): (p: Pt3, own?: ReadonlySet<FaceId>) => boolean;
+export declare function occlusionTest(k: GeomView, pf: PointerFrame, vp: Viewport, xray: boolean, skipFace?: (f: FaceId) => boolean): (p: Pt3, own?: ReadonlySet<FaceId>) => boolean;
 /** 一个点所在的面（连着的边两侧的面）。 */
 export declare function facesAtVertex(k: GeomView, vid: VertexId): Set<FaceId>;
 /** vertexPx = 点自己的半径（缺 = tolPx；自由建模给 MESH_VERT_HIT_PX 换算过的常量）。 */
@@ -27,16 +27,19 @@ export interface PickKinds {
     readonly edges?: boolean;
     readonly faces?: boolean;
 }
+/** skipFace / skipEdge：对这一次拾取透明的面 / 边——不参赛、也不挡后面的（N / T 跳过这一下动作新生的，editor/born-this-gesture.ts）。 */
 export declare function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: {
     soft?: boolean;
     xray?: boolean;
     softActive?: boolean;
     vertexPx?: number;
     kinds?: PickKinds;
+    skipFace?: (f: FaceId) => boolean;
+    skipEdge?: (e: EdgeId) => boolean;
 }): HitResult3;
 /** 面点：外环点的平均（世界）。画（Editor.faceDotsView）和点（pickEntity 的 X 光那段）共用这一个，画的地方 = 点得中的地方。 */
 export declare function faceDotPoint(k: GeomView, id: FaceId): Pt3 | null;
-export declare function pickFace(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number): FaceId | undefined;
+export declare function pickFace(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, skip?: (f: FaceId) => boolean): FaceId | undefined;
 /** 画线平面：光标下的面 → 它的平面；否则地面。 */
 export declare function drawPlaneAt(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number): DrawPlane;
 /**
