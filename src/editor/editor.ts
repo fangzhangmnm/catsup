@@ -24,7 +24,7 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { GuideSelection } from "./guide-selection.ts";
 import { describeEvent } from "./describe-event.ts";
-import { bornThisGesture } from "./born-this-gesture.ts";
+import { bornThisGesture } from "./born-this-gesture.ts"; import { REACH } from "./reach-table.ts"; import { softEdgesOf, vertDotsOf } from "./edit-marks.ts";
 import { snapHoldTol } from "./snap-hysteresis.ts";
 import { type ForceEnv, forceSideFor, forcesOn, originNeedsAsk } from "./mirror-force.ts";
 import { type FreedBase, type UpkeepSnaps, freedBaseline, freedOp, upkeepAfter, upkeepRewrite, upkeepSnapshot } from "./paint-upkeep.ts";   // 每一步做完的收尾 = 强行对称 + 画的位置（1-3b）
@@ -84,7 +84,7 @@ import { accept as transferAccept, castPayload, extractForCopy as transferExtrac
 import { KEEP, pasteConflict, preparePaste, type ConflictRow, type Decision, type PasteWays } from "./paste-plan.ts";
 import { clipboard } from "./clipboard.ts";
 import { bodyEmpty } from "./ops.ts";
-import { type PoolSlot, WorldView, insideContext, slotKey, PART_STATS } from "../scene/world-view.ts";
+import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
 import { gridEffective, gridSnap, snapIsGridOnly } from "./increments.ts"; import { frameAxisOf, moveLock, rotatePlane, shapePlane } from "../controller/axis-apply.ts";
 import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, det3, frameToXform, hasShear, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation, WORLD_FRAME, transformFrame } from "../scene/xform.ts";
@@ -369,7 +369,7 @@ export class Editor {
    *  平面过首点（ctx.lockedPlane）；沿轴走的工具（`lock: "axis"`）Shift+方向键 = 点投到过锚点的那张面上（ctx.applyLock）。方向锁与面锁互斥。 */
   private btnLock: LockValue = NO_LOCK;   // 面锁法向 planeN（世界、单位长）；"face" 锁时 = 按下那一刻光标下那张膜的法向
   private get lk(): LockValue { return this.btnLock; }
-  private lastPtr: { x: number; y: number } | null = null;
+  private lastPtr: { x: number; y: number } | null = null;  private hoverChild: PoolPick | null = null;   // 光标下的子物体（表的 hover 行：点一下会选到整个它的工具，悬停时整个亮一下）
   /** 最近一次真指针的种类（键盘起手不算）：自由建模吸附的底按它查 SNAP_BASE。 */
   private lastPtrType = "mouse";
   /** 这次按下以后离按下处最远到过多远（点按容差的量纲；松手时判点 / 拖用）。 */
@@ -492,7 +492,7 @@ export class Editor {
   setIsolate(on: boolean): void {
     if (this._isolate === on) return;
     this._isolate = on;
-    this.hoverEdge = null; this.hoverFace = null; this.snapInfo = null;
+    this.hoverEdge = null; this.hoverFace = null; this.hoverChild = null; this.snapInfo = null;
     this.host.changed(); this.draw();
   }
   private kids = new WeakMap<object, number>();
@@ -961,7 +961,7 @@ export class Editor {
     this.cursor3 = null;
     this.snapInfo = null;
     this.hoverEdge = null;
-    this.hoverFace = null;
+    this.hoverFace = null; this.hoverChild = null;
     this.live = null; this.liveMesh = null; this.liveScene = null;
     this.liveOverride = null;
     this.liveEvents = [];
@@ -3592,24 +3592,6 @@ export class Editor {
     for (const v of ids) { const gv = g(v); if (view.graph.hasVertex(gv)) out.push(view.graph.pt(gv)); }
     return out.length ? out : null;
   }
-  /** 自由建模：活动池里的平滑边（世界坐标；棱照常画，平滑边淡淡地画出来、也点得中——纪元账本 FM138）。 */
-  private softEdgesView(view: WorldView, g: (id: number) => number): { key: string; segs: { id: EdgeId; a: Pt3; b: Pt3 }[] } | null {
-    if (this.mode.id !== "freeform" || this.cmdPreview || this.locked) return null;   // 演示锁：不编辑 = 不画结构线（场景表 6）
-    const k = view.activeSlot().kernel, segs: { id: EdgeId; a: Pt3; b: Pt3 }[] = [];
-    for (const e of k.edges()) {
-      const ge = g(e.id);
-      if (!view.isSoft(ge) || !view.graph.hasEdge(ge)) continue;
-      const E = view.graph.edge(ge); segs.push({ id: ge, a: view.graph.pt(E.a), b: view.graph.pt(E.b) });
-    }
-    return segs.length ? { key: String(this.kid(view)), segs } : null;
-  }
-  /** 自由建模：活动池的全部顶点（世界坐标）。键 = 合成视图的身份（几何 / 预演一变它就是新的）。 */
-  private vertDotsView(view: WorldView, g: (id: number) => number): { key: string; pts: Pt3[] } | null {
-    if (this.mode.id !== "freeform" || this.cmdPreview || this.locked) return null;
-    const k = view.activeSlot().kernel, pts: Pt3[] = [];
-    for (const v of k.vertices()) { const gv = g(v.id); if (view.graph.hasVertex(gv)) pts.push(view.graph.pt(gv)); }
-    return { key: String(this.kid(view)), pts };
-  }
   // ---------- 渲染 ----------
   viewExtras: (() => Partial<ViewState>) | null = null;
   setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void { this.r3.setLoop(cb); }
@@ -3637,11 +3619,13 @@ export class Editor {
       }
     };
     if (!this.cmdPreview) slotHighlight(this.selectedPools.values());
-    const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => !insideContext(this.scene, this.ctx, s.pool, s.chain)).map((s) => s.index)) : null;   // 只淡这一层外面的；这一层里的子组件 / 子组照常画（SketchUp 同款，user 10-30「同意，做」）
+    const marks = { workbench: this.mode.id, editing: !this.cmdPreview && !this.locked, insideObject: this.ctx.chain.length > 0, key: String(this.kid(view)) }, ex = this.viewExtras?.() ?? {};   // 编辑用的点 / 淡线（edit-marks.ts）
+    const hoverKid = this.hoverChild && !this.gestureActive() ? this.slotsOfPick(view, this.hoverChild).flatMap((sl) => [...sl.kernel.faces()].map((f) => f.id + sl.index * (1 << 22))) : [];   // 子物体整个亮 = 和悬停同一个材质槽（peekFaces）
+    const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => REACH.dim[s.rel]).map((s) => s.index)) : null;   // 表的 dim 行：外面的 / 分身淡，这一层里的子物体照常画（SketchUp 同款，user 10-30「同意，做」）
     this.provider.setWorld(view, this._revision, !this.locked);   // 这一帧画哪个世界（演示锁 = 没有正在编辑的那一层，场景表 6）：提供者按它吐块（引擎拉）；版本进内容键
     this.beforeRender?.(view);   // 准备（见字段注释）：在拉流 / 渲染之前
     this.r3.render(frameInput(view, this.cam, this.vp(), {   // view-state.ts：相机 / 网格 / 叠加层（选中高亮 + 线点标记文字）交给后端，引擎给量尺
-      ...(this.viewExtras?.() ?? {}),
+      ...ex, peekFaces: hoverKid.length ? new Set([...(ex.peekFaces ?? []), ...hoverKid]) : ex.peekFaces,
       selectionEdges: selE,
       selectionFaces: selF,
       scrubEdges: new Set<number>(),   // 橡皮模块经 viewExtras 覆盖（擦一段 = 整条，高亮也整条）
@@ -3661,8 +3645,7 @@ export class Editor {
       grid: this.grid.shown ? { frame: view.grid()?.frame ?? view.frame(), ladder: displayLadder(this.grid.system, this.grid.snap), on: this.grid.on } : null,   // 网格按单位制的进位表自动换层（不再有「显示格距」）   // 吸附没开也按设置的格距画（10-24 小 bug：此前关着就退回 1 m，换制式看不出来）
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       selVerts: this.cmdPreview ? null : this.selVertsView(view, g),
-      vertDots: this.vertDotsView(view, g),
-      softEdges: this.softEdgesView(view, g),
+      vertDots: vertDotsOf(view, g, marks), softEdges: softEdgesOf(view, g, marks),
       mirror: this.mirrorView(view, g),
       ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,
       poolAxes: this.selectedPoolFrames(view),
@@ -3812,7 +3795,7 @@ export class Editor {
     if (!this.gestureActive()) {
       this.snapInfo = null;
       this.hoverEdge = null;
-      this.hoverFace = null;
+      this.hoverFace = null; this.hoverChild = REACH.hover.child === "wholeChild" && stanceOf(this.mode.id, this._tool)?.tap === "select" ? ((c) => c.kind === "pool" ? c.pick : null)(this.classify(this.liveWorld(), this.pickAt(s.x, s.y))) : null;
       const H = this.handlers[this._tool];
       if (H) { H.hover?.(this.toolCtx, s); if (H.previewOnHover) this.computeLive(); }
       this.updateTip(ev.clientX, ev.clientY);
@@ -4019,7 +4002,7 @@ export class Editor {
     if (!this.gestureActive()) {
       this.snapInfo = null;
       this.hoverEdge = null;
-      this.hoverFace = null;
+      this.hoverFace = null; this.hoverChild = null;
         this.live = null; this.liveMesh = null; this.liveScene = null;
       this.host.tip(null, 0, 0);
       this.host.hint(null);

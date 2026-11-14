@@ -16,6 +16,7 @@ import { perf } from "./perf-stats.ts";
 import type { MarkLayout } from "./highlight.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { uvAt } from "../scene/uv.ts";
+import { REACH } from "./reach-table.ts";   // 这一层画不画编辑用的线 = 表的 editLines 行（层级显示施工单二½）
 
 const srgb = (hex: number): readonly [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 /** 烤进顶点的颜色（= 以前后端 chunkStyle 给的同一套数：面 sRGB 浮点、线线性）。 */
@@ -154,7 +155,7 @@ export class EditorStreamProvider implements StreamProvider {
     for (const s of world.slots) {
       const b = this.bodyFor(s, world.scene, taken, thick);
       this.slotBody.set(slotKey(s), b);
-      placements.push({ pool: b.id, xform: s.xform, slot: slotKey(s), index: s.index, tier: s.active && this.editing ? 1 : 0, singleSided: b.mesh.singleSided });
+      placements.push({ pool: b.id, xform: s.xform, slot: slotKey(s), index: s.index, tier: this.editing && REACH.editLines[s.rel] === "always" ? 1 : 0, singleSided: b.mesh.singleSided });
     }
     for (const list of this.bodies.values()) for (const b of list) if (b.gen === this.gen) { for (const c of b.faces.values()) chunks.push(c); if (b.lines) chunks.push(b.lines); }
     // 两代没人用的释放（隔离看一个组件再出来 = 别的池全量重建一次，和以前一样）

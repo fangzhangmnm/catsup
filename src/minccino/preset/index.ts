@@ -85,6 +85,7 @@ export interface Preset {
   /** 材质翻译挂点：面怎么上明暗（camera = 白模的跟相机平光 / none = 不打光 / flat = 平涂）、贴图怎么过滤、模型的边画不画（边 = 编辑器的线稿；叠加层的选中边照画）、
    *  上色方式（实验室 COLOR_MODES：model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色；none = 不上色：材料本色，铸铜 / Tron）。 */
   /** material.edges 线稿线两档（ai-docs/20261029-edge-display-scenarios.md）：all = 不在编辑的物件也画硬边（线块里本来只有硬边：软边 / 折线 / 隐藏的边建线块时就跳过了）；none = 不在编辑的不画。
+   *  线稿、像素描边、1-bit、Tron = all：画风自己的线，外面的 / 子物体 / 分身照画；能改的那一层靠顶点小圆点区分（层级显示施工单，user 11-13 更正）。
    *  正在编辑的那一个的结构线任何画风都画（2026-10-29 Opus；以前的第三档 active「只画编辑中的」= none + 结构线，退役）。 */
   readonly material: { readonly shade: "camera" | "none" | "flat" | "tron" | "pbr"; readonly texFilter: "asset" | "nearest"; readonly edges: "none" | "all"; readonly colorize: "model" | "part" | "none"; readonly flat: FlatShade | null; readonly tron: TronShade | null; readonly pbr: PbrShade | null;
     /** 涂装车间的表面层（写实那条路按顺序叠；空 = 没有）。 */ readonly surface: readonly SurfaceLayer[];
@@ -128,7 +129,7 @@ export const PRESETS = {
     id: "white", name: "线稿", note: "跟着相机的平光 + 线稿（建模时的默认看法）", brief: "建模的默认看法",   // T96 user「白模这个名字不对（sketchup线稿）」：界面叫「线稿」（app 里不出现 SketchUp 字样）；id 不动
     source: "CatsUp 现状（≈ 实验室「最省 · 白模」）",
     colors: { ink: INK, paper: PAPER, ...BLUE },
-    material: { shade: "camera", mixSpace: "srgb", texFilter: "asset", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
+    material: { shade: "camera", mixSpace: "srgb", texFilter: "asset", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },   // all：线稿的线算画风自己的，谁都照画（user 11-13「默认物体有线，在编辑的物体有额外的点，不要改变默认的画风」）
     light: { ground: null, ao: null, env: null },
     post: { pixelOutline: null, bloom: null },
     screen: "native",

@@ -57,7 +57,10 @@ export interface GeomView {
 
 export const ID_STRIDE = 1 << 22;
 
-export interface PoolSlot { index: number; pool: PoolRef; chain: readonly InstId[]; xform: Xform; kernel: KernelView; active: boolean; inContext: boolean; /** 层级距离（#30）：0 自己 / 1 近亲 / 2 其他。 */ tier: 0 | 1 | 2; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */ overridden: boolean; /** 复制预演的副本槽（DT14）：同一个池多画一份、在手里待遇（空 part），key 带 +copy；原槽照常。 */ ghost?: boolean; }
+/** 一个槽相对正在改的这一层是什么（层级显示施工单二½：**只在 relationOf 算这一处**；怎么对待每一档 = editor/reach-table.ts 那张表）。
+ *  self = 这一层自己的几何；child = 这一层的子物体（连它里面的）；outer = 外面的（外层几何、兄弟、不相干的）；twin = 正在改的这个物件摆在别处的分身（连它里面的）。 */
+export type SlotRel = "self" | "child" | "outer" | "twin";
+export interface PoolSlot { index: number; pool: PoolRef; chain: readonly InstId[]; xform: Xform; kernel: KernelView; active: boolean; /** 这一档（relationOf）。 */ rel: SlotRel; /** 层级距离（#30）：0 自己 / 1 近亲 / 2 其他（吸附排远近用；relationOf 里一起算）。 */ tier: 0 | 1 | 2; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */ overridden: boolean; /** 复制预演的副本槽（DT14）：同一个池多画一份、在手里待遇（空 part），key 带 +copy；原槽照常。 */ ghost?: boolean; }
 
 
 /** 一个槽变换到世界坐标后的几何（只读缓存单元）。 */
@@ -161,6 +164,25 @@ export function insideContext(scene: Scene, ctx: EditContext, pool: PoolRef, cha
   return false;
 }
 /**
+ * 这一档 + 吸附远近，一处算（层级显示施工单二½）：self / child 和 insideContext 是同一个判定；twin = 不在这一层里面、但链上经过正在改的那个定义的另一份；
+ * tier 照 #30 的规矩（自己 0 / 孩子·父母·兄弟 1 / 其他 2），从同一处出，不另算。
+ */
+export function relationOf(scene: Scene, ctx: EditContext, pool: PoolRef, chain: readonly InstId[]): { rel: SlotRel; tier: 0 | 1 | 2 } {
+  const sameChain = chain.length === ctx.chain.length && chain.every((c, i) => c === ctx.chain[i]);
+  if (sameChain && samePool(pool, scene.poolOfContext(ctx))) return { rel: "self", tier: 0 };
+  const tier = tierOfSlot(scene, ctx, pool, chain);
+  if (insideContext(scene, ctx, pool, chain)) return { rel: "child", tier };
+  if (ctx.chain.length) {   // 链上某一份的定义 = 正在改的那个定义、但不是我们站的这一份 = 分身（连它里面的）
+    const defA = scene.defOfContext(ctx);
+    let d = scene.root;
+    for (let k = 0; k < chain.length; k++) {
+      d = scene.instance(d, chain[k]).def;
+      if (d === defA && !(k + 1 === ctx.chain.length && ctx.chain.every((c, i) => c === chain[i]))) return { rel: "twin", tier };
+    }
+  }
+  return { rel: "outer", tier };
+}
+/**
  * 层级距离（#30）：相对活动上下文 (chainA, groupA)，近亲 = 自己的孩子（同 definition 里 parent 链上有 groupA 的 group、parent === groupA 的实例及其整棵）、
  * 父母（groupA 的 parent 池；进了实例则是放它的那个池）、父母的孩子（兄弟 group / 兄弟实例）。其余 = 2。
  */
@@ -239,7 +261,6 @@ export class WorldView implements GeomView {
       if (chain.length && chain.join("/") !== chainKey && !chainVisible(scene, chain)) continue;   // 层藏掉的（含祖先藏）不进推断世界、不画（契约 §4；上下文自己所在的链永远算可见——你站在里面）
       if (extras?.isolate && !insideContext(scene, ctx, pool, chain)) continue;   // 「只看这个」：上下文外面的不画、不吸、点不中（SU「隐藏模型其余部分」）
       const isActive = samePool(pool, activePool) && chain.join("/") === chainKey;
-      const sameDefChain = chain.join("/") === chainKey;
       const index = this.slots.length;
       const key = `${chain.join("/")}#${poolKey(pool)}`;
       let m = xform, overridden = false;
@@ -249,7 +270,8 @@ export class WorldView implements GeomView {
       const twin = !isActive && !!live && samePool(pool, activePool);
       if (twin) overridden = true;
       const kernel = (isActive || twin) && live ? live : scene.viewOf(pool);   // 契约 kernel-view.ts：brep 池 = 内核，mesh 池 = 派生视图
-      this.slots.push({ index, pool, chain, xform: m, kernel, active: isActive, inContext: sameDefChain, overridden, tier: isActive ? 0 : tierOfSlot(scene, ctx, pool, chain) });
+      const r = relationOf(scene, ctx, pool, chain);
+      this.slots.push({ index, pool, chain, xform: m, kernel, active: isActive, rel: r.rel, overridden, tier: r.tier });
       this.byKey.set(key, index);
       // part：命中缓存（同 kernel 对象 + 同槽序号 + 池版本没变 + 变换没变）就复用，否则重算这一个槽
       if (overridden && OVERRIDDEN_PARTS_EMPTY) { this.parts.push(emptyPart(m)); continue; }
