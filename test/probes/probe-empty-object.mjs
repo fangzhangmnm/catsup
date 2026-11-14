@@ -65,6 +65,16 @@ if (aShot) {
 r.three.aBox1 = await ev(() => window.__m.worldBox("A")); r.three.bBox1 = await ev(() => window.__m.worldBox("B")); r.three.hint1 = await ev(() => window.__m.hint());
 await ev(() => window.__m.e.undo()); await page.waitForTimeout(80);
 r.three.aBox2 = await ev(() => window.__m.worldBox("A"));
+// ③½ 按住 Ctrl 拖 A = 复制一份（第五节第 3 条：复制子物体是空物体的本职；以前复制走「只认硬表面」的那条、被拒）
+r.copy = { kids0: await ev(() => window.__m.S().def(window.__m.S().defOfContext(window.__m.e.ctx)).instances.size) };
+if (aShot) {
+  await page.mouse.move(bx.x + aShot.x, bx.y + aShot.y, { steps: 3 }); await page.waitForTimeout(60);
+  await page.keyboard.down("Control"); await page.mouse.down(); await page.mouse.move(bx.x + aShot.x + 80, bx.y + aShot.y + 10, { steps: 8 }); await page.mouse.up(); await page.keyboard.up("Control"); await page.waitForTimeout(120);
+}
+r.copy.kids1 = await ev(() => window.__m.S().def(window.__m.S().defOfContext(window.__m.e.ctx)).instances.size);
+r.copy.aStill = await ev(() => window.__m.worldBox("A")); r.copy.hint = await ev(() => window.__m.hint());
+await ev(() => window.__m.e.undo()); await page.waitForTimeout(80);
+r.copy.kids2 = await ev(() => window.__m.S().def(window.__m.S().defOfContext(window.__m.e.ctx)).instances.size);
 // ④ P 里悬停 / 点空处 / 右键空处
 await ev(() => window.__m.e.setTool("transform"));
 for (const [x, y] of [[60, 60], [bx.width / 2, bx.height / 2], [bx.width - 80, bx.height - 120]]) { await page.mouse.move(bx.x + x, bx.y + y, { steps: 3 }); await page.waitForTimeout(40); }
@@ -97,6 +107,7 @@ const checks = [
   ["③ 拖 A：A 挪了", moved(r.three.aBox0, r.three.aBox1)],
   ["③ 拖 A：B 没动", same(r.three.bBox0, r.three.bBox1)],
   ["③ 撤销一步回原位", same(r.three.aBox0, r.three.aBox2)],
+  ["③½ Ctrl 拖 = 多一份子物体、一步撤销回去", r.copy.kids0 === 2 && r.copy.kids1 === 3 && r.copy.kids2 === 2],
   ["⑤ 重开：回到根、工作台跟着身体", r.five.depth === 0 && r.five.fits],
   ["没有 DRIFT", r.drifts === 0],
   ["没有报错", r.thrown.length === 0 && errs.length === 0],

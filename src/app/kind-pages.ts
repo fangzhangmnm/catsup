@@ -12,7 +12,10 @@ import type { ParamFieldDef, ParamValue } from "../editor/param-panel.ts";
 import type { MirrorAxis, MirrorMode } from "../mesh/mirror.ts";
 import { brepAttributeList, meshAttributeList, type AttributeList, type AttributeRow } from "../scene/attribute-list.ts";
 import { brepAttrName, meshAttrName } from "./attribute-names.ts";
-import { KINDS } from "../scene/kinds.ts";
+import { KINDS, canCast } from "../scene/kinds.ts";
+import { BODY_KINDS } from "../scene/scene.ts";
+import { CAST_ACTIONS } from "../editor/objects/index.ts";
+import { bodyEmpty } from "../editor/ops.ts";
 import { faceMaterial } from "../mesh/reserved-columns.ts";
 
 export interface KindPageCtx { readonly editor: Editor; readonly def: number }
@@ -87,4 +90,18 @@ const EMPTY_PAGE: KindPage = {
 };
 
 export const KIND_PAGES: Readonly<Record<BodyKind, KindPage>> = { brep: BREP_PAGE, mesh: MESH_PAGE, empty: EMPTY_PAGE };
+
+/** 「切换种类 ›」的一项（第 1 版第五节第 4 条）：转到哪一种、跑哪个动作、右边说丢什么；off = 走不通的原因（灰掉）。 */
+export interface CastChoice { readonly action: string; readonly label: string; readonly hint: string; readonly off?: string }
+/** 这个物体能切到哪几种（除了它现在这一种），每一种丢什么（登记表 castsTo，括号前那几个字）；切到空物体只在自己没有几何时可用（挂着子物体不算）。 */
+export function castChoices(editor: Editor, def: number): CastChoice[] {
+  const cur = editor.kindOfDef(def), body = editor.sceneRef.def(def).body;
+  return BODY_KINDS.filter((to) => to !== cur).map((to): CastChoice => {
+    const c = canCast(cur, to), action = CAST_ACTIONS[to], label = KINDS[to].noun;
+    if (!c.ok) return { action, label, hint: "", off: c.why };
+    if (to === "empty" && !bodyEmpty(body)) return { action, label, hint: "还有几何，转不成", off: "还有几何，转不成空物体（空物体只装子物体）" };
+    const short = c.loses.map((l) => l.split("（")[0]);
+    return { action, label, hint: short.length ? `会丢：${short.join("、")}` : "不丢东西" };
+  });
+}
 export const kindPageOf = (editor: Editor, def: number): KindPage => KIND_PAGES[editor.kindOfDef(def)];

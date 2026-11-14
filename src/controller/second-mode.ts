@@ -14,9 +14,9 @@ export type SecondMode =
 const COPY = (modes: readonly ModeId[]): SecondMode => ({ kind: "option", modes, key: "copy", alt: true, badge: "复", name: "复制", mod: "Ctrl" });
 export const SECOND_MODES: Partial<Record<Tool, readonly SecondMode[]>> = {
   pp: [{ kind: "option", modes: ["geometry"], key: "mode", alt: "ring", badge: "边", name: "加边", mod: "Ctrl" }],   // 自由建模的「挤出」也是 pp，那边没有加边
-  move: [COPY(["geometry", "verify"])],
-  rotate: [COPY(["geometry", "verify"])],
-  transform: [COPY(["geometry", "verify"])],
+  move: [COPY(["geometry", "verify", "object"])],   // object = 摆放（空物体；第 1 版第五节第 3 条：复制子物体是空物体的本职）
+  rotate: [COPY(["geometry", "verify", "object"])],
+  transform: [COPY(["geometry", "verify", "object"])],
   softErase: [{ kind: "option", modes: ["geometry", "freeform"], key: "action", alt: "harden", badge: "硬", name: "硬化", mod: "Shift" }],
   weldErase: [{ kind: "option", modes: ["geometry"], key: "action", alt: "split", badge: "拆", name: "拆开", mod: "Shift" }],
   erase: [{ kind: "option", modes: ["freeform"], key: "action", alt: "dissolve", badge: "溶", name: "溶解", mod: "Shift" }],

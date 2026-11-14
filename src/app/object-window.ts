@@ -16,7 +16,8 @@ import { actionById, routesOf } from "../editor/commands/registry.ts";
 import type { MenuSpec } from "./ui/menu-window.ts";
 import type { AttributeRow } from "../scene/attribute-list.ts";
 import { bytesSay, typeSay } from "./attribute-names.ts";
-import { kindPageOf, type KindPageRow } from "./kind-pages.ts";
+import { castChoices, kindPageOf, type KindPageRow } from "./kind-pages.ts";
+import { CAST_ACTIONS } from "../editor/objects/index.ts";
 import type { ParamValue } from "../editor/param-panel.ts";
 
 export type ObjectTarget = Exclude<MenuTarget, "selection">;
@@ -79,8 +80,11 @@ const actionItems = (acts: readonly { id: string; label: string; icon: string; s
 export function objectWindowItems(editor: Editor, target: ObjectTarget): PopupMenuItem<string>[] {
   const who = editor.describeTarget(target), def = soleDef(editor, target), kindTab = tabsFor(editor, target).some((t) => t.id === "kind");
   const acts = editor.withMenuTarget(target, () => editor.commandMenu("objectWindow"));   // 放置表 objectWindow 面上现在能做的
-  const own = kindTab ? acts.filter((m) => objectFamily(m.id)) : acts, kinds = kindTab ? acts.filter((m) => !objectFamily(m.id)) : [];
-  const out: PopupMenuItem<string>[] = [{ id: "who", label: who.title, note: true, tab: "object" }, ...foldSubmenus(actionItems(own)).map((it) => ({ ...it, tab: "object" }))];   // 第一行：设置的是谁
+  const casts = def === undefined ? null : castChoices(editor, def), castIds = new Set(Object.values(CAST_ACTIONS));
+  const own = (kindTab ? acts.filter((m) => objectFamily(m.id)) : acts).filter((m) => !casts || !castIds.has(m.id)), kinds = kindTab ? acts.filter((m) => !objectFamily(m.id)) : [];
+  // 切换种类 ›（第 1 版第五节第 4 条）：一个物体时 = 列出能切到的每一种、右边说丢什么、走不通的灰掉写原因；选了好几个 = 照旧平铺的转换动作
+  const castRow: PopupMenuItem<string>[] = casts?.length ? [{ id: "cast", label: "切换种类", icon: "object", children: casts.map((c) => ({ id: `action:${c.action}`, label: c.label, hint: c.off ?? c.hint, ...(c.off ? { disabled: true } : {}) })) }] : [];
+  const out: PopupMenuItem<string>[] = [{ id: "who", label: who.title, note: true, tab: "object" }, ...[...castRow, ...foldSubmenus(actionItems(own))].map((it) => ({ ...it, tab: "object" }))];   // 第一行：设置的是谁
   if (!kindTab) return out;
   const fields = def === undefined ? [] : kindPageOf(editor, def).fields({ editor, def });   // 这个种类自己报的字段（网格体 = 对称 + 镜像面）
   out.push(...[...fields.map(fieldItem), ...foldSubmenus(actionItems(kinds))].map((it) => ({ ...it, tab: "kind" })));

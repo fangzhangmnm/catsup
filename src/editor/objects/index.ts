@@ -3,6 +3,8 @@
 import type { Command, CommandEnv, ObjectUnit, Params } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
 import { brepSideCounts, canCast, meshToBrepCheck } from "../../scene/kinds.ts";
+import type { BodyKind } from "../../scene/body-kind.ts";
+import { bodyEmpty } from "../ops.ts";
 
 /** 三角形 → 膜那条管线的速度（三角 / 秒；2026-10-27 node 实测：1 万个不平四边形 = 2 万三角 → 2 万张膜 2.2 s ≈ 9000 三角 / 秒，含共面合并；只是量级，浏览器同量级）。量纲：个 / 秒。 */
 const TRIS_PER_SECOND = 9000;
@@ -56,13 +58,31 @@ export const toBrep: Command<ObjectUnit> = {
   },
 };
 
+/** 转成空物体（第 1 版第五节第 4 条）：只在自己没有几何时可用（挂着子物体不算有几何）；有几何 = 明说转不成，不悄悄丢。丢的是挂在原来那个种类上的设置（登记表 castsTo）。 */
+export const toEmpty: Command<ObjectUnit> = {
+  id: "object.toEmpty", unit: "object", perDefinition: true, takesContext: true, title: "转成空物体",
+  defaults: () => ({}),
+  params: () => [],
+  plan(env, u) {
+    const c = canCast(u.body, "empty");
+    if (!c.ok) return { ops: [], count: 0, skipped: 1, notes: [`「${u.name}」${c.why}`] };
+    if (!bodyEmpty(env.scene.def(u.def).body)) return { ops: [], count: 0, skipped: 1, notes: [`「${u.name}」还有几何，转不成空物体（空物体只装子物体）`] };
+    return { ops: [{ op: "castDefinition", def: u.def, to: "empty" }], count: 1, notes: disclose(u, c.loses) };
+  },
+  done: (n) => `转成空物体：${n} 个（进去是摆放工作台：只摆子物体）`,
+  none: "没有能转的：只有自己没有几何的物体能转成空物体",
+};
+/** 每种身体由哪个动作转过去（物体窗口「切换种类 ›」照这张表列；加一个种类 = 这里一行，少一种编译不过）。 */
+export const CAST_ACTIONS: Readonly<Record<BodyKind, string>> = { brep: "object.toBrep", mesh: "object.toMesh", empty: "object.toEmpty" };
+
 import { verbActions, verbCommands, verbPlacements } from "./verbs.ts";
-const commands: readonly Command[] = [toMesh, toBrep, ...verbCommands];
+const commands: readonly Command[] = [toMesh, toBrep, toEmpty, ...verbCommands];
 /** 图标：两个都是 stopgap（图标库还没有「转成网格体 / 转回硬表面体」，已登记 SVG Icons TODO）。 */
 const actions: readonly Action[] = [
   { id: "object.toMesh", commands: { object: "object.toMesh" }, icon: "collection", label: (n) => `转成网格体（${n}）` },
   { id: "object.toBrep", commands: { object: "object.toBrep" }, icon: "wrench", label: (n) => `转回硬表面体（${n}）` },
+  { id: "object.toEmpty", commands: { object: "object.toEmpty" }, icon: "object", label: (n) => `转成空物体（${n}）` },
 ];
-const placements: readonly Placement[] = [{ action: "object.toMesh", where: "objectWindow", order: 10 }, { action: "object.toBrep", where: "objectWindow", order: 11 }, ...verbPlacements];   // 物体窗口（2026-10-28：物体级不混进选区的右键，UX 心智模型 §2.2）
+const placements: readonly Placement[] = [{ action: "object.toMesh", where: "objectWindow", order: 10 }, { action: "object.toBrep", where: "objectWindow", order: 11 }, { action: "object.toEmpty", where: "objectWindow", order: 12 }, ...verbPlacements];   // 物体窗口（2026-10-28：物体级不混进选区的右键，UX 心智模型 §2.2）
 
 export const objects: Family = { name: "object", commands, actions: [...actions, ...verbActions], placements };

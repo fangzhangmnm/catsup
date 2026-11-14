@@ -3,12 +3,11 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { SECOND_MODES, flippedValue, onSecond, secondModeOf } from "../src/controller/second-mode.ts";
 import { TOOL_OPTIONS, ToolConfig } from "../src/editor/tool-config.ts";
-import { FreeformMode } from "../src/editor/modes/freeform.ts";
-import { GeometryMode } from "../src/editor/modes/geometry.ts";
-import { VerifyMode } from "../src/editor/modes/verify.ts";
+import { workbenches } from "../src/editor/modes/index.ts";
 import type { Tool } from "../src/editor/tool-ids.ts";
 
-const MODES: Record<string, { tools: readonly Tool[] }> = { freeform: new FreeformMode(), geometry: new GeometryMode(), verify: new VerifyMode() };
+/** 全部工作台（2026-11-13：以前手写三个，加了摆放就对不上；照编辑器同一张表拿）。 */
+const MODES: Record<string, { tools: readonly Tool[] }> = Object.fromEntries(workbenches().map((m) => [m.id, m]));
 
 describe("再点切做法（second-mode.ts）", () => {
   it("表里每一行：工作台真有这把工具；切的选项在选项表里、只有两档（或是开关）、另一种做法是它真有的一档；换工具的目标在那个工作台里", () => {

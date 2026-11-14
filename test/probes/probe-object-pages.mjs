@@ -20,6 +20,9 @@ const r = await page.evaluate(async () => {
   const tab = async (id) => { click(menu()?.querySelector(`[data-menu-tab="${id}"]`)); await sleep(40); };
   const ids = () => [...(menu()?.querySelectorAll("[data-menu-id]") ?? [])].map((x) => x.getAttribute("data-menu-id"));
   const texts = () => [...(menu()?.querySelectorAll("[data-menu-id], .menu-note") ?? [])].map((x) => x.textContent.trim());   // 说明行（.menu-note）也收
+  /** 物体页「切换种类 ›」展开后的每一项：id / 字 / 灰没灰。 */
+  const casts = async () => { await tab("object"); click(menu()?.querySelector('[data-menu-id="cast"]')); await sleep(60); return [...document.querySelectorAll(".popup-menu.choice-layer [data-choice-id]")].map((x) => ({ id: x.getAttribute("data-choice-id"), text: x.textContent.trim(), off: x.disabled })); };
+  const castPick = async (id) => { click(document.querySelector(`.popup-menu.choice-layer [data-choice-id="${id}"]`)); await sleep(80); };
   const enter = async (name) => { const d = S().def(S().defOfContext(e.ctx)); const i = [...d.instances.values()].find((x) => S().def(x.def).name === name); e.selectedPools.clear(); e.selectedPools.set(`i${i.id}`, { kind: "instance", instance: i.id }); e.enterSelected(); await sleep(40); };
   e.setGrid({ ...e.grid, on: false });
   e.commitOp({ op: "addEdges", at: e.activePool(), segs: box(0, 0, 0, 1, 1, 1) }); e.selectAll(); e.makeComponent("网"); e.deselectAll(); e.selectedPools.clear();
@@ -32,6 +35,7 @@ const r = await page.evaluate(async () => {
   await enter("网"); e.deselectAll(); e.runAction("object.toMesh"); await sleep(30);
   await open(); out.meshTabs = tabs();
   await tab("object"); out.objIds = ids(); out.who = menu()?.querySelector(".menu-note")?.textContent ?? "";
+  out.meshCasts = await casts(); await open();
   await tab("kind"); out.kindIds = ids(); out.kindTexts = texts();
   await tab("materials"); out.mat0 = texts();
   // ② 开始画 → 材质页 → 把画拿掉 → 撤销
@@ -55,6 +59,12 @@ const r = await page.evaluate(async () => {
   await enter("空"); out.emptyKind = S().kindOf(S().defOfContext(e.ctx));
   await open(); out.emptyTabs = tabs(); await tab("elements"); out.emptyEl = texts(); await tab("materials"); out.emptyMat = texts();
   await closeAll();
+  // ⑤ 空物体 → 网格体（不丢东西）→ 没有几何的网格体能切回空物体
+  await open(); out.emptyCasts = await casts(); await castPick("action:object.toMesh"); await closeAll();
+  out.afterToMesh = S().kindOf(S().defOfContext(e.ctx)); out.modeAfterToMesh = e.mode.id;
+  await open(); out.bareMeshCasts = await casts(); await castPick("action:object.toEmpty"); await closeAll();
+  out.afterToEmpty = S().kindOf(S().defOfContext(e.ctx)); out.modeAfterToEmpty = e.mode.id;
+  e.undo(); await sleep(40); out.afterUndo = S().kindOf(S().defOfContext(e.ctx));
   return out;
 });
 await b.close();
@@ -62,7 +72,7 @@ r.errs = errs;
 const has = (arr, re) => (arr ?? []).some((t) => re.test(t));
 const checks = [
   ["① 网格体四页", r.meshTabs?.join("|") === "物体|网格体|元素|材质和贴图"],
-  ["① 物体页：谁 + 转回硬表面体", /网/.test(r.who) && (r.objIds ?? []).includes("action:object.toBrep")],
+  ["① 物体页：谁 + 切换种类 ›（转换不再平铺）", /网/.test(r.who) && (r.objIds ?? []).includes("cast") && !(r.objIds ?? []).includes("action:object.toBrep")],
   ["① 网格体页：对称 + 细分 + 默认平滑，没有转种类", (r.kindIds ?? []).includes("mirror:mode") && has(r.kindTexts, /细分/) && has(r.kindTexts, /默认平滑/) && !(r.kindIds ?? []).includes("action:object.toBrep")],
   ["① 材质页没画：没有挂材质 / 还没有贴图坐标", has(r.mat0, /没有挂材质/) && has(r.mat0, /还没有贴图坐标/) && !has(r.mat0, /把画拿掉/)],
   ["② 开始画之后：材质页列出画 + 贴图坐标 + 把画拿掉", r.paintedBefore && has(r.mat1, /格/) && (r.mat1Ids ?? []).includes("action:mesh.dropPaint")],
@@ -71,6 +81,10 @@ const checks = [
   ["③ 硬表面体：种类页叫硬表面体；材质页说不能画", r.brepTabs?.join("|") === "物体|硬表面体|元素|材质和贴图" && has(r.brepMat, /硬表面体不能画/)],
   ["④ 空物体：三页（没有种类页）", r.emptyKind === "empty" && r.emptyTabs?.join("|") === "物体|元素|材质和贴图"],
   ["④ 空物体：元素页 / 材质页各说一句", has(r.emptyEl, /只装子物体/) && has(r.emptyMat, /只装子物体/)],
+  ["⑤ 网格体：切换种类列出硬表面体（说丢什么）、空物体灰着（还有几何）", (() => { const c = r.meshCasts ?? [], b = c.find((x) => x.id === "action:object.toBrep"), m = c.find((x) => x.id === "action:object.toEmpty"); return c.length === 2 && b && !b.off && /会丢/.test(b.text) && m && m.off && /还有几何/.test(m.text); })()],
+  ["⑤ 空物体：切到硬表面体 / 网格体都不丢东西", (r.emptyCasts ?? []).length === 2 && r.emptyCasts.every((x) => !x.off && /不丢东西/.test(x.text))],
+  ["⑤ 空物体 → 网格体：种类和工作台跟着换", r.afterToMesh === "mesh" && r.modeAfterToMesh === "freeform"],
+  ["⑤ 没有几何的网格体能切回空物体；撤销一步回到网格体", (r.bareMeshCasts ?? []).some((x) => x.id === "action:object.toEmpty" && !x.off) && r.afterToEmpty === "empty" && r.modeAfterToEmpty === "object" && r.afterUndo === "mesh"],
   ["没有页面错误", errs.length === 0],
 ];
 console.log(JSON.stringify(r, null, 1));

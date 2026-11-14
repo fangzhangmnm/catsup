@@ -20,6 +20,9 @@ const res = await page.evaluate(async () => {
   const labels = () => [...(menu()?.querySelectorAll(".menu-label") ?? [])].map((x) => x.textContent);
   const closeAll = async () => { document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); await sleep(30); document.querySelectorAll(".popup-menu").forEach((m) => m.remove()); document.querySelectorAll(".float-win:not([hidden]) .float-close").forEach((b) => b.click()); };
   const clickLabel = async (re) => { const it = [...(menu()?.querySelectorAll(".menu-item, [data-menu-id]") ?? [])].find((x) => re.test(x.textContent)); it?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); return !!it; };
+  // 转种类住物体窗口物体页的「切换种类 ›」（第 1 版第五节第 4 条）：展开后每种一行（字 = 种类名 + 丢什么）
+  const castLabels = async () => { menu()?.querySelector('[data-menu-tab="object"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(30); menu()?.querySelector('[data-menu-id="cast"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); return [...document.querySelectorAll(".popup-menu.choice-layer [data-choice-id]")].map((x) => x.textContent.trim()); };
+  const castClick = async (re) => { const it = [...document.querySelectorAll(".popup-menu.choice-layer [data-choice-id]")].find((x) => re.test(x.textContent.trim())); it?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); return !!it; };
   const S = () => e.scene, root = () => S().def(S().root), out = {};
   e.setGrid({ ...e.grid, on: false });
   // 组：盒子 B（3..4）+ 一份组件（5..6）都进组
@@ -31,13 +34,13 @@ const res = await page.evaluate(async () => {
   out.setup = { kind: root().body.kind, groups: root().body.groups.size, instParent: inst0.parent, rootFaces: root().body.kernel.faces().length, groupFaces: [...root().body.groups.values()].reduce((n, g) => n + g.kernel.faces().length, 0) };
   e.deselectAll(); await sleep(10);
   await rclick(); out.menuEmpty = labels(); await closeAll();   // 空处右键：物件级的不在这
-  await openObj(); out.who = who(); out.menu = labels(); out.clicked = await clickLabel(/转成网格体/); await closeAll();
+  await openObj(); out.who = who(); out.menu = await castLabels(); out.clicked = await castClick(/^网格体/); await closeAll();
   const m = root().body.kind === "mesh" ? root().body.kernel : null;
   out.after = { kind: root().body.kind, mode: e.modeId, faces: m ? m.faces().length : 0, instParent: [...root().instances.values()][0].parent, samePos: JSON.stringify([...root().instances.values()][0].xform) === JSON.stringify(wpos0), hint: hud.status() };
   e.undo(); await sleep(20);
   out.undone = { kind: root().body.kind, groups: root().body.kind === "brep" ? root().body.groups.size : -1, instParent: [...root().instances.values()][0].parent, mode: e.modeId };
   e.redo(); await sleep(20); e.deselectAll();
-  await openObj(); out.who2 = who(); out.menu2 = labels(); out.clicked2 = await clickLabel(/转回硬表面体/); await sleep(40); await closeAll();
+  await openObj(); out.who2 = who(); out.menu2 = await castLabels(); out.clicked2 = await castClick(/^硬表面体/); await sleep(40); await closeAll();
   out.back = { kind: root().body.kind, mode: e.modeId };
   return out;
 });
@@ -45,10 +48,10 @@ await b.close();
 res.errs = errs;
 // 面数 × 2：盒子是用边搭的、没定朝向，两侧都是默认正面 = 转过去两侧都出（v0.18.31 单面 / 双面那一版的规矩，提示行照实说；W-9 查的老红）
 const ok = res.setup.kind === "brep" && res.setup.groups === 1 && res.setup.instParent !== null && res.setup.groupFaces === 6
-  && !res.menuEmpty.some((l) => /转成网格体/.test(l)) && /最外层/.test(res.who) && /硬表面体/.test(res.who) && res.menu.some((l) => /转成网格体/.test(l)) && res.clicked && /最外层/.test(res.who2) && /网格体/.test(res.who2)
+  && !res.menuEmpty.some((l) => /转成网格体/.test(l)) && /最外层/.test(res.who) && /硬表面体/.test(res.who) && res.menu.some((l) => /^网格体/.test(l)) && res.clicked && /最外层/.test(res.who2) && /网格体/.test(res.who2)
   && res.after.kind === "mesh" && res.after.mode === "freeform" && res.after.faces === 2 * (res.setup.rootFaces + res.setup.groupFaces) && /两侧都出/.test(res.after.hint) && res.after.instParent === null && res.after.samePos
   && res.undone.kind === "brep" && res.undone.groups === 1 && res.undone.instParent !== null && res.undone.mode !== "freeform"
-  && res.menu2.some((l) => /转回硬表面体/.test(l)) && res.clicked2 && res.back.kind === "brep" && res.back.mode !== "freeform"
+  && res.menu2.some((l) => /^硬表面体/.test(l)) && res.clicked2 && res.back.kind === "brep" && res.back.mode !== "freeform"
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-root-cast OK" : "probe-root-cast FAIL");

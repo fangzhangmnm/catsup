@@ -568,7 +568,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       return { scene: s, events: [] };
     }
     case "placeInstance": {
-      const { ref } = poolOf(s, op.at);
+      const { ref } = anyPoolOf(s, op.at);   // 只在定义上挂一份实例、不碰内核：三种身体都接（2026-11-13 第 1 版第五节第 3 条：以前只认硬表面那一层，空物体里 Ctrl 复制子物体被拒）
       if (!s.defs.has(op.definition)) throw new OpTargetError(`definition ${op.definition}`);
       if (s.references(op.definition, ref.def)) throw new OpTargetError("placeInstance: would create a cycle");
       s.mintInstance(ref.def, ref.group, op.definition, op.xform);

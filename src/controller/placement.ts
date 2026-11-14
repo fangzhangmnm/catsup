@@ -38,6 +38,7 @@ export const RAIL_FIXED: Readonly<Partial<Record<ModeId, readonly Tool[]>>> = {
   // create = 拉出（FM182；user 10-28 夜「拉出放到推拉上面」）；删除 / 插入倒角搬进下面的折叠组（「删除，插入倒角也折叠」）
   freeform: ["select", "create", "pp", "move", "rotate", "scale", "knife"],
   paint: ["paintPen", "paintEraser", "eyedrop", "paintBucket"],   // 画画（贴图主线 1-7）：笔、橡皮、吸管；油漆桶（2026-11-13）
+  object: ["select", "transform", "move", "rotate", "scale"],   // 摆放（空物体，第 1 版第五节第 3 条）：选、变换（主工具）、移动 / 旋转 / 缩放；要几何的工具不在这个工作台里
   verify: ["walk", "select", "transform", "tape"],   // 2026-10-30 user「验证的移动旋转收第一个...量角器 圆规 座标架收第二个...」「然后变换也归验证的tools，常驻，放移动旋转那一家」
 };
 /**
