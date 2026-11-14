@@ -174,7 +174,10 @@ export function documentFromScene(scene: Scene, _name: string, base?: CatsupDocu
   const root = definitions[rootIndex];
   const layers = scene.layers.map((l) => ({ ...l }));
   const shelf = shelfIsEmpty(scene.shelf) ? undefined : copyShelf(scene.shelf);
-  if (base) { const { shelf: _old, ...rest } = base; void _old; return { ...rest, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, textures, uvSets, axes: copyFrame(scene.frameOf(scene.root)), layers, ...(shelf ? { shelf } : {}) }; }   // final / finalRev 随 base 带
+  if (base) {   // 打开时那个根的 extras 按 GUID 跟着它走（给根包一层之后它成了普通定义：挂回它身上，不挂到新根上）
+    const { shelf: _old, ...rest } = base; void _old;
+    const ex = base.root.extras, mine = !!ex && base.root.guid === root.guid, defs = ex && !mine ? definitions.map((d) => (d.guid === base.root.guid ? { ...d, extras: ex } : d)) : definitions;
+    return { ...rest, definitions: defs, rootIndex, root: { ...root, ...(mine ? { extras: ex } : {}) }, materials, textures, uvSets, axes: copyFrame(scene.frameOf(scene.root)), layers, ...(shelf ? { shelf } : {}) }; }   // final / finalRev 随 base 带
   const doc = newDocument(root.brep, root.name);
   doc.axes = copyFrame(scene.frameOf(scene.root));
   doc.definitions = definitions;

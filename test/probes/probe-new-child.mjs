@@ -5,7 +5,8 @@
 // ④ 回根，物体窗口（这一层）物体页「新建子物体 ›」→ 硬表面体：落在原点、工作台 = 硬表面建模；选中子物体时的物体窗口没有这一项
 // ⑤ 层级窗口：子物体那一行的菜单「新建子物体 ›」→ 空物体 = 建在那个物体里面（深两层）
 // ⑥ 锁着：右键新建 = 什么都不建，提示行说锁着
-// ⑦⑧⑨ 创建父物体（第五节第 7 条）：选中的那一份 / 这一层自己（人留在里面）/ 最外层灰着；炸开新父亲 = 回去
+// ⑦⑧ 创建父物体（第五节第 7 条）：选中的那一份 / 这一层自己（人留在里面）；炸开新父亲 = 回去
+// ⑨ 最外层自己「创建父物体」= 给根包一层：新的最外层是空物体、人留在原来那一层里、世界里的点不动；回到最外层「去掉这一层」= 回去（身份、点都回来）
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-new-child.mjs [地址]
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -114,7 +115,7 @@ r.seven = await ev(async () => {
   out.back = out.backGuid && out.backPts;
   return out;
 });
-// ⑧ 在一个子物体里面（这一层自己）创建父物体：人留在它里面（深一层）；⑨ 最外层：那一行灰着、写原因
+// ⑧ 在一个子物体里面（这一层自己）创建父物体：人留在它里面（深一层）；⑨ 最外层：给根包一层，再去掉这一层
 r.eight = await ev(async () => {
   const { e, S, click, menu, sleep, here } = window.__m;
   e.exitTo(0); await sleep(30);
@@ -128,8 +129,18 @@ r.eight = await ev(async () => {
   if (menu()) { click(document.querySelector(".gizmo-object")); await sleep(40); }
   e.exitTo(0); await sleep(30); e.selectedPools.clear(); e.draw();
   click(document.querySelector(".gizmo-object")); await sleep(100);
-  const rootRow = menu()?.querySelector('[data-menu-id="addParent"]');
-  out.rootOff = !!rootRow?.disabled; out.rootHint = rootRow?.textContent ?? "";
+  const pts = () => S().pointsOfDef(S().root).map((p) => [p.x, p.y, p.z].map((v) => v.toFixed(6)).join(",")).sort().join(";");
+  const root0 = S().def(S().root).guid, pts0 = pts(), rootRow = menu()?.querySelector('[data-menu-id="addParent"]');
+  out.rootOn = !!rootRow && !rootRow.disabled;
+  click(rootRow); await sleep(120);
+  out.wrapped = { depth: here().depth, rootKind: S().kindOf(S().root), newRoot: S().def(S().root).guid !== root0, kidIsOld: S().def([...S().def(S().root).instances.values()][0]?.def ?? -1)?.guid === root0, still: pts() === pts0 };
+  if (menu()) { click(document.querySelector(".gizmo-object")); await sleep(40); }
+  e.exitTo(0); await sleep(30); e.selectedPools.clear(); e.draw();
+  click(document.querySelector(".gizmo-object")); await sleep(100);
+  const un = menu()?.querySelector('[data-menu-id="unwrapRoot"]');
+  out.unwrapOn = !!un && !un.disabled;
+  click(un); await sleep(120);
+  out.unwrapped = { depth: here().depth, back: S().def(S().root).guid === root0, still: pts() === pts0 };
   if (menu()) { click(document.querySelector(".gizmo-object")); await sleep(40); }
   return out;
 });
@@ -154,7 +165,8 @@ const checks = [
   ["⑦ 新父亲是空物体、它整个在下面、根上份数不变、世界位置不动、选中新父亲", r.seven.n1 === r.seven.n0 && r.seven.parKind === "empty" && r.seven.kidsInPar === 1 && r.seven.still && r.seven.selected],
   ["⑦ 炸开新父亲 = 回去（世界位置照旧、根上份数照旧；孩子那一份的身份炸开时现铸 = 记在施工单顾虑里，不在这里验）", r.seven.backPts && r.seven.backN === r.seven.n0],
   ["⑧ 在这一层自己创建父物体：人留在它里面（深一层）、上一层是空物体", r.eight.d0 === 1 && r.eight.d1 === 2 && r.eight.sameDef && r.eight.upKind === "empty"],
-  ["⑨ 最外层：「创建父物体」灰着、写了原因", r.eight.rootOff && /最外层/.test(r.eight.rootHint)],
+  ["⑨ 最外层「创建父物体」= 给根包一层：新的最外层是空物体、原来的最外层在它下面、人留在原来那一层（深一层）、点不动", r.eight.rootOn && r.eight.wrapped.depth === 1 && r.eight.wrapped.rootKind === "empty" && r.eight.wrapped.newRoot && r.eight.wrapped.kidIsOld && r.eight.wrapped.still],
+  ["⑨ 回到最外层「去掉这一层」= 回去（身份、点都回来、人在最外层）", r.eight.unwrapOn && r.eight.unwrapped.back && r.eight.unwrapped.still && r.eight.unwrapped.depth === 0],
   ["没有报错", r.thrown.length === 0 && errs.length === 0],
 ];
 console.log(JSON.stringify(r, null, 1));

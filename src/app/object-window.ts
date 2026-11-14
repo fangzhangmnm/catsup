@@ -18,6 +18,7 @@ import type { AttributeRow } from "../scene/attribute-list.ts";
 import { bytesSay, typeSay } from "./attribute-names.ts";
 import { castChoices, kindPageOf, newChildChoices, newChildKindOf, type KindPageRow } from "./kind-pages.ts";
 import { hex4 } from "../config.ts";
+import { bodyEmpty } from "../editor/ops.ts";
 import { CAST_ACTIONS } from "../editor/objects/index.ts";
 import type { ParamValue } from "../editor/param-panel.ts";
 
@@ -62,6 +63,7 @@ export function objectWindowMenu(editor: Editor, hud: HudModel, target: ObjectTa
       if (hit) { if (!hit.row.off) hit.row.set(hit.value); after(); return "keep"; }
       { const k = newChildKindOf(id); if (k) { editor.newChild(k, hex4()); after(); return; } }   // 新建子物体：进到新的那一层 = 窗口关掉
       if (id === "addParent") { editor.addParent(target, hex4()); after(); return; }
+      if (id === "unwrapRoot") { editor.unwrapRoot(); after(); return; }
       if (id.startsWith("action:")) { editor.withMenuTarget(target, () => hud.pick(id)); after(); return; }   // 单位只在 runAction 开头取一次 → 马后炮重做也用同一批（跑完目标恢复成选区没关系）
       return "keep";
     },
@@ -91,9 +93,12 @@ export function objectWindowItems(editor: Editor, target: ObjectTarget): PopupMe
   const newRow: PopupMenuItem<string>[] = target === "self" ? [{ id: "newChild", label: "新建子物体", icon: "object", children: newChildChoices().map((c) => ({ id: c.id, label: c.label })) }] : [];
   // 创建父物体（第 1 版第五节第 7 条；和切换种类是两个按钮）：新父亲 = 空物体，这个物体整个放到它下面、位置不动；做不了 = 灰掉写原因
   const parentWhy = editor.addParentWhy(target), parentRow: PopupMenuItem<string>[] = [{ id: "addParent", label: "创建父物体", icon: "object", ...(parentWhy ? { disabled: true, hint: parentWhy } : {}) }];
+  // 去掉这一层（给根包一层反过来，第 1 版第七节）：只在最外层自己、而且它自己没有几何时露（看着像包出来的那一层）；做不了 = 灰掉写原因
+  const atRoot = target === "self" && editor.contextDepth() === 0, unwrapWhy = atRoot && bodyEmpty(editor.sceneRef.def(editor.sceneRef.root).body) ? editor.unwrapRoot(true) : undefined;
+  const unwrapRow: PopupMenuItem<string>[] = unwrapWhy === undefined ? [] : [{ id: "unwrapRoot", label: "去掉这一层", icon: "object", ...(unwrapWhy ? { disabled: true, hint: unwrapWhy } : { hint: "里面那个物体顶上来当最外层，位置不动" }) }];
   // 坐标架（统筹 11-13 夜审查 a 第 2 条）：一行说明它现在是跟着原点还是另摆了；重置走放置表那一条（object.resetFrame，另摆了才露）
   const frameRow: PopupMenuItem<string>[] = def === undefined ? [] : [{ id: "frame", label: editor.sceneRef.def(def).frame ? "坐标架：另摆了（右边三色轴；重置 = 回到原点）" : "坐标架：跟着原点", note: true, tab: "object" }];
-  const out: PopupMenuItem<string>[] = [{ id: "who", label: who.title, note: true, tab: "object" }, ...frameRow, ...[...castRow, ...parentRow, ...newRow, ...foldSubmenus(actionItems(own))].map((it) => ({ ...it, tab: "object" }))];   // 第一行：设置的是谁
+  const out: PopupMenuItem<string>[] = [{ id: "who", label: who.title, note: true, tab: "object" }, ...frameRow, ...[...castRow, ...parentRow, ...unwrapRow, ...newRow, ...foldSubmenus(actionItems(own))].map((it) => ({ ...it, tab: "object" }))];   // 第一行：设置的是谁
   if (!kindTab) return out;
   const fields = def === undefined ? [] : kindPageOf(editor, def).fields({ editor, def });   // 这个种类自己报的字段（网格体 = 对称 + 镜像面）
   out.push(...[...fields.map(fieldItem), ...foldSubmenus(actionItems(kinds))].map((it) => ({ ...it, tab: "kind" })));

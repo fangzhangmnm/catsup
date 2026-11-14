@@ -125,6 +125,8 @@ export class Scene {
   constructor(rootKernel?: Kernel, rootGuid?: Guid) {
     this.root = this.mintDef("model", rootKernel ?? new Kernel(), rootGuid).id;   // 根的绘图轴生下来 = 缺（= 世界帧；恒等的一律存成缺，见 Definition.frame）
   }
+  /** 换根（只给指令 wrapRoot / unwrapRoot 用：给根包一层 / 去掉这一层，第 1 版第七节）。根 = 文件的入口指针指着的那个定义，此外和别的物体没有区别（定稿第 2 条）。 */
+  reroot(def: DefId): void { if (!this.defs.has(def)) throw new Error(`reroot: definition ${def}`); (this as { root: DefId }).root = def; }
   /** 这个定义画图用的坐标架（本定义坐标；没另摆 = 定义坐标系）。根的 = 绘图轴。 */
   frameOf(def: DefId): Frame { return this.def(def).frame ?? WORLD_FRAME; }
   /** 写坐标架的唯一口（指令 / 换原点 / 读文件都走这里）：恒等 = 缺。 */

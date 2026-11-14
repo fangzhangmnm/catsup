@@ -24,7 +24,7 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { GuideSelection } from "./guide-selection.ts";
 import { describeEvent } from "./describe-event.ts";
-import { bornThisGesture } from "./born-this-gesture.ts"; import { REACH } from "./reach-table.ts"; import { softEdgesOf, vertDotsOf } from "./edit-marks.ts"; import { planMove, type MoveDest } from "./objects/move-to.ts"; import { newChildOp } from "./objects/new-child.ts"; import { planAddParent } from "./objects/add-parent.ts";
+import { bornThisGesture } from "./born-this-gesture.ts"; import { REACH } from "./reach-table.ts"; import { softEdgesOf, vertDotsOf } from "./edit-marks.ts"; import { planMove, type MoveDest } from "./objects/move-to.ts"; import { newChildOp } from "./objects/new-child.ts"; import { planAddParent } from "./objects/add-parent.ts"; import { unwrapRootWhy } from "./ops.ts";
 import { snapHoldTol } from "./snap-hysteresis.ts";
 import { type ForceEnv, forceSideFor, forcesOn, originNeedsAsk } from "./mirror-force.ts";
 import { type FreedBase, type UpkeepSnaps, freedBaseline, freedOp, upkeepAfter, upkeepRewrite, upkeepSnapshot } from "./paint-upkeep.ts";   // 每一步做完的收尾 = 强行对称 + 画的位置（1-3b）
@@ -786,8 +786,7 @@ export class Editor {
     this.originEdit = null;   // 改组件原点会话随换工具结束（beginComponentOrigin 在换完之后才开）
     this.cancelGesture(how === "back");
     this.clearCharged();   // 充能生命周期 = 工具子步（user 2026-10-24）：换工具就清
-    this.host.changed();
-    this.draw();
+    this.host.changed(); this.draw();
   }
 
   /** 键盘 Esc 先问这里：声明了 escFinishes 的工具（刀）在等下一点时 = 收（开小窗），返回 true；再按一次才是原来的取消（W-8）。 */
@@ -2515,7 +2514,9 @@ export class Editor {
   /** 进到 ctx 那一层（进组 / 进组件 / 新建子物体之后进去，同一段）：选区在上下文定了再造（id 空间 = 活动池的种类），工作台在 setCtx 里跟上；只换看法，文件不变（统筹 11-12）。 */
   private enterIn(pass: StepPass, ctx: EditContext): void { this.last = null; this.cancelGesture(); this.clearSel(pass); this.setCtx(pass, ctx); this.selection = this.blankSelection(); this.viewChanged(); this.host.changed(); this.draw(); }   // 选区：写口已标过（clearSel / setCtx 在前）
   /** 创建父物体（第 1 版第五节第 7 条；objects/add-parent.ts）：children = 选中的那一个子物体（做完选中新父亲）/ self = 你所在的这一层（人留在它里面）；一步撤销。addParentWhy = 现在做不了的原因（物体窗口灰掉写它）。 */
-  addParent(target: "self" | "children", name: string): boolean { return this.step((pass) => { const p = planAddParent(this.scene, this.ctx, target === "self" ? null : this.instancePicks(), name); if ("why" in p) { this.host.hint(p.why); return false; } this.commitIn(pass, p.op); const par = [...this.scene.def(p.op.at.def).instances.values()].find((i) => i.guid === p.op.inst), kid = par && [...this.scene.def(par.def).instances.values()][0]; if (!par || !kid) return false; if (target === "self") this.setCtx(pass, { chain: [...this.ctx.chain.slice(0, -1), par.id, kid.id], group: null }); else { this.clearSel(pass); this.selectedPools.set(`i${par.id}`, { kind: "instance", instance: par.id }); } this.host.hint(`创建了父物体「${name}」（空物体）：「${this.scene.def(kid.def).name}」整个在它下面，位置不动（撤销一步 = 没建）`); this.host.changed(); this.draw(); return true; }); }
+  addParent(target: "self" | "children", name: string): boolean { return this.step((pass) => { const p = planAddParent(this.scene, this.ctx, target === "self" ? null : this.instancePicks(), name); if ("why" in p) { this.host.hint(p.why); return false; } this.commitIn(pass, p.op); const a = p.after(this.scene, this.ctx); if (!a) return false; if (a.ctx) this.setCtx(pass, a.ctx); if (a.select !== undefined) { this.clearSel(pass); this.selectedPools.set(`i${a.select}`, { kind: "instance", instance: a.select }); } this.host.hint(a.say); this.host.changed(); this.draw(); return true; }); }
+  /** 去掉这一层（给根包一层反过来；ops unwrapRootWhy 说做不了的原因）：dry = 只问做不做得了。在外面这一层上做 = 人到顶上来的那一层；在里面 = 上下文链少前面一节。一步撤销。 */
+  unwrapRoot(dry?: boolean): string | null { const why = unwrapRootWhy(this.scene); if (why || dry) return why; return this.step((pass) => { const R = this.scene.root, first = [...this.scene.def(R).instances.values()][0].id, inside = this.ctx.chain[0] === first, c0 = this.ctx; this.commitIn(pass, { op: "unwrapRoot" }); if (this.scene.root === R) return "没去掉"; if (!inside) this.clearSel(pass); this.setCtx(pass, inside ? { chain: c0.chain.slice(1), group: c0.group } : { chain: [], group: null }); this.host.hint("去掉了外面这一层：里面那个物体现在就是最外层（位置不动；撤销一步 = 回去）"); this.host.changed(); this.draw(); return null; }); }
   addParentWhy(target: "self" | "children"): string | null { const p = planAddParent(this.scene, this.ctx, target === "self" ? null : this.instancePicks(), ""); return "why" in p ? p.why : null; }
   /** 新建子物体（第 1 版第五节第 5 条；落点 / 朝向 = objects/new-child.ts）：这一层铸一个空的子物体、直接进去，一步撤销。where = pointer：右键那一下点在点 / 边 / 面上就落在那一点，别处 = 这一层的原点。 */
   newChild(kind: BodyKind, name: string, where?: "pointer"): boolean { return this.step((pass) => { const A = where === "pointer" && this.ctxPick && !this.ctxPick.blank ? this.newObjectAnchor() : null, op = newChildOp(this.scene, this.ctx, this.activePool(), A && ["点", "边", "面"].includes(A.on) ? A.p : null, kind, name); this.commitIn(pass, op); const inst = [...this.scene.def(op.at.def).instances.values()].find((i) => i.guid === op.inst); if (!inst) return false; this.enterIn(pass, { chain: [...this.ctx.chain, inst.id], group: null }); this.host.hint(`新建了${KINDS[kind].noun}「${name}」，已经进到它里面（撤销一步 = 没建）`); return true; }); }

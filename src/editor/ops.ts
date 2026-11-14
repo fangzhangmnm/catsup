@@ -147,6 +147,10 @@ export type Op =
   | { op: "addChild"; at: PoolRef; kind: BodyKind; name: string; xform: Xform; def: Guid; inst: Guid }
   /** 创建父物体（第 1 版第五节第 7 条；editor/objects/add-parent.ts）：at 那一层里的那一份（instance）整个放进一个新的空物体，世界位置不动；新父亲 = 孩子的原点和轴（缩放留在孩子身上），顶替孩子在兄弟里那一格；孩子的身份不变。 */
   | { op: "addParent"; at: PoolRef; instance: number; name: string; def: Guid; inst: Guid }
+  /** 给根包一层（第 1 版第七节；给根包一层定稿第 3 条）：新根 = 新的空物体（身份 = def、名字 = name）；旧根整个成为它下面的一份（身份 = inst，原位摆放），GUID / 名字都不变；新根的坐标架 = 旧根那一份。 */
+  | { op: "wrapRoot"; name: string; def: Guid; inst: Guid }
+  /** 去掉这一层（wrapRoot 反过来，定稿第 4 条）：根自己什么都没有、只原位摆着一个子物体时，那个子物体顶上来当根，外面这一层拿掉。做不了 = 拒（unwrapRootWhy 说原因）。 */
+  | { op: "unwrapRoot" }
   // ---------- mesh 族（0.15 网格体；2026-10-27 接缝）：网格体没有组，寻址 = 定义 + 内核 id（数组制度：id 稳定、克隆保号，不用按坐标寻址）----------
   /** 挪网格点：往位置数组里写（mesh/ops/geometry.ts moveVerts）。不过结算机、不合并、不折面——mesh 刻意没有 brep 的公理。 */
   | { op: "meshMove"; def: number; moves: { v: number; to: Pt3 }[] }
@@ -343,6 +347,26 @@ function retransformDefinition(s: Scene, def: number, M: Xform): FaceEvent[] {
   return events;
 }
 /** 帧的三轴重新正交归一（x 定向，y 去掉 x 分量，z = x × y）。 */
+/**
+ * 去掉这一层做不了的原因（null = 做得了；第 1 版第七节，定稿第 4 条）：根自己什么都没有（没几何、没参考线、没组），只摆着一个子物体，
+ * 而且那一份是原位摆放、没锁没藏、没另起名字、在默认图层，那个物体别处也没摆着，外面这一层没另摆和里面不一样的坐标架。每一样都是「拿掉这一层就没地方放」的东西，不悄悄丢。
+ */
+export function unwrapRootWhy(s: Scene): string | null {
+  const R = s.def(s.root), b = R.body;
+  if (!bodyEmpty(b) || (b.kind === "brep" && (b.guides.lines.length || b.guides.points.length || b.guides.circles?.length || b.guides.spheres?.length))) return "最外层自己有几何或参考线：去不掉这一层（先把它们移进里面那个物体）";
+  const kids = [...R.instances.values()];
+  if (kids.length !== 1) return kids.length ? `最外层摆着 ${kids.length} 个子物体：只有一个时才能去掉这一层` : "最外层没有子物体：没有能顶上来的那一层";
+  const k = kids[0];
+  if (!isIdentityXform(k.xform)) return "里面那一份挪过、转过或缩过：去掉这一层它会换位置（先把它摆回原位）";
+  if (k.locked || k.hidden) return "里面那一份锁着或藏着：去掉这一层就没地方记了（先解锁 / 显示）";
+  if (k.name !== undefined || (k.layer !== undefined && k.layer !== 0)) return "里面那一份另起了名字或放在别的图层：去掉这一层就没地方记了";
+  if (s.instanceCount(k.def) > 1) return "里面那个物体别处也摆着：它当不了最外层";
+  const fo = R.frame, fi = s.def(k.def).frame;
+  if (fo && !(fi && sameFrameOf(fo, fi))) return "外面这一层另摆了坐标架、和里面的不一样：先重置外面这一层的坐标架";
+  return null;
+}
+const isIdentityXform = (m: Xform): boolean => m.every((v, i) => Math.abs(v - IDENTITY[i]) < 1e-12);
+const sameFrameOf = (a: Frame, b: Frame): boolean => [a.origin, a.x, a.y, a.z].every((p, i) => { const q = [b.origin, b.x, b.y, b.z][i]; return Math.abs(p.x - q.x) < 1e-12 && Math.abs(p.y - q.y) < 1e-12 && Math.abs(p.z - q.z) < 1e-12; });
 /** 指令里写着的身份已经有人用了（定义或任何一份摆放）。 */
 const guidTaken = (s: Scene, ...gs: readonly Guid[]): boolean => gs.some((g) => !!s.defByGuid(g) || [...s.defs.values()].some((d) => [...d.instances.values()].some((i) => i.guid === g)));
 function orthonormalFrame(f: Frame): Frame {
@@ -940,6 +964,22 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       placeAmongSiblings(d0, s.mintInstance(op.at.def, op.at.group, def.id, px, op.inst).id, slot);   // 顶替孩子那一格（同级顺序 = 存盘顺序）
       return { scene: s, events: [] };
     }
+    case "wrapRoot": {
+      if (guidTaken(s, op.def, op.inst)) throw new OpTargetError(`wrapRoot: guid taken`);
+      const old = s.def(s.root), R = s.mintDef(op.name, new Kernel(), op.def);
+      R.body = { kind: "empty", materialSlots: [] };
+      s.setFrame(R.id, old.frame);   // 新根的坐标架 = 旧根那一份（下面的摆放是恒等 = 世界里同一个位置）；旧根自己的照留
+      s.mintInstance(R.id, null, old.id, IDENTITY, op.inst);
+      s.reroot(R.id);
+      return { scene: s, events: [] };
+    }
+    case "unwrapRoot": {
+      const why = unwrapRootWhy(s);
+      if (why) throw new OpRejected(why);
+      const R = s.def(s.root), kid = [...R.instances.values()][0];
+      s.reroot(kid.def);
+      return applyOpInner(s, { op: "purgeDefs", defs: [R.id] });   // 换了根，外面这一层就成了孤儿（从根走不到）：走清理那一条删（全家唯一删定义的地方），这一下要拿掉的就是它，不是顺手删别的
+    }
     case "shelfPut": case "shelfTake": case "shelfMove": case "shelfFolderAdd": case "shelfFolderRename": case "shelfFolderRemove": return applyShelfOp(s, op);
     case "addLayer": { const id = s.nextLayer++; s.layers.push({ id, guid: mintGuid(), name: op.name, visible: true, ...(op.color ? { color: op.color } : {}) }); return { scene: s, events: [] }; }
     case "renameLayer": { const l = s.layers.find((x) => x.id === op.layer); if (!l) throw new OpTargetError(`layer ${op.layer}`); l.name = op.name; return { scene: s, events: [] }; }
@@ -990,6 +1030,8 @@ export function describeOp(op: Op): string {
     case "weldEdges": return `weldEdges n=${op.edges.length}${at}`;
     case "castDefinition": return `castDefinition def=${op.def} → ${op.to}`;
     case "addParent": return `addParent instance=${op.instance} "${op.name}" def=${op.def.slice(0, 8)} at=${op.at.def}/${op.at.group ?? "root"}`;
+    case "wrapRoot": return `wrapRoot "${op.name}" def=${op.def.slice(0, 8)} inst=${op.inst.slice(0, 8)}`;
+    case "unwrapRoot": return "unwrapRoot";
     case "addChild": return `addChild ${op.kind} "${op.name}" def=${op.def.slice(0, 8)} inst=${op.inst.slice(0, 8)} at=${op.at.def}/${op.at.group ?? "root"}`;
     case "meshAddPrimitive": return `meshAddPrimitive def=${op.def} ${op.kind}`;
     case "meshInset": return `meshInset def=${op.def} faces=${op.faces.length} d=${op.dist.toFixed(4)}`;
