@@ -2,14 +2,14 @@
 // 这里只改场景。拒绝 = 返回原因（ops.ts 抛 OpRejected，进提示行、场景一个字节不变）；目标没了 = 返回 { target }（ops.ts 抛 OpTargetError）。
 // 场景的排法表（施工单十八：从网格体身上搬到场景这一层）只在这里加（startPaint）和换高（meshLayoutPaint）（守卫 test/paint-start-guard.test.ts）。
 // 只 import 类型的 ops.ts（不在运行时互相 import）。
-import { setFaceMaterial } from "../mesh/reserved-columns.ts";
+import { faceMaterial, setFaceMaterial } from "../mesh/reserved-columns.ts";
 import type { Op } from "./ops.ts";
 import { uvSetAutoPlaces, type DefId, type Scene } from "../scene/scene.ts";
 import { COLOR_CHANNEL, COLOR_VALUE, paintIn } from "../format/document.ts";
 import { gapForCanvas, layoutAppend, layoutFaces } from "../paint/layout.ts";
 import { placementBlocked } from "../paint/freed.ts";   // 补面时当占着的（读法一：freed 加上占着的；全仓一个）
 import { unplacedPaintFaces } from "../scene/paint.ts";
-import { onUvSet, placeFace, unplaceFace, uvMesh } from "../scene/uv.ts";
+import { leaveUvSets, onUvSet, placeFace, unplaceFace, uvMesh } from "../scene/uv.ts";
 import type { Guid } from "../format/guid.ts";
 
 export type PaintOutcome = null | { readonly rejected: string } | { readonly target: string };
@@ -17,6 +17,7 @@ type StartPaint = Extract<Op, { op: "startPaint" }>;
 type MeshPaintFaces = Extract<Op, { op: "meshPaintFaces" }>;
 type MeshLayoutPaint = Extract<Op, { op: "meshLayoutPaint" }>;
 type SetFreed = Extract<Op, { op: "setFreed" }>;
+type MeshDropPaint = Extract<Op, { op: "meshDropPaint" }>;
 
 /** 换别的定义的画上来的原因（startPaint / meshPaintFaces 共用）。 */
 export const OTHER_DEF_PAINT = "这张画是别的物件的：画只能换到它自己那个物件的面上";
@@ -40,6 +41,27 @@ function paintMeshFaces(s: Scene, def: DefId, faces: readonly number[], material
   for (const f of faces) setFaceMaterial(k, f, slot);   // 保留名 material_index
   return null;
 }
+
+/**
+ * 把画拿掉 = 这个物体退出它身上的画（第 1 版施工单第五节 2½，统筹 11-13：「要真能逃生」）。一步里：
+ *   ① 走画的面换回默认材质；② 面在那几张画的排法上的位置全交出（角上的数清掉，scene/uv.ts leaveUvSets：换成别的材质、还在那套上有位置的面也交出）；
+ *   ③ 速查表里那几套拿掉、代号重新对上；④ 那几张画的材质、没有面再用的槽拿掉，面上的槽号重新对上。
+ * 画（贴图表那一行）、它的材质、排法表那一行都留在文件里当孤儿（资源页能清），这里一个都不删。拿掉之后 scene/paint.ts paintMoveBlocked(这个物体) = null。
+ */
+function dropMeshPaint(s: Scene, def: DefId): PaintOutcome {
+  const d = s.defs.get(def);
+  if (!d || d.body.kind !== "mesh") return { target: `definition ${def} (not a mesh)` };
+  const b = d.body, k = b.kernel, paintSlots = new Set<number>(), sets = new Set<Guid>();
+  for (let i = 0; i < b.materialSlots.length; i++) { const fp = s.facePaint(def, i); if (fp) { paintSlots.add(i); sets.add(fp.uvSet.guid); } }
+  if (!paintSlots.size) return { rejected: "把画拿掉：这个物体上没有画" };
+  for (const f of k.faces()) if (paintSlots.has(faceMaterial(k, f))) setFaceMaterial(k, f, -1);   // ①
+  leaveUvSets(k, b.uvSetSlots, sets);   // ② ③
+  const used = new Set(k.faces().map((f) => faceMaterial(k, f))), keep: number[] = [], to = new Map<number, number>();   // ④
+  b.materialSlots.forEach((m, i) => { if (paintSlots.has(i) && !used.has(i)) return; to.set(i, keep.length); keep.push(m); });
+  if (keep.length !== b.materialSlots.length) { for (const f of k.faces()) { const c = faceMaterial(k, f); if (c >= 0) setFaceMaterial(k, f, to.get(c) ?? -1); } b.materialSlots = keep; }
+  return null;
+}
+export function applyMeshDropPaint(s: Scene, op: MeshDropPaint): PaintOutcome { return dropMeshPaint(s, op.def); }
 
 export function applyMeshPaintFaces(s: Scene, op: MeshPaintFaces): PaintOutcome { return paintMeshFaces(s, op.def, [...new Set(op.faces)].sort((a, c) => a - c), op.material); }
 

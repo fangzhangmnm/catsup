@@ -47,6 +47,10 @@ const r = await page.evaluate(async () => {
   click(menu()?.querySelector('[data-menu-id="action:mesh.dropPaint"]')); await sleep(80);
   out.hintDrop = document.getElementById("hint")?.textContent ?? "";
   await open(); await tab("materials"); out.mat2 = texts(); out.facesAfter = k().faceCount() === faces0;
+  // 拿掉画之后转硬表面（统筹 11-13 第五节 2½：要真能逃生）：转得过去、不被画拦；撤销一步回到拿掉画之后
+  await closeAll(); e.deselectAll(); e.runAction("object.toBrep"); await sleep(60);
+  out.castAfterDrop = { kind: S().kindOf(def), hint: document.getElementById("hint")?.textContent ?? "" };
+  e.undo(); await sleep(60); out.castUndone = S().kindOf(def);
   await closeAll(); e.undo(); await sleep(60);
   await open(); await tab("materials"); out.mat3 = texts();
   await closeAll(); e.exitContext(); await sleep(30);
@@ -76,8 +80,9 @@ const checks = [
   ["① 网格体页：对称 + 细分 + 默认平滑，没有转种类", (r.kindIds ?? []).includes("mirror:mode") && has(r.kindTexts, /细分/) && has(r.kindTexts, /默认平滑/) && !(r.kindIds ?? []).includes("action:object.toBrep")],
   ["① 材质页没画：没有挂材质 / 还没有贴图坐标", has(r.mat0, /没有挂材质/) && has(r.mat0, /还没有贴图坐标/) && !has(r.mat0, /把画拿掉/)],
   ["② 开始画之后：材质页列出画 + 贴图坐标 + 把画拿掉", r.paintedBefore && has(r.mat1, /格/) && (r.mat1Ids ?? []).includes("action:mesh.dropPaint")],
-  ["② 把画拿掉：提示行说了、面一张不少、走画的那个槽没有面用了（0 张面）、出口收起", /把画拿掉了/.test(r.hintDrop) && r.facesAfter && has(r.mat2, /走画.*（0 张面）/) && !has(r.mat2, /把画拿掉/)],
-  ["② 撤销一步：画回来", has(r.mat3, /走画/)],
+  ["② 把画拿掉：提示行说了、面一张不少、物体不再挂画的槽和贴图坐标、出口收起", /把画拿掉了.*不在这张画上了/.test(r.hintDrop) && r.facesAfter && !has(r.mat2, /走画/) && has(r.mat2, /还没有贴图坐标/) && !has(r.mat2, /把画拿掉/)],
+  ["②½ 拿掉画之后转硬表面：转得过去、不被画拦；撤销回来", r.castAfterDrop?.kind === "brep" && !/有画/.test(r.castAfterDrop.hint) && r.castUndone === "mesh"],
+  ["② 再撤销一步：画回来", has(r.mat3, /走画/)],
   ["③ 硬表面体：种类页叫硬表面体；材质页说不能画", r.brepTabs?.join("|") === "物体|硬表面体|元素|材质和贴图" && has(r.brepMat, /硬表面体不能画/)],
   ["④ 空物体：三页（没有种类页）", r.emptyKind === "empty" && r.emptyTabs?.join("|") === "物体|元素|材质和贴图"],
   ["④ 空物体：元素页 / 材质页各说一句", has(r.emptyEl, /只装子物体/) && has(r.emptyMat, /只装子物体/)],

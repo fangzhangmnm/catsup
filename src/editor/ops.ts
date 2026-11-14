@@ -13,7 +13,7 @@ import { showEverything } from "../scene/hidden.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
 import { uniqueCopy } from "../format/scene-store.ts";
 import { COLOR_CHANNEL, COLOR_VALUE, assertSizedImage, paintIn, type ShelfItem, type TextureDoc } from "../format/document.ts";
-import { type PaintOutcome, applyMeshLayoutPaint, applyMeshPaintFaces, applySetFreed, applyStartPaint } from "./paint-ops.ts";
+import { type PaintOutcome, applyMeshLayoutPaint, applyMeshPaintFaces, applyMeshDropPaint, applySetFreed, applyStartPaint } from "./paint-ops.ts";
 import { type PaintMove, paintMoveBlocked } from "../scene/paint.ts";
 import { DEFINITION, TEXTURE, type DefinitionEntry } from "../format/entry-kinds.ts";
 import type { CurveSpec } from "../kernel/kernel.ts";
@@ -192,6 +192,8 @@ export type Op =
   | { op: "startPaint"; def: number; faces: number[]; uvSet: Guid; textureGuid: Guid; materialGuid: Guid; names: { uvSet: string; paint: string; material: string }; color: [number, number, number]; density?: number; /** 没给密度时画布边长（2026-11-11 开始画时选；缺 = 1024，老指令流重放不变）。 */ canvas?: number; /** 铺法（施工单十五）：faces = 一张面一块（缺 = 这个）、patches = 按朝向连成片。名字避开贴图行的 layout（那是「画铺在哪一套排法上」，施工单十八第 1 刀起只剩 { uvSet }）。 */ arrange?: "faces" | "patches"; /** 施工单十六第四节：density = 按一格多大开（要和 density 一起给；画布取接近正方形、够用的最小宽高，那一套坐标记 fit = density、以后加面画布能长大）；缺 / size = 按总大小（画布不自己变大）。 */ fit?: "size" | "density" }
   /** 给网格体的面换材质（1-3b）：material = 文档材质的下标、null = 默认；可以换成这个定义自己的画，别的定义的画拒绝；从画换走角上的数留着。 */
   | { op: "meshPaintFaces"; def: number; faces: number[]; material: number | null }
+  /** 把画拿掉（第 1 版第五节 2½）：这个物体退出它身上的画——走画的面回默认、面在那几套排法上的位置交出、速查表和没人用的画材质槽拿掉；画 / 材质 / 排法那一行留在文件里。 */
+  | { op: "meshDropPaint"; def: number }
   /** 给走画但还没有位置的面补一块（1-3b；每一步做完的收尾补进同一步）：faces = 只看这些（不给 = 全部）。放不下的不拒绝，留着没有值。 */
   | { op: "meshLayoutPaint"; def: number; faces?: number[]; /** 先拿掉这些面的位置（每一步的收尾读内核报告：并面时贴图坐标对不上的；施工单十八第 1½ 刀）。 */ drop?: number[] }
   /** 分开（Blender P → 选中）：网格体 def 里这些面搬进一个新的网格体组件，摆在 at 池里、和正在编辑的那一份（instance）同一个变换（世界里不动）。 */
@@ -831,6 +833,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "meshFlip": { const k = meshOf(s, op.def).kernel; flipFaces(k, op.faces.filter((f) => k.hasF(f))); return { scene: s, events: [] }; }
     case "startPaint": { if (s.texturesFrozen) throw new OpRejected(TEXTURES_FROZEN); return paintOutcome(s, applyStartPaint(s, op)); }   // 画的三条指令住 paint-ops.ts（1-3b）
     case "meshPaintFaces": return paintOutcome(s, applyMeshPaintFaces(s, op));
+    case "meshDropPaint": return paintOutcome(s, applyMeshDropPaint(s, op));
     case "meshLayoutPaint": return paintOutcome(s, applyMeshLayoutPaint(s, op));
     case "paste": {
       const ref = op.at, kind = s.kindOf(ref.def);   // 两种身体都接：别走 poolOf（它只认硬表面池）
@@ -972,6 +975,7 @@ export function describeOp(op: Op): string {
     case "meshFlip": return `meshFlip def=${op.def} faces=${op.faces.length}`;
     case "startPaint": return `startPaint def=${op.def} faces=${op.faces.length} uv=${op.uvSet.slice(0, 4)}${op.density !== undefined ? ` density=${op.density}` : ""}${op.canvas !== undefined ? ` canvas=${op.canvas}` : ""}${op.arrange !== undefined ? ` arrange=${op.arrange}` : ""}`;
     case "meshPaintFaces": return `meshPaintFaces def=${op.def} faces=${op.faces.length} material=${op.material ?? "default"}`;
+    case "meshDropPaint": return `meshDropPaint def=${op.def}`;
     case "meshLayoutPaint": return `meshLayoutPaint def=${op.def}${op.faces ? ` faces=${op.faces.length}` : ""}`;
     case "paste": return `paste${op.brep ? ` brep=${op.brep.faces.length}f` : ""}${op.mesh ? ` mesh=${op.mesh.faces.length}f` : ""}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${op.closure ? ` closure=${op.closure.definitions.length}d` : ""}${op.merge ? ` merge=${op.merge.entries}` : ""}${op.shelve?.length ? ` shelve=${op.shelve.length}` : ""}${at}`;
     case "shelfPut": return `shelfPut ${op.kind} ${op.ref.slice(0, 4)}${op.folder ? ` in ${op.folder.slice(0, 4)}` : ""}${op.index !== undefined ? ` @${op.index}` : ""}`;

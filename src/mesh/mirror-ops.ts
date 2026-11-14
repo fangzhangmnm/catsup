@@ -14,7 +14,7 @@ export const MIRROR_OP_CLASS = {
   meshEdgeMarks: "flags",
   // 画（贴图主线 1-3b，统筹 11-10 同意）：换材质 / 开始画只改面上的标记、不改拓扑（强行对称做完对称化，点名的面在 faces 里 → 选得出边）；
   //   给新面补位置只写贴图坐标那一列，不碰形状和材质 = meta（从不触发对称化，免得收尾自己套自己）。
-  meshPaintFaces: "flags", startPaint: "flags", meshLayoutPaint: "meta",
+  meshPaintFaces: "flags", startPaint: "flags", meshLayoutPaint: "meta", meshDropPaint: "flags",   // 把画拿掉：只改面的材质和贴图坐标那一列，不改拓扑
   meshSubdivide: "whole",
   meshSymmetrize: "meta", meshSymmetrySnap: "meta", meshSmoothDefault: "meta", setMeshMirror: "meta",
   // 不叫 mesh* 但会改网格内核的（2026-11-09 Claude Opus 5.5；计划书 20261109-audit-fixes-plan §3 第 2 层）：以前强行对称按「名字以 mesh 开头」判，它们做完不对称化，
