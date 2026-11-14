@@ -83,8 +83,20 @@
 
 顾虑：
 - 物体种类施工稿第七节第 6 步的两处（拒绝的话说准；分面成新物件时画布对照表被原样抄走）。
-- 层级窗口把物件拖进摆了好几份的组件没有提示（第三节第 4 条已收）。
+- ~~层级窗口把物件拖进摆了好几份的组件没有提示~~（小弟更正：有提示，清点写错了，见第十节）。
+- 〔小弟〕拾取「点 > 边 > 面」的优先级：光标压在子物体的面心上，旁边被它挡着的外层角点仍可能先被拾到（探针 probe-hier-display 第一版就撞上：B 顶面中心拾到了 A 的一个角点 → 当成「这一层的元素」，悬停不亮 B）。轻：只在点和面挨得很近时；要查的是那个角点的遮挡判定是不是漏了别的槽的面。
 
 ## 十、施工记录
 
-（小弟写）
+### 第 1、2 件：层级的显示 + 这一档只算一处（Claude Opus 5.5，2026-11-13，分支 objects-wave1 bb7d64db）
+- **档只算一处**：`scene/world-view.ts relationOf(scene, ctx, pool, chain) → { rel, tier }`，排槽时每个槽填 `rel`（self / child / outer / twin）。self 和 `active` 同一个判定；child = 原来的 `insideContext`；twin = 不在这一层里、链上经过正在改的那个定义的另一份（连它里面的）；tier 照 #30 的规矩，在同一个函数里出。`PoolSlot.inContext` 拿掉。
+- **表**：`editor/reach-table.ts REACH`，行 = 编辑用的线 / 编辑用的点 / 淡出 / 共面谁在前 / 点一下 / 框选 / 双击 / 悬停 / 吸附 / 藏 / 工具能不能改 / 选中的标记，四档一格一个值，每行写明现在谁照它办。这一版接到表上的：线（`stream-provider.ts` placement tier = `REACH.editLines[rel] === "always"`）、点（`editor/edit-marks.ts`）、淡出（editor `draw`）、悬停（editor `hoverChild`）；别的行照现状登记。
+- **画线**：照 user 11-13 更正，画风表 `material.edges` 不变（线稿 = all，算画风自己的线，谁都照画）。先按「线稿的线只画在能改的那一层」做过一版，user 更正后翻回，那一档值（edit）整个拿掉了、没留死代码。
+- **画点**：`editor/edit-marks.ts`（`vertDotsView` / `softEdgesView` 从 editor.ts 搬出来，editor.ts 4061 → 4042 行）：自由建模照旧；硬表面 = 站在一个组件里时，它自己的几何多出顶点小圆点，任何画风；根层不加；**组不算物件**（根上进组 = 不加点；组件里的组 = 加）——这条是我定的，依据 user 10-24「组永远不进hierarchy」。
+- **悬停**：立场表里「点一下 = 选」的工具（选择，自由建模的移动 / 转 / 缩），没在做手势时拾一下光标下，是子物体就把它所有的面交给「悬停亮一下」那个材质槽（`peekFaces`，和画布小窗的悬停同一个）。边不亮。画线这类不亮。
+- **守卫** `test/reach-table.test.ts`：relationOf / tierOfSlot / insideContext 只在 world-view.ts 调；槽的 rel 只经 `REACH.某行[槽.rel]` 读；拿槽的 active / tier 自己判的地方钉住现状（editor.ts classify 那 1 处，进出那一件收进表）；外加档的单元测试（进 I1：自己 / 子物体 / 外面 / 分身、分身里面的也是分身、根上的另一个组件不是分身；根层只有 self / child；进组；tier 不变）。
+- **验**：`probe-hier-display` 14/14（根层线稿都有线没点；进 A 都有线 + 点；选择工具悬停 B = B 整个亮、画线工具不亮；像素描边线 + 点；写实只有 A 有线；演示锁都有线没点；写实里进 B / 退回 A 线跟着换；外面的地的角照样吸到端点；自由建模线 + 点）。
+- 跟着跑的点名探针（动了世界视图和渲染）：render-baseline（截图基线 0 变化）/ style / pixel-no-overlay / isolate / hierarchy / finger-dbltap / mesh-workbench / input-gate 全绿；全套单元测试留到版末。
+- **更正清点**：清点第二节说「层级窗口把物件拖进摆了好几份的组件，现在没有提示」——错了，有：`hierarchy-window.ts dropRow` 会说「Y 摆了 N 份，每份里都多了一个」（拖出多份组件也说）。第九节那条顾虑据此可以划掉；第三节「移到…」照这句话的样子说。
+- **没验到的**：改后的截图还没截（版末和别的图一起截）；分身那一格只验了「没有点」（档的单元测试），没在浏览器里单独核「分身不亮、点不中」（照现状，没改代码）；真机没测。
+
