@@ -76,7 +76,7 @@ for (const [name, f] of Object.entries(FACES)) {
   ok("A.busy.closed", await hidden("#busyOverlay"));
 }
 // 下面这段证明上面没把键盘弄死：面都关了，快捷键回来了
-await page.keyboard.press("l"); await wait(60);
+await page.keyboard.press("k"); await wait(60);   // 硬表面画线 = K（v0.19.104 起 L = 选连着的一块；这里只要证明快捷键能到编辑器）
 ok("A.keysBack", (await st()).tool === "line");
 await page.keyboard.press("Escape"); await wait(40);
 await page.evaluate(() => globalThis.__catsup.editor.setTool("select")); await wait(40);
@@ -120,7 +120,7 @@ await page.evaluate(() => globalThis.__catsup.editor.setTool("select")); await w
 { await page.evaluate(() => globalThis.__catsup.editor.setTool("select")); await wait(30);
   await page.click("#btnMenu"); await wait(120);
   await page.evaluate(() => document.querySelector(".popup-menu").remove()); await wait(30);   // 别处直接删了菜单的元素（以前 probe-new-primitive 就这么关菜单）
-  await page.keyboard.press("l"); await wait(60);
+  await page.keyboard.press("k"); await wait(60);   // 硬表面画线 = K（v0.19.104 起 L = 选连着的一块；这里只要证明快捷键能到编辑器）
   ok("B2.menuElRemoved.keysWork", (await st()).tool === "line");
   await page.keyboard.press("Escape"); await wait(40);
   await page.evaluate(() => globalThis.__catsup.editor.setTool("select")); await wait(30);
@@ -129,7 +129,7 @@ await page.evaluate(() => globalThis.__catsup.editor.setTool("select")); await w
   await page.evaluate(() => { const orig = Element.prototype.remove; Element.prototype.remove = function () { if (this.classList?.contains("popup-menu")) { Element.prototype.remove = orig; throw new Error("INJECTED close throw (probe-input-gate B2)"); } return orig.call(this); }; });
   await page.keyboard.press("Escape"); await wait(80);
   ok("B2.closeThrow.injected", errs.some((e) => e.includes("INJECTED close throw")));
-  await page.keyboard.press("l"); await wait(60);
+  await page.keyboard.press("k"); await wait(60);   // 硬表面画线 = K（v0.19.104 起 L = 选连着的一块；这里只要证明快捷键能到编辑器）
   ok("B2.closeThrow.keysWork", (await st()).tool === "line");
   await page.mouse.click(...mid(0.7, 0.7)); await wait(100);
   ok("B2.closeThrow.boardPressNotSwallowed", (await st()).gesture);   // 按在画布上的那一下进了画线工具（以前外点监听留着，每一下都被吞）
