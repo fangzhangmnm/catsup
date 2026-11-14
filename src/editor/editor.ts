@@ -518,7 +518,7 @@ export class Editor {
   /** 活动池的显示视图（渲染 / 拾取读的那份契约 kernel-view.ts；任何种类的内核都有——选区的通用路径只认它）。 */
   private get activeView(): KernelView { return this.scene.viewOf(this.activePool()); }
   /** 按活动池的种类造空选区（不变量：selection.kind === activeKind()）。 */
-  private blankSelection(): Selection { return emptySelection(this.activeKind()); }
+  private blankSelection(): Selection { const k = this.activeKind(); return emptySelection(k === "mesh" ? "mesh" : "brep"); }   // 空物体：没有几何可选 = 一张空的硬表面选区
   /** brep 专属动词的守门：活动池不是 SU 体 → 提示一句、不做（网格体上的同名动词 = 自由建模工作台 M4）。不静默。 */
   private requireBrep(verb: string): boolean {
     if (this.activeKind() === "brep") return true;

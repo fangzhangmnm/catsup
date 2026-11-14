@@ -4,7 +4,7 @@
 import { HIDE_EDGE, SMOOTH, SOFT, edgeColumn, edgeMarkReader, faceHidden, faceMaterial, givenFaceValues, hiddenColumn, setEdgeMark } from "../mesh/reserved-columns.ts";
 import { cross3, ptKey3, quantize3, sub3, type PlaneParams, type Pt3 } from "../kernel/geom.ts";
 import type { BodyKind } from "./body-kind.ts";
-import type { Body, BrepBody, DefId, MeshBody, Scene } from "./scene.ts";
+import type { Body, BrepBody, DefId, EmptyBody, MeshBody, Scene } from "./scene.ts";
 import { reachableDefs } from "./resources.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 import { MeshKernel } from "../mesh/mesh-kernel.ts";
@@ -15,7 +15,7 @@ import { edgeLookOf, keepLookUnderAngle } from "../mesh/edge-smooth.ts";
 import { kernelFromTriangles } from "../kernel/from-triangles.ts";
 import { emptyGuides } from "./guides.ts";
 
-export type KindModeId = "geometry" | "surface" | "freeform" | "paint";
+export type KindModeId = "geometry" | "surface" | "freeform" | "paint" | "object";   // object = 摆放（空物体的工作台）
 export interface AlignGeometry { points: Pt3[]; segments: [Pt3, Pt3][]; planes: PlaneParams[]; }
 export interface KindDef<B extends Body = Body> {
   readonly id: BodyKind;
@@ -58,7 +58,15 @@ export const MESH_KIND: KindDef<MeshBody> = {
   },
   bounds(b) { const m = b.kernel; return boundsOf(m.verts().map((v) => m.pt(v))); },
 };
-export const KINDS: Readonly<Record<BodyKind, KindDef>> = { brep: BREP_KIND as KindDef, mesh: MESH_KIND as KindDef };
+/** 空物体（第 1 版第四节）：没有几何、没有编辑模式之外的「摆放」（modes/object.ts）；转去硬表面 / 网格体不丢东西（反方向只在自己没有几何时可用，丢的是那种身体才有的设置，见 BREP / MESH 的 castsTo）。 */
+export const EMPTY_KIND: KindDef<EmptyBody> = {
+  id: "empty", label: "空物体",
+  modes: ["object"],
+  castsTo: [{ to: "brep", loses: [] }, { to: "mesh", loses: [] }],
+  alignGeometry() { return { points: [], segments: [], planes: [] }; },
+  bounds() { return null; },
+};
+export const KINDS: Readonly<Record<BodyKind, KindDef>> = { brep: BREP_KIND as KindDef, mesh: MESH_KIND as KindDef, empty: EMPTY_KIND as KindDef };
 export const kindOfBody = (b: Body): KindDef => KINDS[b.kind];
 export function canCast(from: BodyKind, to: BodyKind): { ok: true; loses: readonly string[] } | { ok: false; why: string } {
   if (from === to) return { ok: false, why: "已经是这种身体" };

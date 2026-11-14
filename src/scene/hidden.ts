@@ -9,6 +9,7 @@ import { HIDE_EDGE, edgeColumn, hiddenColumn, setEdgeMark, setFaceHidden } from 
 export interface HiddenCount { instances: number; faces: number; edges: number }
 /** 每种身体：数藏着的面 / 边、全部放回来。 */
 const BY_KIND: Readonly<Record<BodyKind, { count(s: Scene, def: number, c: HiddenCount): void; show(s: Scene, def: number): void }>> = {
+  empty: { count() { /* 空物体没有自己的面 / 边 */ }, show() { /* 同上 */ } },
   brep: {
     count(s, def, c) { const b = s.brep(def); for (const k of [b.kernel, ...[...b.groups.values()].map((g) => g.kernel)]) { for (const f of k.faces()) if (k.isFaceHidden(f.id)) c.faces++; for (const e of k.edges()) if (k.isEdgeHidden(e.id)) c.edges++; } },
     show(s, def) {

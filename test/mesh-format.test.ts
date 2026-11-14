@@ -29,9 +29,9 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     eq(back.mesh(d.id).materialSlots.join(","), "0");
     eq(m.check().length, 0);
   });
-  it("文件里：mesh 项带拍子 1.2.0 + 多边形键（不存三角形）；定义表 7.0；本体给别的查看器 TRIANGLES + LINES primitive；签名含 CATSUP_mesh", () => {
+  it("文件里：mesh 项带拍子 1.2.0 + 多边形键（不存三角形）；定义表 8.0；本体给别的查看器 TRIANGLES + LINES primitive；签名含 CATSUP_mesh", () => {
     const g = glbOf(), defs = g.json.extensions.CATSUP_definitions, md = meshItem(g);
-    eq(defs.version, 7);
+    eq(defs.version, 8);
     eq(md.mesh.version, 1); eq(md.mesh.minor, 2, "1.1：默认平滑（2026-10-28）；1.2：对称属性（2026-10-28 晚）"); assert(!("patch" in md.mesh), "0 不写");
     eq(md.mesh.smoothDefault?.mode, "angle", "转换来的网格体 = 按角度（scene/kinds.ts keepLookUnderAngle）");
     for (const k of ["positions", "faceStart", "faceLen", "loopVert", "faceMat", "faceFlags", "edgePairs", "edgeFlags"]) assert(typeof md.mesh[k]?.bufferView === "number", `缺 ${k}`);
@@ -42,7 +42,7 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     const prims = g.json.meshes[node.mesh].primitives as AnyJson[];
     assert(prims.some((p) => (p.mode ?? 4) === 4) && prims.some((p) => p.mode === 1), "TRIANGLES + LINES");
     assert(prims.some((p) => p.material === 0), "涂了材质的面单独一个 primitive");
-    eq(formatTag(), "3.5.0-4.2.0-7.0.0-2.0.0-1.3.0-1.6.0-1.0.0-3.0.0-1.0.0-1.3.0-1.0.0");   // 施工单十八（2026-11-13）：CATSUP_mesh 3.0（columns）、CATSUP_textures 1.3（layout = { uvSet }）、加 CATSUP_uvsets 1.0； CATSUP_desk 1.6（2026-11-12 笔按笔记）；CATSUP_mesh 2.1（2026-11-11 施工单十六：贴图坐标的一套上 fit）； CATSUP_desk 1.5（2026-11-11 笔跟文件走）；// CATSUP_textures 1.1（2026-11-11 1-8b：画的合成图）   // CATSUP_mesh 2.0（2026-11-11 1-2½：贴图坐标；不带它的网格体照旧盖 1.2，上面那条）   // CATSUP_document 3.4（单位制 + 吸附长度）； 3.2（2026-10-29 吸附细分多四档）   // CATSUP_mesh 1.1（2026-10-28 默认平滑）→ 1.2（2026-10-28 晚 对称属性）；CATSUP_desk 1.2（2026-10-29 演示锁）
+    eq(formatTag(), "3.5.0-4.2.0-8.0.0-2.0.0-1.3.0-1.6.0-1.0.0-3.0.0-1.0.0-1.3.0-1.0.0");   // 第 1 版第四节（2026-11-13）：CATSUP_definitions 8.0（空物体）；施工单十八（2026-11-13）：CATSUP_mesh 3.0（columns）、CATSUP_textures 1.3（layout = { uvSet }）、加 CATSUP_uvsets 1.0； CATSUP_desk 1.6（2026-11-12 笔按笔记）；CATSUP_mesh 2.1（2026-11-11 施工单十六：贴图坐标的一套上 fit）； CATSUP_desk 1.5（2026-11-11 笔跟文件走）；// CATSUP_textures 1.1（2026-11-11 1-8b：画的合成图）   // CATSUP_mesh 2.0（2026-11-11 1-2½：贴图坐标；不带它的网格体照旧盖 1.2，上面那条）   // CATSUP_document 3.4（单位制 + 吸附长度）； 3.2（2026-10-29 吸附细分多四档）   // CATSUP_mesh 1.1（2026-10-28 默认平滑）→ 1.2（2026-10-28 晚 对称属性）；CATSUP_desk 1.2（2026-10-29 演示锁）
     assert(!g.json.extensionsUsed.includes("CATSUP_mesh"), "不是顶层扩展（住在定义里）");
   });
   it("0.14 的三角汤最小形（没拍子、只有 positions / indices）照开：每三角一面；重存变成多边形载荷", () => {

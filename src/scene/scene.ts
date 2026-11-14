@@ -71,7 +71,11 @@ export type UvSetRow = UvSetDoc;   // 形状 = 文件里排法表的一行（for
 /** 这套排法会不会自动给新面找地方 / 自己长大：fit 认得、行里没有带着不认识的 freed（形状不对的 freed 当不认识的键带回，施工单十八 3.1）。 */
 export const uvSetAutoPlaces = (r: UvSetRow): boolean => (r.fit === "density" || r.fit === "size") && !(r.extra && typeof r.extra.json === "object" && r.extra.json !== null && "freed" in (r.extra.json as Record<string, unknown>));
 export interface MeshBody { readonly kind: "mesh"; kernel: MeshKernel; materialSlots: number[]; /** 贴图坐标的速查表：短代号 → 排法 GUID（施工单十八第 1½ 刀；scene/uv.ts）。 */ uvSetSlots: Guid[]; }
-export type Body = BrepBody | MeshBody;   // card 2026-10-24 sunset（body-kind.ts 头注释）
+/** 空物体（第 1 版第四节；2026-11-13 Claude Opus 5.5）：没有几何，只装子物体（定义上的 instances）。materialSlots 永远是空表（通用的「每个定义的槽表」那几处照常走、不用为它分路）。 */
+/** 空物体的池看到的东西：一份共用、永远空的硬表面内核（只当视图用；改它 = 程序错误）。 */
+const EMPTY_VIEW: KernelView = new Kernel();
+export interface EmptyBody { readonly kind: "empty"; materialSlots: number[] }
+export type Body = BrepBody | MeshBody | EmptyBody;   // card 2026-10-24 sunset（body-kind.ts 头注释）
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
 export interface Definition {
   readonly id: DefId;
@@ -138,7 +142,7 @@ export class Scene {
     if (depth > 32) return [];
     const d = this.def(defId), out: Pt3[] = [];
     if (d.body.kind === "brep") { for (const k of [d.body.kernel, ...[...d.body.groups.values()].map((g) => g.kernel)]) for (const v of k.vertices()) out.push(applyPt(m, v)); }
-    else { const mk = d.body.kernel; for (const v of mk.verts()) out.push(applyPt(m, mk.pt(v))); }
+    else if (d.body.kind === "mesh") { const mk = d.body.kernel; for (const v of mk.verts()) out.push(applyPt(m, mk.pt(v))); }   // 空物体：没有自己的点
     for (const i of d.instances.values()) out.push(...this.pointsOfDef(i.def, compose(m, i.xform), depth + 1));
     return out;
   }
@@ -231,7 +235,7 @@ export class Scene {
     return d.body;
   }
   /** 池的显示视图（渲染 / 拾取 / 吸附读的那份契约 kernel-view.ts）：brep 池 = 内核本身；mesh 池 = 它的派生视图。场景层只经这里认内核。 */
-  viewOf(p: PoolRef): KernelView { return this.kindOf(p.def) === "mesh" ? meshViewOf(this.mesh(p.def).kernel) : this.kernelOf(p); }
+  viewOf(p: PoolRef): KernelView { const k = this.kindOf(p.def); return k === "mesh" ? meshViewOf(this.mesh(p.def).kernel) : k === "empty" ? EMPTY_VIEW : this.kernelOf(p); }   // 空物体 = 一份永远空的视图（只读：没有指令会落到空物体的池上）
   /** 池锁着吗（A27）：group 自己或任何祖先 group 锁着；根池永不锁（锁的是对象，不是定义）。 */
   poolLocked(p: PoolRef): boolean {
     if (p.group === null) return false;
@@ -326,7 +330,8 @@ export class Scene {
         const groups = new Map<GroupId, Group>();
         for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, guid: g.guid, parent: g.parent, axes: g.axes, kernel: g.kernel, guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
         body = { kind: "brep", kernel: d.body.kernel, groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides), ...(d.body.drawFrame ? { drawFrame: d.body.drawFrame } : {}) };
-      } else body = { kind: "mesh", kernel: d.body.kernel, materialSlots: [...d.body.materialSlots], uvSetSlots: [...d.body.uvSetSlots] };
+      } else if (d.body.kind === "mesh") body = { kind: "mesh", kernel: d.body.kernel, materialSlots: [...d.body.materialSlots], uvSetSlots: [...d.body.uvSetSlots] };
+      else body = { kind: "empty", materialSlots: [...d.body.materialSlots] };
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { ...i });
       s.defs.set(id, { id: d.id, guid: d.guid, name: d.name, body, instances, nextInst: d.nextInst });
@@ -336,6 +341,7 @@ export class Scene {
   /** 预演的影子场景（计划书 §12 C1）：骨架拷贝 + 这个池的内核换成给的影子。槽表是拷的（预演开槽不碰真身），别的池和真身共享（op 改不到外面 = op-locks.ts previewableIn 守）。 */
   shadowOf(ref: PoolRef, shadow: Kernel | MeshKernel): Scene {
     const s = this.cloneSkeleton(), b = s.def(ref.def).body;
+    if (b.kind === "empty") throw new Error(`shadowOf: definition ${ref.def} is an empty object (no geometry to preview)`);   // 没有指令会落到空物体的池上
     if (b.kind === "mesh") b.kernel = shadow as MeshKernel;
     else if (ref.group === null) b.kernel = shadow as Kernel;
     else s.group({ def: ref.def, group: ref.group }).kernel = shadow as Kernel;
@@ -359,7 +365,8 @@ export class Scene {
         const groups = new Map<GroupId, Group>();
         for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, guid: g.guid, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
         body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides), ...(d.body.drawFrame ? { drawFrame: d.body.drawFrame } : {}) };   // Frame 按不可变对待
-      } else body = { kind: "mesh", kernel: d.body.kernel.clone(), materialSlots: [...d.body.materialSlots], uvSetSlots: [...d.body.uvSetSlots] };   // mesh 内核深拷（列式 = 几次 slice）
+      } else if (d.body.kind === "mesh") body = { kind: "mesh", kernel: d.body.kernel.clone(), materialSlots: [...d.body.materialSlots], uvSetSlots: [...d.body.uvSetSlots] };   // mesh 内核深拷（列式 = 几次 slice）
+      else body = { kind: "empty", materialSlots: [...d.body.materialSlots] };
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, guid: i.guid, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) });
       s.defs.set(id, { id: d.id, guid: d.guid, name: d.name, body, instances, nextInst: d.nextInst });

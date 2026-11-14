@@ -181,7 +181,8 @@ describe("format: group / component / 软边 往返（v2，2026-10-21）", () =>
       eq(again.byteLength, bytes.byteLength, "长度");
       assert(again.every((b, i) => b === bytes[i]), "逐字节");
       const { json } = decodeGlb(bytes) as { json: any };
-      eq(json.meshes.length, s.defs.size, "一个 definition 一个 mesh");
+      const bare = (d: { id: number; body: { kind: string } }): boolean => d.body.kind === "empty" || (d.body.kind === "brep" && (() => { const b = s.brep(d.id); return !b.kernel.faces().length && !b.kernel.edges().length && !b.groups.size; })());
+      eq(json.meshes.length, [...s.defs.values()].filter((d) => !bare(d)).length, "有几何的 definition 各一个 mesh（空物体、被掏空的根没有；第 1 版第四节）");
       assert(json.nodes.length >= 1 + [...s.defs.values()].reduce((n, d) => n + d.instances.size, 0), "根节点 + 每个实例一个节点");
       assert(json.nodes.some((n: any) => Array.isArray(n.matrix) && n.matrix.length === 16), "实例节点带 4×4 matrix");
     });

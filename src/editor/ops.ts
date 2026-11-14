@@ -1060,6 +1060,7 @@ function explodeInstance(s: Scene, at: PoolRef, inst: Instance, cast: boolean): 
 }
 /** 身体里没自己的几何（只摆着子物件）：跨种类炸开 / 合并不用转。 */
 export function bodyEmpty(b: SceneBody): boolean {
+  if (b.kind === "empty") return true;
   return b.kind === "mesh" ? b.kernel.faceCount() === 0 && b.kernel.edges().length === 0 : b.kernel.faces().length === 0 && b.kernel.edges().length === 0 && b.groups.size === 0;
 }
 /** 同级排序：把 id 排到实例顺序的第 index 位（Map 的插入顺序 = 同级先后，文件里按这个写，计划书 §2.3）。缺 index = 不动。 */

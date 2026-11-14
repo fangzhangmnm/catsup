@@ -9,6 +9,7 @@ import { sliceBin } from "./binary.ts";
 import { decodeBrep, type CatsupBrepJson } from "./brep-codec.ts";
 import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc, TextureDoc, UvSetDoc } from "./document.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
+import { Kernel } from "../kernel/kernel.ts";
 import { DEFAULT_LAYER, defaultDesk, emptyReferences, menuTabsOf, paintDeskOf, refPanelOf, shelfIsEmpty, type DeskDoc, type LayerDoc, type ReferencesDoc, type ShelfDoc, type ShelfItem } from "./document.ts";
 import { migrateExtension, emptyReadNotes, readStamp, FormatTooNewError, type FormatReadNotes } from "./migrate/index.ts";
 import { BUILTIN_BACK_GUID, BUILTIN_FRONT_GUID, DEFAULT_LAYER_GUID, isGuid, ownGuid, type Guid } from "./guid.ts";
@@ -191,10 +192,11 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const definitions: DefinitionDoc[] = (list as unknown[]).map((raw, di) => {
     if (!isObj(raw)) fail(`definition ${di} invalid`);
     const d = raw as Record<string, unknown>;
-    if (!isObj(d.brep)) fail(`definition ${di} has no brep`);
-    const brepJson = migrateExtension("CATSUP_brep", d.brep as Record<string, unknown>, notes) as unknown as CatsupBrepJson;
-    const brep = decodeBrep(brepJson, view);
-    if (di === rootIdx) {
+    const isEmpty = d.kind === "empty";   // 空物体（definitions 8.0）：只认子物体，几何字段（brep / groups / mesh）有也不读
+    if (!isEmpty && !isObj(d.brep)) fail(`definition ${di} has no brep`);
+    const brepJson = isEmpty ? null : migrateExtension("CATSUP_brep", d.brep as Record<string, unknown>, notes) as unknown as CatsupBrepJson;
+    const brep = brepJson ? decodeBrep(brepJson, view) : new Kernel().toBrep();   // 空物体：DefinitionDoc 形状要一份几何快照——每次现造一份空的（文件里不写、不解码；不共用同一个对象，免得谁改了串到别的定义）
+    if (di === rootIdx && brepJson) {
       // 携带未知属性层；本版已解析的层（边 u8 流 / 面 u16 流）不携带——否则重写时会多一份孤儿 bufferView，字节不幂等
       const attrs: Record<string, Record<string, unknown>> = {};
       for (const [dom, layers] of Object.entries(brepJson.attributes ?? {})) {
@@ -209,9 +211,10 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       brepKeep = { attributes: attrs, curves: brepJson.curves, ...(brepJson.extras ? { extras: brepJson.extras } : {}) };
     }
     const groupSeen = new Set<Guid>();
-    const groupGuids: Guid[] = (Array.isArray(d.groups) ? d.groups : []).map((g: unknown) => ownGuid(isObj(g) ? (g as Record<string, unknown>).guid : undefined, groupSeen, reminted));
+    const groupsRaw: unknown[] = !isEmpty && Array.isArray(d.groups) ? d.groups : [];
+    const groupGuids: Guid[] = groupsRaw.map((g: unknown) => ownGuid(isObj(g) ? (g as Record<string, unknown>).guid : undefined, groupSeen, reminted));
     const groupKnown = new Set(groupGuids);
-    const groups: GroupDoc[] = (Array.isArray(d.groups) ? d.groups : []).map((gRaw: unknown, gi: number) => {
+    const groups: GroupDoc[] = groupsRaw.map((gRaw: unknown, gi: number) => {
       if (!isObj(gRaw) || !isObj(gRaw.brep)) fail(`definition ${di} group ${gi} invalid`);
       const g = gRaw as Record<string, unknown>;
       const gj = migrateExtension("CATSUP_brep", g.brep as Record<string, unknown>, notes) as unknown as CatsupBrepJson;
@@ -230,7 +233,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => { if (x === BUILTIN_FRONT_GUID) { notes.builtinFrontSlots = (notes.builtinFrontSlots ?? 0) + 1; return null; } if (isGuid(x) && (x === BUILTIN_BACK_GUID || matKnown.has(x))) return x; if (x !== null && x !== undefined) dangle("materialSlot"); return null; });
     // 门 1：definition 的种类。缺省 brep；0.14 起认 mesh（载荷：definitions v5；card 在 v6 退场 = 迁成空 brep）；别的种类 → 拒开说清（开了再存会把它丢掉 = 数据丢失，比拒开更坏）。
     const kindRaw = d.kind === undefined ? "brep" : d.kind;
-    if (kindRaw !== "brep" && kindRaw !== "mesh") fail(`definition ${di} kind "${String(d.kind)}" is not supported by this version`);
+    if (kindRaw !== "brep" && kindRaw !== "mesh" && kindRaw !== "empty") fail(`definition ${di} kind "${String(d.kind)}" is not supported by this version`);   // empty（definitions 8.0）= 空物体：只认子物体
     const kind = kindRaw as BodyKind;
     const sliceOf = (bv: number): ArrayBuffer => { const u = view(bv); return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer; };
     let payload: Partial<DefinitionDoc> = {};
@@ -238,6 +241,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (!isObj(d.mesh)) fail(`definition ${di} mesh payload missing`);
       payload = { mesh: decodeMeshItem(d.mesh as Record<string, unknown>, sliceOf, notes, `definition ${di}`, fail, { guid: defGuids[di], name: typeof d.name === "string" ? d.name : `definition ${di}` }) };   // CATSUP_mesh：多边形载荷；没 faceStart = 0.14 三角汤（migrate/mesh.ts）
     }
+    if (isEmpty) return { guid: defGuids[di], name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind, brep, groups: [], instances, materialSlots: [], guides: guidesOf(undefined, ""), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };   // 空物体：只认子物体（几何 / 材质槽 / 参考几何 / 坐标架有也不读）
     return { guid: defGuids[di], name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind, ...payload, brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.drawFrame) ? { drawFrame: frameOf(d.drawFrame, `definition ${di} drawFrame`) } : {}), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
   });
 

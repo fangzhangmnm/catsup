@@ -29,7 +29,7 @@ const copyInst = (s: Scene, inst: Instance): TransferPayload => extract(s, ROOT_
 const threw = (fn: () => unknown): boolean => { try { fn(); return false; } catch { return true; } };
 const rootInsts = (s: Scene): Instance[] => [...s.def(s.root).instances.values()];
 const xsOf = (s: Scene, g: Guid): number[] => { const b = s.defByGuid(g)!.body; return b.kind === "brep" ? b.kernel.toBrep().vertices.map((v) => v.x).sort((p, q) => p - q) : []; };
-const faces = (s: Scene, g: Guid): number => { const d = s.defByGuid(g)!; return d.body.kind === "mesh" ? d.body.kernel.faceCount() : d.body.kernel.faces().length; };
+const faces = (s: Scene, g: Guid): number => { const d = s.defByGuid(g)!; return d.body.kind === "mesh" ? d.body.kernel.faceCount() : d.body.kind === "brep" ? d.body.kernel.faces().length : 0; };
 /** 文档内全部 GUID 不重复（定义、组、实例分别按它们各自的范围：组 / 实例文档内唯一）。 */
 function uniqueGuids(s: Scene): void {
   const all: string[] = [];

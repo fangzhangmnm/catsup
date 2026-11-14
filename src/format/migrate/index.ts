@@ -133,7 +133,7 @@ export interface Stamp { readonly major: number; readonly minor: number; readonl
 export const FORMAT = {
   CATSUP_document: { major: 3, minor: 5, patch: 0 },   // 3.5（2026-11-04）：layers[].guid   // 3.4（2026-10-30）：unitSystem + 吸附长度为主   // 3.2（2026-10-29）：settings.gridSubdiv 多四档 2 / 20 / 50 / 100；3.3（2026-10-30）：再多一档 1
   CATSUP_brep: { major: 4, minor: 2, patch: 0 },
-  CATSUP_definitions: { major: 7, minor: 0, patch: 0 },   // 7.0（2026-11-04）：引用换 GUID
+  CATSUP_definitions: { major: 8, minor: 0, patch: 0 },   // 8.0（2026-11-13）：kind 多一个 "empty"（空物体，只装子物体；老版本读到不认识的种类会整份拒开 = 大号）   // 7.0（2026-11-04）：引用换 GUID
   CATSUP_instance: { major: 2, minor: 0, patch: 0 },   // 2.0（2026-11-04）：节点 definition 换 GUID（只写不读）
   CATSUP_material: { major: 1, minor: 3, patch: 0 },   // 1.3（2026-11-10）：channels（图搬进贴图表，sizeM 只是给老版本的回声）   // 1.2（2026-11-04）：guid   // 1.1（2026-10-30）：材质的 baseColorFactor 按 glTF 规定存线性值（以前存 sRGB 的数；color-space.ts）；老文件不迁移（user「老文件我们现在真的不用念旧」）
   CATSUP_desk: { major: 1, minor: 6, patch: 0 },   // 1.6（2026-11-12）：paint 按笔记（brushes / active），1.5 的 tools 保留读停止写；1.5（2026-11-11）：可选键 paint（画画工作台的笔）；1.4（2026-11-04）：可选键 exportModel；1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
@@ -245,6 +245,7 @@ const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
       list: Array.isArray(j.list) ? (j.list as Record<string, unknown>[]).map((d) => { if (d.kind !== "card") return d; const { card: _c, kind: _k, ...rest } = d; void _c; void _k; return rest; }) : j.list,   // CardBody sunset：card → 空 brep 定义
     }),
     6: definitionsV6toV7,   // 引用从序号换成 GUID（2026-11-04；先去重再铸，见 definitions.ts）
+    7: (j) => ({ ...j, version: 8 }),   // 只改版本号（第 1 版第四节：老文件原样读、不转换——7.x 里没有 "empty"，零几何的硬表面 / 网格体定义照旧是硬表面 / 网格体；链式升级的机制要求每个 major 有一步）
   },
   CATSUP_mesh: {
     1: (j) => ({ ...j, version: 2 }),   // 1.x 的形状是 2.0 的子集（没有 uvSets = 没有贴图坐标）：空迁移（1-2½）

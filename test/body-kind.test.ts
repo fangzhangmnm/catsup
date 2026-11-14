@@ -12,11 +12,11 @@ import { sceneBox } from "./format-scenes.ts";
 import { meshFromTriangles } from "../src/mesh/tri-soup.ts";
 
 describe("body kind: 对象层 / 内容层", () => {
-  it("mintDef 默认 brep 身体；kindOf / brep() 取得到；BODY_KINDS 两个成员（brep / mesh；card 已退场）", () => {
+  it("mintDef 默认 brep 身体；kindOf / brep() 取得到；BODY_KINDS 三个成员（brep / mesh / empty；card 已退场）", () => {
     const s = new Scene(sceneBox());
     eq(s.kindOf(s.root), "brep");
     eq(s.brep(s.root).kernel.faces().length, 6);
-    eq(BODY_KINDS.length, 2); assert(isBodyKind("brep") && isBodyKind("mesh") && !isBodyKind("card") && !isBodyKind("nurbs"));
+    eq(BODY_KINDS.length, 3); assert(isBodyKind("brep") && isBodyKind("mesh") && isBodyKind("empty") && !isBodyKind("card") && !isBodyKind("nurbs"));
   });
   it("mesh 身体：没有内核（kernelOf 抛）、内核 op 拒（OpTargetError）、hasPool 对根成立对 group 不成立、WorldView 给它开槽、clone 保留 kind", () => {
     const s = new Scene(sceneBox());

@@ -5,6 +5,7 @@
 // 规矩：各种身体并存、显式互转（用户动作）、不自动 fallback；op / 渲染 / 格式按 kind 派发，加新种类 = 加一个实现，不改既有的。
 // created 2026-10-24 by Claude Fable 5.1
 // mesh = Blender 式有向多边形网（user 2026-10-24 拍板命名 `mesh` / 「网格」；默认剔背面；显式与 brep 互转；以后做）。
-export type BodyKind = "brep" | "mesh";
-export const BODY_KINDS: readonly BodyKind[] = ["brep", "mesh"];
+// empty = 空物体（第 1 版物体的管理，user 11-13「这个本来就是我的设计，去做」）：自己没有几何、只装子物体；坐标架照旧。种类在新建时定、只有「切换种类」能改（物体种类施工稿）。
+export type BodyKind = "brep" | "mesh" | "empty";
+export const BODY_KINDS: readonly BodyKind[] = ["brep", "mesh", "empty"];
 export const isBodyKind = (x: unknown): x is BodyKind => typeof x === "string" && (BODY_KINDS as readonly string[]).includes(x);

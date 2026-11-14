@@ -46,7 +46,7 @@ function resetDefinition(scene: Scene, id: DefId, d: DefinitionDoc): void {
   const def = scene.def(id), old = def.body;
   def.name = d.name;
   def.instances.clear();
-  def.body = { kind: "brep", kernel: Kernel.fromBrep(d.brep), groups: new Map(), nextGroup: old.kind === "brep" ? old.nextGroup : 1, materialSlots: [], guides: emptyGuides() };
+  def.body = d.kind === "empty" ? { kind: "empty", materialSlots: [] } : { kind: "brep", kernel: Kernel.fromBrep(d.brep), groups: new Map(), nextGroup: old.kind === "brep" ? old.nextGroup : 1, materialSlots: [], guides: emptyGuides() };
   scene.meshMirrors.delete(id);
 }
 /**
@@ -81,6 +81,7 @@ export function materializeDefinitions(scene: Scene, entries: readonly Definitio
   };
   for (const e of fill) {
     const d = e.def, def = scene.def(idOf.get(d.guid)!);
+    if (d.kind === "empty") { def.body = { kind: "empty", materialSlots: [] }; placeInstances(def.id, e, () => null); continue; }   // 空物体（definitions 8.0）：只有子物体，没有组
     // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
     if (d.kind === "mesh" && d.mesh) {
       const kernel = kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), uvSetSlots: Guid[] = [];
@@ -143,6 +144,7 @@ export function definitionToDoc(scene: Scene, id: DefId, name?: string, onDrop?:
   });
   const groupGuid = (g: GroupId | null): Guid | null => (g !== null && d.body.kind === "brep" ? (d.body.groups.get(g)?.guid ?? null) : null);
   const instances = [...d.instances.values()].filter((i) => scene.defs.has(i.def) || (onDrop?.("instance", `definition ${d.guid} instance ${i.guid} → definition ${i.def}`), false)).map((i) => ({ guid: i.guid, definition: scene.def(i.def).guid, parent: groupGuid(i.parent), xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) }));
+  if (d.body.kind === "empty") return { guid: d.guid, name: name ?? d.name, kind: "empty", brep: EMPTY_BREP(), groups: [], instances, materialSlots: [], guides: emptyGuidesDoc() };   // 空物体：只有子物体（文件里不写几何，write.ts）
   if (d.body.kind === "mesh") { const mr = scene.meshMirrors.get(d.id); return { guid: d.guid, name: d.name, kind: "mesh", mesh: { ...meshDocFromKernel(d.body.kernel, UV_COLUMN_IDS), ...uvKey(uvDocOf(d.body.kernel, d.body.uvSetSlots)), ...(mr ? { mirror: { mode: mr.mode, axis: mr.axis } } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: slotGuids(d.body.materialSlots), guides: emptyGuidesDoc() }; }
   const b = d.body;
   return {

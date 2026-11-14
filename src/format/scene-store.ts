@@ -66,6 +66,7 @@ function scan(s: Scene, live: readonly Ref[]): ReadonlyMap<string, Usage> {
     const liveHere = isLive.has(refKey(defRef(d.guid))), b = d.body;
     if (liveHere) for (const i of d.instances.values()) { const t = s.defs.get(i.def); if (!t) continue; const u = row(defRef(t.guid)); u.placed++; if (i.locked) u.locked++; }
     const hit = (slot: number | undefined): void => { if (slot === undefined || slot < 0) return; const m = s.materials[b.materialSlots[slot]]; if (!m) return; const u = row(materialRef(m.guid)); if (liveHere) u.faces++; else u.orphanFaces++; };
+    if (b.kind === "empty") continue;   // 空物体没有面
     if (b.kind === "mesh") { for (const f of b.kernel.faces()) hit(faceMaterial(b.kernel, f)); continue; }
     for (const k of [b.kernel, ...[...b.groups.values()].map((g) => g.kernel)]) for (const f of k.faces()) { hit(k.faceMaterialOf(f.id, 0)); hit(k.faceMaterialOf(f.id, 1)); }
   }

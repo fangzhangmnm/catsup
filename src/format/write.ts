@@ -118,6 +118,9 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   const encGuides = (g: DefinitionDoc["guides"]): Record<string, unknown> => ({ lines: g.lines.map((l) => ({ id: l.id, p: v3(l.p), dir: v3(l.dir) })), points: g.points.map((q) => ({ id: q.id, p: v3(q.p) })),
     ...(g.circles?.length ? { circles: g.circles.map((c) => ({ id: c.id, c: v3(c.c), n: v3(c.n), r: c.r })) } : {}), ...(g.spheres?.length ? { spheres: g.spheres.map((s) => ({ id: s.id, c: v3(s.c), r: s.r })) } : {}) });
   const defList = doc.definitions.map((d, i) => {
+    const instancesOf = (): Record<string, unknown>[] => d.instances.map((inst) => ({ guid: inst.guid, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}), ...(inst.layer !== undefined ? { layer: inst.layer } : {}), ...(inst.hidden ? { hidden: true } : {}) }));
+    // 空物体（definitions 8.0）：只写身份、名字、种类、子物体——不带几何载荷（没有 brep / groups / mesh / 材质槽 / 参考几何 / 坐标架）
+    if (d.kind === "empty") return { guid: d.guid, name: d.name, kind: "empty", axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, nodes: [], instances: instancesOf(), ...(d.extras ? { extras: d.extras } : {}) };
     const brepJson: CatsupBrepJson = encodeBrep(canon[i].root, sink, i === doc.rootIndex ? (carry.brepKeep as never) : undefined);
     const groups = canon[i].groups.map((g) => ({
       guid: g.guid, parent: g.parent,
@@ -126,7 +129,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       guides: encGuides(g.guides),
       brep: encodeBrep(g.brep, sink),
     }));
-    const instances = d.instances.map((inst) => ({ guid: inst.guid, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}), ...(inst.layer !== undefined ? { layer: inst.layer } : {}), ...(inst.hidden ? { hidden: true } : {}) }));
+    const instances = instancesOf();
     // 0.14 身体载荷（definitions v5）：mesh = 几条 bufferView（card 载荷 v6 退场）
     let payload: Record<string, unknown> = {};
     if (d.kind === "mesh" && d.mesh) payload = { mesh: encodeMeshItem(d.mesh, sink) };   // CATSUP_mesh 1.0.0 多边形载荷（M3）

@@ -287,7 +287,19 @@ export function sceneTiledPaint(): Scene {
   s = applyOp(s, { op: "makeComponent", at: { def: s.root, group: null }, faces: [faceKey(k2, g1.id)], edges: [], name: "瓦面" }).scene;
   return s;
 }
-export const SCENE_DOCS: Record<string, () => Scene> = { tiledPaint: sceneTiledPaint, uvDensityFit: sceneUvDensityFit, uvPaintedComposite: sceneUvPaintedComposite, uvPaintedTall: sceneUvPaintedTall, uvPainted: sceneUvPainted, uvTwoSets: sceneUvTwoSets, sharedTextures: sceneSharedTextures, sided: sceneSided, grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
+/** 空物体（definitions 8.0，第 1 版第四节；2026-11-13 Opus）：根上摆一个空物体「P」（只装子物体），P 里一份盒子组件；根上再直接摆一份盒子。 */
+export function sceneEmptyObject(): Scene {
+  let s = new Scene(sceneBox(1, 1));
+  const R = { def: s.root, group: null }, k = s.kernelOf(R);
+  s = applyOp(s, { op: "makeComponent", at: R, faces: k.faces().map((f) => faceKey(k, f.id)), edges: k.edges().map((e) => edgeKey(k, e.id)), name: "盒" }).scene;
+  const D = [...s.defs.keys()].find((id) => id !== s.root)!;
+  const P = s.mintDef("P", new Kernel());
+  P.body = { kind: "empty", materialSlots: [] };
+  s.mintInstance(P.id, null, D, translation({ x: 0, y: 0, z: 1 }));
+  s.mintInstance(s.root, null, P.id, translation({ x: 3, y: 0, z: 0 }));
+  return s;
+}
+export const SCENE_DOCS: Record<string, () => Scene> = { emptyObject: sceneEmptyObject, tiledPaint: sceneTiledPaint, uvDensityFit: sceneUvDensityFit, uvPaintedComposite: sceneUvPaintedComposite, uvPaintedTall: sceneUvPaintedTall, uvPainted: sceneUvPainted, uvTwoSets: sceneUvTwoSets, sharedTextures: sceneSharedTextures, sided: sceneSided, grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
 /** 参考窗牌组（CATSUP_references 1.0 + desk 1.1 refPanel；2026-10-25 Opus）：清单字节 = @internal/reference-window 0.5.0 encodeDeck 的真实输出
  *  （一张图、一张文字、一张只放内存的视频——后者只在清单里记大小、没有字节），窗开着。format 层不懂清单：这里只钉「目录原样进出」。 */
 export const REF_MANIFEST = '{"version":1,"minor":1,"patch":0,"index":1,"items":[{"kind":"image","src":".catsup/references/r0.png","vp":null,"name":"格子.png"},{"kind":"text","src":".catsup/references/r1.txt","vp":null,"name":"尺寸"},{"kind":"video","vp":null,"name":"walk.webm","mime":"video/webm","ram":{"bytes":10}}]}';
@@ -334,6 +346,11 @@ export function sceneFingerprint(s: Scene): string {
       const snap = { ...geo, ...(other(corner).length ? { corner: other(corner) } : {}), ...(other(face).length ? { face: other(face) } : {}), ...(sl.length ? { uvSets: sl.map((g) => rows.get(g)?.name ?? "?").sort(), uv: m.faces().map((f) => { const g = uvSetOfFace(m, sl, f); return g ? `${rows.get(g)?.name ?? "?"}:${Array.from(uvAt(m, sl, f, g)!).map(String).join(",")}` : null; }) } : {}) };   // 速查表的先后、代号的号不进指纹（存盘时按排法 GUID 的字典序换号；先后不是语义）
       const uv = [...rows.values()].map((u) => `${u.name} ${u.width}x${u.height}@${u.pxPerM}`).sort().join(" | ");
       parts.push(`def ${label(d.id)} kind=mesh slots=${d.body.materialSlots.join(",")}${uv ? ` uvSets=${uv}` : ""}: ${JSON.stringify(snap)} faceFlags=${m.faces().map((f) => (faceHidden(m, f) ? 1 : 0)).join(",")}`); for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`); continue; }
+    if (d.body.kind === "empty") {   // 空物体：只有孩子（第 1 版第四节）
+      parts.push(`def ${label(d.id)} kind=empty`);
+      for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`);
+      continue;
+    }
     const b = s.brep(d.id);
     parts.push(`def ${label(d.id)} slots=${b.materialSlots.join(",")}: ${fingerprint(b.kernel)} mats=${b.kernel.faces().map((f) => `${b.kernel.faceMaterialOf(f.id) ?? -1}/${b.kernel.faceMaterialOf(f.id, 1) ?? -1}`).sort().join(",")}${guidesFp(b.guides)}${b.drawFrame ? ` drawFrame=${f3(b.drawFrame.origin)}|${f3(b.drawFrame.x)}|${f3(b.drawFrame.y)}|${f3(b.drawFrame.z)}` : ""}`);
     for (const g of b.groups.values()) parts.push(`  group parent=${g.parent} axes=${[g.axes.origin.x, g.axes.origin.y, g.axes.origin.z].join(",")}: ${fingerprint(g.kernel)}${guidesFp(g.guides)}`);
