@@ -16,6 +16,7 @@
 import type { Editor, PoolPick } from "../editor/editor.ts";
 import { contextPath, hierarchyTree, isHex4, moveRowOp, pathKey, pickKey, setHiddenOp, type HierNode } from "../editor/object-tree.ts";
 import { attachTreeDrag, type TreeDrop } from "./ui/tree-drag.ts";
+import { copiesNote } from "../editor/objects/move-to.ts";
 import { census, orphanDefs, unusedMaterials, unusedTextures } from "../scene/resources.ts";
 import { createFloatWin, type FloatWin, type MenuWindowSpec } from "./ui/menu-window.ts";
 import type { ShelfActions } from "./shelf-actions.ts";
@@ -123,7 +124,7 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     }, { title: "换父亲" });
     if (!moved) { deps.after(); return; }
     expanded.add(tgt.key);
-    const notes = [fromN > 1 ? `原来那个组件摆了 ${fromN} 份，每份里都没了` : "", intoN > 1 ? `「${tgt.label}」摆了 ${intoN} 份，每份里都多了一个` : ""].filter(Boolean);
+    const notes = [copiesNote(null, fromN, "less"), copiesNote(tgt.label, intoN, "more")].filter(Boolean);   // 和「移到…」同一句（objects/move-to.ts copiesNote）
     deps.hint(`把「${r.name}」挪进「${tgt.label}」底下（位置不动${notes.length ? "；" + notes.join("；") : ""}）`);
     deps.after();
   };

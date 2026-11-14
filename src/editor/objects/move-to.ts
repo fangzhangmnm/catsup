@@ -27,6 +27,9 @@ const shear = (m: readonly number[]): boolean => {   // 列向量两两不正交
   return Math.abs(d(c[0], c[1])) / (n[0] * n[1]) > 1e-6 || Math.abs(d(c[0], c[2])) / (n[0] * n[2]) > 1e-6 || Math.abs(d(c[1], c[2])) / (n[1] * n[2]) > 1e-6;
 };
 
+/** 搬进 / 搬出一个摆了好几份的组件，提示行后面跟的那一句（「移到…」「移出一层」和层级窗口拖动同一句；施工单第九节小调整）。n ≤ 1 = 空串；name = null = 「原来那个组件」。 */
+export const copiesNote = (name: string | null, n: number, way: "more" | "less"): string => (n > 1 ? `${name === null ? "原来那个组件" : `「${name}」`}摆了 ${n} 份，每一份里都${way === "more" ? "多了" : "少了"}它` : "");
+
 export function planMove(scene: Scene, ctx: EditContext, picks: readonly Pick[], hasGeometry: boolean, dest: MoveDest, locked: (p: Pick) => boolean): MovePlan | { readonly why: string } {
   const verb = dest.kind === "up" ? "移出一层" : "移到…";
   if (!picks.length && !hasGeometry) return { why: `${verb}：先选中要搬的东西` };
@@ -49,7 +52,7 @@ export function planMove(scene: Scene, ctx: EditContext, picks: readonly Pick[],
       ops.push({ op: "moveInstance", from: { def: defA, inst: inst.id }, into: { def: t.def, parent: null }, xform });
     }
     const n = copies(t.def), name = scene.def(t.def).name;
-    return { kind: scene.kindOf(t.def), ops, groups, movedGuids: [], say: `把${what}搬进「${name}」（位置不动${n > 1 ? `；「${name}」摆了 ${n} 份，每一份里都会多出它` : ""}）` };
+    return { kind: scene.kindOf(t.def), ops, groups, movedGuids: [], say: `把${what}搬进「${name}」（位置不动${n > 1 ? `；${copiesNote(name, n, "more")}` : ""}）` };
   }
   // 移出一层：组里 → 组的上一级（同一个定义）；组件里 → 放着它的那一层
   if (ctx.group !== null) {
@@ -68,5 +71,5 @@ export function planMove(scene: Scene, ctx: EditContext, picks: readonly Pick[],
     ops.push({ op: "moveInstance", from: { def: defA, inst: inst.id }, into: { def: up, parent: I.parent }, xform });
   }
   const n = copies(defA);
-  return { kind: scene.kindOf(up), ops, groups, movedGuids: insts.map((p) => here.instances.get(p.instance)!.guid), say: `把${what}搬到上一层（位置不动${n > 1 ? `；「${here.name}」摆了 ${n} 份，每一份里都少了它，上一层只多一份` : ""}）` };
+  return { kind: scene.kindOf(up), ops, groups, movedGuids: insts.map((p) => here.instances.get(p.instance)!.guid), say: `把${what}搬到上一层（位置不动${n > 1 ? `；${copiesNote(here.name, n, "less")}，上一层只多一份` : ""}）` };
 }

@@ -1,7 +1,7 @@
 // 「移到…」「移出一层」（第 1 版施工单第三节；2026-11-13 Claude Opus 5.5）。根上：散几何的盒子 G（x 0..1）+ 组件 A（x 3..4）+ 组件 B（x 6..7）。
 // ① 选 G →「移到…」→ 鼠标点 A = G 的几何搬进 A、世界位置不变、根上没了；一步撤销回来 ② 选 B →「移到…」→ 点 A = B 成了 A 的子物体、GUID 不变、世界位置不变
 // ③ 进 A、选 B →「移出一层」= B 回到根上、GUID 不变、世界位置不变 ④ 根上「移出一层」= 说「已经在最外一层」
-// ⑤ A 摆了两份：搬进 A 的提示说「摆了 2 份，每一份里都会多出它」 ⑥「移到…」等着时按 Esc = 取消，点了也不搬
+// ⑤ A 摆了两份：搬进 A 的提示说「摆了 2 份，每一份里都多了它」（和层级窗口拖动同一句） ⑥「移到…」等着时按 Esc = 取消，点了也不搬
 // ⑦ A 转成网格体后把散几何搬进去 = 先问「搬过去要转种类」；点「不做」= 什么都没动
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-move-to.mjs [地址]
 import { createRequire } from "node:module";
@@ -85,7 +85,7 @@ const checks = [
   ["② B 搬进 A：根上没有 B、A 里有 B（GUID 不变）、世界位置不动", r.two.clicked && !r.two.bAtRoot && r.two.inA.includes(r.two.guid) && same(r.two.bBox1, r.two.bBox0)],
   ["③ 进 A 把 B 移出一层：回到根上、GUID 不变、位置不动、选中它", r.three.depth === 0 && r.three.guid === r.two.guid && same(r.three.bBox, r.two.bBox0) && r.three.sel === 1],
   ["④ 根上移出一层 = 说已经在最外一层", /已经在最外一层/.test(r.four)],
-  ["⑤ A 摆了两份：提示说「摆了 2 份，每一份里都会多出它」", r.five.clicked && /摆了 2 份，每一份里都会多出它/.test(r.five.hint)],
+  ["⑤ A 摆了两份：提示说「摆了 2 份，每一份里都多了它」", r.five.clicked && /摆了 2 份，每一份里都多了它/.test(r.five.hint)],
   ["⑥ Esc = 取消，再点 A 也不搬", /取消了/.test(r.six.hint) && r.six.bAtRoot],
   ["⑦ 搬进网格体 = 先问「搬过去要转种类」；点「不做」= 没动", r.seven.clicked && !!r.seven.sheet && r.seven.loose1 === r.seven.loose0],
   ["没有脚本错误", errs.length === 0],
