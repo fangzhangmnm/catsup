@@ -38,7 +38,7 @@ const res = await page.evaluate(() => {
 console.log(JSON.stringify(res));
 // 根也能「设为组件原点」（user 10-30「根组件为什么没有设置原点到坐标架」「我说了root和其他的尽量一视同仁」「模型在视口上的位置不动，视角平移，对齐组件的行为」「但是undo redo不还原视角」）：
 // 最外层坐标架放在 (1, 1, 0) → 坐标架工具条「设为组件原点」→ 模型整个挪 −(1, 1, 0)、坐标架回原点、视角目标点跟着挪（屏幕上不动）；撤销 / 重做只动模型、不动视角；转过 90° 的坐标架 = 视角也转 90°
-const st = () => page.evaluate(() => { const e = globalThis.__catsup.editor, v = e.worldGeom().slots.flatMap((sl, i) => [...e.worldGeom().parts[i].verts.values()]), a = e.scene.axes;
+const st = () => page.evaluate(() => { const e = globalThis.__catsup.editor, v = e.worldGeom().slots.flatMap((sl, i) => [...e.worldGeom().parts[i].verts.values()]), a = e.scene.frameOf(e.scene.root);   // 根的绘图轴住在根自己身上（给根包一层定稿第 2 条）
   return { minX: +Math.min(...v.map((p) => p.x)).toFixed(6), minY: +Math.min(...v.map((p) => p.y)).toFixed(6), maxX: +Math.max(...v.map((p) => p.x)).toFixed(6), tx: +e.cam.target.x.toFixed(6), ty: +e.cam.target.y.toFixed(6), yaw: e.cam.yaw, ax: [a.origin.x, a.origin.y, a.x.x, a.x.y].map((x) => +x.toFixed(6)) }; });
 await page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.scene; e.commitOp({ op: "setDrawFrame", at: { def: s.root, group: null }, frame: { origin: { x: 1, y: 1, z: 0 }, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } }); e.setTool("axes"); });
 await page.waitForTimeout(200);
