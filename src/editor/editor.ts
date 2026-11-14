@@ -3619,7 +3619,7 @@ export class Editor {
       }
     };
     if (!this.cmdPreview) slotHighlight(this.selectedPools.values());
-    const marks = { workbench: this.mode.id, editing: !this.cmdPreview && !this.locked, insideObject: this.ctx.chain.length > 0, key: String(this.kid(view)) }, ex = this.viewExtras?.() ?? {};   // 编辑用的点 / 淡线（edit-marks.ts）
+    const marks = { workbench: this.mode.id, editing: !this.cmdPreview && !this.locked, key: String(this.kid(view)) }, ex = this.viewExtras?.() ?? {};   // 编辑用的点 / 淡线（edit-marks.ts）
     const hoverKid = this.hoverChild && !this.gestureActive() ? this.slotsOfPick(view, this.hoverChild).flatMap((sl) => [...sl.kernel.faces()].map((f) => f.id + sl.index * (1 << 22))) : [];   // 子物体整个亮 = 和悬停同一个材质槽（peekFaces）
     const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => REACH.dim[s.rel]).map((s) => s.index)) : null;   // 表的 dim 行：外面的 / 分身淡，这一层里的子物体照常画（SketchUp 同款，user 10-30「同意，做」）
     this.provider.setWorld(view, this._revision, !this.locked);   // 这一帧画哪个世界（演示锁 = 没有正在编辑的那一层，场景表 6）：提供者按它吐块（引擎拉）；版本进内容键

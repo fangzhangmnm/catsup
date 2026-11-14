@@ -11,7 +11,7 @@ export const REACH = {
   /** 编辑用的线（结构线）：always = 任何画风都画（这一层自己的几何，编辑要看得见自己在改什么）；style = 只在画风自己要线时画（画风表 material.edges = "all"：线稿 / 像素描边 / 1-bit / Tron），
    *  那是画风的线（user 11-13 更正：「默认的『线稿』画风 默认物体有线，在编辑的物体有额外的点，不要改变默认的画风」）。能改的那一层靠 editDots 那一行的顶点小圆点区分。 */
   editLines: { self: "always", child: "style", outer: "style", twin: "style", readBy: "editor/stream-provider.ts（placement tier = 这一层且在编辑）→ minccino/providers/three/render3.ts showL" } satisfies ReachRow<"always" | "style">,
-  /** 编辑用的点（顶点小圆点）：只画这一层自己的。自由建模照旧；硬表面 = 进了一个物件时画（根层 = 没在编辑哪个物件 = 默认画风，不加点；user 11-13 更正 +「就用顶点」，不用粗线）。 */
+  /** 编辑用的点（顶点小圆点）：只画这一层自己的（根上 = 根自己的几何；进了组 = 组那个池），硬表面和自由建模同一条，任何画风（user 11-13：「root也有root的geometry的，我说的没在编辑就是所有不在当前你的层级的物体」+「就用顶点」，不用粗线）。 */
   editDots: { self: "edit", child: "never", outer: "never", twin: "never", readBy: "editor/edit-marks.ts vertDotsOf（softEdgesOf 同一档）" } satisfies ReachRow<"edit" | "never">,
   /** 淡出：进了物件之后，外面的和分身整块淡（根层没有外面，不淡）。 */
   dim: { self: false, child: false, outer: true, twin: true, readBy: "editor/editor.ts draw → dimSlots → highlight.ts faceDim / edgeDim" } satisfies ReachRow<boolean>,

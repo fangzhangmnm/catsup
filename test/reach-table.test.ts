@@ -102,6 +102,14 @@ describe("层级显示二½：守卫（表以外不许自己判怎么对待一�
     }
     eq(bad.join(","), "");
   });
+  it("渲染那一侧（src/minccino）不认识层级：不 import 表、不读槽的 rel、不按画风名字分路；画不画线只看画风那一格 + 摆放上「是不是当前这一层」那一位（加新画风不用为层级的显示写任何东西）", () => {
+    const eng = src.filter(({ f }) => f.startsWith("src/minccino/"));
+    eq(eng.filter(({ t }) => /reach-table|edit-marks|relationOf/.test(t)).map(({ f }) => f).join(","), "", "import 了层级那一侧");
+    eq(eng.filter(({ t }) => /\b\w+\.rel\b/.test(t.replace(/\/\/.*$/gm, ""))).map(({ f }) => f).join(","), "", "读了槽的 rel");
+    eq(eng.filter(({ t }) => /(framePreset\.id|getPreset\(\)|preset\.id)\s*[!=]==?\s*"/.test(t)).map(({ f }) => f).join(","), "", "按画风名字分路");
+    const r3 = src.find(({ f }) => f === "src/minccino/providers/three/render3.ts")!.t;
+    assert(/showL = hasL && \(edgesMode === "all" \|\| front\)/.test(r3), "render3 的 showL 只看 material.edges 和 front（placement tier）");
+  });
   it("拿槽的 active / tier 自己判的地方：钉住现状（只许减；加新的 = 往表里加行）", () => {
     const PIN: Record<string, number> = { "src/editor/editor.ts": 1 };   // editor.ts classify 的 slot.active（点一下 / 框选 / 双击那三行的现状，进出那一件收进表）
     const got: Record<string, number> = {};

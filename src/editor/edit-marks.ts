@@ -9,8 +9,6 @@ export interface MarkEnv {
   readonly workbench: string;
   /** 在编辑（没在镜像会话的预演里、没上演示锁）：演示锁 = 不编辑 = 不画结构线（场景表 6）。 */
   readonly editing: boolean;
-  /** 进了一个物件（站在某个组件里；根层 = 没在编辑哪个物件 = 原来的默认画风，不加点）。组不算物件（user 10-24「组永远不进hierarchy」）。 */
-  readonly insideObject: boolean;
   /** 缓存键 = 合成视图的身份（几何 / 预演一变它就是新的）。 */
   readonly key: string;
 }
@@ -32,9 +30,10 @@ export function softEdgesOf(view: WorldView, g: (id: number) => number, env: Mar
   return segs.length ? { key: env.key, segs } : null;
 }
 
-/** 顶点小圆点 = 表的 editDots 行：自由建模照旧都画；硬表面 = 进了一个物件时画它自己的几何，任何画风（user 11-13 更正：「默认物体有线，在编辑的物体有额外的点，不要改变默认的画风，没有active的时候是默认的画风」——根层不加点）。别的工作台不画。 */
+/** 顶点小圆点 = 表的 editDots 行：正在编辑的这一层（self 那一档：根上 = 根自己的几何，进了组 = 那个组的池）任何画风都画，硬表面和自由建模同一条（user 11-13：「默认物体有线，在编辑的物体有额外的点」
+ *  「root也有root的geometry的，我说的没在编辑就是所有不在当前你的层级的物体」）。上了修改锁 / 在预演里 = 不在编辑 = 不画。别的工作台不画（工作台自己报「改不改几何」= 第 1 版第五节第 1 条一起收）。 */
 export function vertDotsOf(view: WorldView, g: (id: number) => number, env: MarkEnv): { key: string; pts: Pt3[] } | null {
-  if (!env.editing || !(env.workbench === "freeform" || (env.workbench === "geometry" && env.insideObject))) return null;
+  if (!env.editing || !(env.workbench === "freeform" || env.workbench === "geometry")) return null;
   const slot = editableSlot(view);
   if (!slot) return null;
   const pts: Pt3[] = [];
